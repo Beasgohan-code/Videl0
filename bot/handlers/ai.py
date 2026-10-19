@@ -13,6 +13,7 @@ from aiogram.enums import ParseMode
 from bot.config import AI_MAX_HISTORY
 from bot.database import db
 import bot.database_ext
+from bot.utils.fonts import sc, sb
 from bot.rich_ui import rich_heading, rich_kv_table, rich_note, rich_esc, rich_code, rich_pre, RichDraft
 from bot.services.ai_provider import ask_ai, generate_image, summarize_text, translate_text
 from bot.utils.helpers import split_text
@@ -38,7 +39,7 @@ async def ai_chat_cmd(message: Message):
     hist=await db.ai_history(uid, limit=AI_MAX_HISTORY)
     # stream via RichDraft for cool effect
     draft=RichDraft(message.bot, cid, message_thread_id=getattr(message,"message_thread_id",None))
-    await draft.update(rich_heading("🤖 Videl is thinking…", level=3)+rich_note(f"<code>{rich_esc(prompt[:80])}</code>"))
+    await draft.update(rich_heading(f"◍ {sc('videl is thinking')} ◍", level=3)+rich_note(f"<code>{rich_esc(prompt[:80])}</code>"))
     try:
         history=[{"role":h["role"],"content":h["content"]} for h in hist]
         ans=await ask_ai(prompt, history=history)
@@ -46,11 +47,11 @@ async def ai_chat_cmd(message: Message):
         await db.ai_add(uid, cid, "assistant", ans)
         # chunk long answers
         if len(ans)>3900:
-            await draft.finish(rich_heading("🤖 Videl", level=3)+rich_note(rich_esc(ans[:3900])))
+            await draft.finish(rich_heading(f"⬪ {sc('videl')} ⬪", level=3)+rich_note(rich_esc(ans[:3900])))
             for chunk in split_text(ans[3900:], 3800):
                 await message.answer(rich_note(rich_esc(chunk)))
         else:
-            await draft.finish(rich_heading("🤖 Videl", level=3)+rich_note(rich_esc(ans)) + rich_note(f'💬 <code>/ask</code> to continue • <code>/clearhistory</code> to reset'))
+            await draft.finish(rich_heading(f"⬪ {sc('videl')} ⬪", level=3)+rich_note(rich_esc(ans)) + rich_note(f'💬 <code>/ask</code> to continue • <code>/clearhistory</code> to reset'))
     except Exception as e:
         await draft.finish(rich_heading("⚠️ AI Error", level=3)+rich_note(rich_esc(str(e))))
 
@@ -84,7 +85,7 @@ async def summarize_cmd(message: Message):
     if not text: return await message.reply("Reply to text with /summarize")
     m=await message.answer("📝 Summarizing…")
     summ=await summarize_text(text[:6000])
-    await m.edit_text(rich_heading("📝 Summary", level=3)+rich_note(rich_esc(summ)))
+    await m.edit_text(rich_heading(f"◎ {sc('summary')} ◎", level=3)+rich_note(rich_esc(summ)))
 
 # ── /translate /tr ───────────────────────────────────────────────────────────
 @router.message(Command("translate","tr"))
@@ -133,7 +134,7 @@ async def vision_cmd(message: Message):
         return await message.reply("Could not get image URL.")
     hist=await db.ai_history(message.from_user.id, limit=6)
     ans=await ask_ai(q, history=[{"role":h["role"],"content":h["content"]} for h in hist], image_url=file_url)
-    await message.answer(rich_heading("👁️ Vision", level=3)+rich_note(rich_esc(ans)))
+    await message.answer(rich_heading(f"⦿ {sc('vision')} ⦿", level=3)+rich_note(rich_esc(ans)))
 
 # ── Natural mention: @Videl or reply pinging bot ───────────────────────────
 @router.message(F.text & ~F.text.startswith("/"))

@@ -71,17 +71,43 @@ def sanitize_display_name(value, max_len=64) -> str:
     cleaned="".join(out).strip()
     return cleaned[:max_len] or "User"
 
+# ── Aesthetic auto-styling (Cyber Dark + Small Caps) ───────────────────────
+try:
+    from bot.utils.fonts import sc, sb
+    _AESTHETIC = True
+except: 
+    _AESTHETIC=False
+    sc=lambda x: x
+    sb=lambda x: x
+
+# Dark wrapper: adds ◍ ⬪ ⫶ automatically to headings if not already decorated
+def _aesthetic_wrap(text: str, force: bool=False) -> str:
+    if not _AESTHETIC: return text
+    # if already contains ◍ ⬪ ⫶ ⬩ 𖦹, don't double-wrap
+    if any(g in text for g in ("◍","⬪","⫶","⬩","𖦹","◎","⦿")) and not force:
+        return text
+    # small caps headings look best with ◍
+    return text
+
 # ── Rich builders (same names as richgram) ─────────────────────────────────
 def rich_img(src: str) -> str:
     return f'<img src="{_attr(src)}" />' if src else ""
 
 def rich_heading(text: str, level: int = 1) -> str:
     level=max(1,min(6,int(level)))
-    return f"<h{level}>{text}</h{level}>"
+    # auto aesthetic for level 1-3 headings: wrap with cyber dark if user hasn't
+    # we keep original text but if it's plain, we add small caps beautify
+    return f"<h{level}>{_aesthetic_wrap(text)}</h{level}>"
 
 def rich_note(text: str, expandable: bool=False) -> str:
     attr=" expandable" if expandable else ""
     return f"<blockquote{attr}>{text}</blockquote>"
+
+def styled_heading(title: str, level: int = 2) -> str:
+    """Perfect cyber dark heading helper: ◍  sᴛʏʟᴇ  ◍"""
+    return rich_heading(f"◍ {sc(title.lower())} ◍", level=level)
+def styled_kv(k: str) -> str:
+    return sc(k.lower())
 
 def rich_code(v) -> str: return f"<code>{rich_esc(v)}</code>"
 def rich_pre(v, language: str=None) -> str:

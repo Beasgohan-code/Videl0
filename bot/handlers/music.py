@@ -12,6 +12,7 @@ from aiogram.enums import ChatType
 from bot.config import is_sudo, COOLDOWN, QUEUE_LIMIT, MAX_DURATION_SECONDS, BOT_NAME
 from bot.database import db
 import bot.database_ext
+from bot.utils.fonts import sc, sb, CYBER
 from bot.rich_ui import rich_heading, rich_kv_table, rich_note, rich_img, rich_esc, rich_send, rich_reply
 from bot.utils.keyboards import music_controls_kb, queue_kb
 from bot.utils.helpers import format_duration, progress_bar
@@ -68,7 +69,7 @@ def _now_playing_rich(song: dict, elapsed=0, total=0, lang=None) -> str:
     thumb_html = rich_img(thumb) if thumb else ""
     bar = progress_bar(elapsed, total)
     return (
-        rich_heading("🎶 Now Playing", level=3)
+        rich_heading(f"◍ {sc('now playing')} ◍", level=3)
         + thumb_html
         + rich_kv_table([
             ("Title", rich_esc(song.get("title","")[:70])),
@@ -152,7 +153,7 @@ async def _do_play(message: Message, query: str, video: bool, chat_id:int):
     if len(q) >= QUEUE_LIMIT:
         return await message.bot.send_message(chat_id, f"❌ Queue full ({QUEUE_LIMIT}). Skip or clear.")
 
-    status=await message.bot.send_message(chat_id, rich_heading("🔍 Searching…", level=3)+rich_note(rich_esc(query)))
+    status=await message.bot.send_message(chat_id, rich_heading(f"⫶ {sc('searching')} ⫶", level=3)+rich_note(rich_esc(query)))
 
     # search
     results=await search_yt(query, limit=1)
@@ -190,7 +191,7 @@ async def _do_play(message: Message, query: str, video: bool, chat_id:int):
         await _play_song_internal(message.bot, chat_id, song, status)
     else:
         await status.edit_text(
-            rich_heading("➕ Queued", level=3)+
+            rich_heading(f"⬪ {sc('queued')} ⬪", level=3)+
             rich_kv_table([("Title", rich_esc(song["title"])),("Position", f"#{pos+1}"),("Duration", str(song["duration"]))]),
             reply_markup=music_controls_kb()
         )
@@ -199,8 +200,8 @@ async def _do_play(message: Message, query: str, video: bool, chat_id:int):
 @router.message(Command("queue"))
 async def queue_cmd(message: Message):
     q=await db.queue_list(message.chat.id)
-    if not q: return await message.answer("📭 Queue empty. Use /play <song>")
-    txt=rich_heading("📜 Queue", level=3)
+    if not q: return await message.answer(f"◍ {sc('queue empty')} ◍ — {sc('use /play')} ⫶ /play <{sc('song')}>")
+    txt=rich_heading(f"◎ {sc('queue')} ◎", level=3)
     for i, s in enumerate(q[:10], 1):
         emoji="▶️" if i==1 else f"{i}."
         txt+=rich_kv_table([ (f"{emoji} {rich_esc(s['title'][:40])}", f"<code>{format_duration(s.get('duration') or 0)}</code> • {rich_esc(str(s.get('requested_by','')))}") ])
@@ -234,7 +235,7 @@ async def stop_cmd(message: Message):
         from bot.services.music_service import stop_call
         await stop_call(message.chat.id)
     except: pass
-    await message.answer("⏹ Stopped & queue cleared.")
+    await message.answer(f"⬪ {sc('stopped & cleared')} ⬪")
 
 # ── /pause /resume ──────────────────────────────────────────────────────────
 @router.message(Command("pause"))
@@ -314,7 +315,7 @@ async def lyrics_cmd(message: Message):
         if len(lyrics)>3800: lyrics=lyrics[:3800]+"…"
         await message.answer(rich_heading(f"🎤 Lyrics — {query}", level=3)+rich_note(f"<pre>{rich_esc(lyrics)}</pre>"))
     else:
-        await message.answer(rich_heading("🎤 Lyrics", level=3)+rich_note(f"No lyrics found for <code>{rich_esc(query)}</code>.<br>Try: <a href=\"https://genius.com/search?q={query.replace(' ','+')}\">Genius Search</a>"))
+        await message.answer(rich_heading(f"◍ {sc('lyrics')} ◍", level=3)+rich_note(f"No lyrics found for <code>{rich_esc(query)}</code>.<br>⫶ <a href=\"https://genius.com/search?q={query.replace(' ','+')}\">Genius Search</a> ⫶"))
 
 # ── /playlist ──────────────────────────────────────────────────────────────
 @router.message(Command("playlist"))

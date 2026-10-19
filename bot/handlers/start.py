@@ -1,121 +1,114 @@
 """
-Videl0 • Start / Help / Ping / Stats — aiogram + Richgram
-Uses Bot API 10.3 Rich Messages for pretty tables.
+Videl0 • Start / Help / Ping / Stats — Cyber Dark Perfected
+◍ ⬪ ⫶  small caps + sans bold + cyber dark  ⫶ ⬪ ◍
 """
 import time, psutil
 from aiogram import Router, F
 from aiogram.types import Message
 from aiogram.filters import Command, CommandStart
 from aiogram.enums import ChatType
-from aiogram.utils.markdown import hcode
 
-from bot.config import BOT_USERNAME, OWNER_ID, is_owner, is_sudo, COMMANDS_HELP, BOT_NAME, SUPPORT_CHANNEL, SUPPORT_CHAT, WEBAPP_URL
+from bot.config import BOT_USERNAME, OWNER_ID, is_sudo, COMMANDS_HELP, BOT_NAME, SUPPORT_CHANNEL, SUPPORT_CHAT, WEBAPP_URL
 from bot.database import db
 import bot.database_ext
-from bot.rich_ui import rich_heading, rich_kv_table, rich_note, rich_details, rich_send, rich_esc, rich_reply, RichDraft
+from bot.rich_ui import rich_heading, rich_kv_table, rich_note, rich_details, rich_send, rich_esc
 from bot.utils.keyboards import start_kb, help_kb
+from bot.utils.fonts import sc, sb, deco, header, PH, CYBER
 
 router = Router()
 start_time = time.time()
 
-# ── /start ─────────────────────────────────────────────────────────────────
+# ── /start ─ ◍ ᴡᴇʟᴄᴏᴍᴇ ────────────────────────────────────────────────────
 @router.message(CommandStart())
 async def start_cmd(message: Message):
     priv = is_sudo(message.from_user.id)
-    # Rich start card
     rich_text = (
-        rich_heading(f"✨ Welcome to {BOT_NAME}", level=1)
+        rich_heading(f"◍ {sc('welcome to')} {sb(BOT_NAME)} ◍", level=1)
         + rich_kv_table([
-            ("Bot", f"<code>@{BOT_USERNAME}</code>"),
-            ("User", rich_esc(message.from_user.full_name)),
-            ("ID", f"<code>{message.from_user.id}</code>"),
-            ("Mode", "🔥 Bot API 10.3 • aiogram 3.31 • Richgram"),
+            (sc("bot"), f"<code>@{BOT_USERNAME}</code>"),
+            (sc("user"), rich_esc(message.from_user.full_name)),
+            (sc("id"), f"<code>{message.from_user.id}</code>"),
+            (sc("mode"), sb("Bot API 10.3") + f" ⫶ {sc('aiogram 3.31')} ⫶ {sc('richgram')}"),
         ])
-        + rich_note("🎶 Music • 🤖 AI Chat • 🧰 Utilities • 🛡️ Group Manager — all-in-one.")
-        + rich_details("Quick Start", 
+        + rich_note(f"⬪ {sc('music')} ⫶ {sc('ai chat')} ⫶ {sc('utilities')} ⫶ {sc('group manager')} ─ {sc('all in one')}")
+        + rich_details(f"◍ {sc('quick start')} ◍",
             rich_kv_table([
-                ("/play", "Play music in VC / as audio"),
-                ("/ask", "Chat with AI"),
-                ("/help", "All commands"),
-                ("/ban", "Admin tools (group)"),
+                (f"⫶ {sc('/play')}", sc("play music in vc / audio")),
+                (f"⫶ {sc('/ask')}", sc("chat with ai")),
+                (f"⫶ {sc('/help')}", sc("all commands")),
+                (f"⫶ {sc('/ban')}", sc("admin tools")),
             ]), open=True)
-        + rich_note(f'🔗 <a href="{SUPPORT_CHANNEL}">Updates</a> • <a href="{SUPPORT_CHAT}">Support</a> • <a href="{WEBAPP_URL}">Dashboard</a>')
+        + rich_note(f'⬪ <a href="{SUPPORT_CHANNEL}">{sc("updates")}</a> ⫶ <a href="{SUPPORT_CHAT}">{sc("support")}</a> ⫶ <a href="{WEBAPP_URL}">{sc("dashboard")}</a> ⬪')
+        + rich_note(f"◍ {sc('cyber dark • perfect • alive')} ◍")
     )
-    # Also add inline keyboard fallback for clients without rich
     kb = start_kb(is_owner=priv)
     try:
         await rich_send(message.bot, message.chat.id, rich_text, reply_markup=kb if not _has_rich else None)
-        # fallback keyboard if rich succeeded (rich buttons already inside text, but also send kb)
-        if _has_rich:
-            # send plain keyboard under rich message via edit? aiogram rich_message can't carry InlineKeyboardMarkup? we add extra
-            pass
-        else:
-            await message.answer("👋 Welcome! Use /help to see all features.", reply_markup=kb)
     except:
         await message.answer(
-            f"✨ <b>Welcome to {BOT_NAME}</b>\n"
-            f"👤 {message.from_user.full_name} (<code>{message.from_user.id}</code>)\n\n"
-            f"🎶 Music • 🤖 AI • 🧰 Utilities • 🛡️ Group Manager\n"
-            f"Use /help to explore.",
+            f"◍ <b>{sb(BOT_NAME)}</b> ◍\n"
+            f"⫶ {sc(message.from_user.full_name.lower())} <code>{message.from_user.id}</code> ⫶\n\n"
+            f"⬪ {sc('music')} ⫶ {sc('ai')} ⫶ {sc('utilities')} ⫶ {sc('group manager')} ⬪\n"
+            f"{sc('use /help to explore')}",
             reply_markup=kb
         )
     await db.log_event("INFO", "/start", message.chat.id, message.from_user.id)
 
-# helper for rich availability in this module
 _has_rich=True
 try:
     from aiogram.types import InputRichMessage
 except: _has_rich=False
 
-# ── /help ──────────────────────────────────────────────────────────────────
+# ── /help — ◍ ʜᴇʟᴘ ─────────────────────────────────────────────────────────
 @router.message(Command("help"))
 async def help_cmd(message: Message):
-    text = rich_heading("📚 Videl0 Help", level=2)
+    text = rich_heading(f"◍ {sc('videl help')} ◍", level=2)
     for cat, cmds in COMMANDS_HELP.items():
-        text += rich_details(cat, "<code>" + " • ".join(cmds) + "</code>")
-    text += rich_note("💡 Tip: Reply /help <module> e.g. <code>/help music</code> for details.")
+        # cat already has emoji, convert cmds to small caps style for display but keep code
+        text += rich_details(f"⬪ {sc(cat.lower())} ⬪", "<code>" + " ⫶ ".join(cmds) + "</code>")
+    text += rich_note(f"◍ {sc('tip: reply /help <module> e.g.')} <code>/help music</code> ◍")
     await message.answer(text, reply_markup=help_kb())
 
 @router.message(F.text.regexp(r"^/help\s+(\w+)"))
 async def help_module(message: Message):
     arg = message.text.split(maxsplit=1)[1].lower()
     mapping={
-        "music": "🎵 Music — /play, /vplay, /queue, /skip, /stop, /pause, /resume, /seek, /shuffle, /lyrics, /song, /playlist, /thumbnail, /autoplay",
-        "ai": "🤖 AI — /ask, /gpt, /imagine, /summarize, /translate, /tts, /vision, /clearhistory",
-        "admin": "🛡️ Admin — /ban, /unban, /kick, /mute, /unmute, /pin, /purge, /warn, /lock, /slowmode, /setwelcome",
-        "owner": "👑 Owner — /broadcast, /gban, /block, /addsudo, /backup, /eval, /exec, /logs, /restart",
-        "utility":"🧰 Utility — /weather, /qr, /shorten, /calc, /wiki, /carbon, /git, /afk, /tagall",
-        "fun":"🎲 Fun — /8ball, /dice, /flip, /ship, /joke, /meme, /quote",
-        "general":"🚀 General — /start, /help, /ping, /stats, /id, /info",
+        "music": f"⬪ {sc('music')} ⫶ /play, /vplay, /queue, /skip, /stop, /pause, /resume, /seek, /shuffle, /lyrics",
+        "ai": f"⬪ {sc('ai')} ⫶ /ask, /gpt, /imagine, /summarize, /translate, /tts, /vision",
+        "admin": f"⬪ {sc('admin')} ⫶ /ban, /unban, /kick, /mute, /pin, /purge, /warn, /lock, /slowmode",
+        "owner": f"◍ {sc('owner')} ◍ ⫶ /broadcast, /gban, /block, /addsudo, /backup, /eval, /logs",
+        "utility":f"⫶ {sc('utility')} ⫶ /weather, /qr, /shorten, /calc, /wiki, /carbon, /git, /afk",
+        "fun":f"◍ {sc('fun')} ◍ ⫶ /8ball, /dice, /flip, /ship, /joke, /meme, /quote",
+        "general":f"◍ {sc('general')} ◍ ⫶ /start, /help, /ping, /stats, /id, /info",
     }
-    txt=mapping.get(arg, "❓ Unknown module. Try: music, ai, admin, owner, utility, fun, general")
-    await message.answer(rich_heading(arg.title(), level=3) + rich_note(rich_esc(txt)), reply_markup=help_kb())
+    txt=mapping.get(arg, f"◍ {sc('unknown module')} ◍ ⫶ {sc('try: music, ai, admin, owner, utility, fun, general')}")
+    await message.answer(rich_heading(f"◍ {sc(arg)} ◍", level=3) + rich_note(rich_esc(txt)), reply_markup=help_kb())
 
-# ── /ping ──────────────────────────────────────────────────────────────────
+# ── /ping — ⦿ ᴘᴏɴɢ ───────────────────────────────────────────────────────────
 @router.message(Command("ping"))
 async def ping_cmd(message: Message):
     t0=time.time()
-    m=await message.answer("🏓 Pinging…")
+    m=await message.answer(f"◍ {sc('pinging')} ⫶ ⬪⬩◍⬩⬪")
     t1=time.time()
     bot_ms=int((t1-t0)*1000)
     uptime=int(time.time()-start_time)
     h, rem=divmod(uptime,3600); mm, ss=divmod(rem,60)
     cpu=psutil.cpu_percent(interval=0.3); ram=psutil.virtual_memory().percent
     rich = (
-        rich_heading("🏓 Pong!", level=3)
+        rich_heading(f"⦿ {sc('pong')} ⦿", level=3)
         + rich_kv_table([
-            ("Bot Latency", f"<code>{bot_ms} ms</code>"),
-            ("Uptime", f"<code>{h}h {mm}m {ss}s</code>"),
-            ("CPU", f"<code>{cpu}%</code>"),
-            ("RAM", f"<code>{ram}%</code>"),
-            ("Users", f"<code>{(await db.get_stats())['users']}</code>"),
-            ("Chats", f"<code>{(await db.get_stats())['chats']}</code>"),
+            (sc("latency"), f"<code>{bot_ms} ms</code>"),
+            (sc("uptime"), f"<code>{h}h {mm}m {ss}s</code>"),
+            (sc("cpu"), f"<code>{cpu}%</code>"),
+            (sc("ram"), f"<code>{ram}%</code>"),
+            (sc("users"), f"<code>{(await db.get_stats())['users']}</code>"),
+            (sc("chats"), f"<code>{(await db.get_stats())['chats']}</code>"),
         ])
-        + rich_note("✅ All systems operational — keep-alive & watchdog active.")
+        + rich_note(f"⬪ {sc('all systems operational')} ⫶ {sc('keep-alive & watchdog active')} ⬪")
     )
     await m.edit_text(rich, parse_mode="HTML")
 
-# ── /stats ─────────────────────────────────────────────────────────────────
+# ── /stats — ⬪ sᴛᴀᴛs ─────────────────────────────────────────────────────────
 @router.message(Command("stats"))
 async def stats_cmd(message: Message):
     s=await db.get_stats()
@@ -123,43 +116,43 @@ async def stats_cmd(message: Message):
     uptime=int(time.time()-start_time)
     h, rem=divmod(uptime,3600); mm,_=divmod(rem,60)
     rich = (
-        rich_heading("📊 Videl0 Stats", level=2)
+        rich_heading(f"⬪ {sc('videl stats')} ⬪", level=2)
         + rich_kv_table([
-            ("Users", f"<code>{s['users']}</code>"),
-            ("Chats", f"<code>{s['chats']}</code>"),
-            ("Commands", f"<code>{s['commands']}</code>"),
-            ("Gbans", f"<code>{gbans}</code>"),
-            ("Uptime", f"<code>{h}h {mm}m</code>"),
-            ("Sudo", f"<code>{len(__import__('bot.config', fromlist=['ALL_PRIVILEGED']).ALL_PRIVILEGED)}</code>"),
+            (sc("users"), f"<code>{s['users']}</code>"),
+            (sc("chats"), f"<code>{s['chats']}</code>"),
+            (sc("commands"), f"<code>{s['commands']}</code>"),
+            (sc("gbans"), f"<code>{gbans}</code>"),
+            (sc("uptime"), f"<code>{h}h {mm}m</code>"),
+            (sc("sudo"), f"<code>{len(__import__('bot.config', fromlist=['ALL_PRIVILEGED']).ALL_PRIVILEGED)}</code>"),
         ])
-        + rich_note(f"Dashboard: <a href=\"{WEBAPP_URL}\">{WEBAPP_URL}</a>")
+        + rich_note(f"◍ <a href=\"{WEBAPP_URL}\">{sc('dashboard')}</a> ◍")
     )
     await message.answer(rich)
 
-# ── /id /info ───────────────────────────────────────────────────────────────
+# ── /id — ◍ ɪᴅ ───────────────────────────────────────────────────────────────
 @router.message(Command("id"))
 async def id_cmd(message: Message):
-    lines=[f"👤 You: <code>{message.from_user.id}</code>"]
+    lines=[f"◍ {sc('you')}: <code>{message.from_user.id}</code>"]
     if message.reply_to_message and message.reply_to_message.from_user:
-        lines.append(f"👤 Replied user: <code>{message.reply_to_message.from_user.id}</code>")
-    lines.append(f"💬 Chat: <code>{message.chat.id}</code> ({message.chat.type})")
-    if message.chat.type != ChatType.PRIVATE:
-        lines.append(f"🏷 Title: {rich_esc(message.chat.title)}")
-    await message.answer(rich_heading("🆔 IDs", level=3)+rich_note("<br>".join(lines)))
+        lines.append(f"⫶ {sc('replied')}: <code>{message.reply_to_message.from_user.id}</code>")
+    lines.append(f"⬪ {sc('chat')}: <code>{message.chat.id}</code> ({message.chat.type})")
+    if message.chat.type != "private":
+        lines.append(f"◎ {sc('title')}: {rich_esc(message.chat.title)}")
+    await message.answer(rich_heading(f"◍ {sc('ids')} ◍", level=3)+rich_note("<br>".join(lines)))
 
 @router.message(Command("info"))
 async def info_cmd(message: Message):
     target=message.reply_to_message.from_user if message.reply_to_message and message.reply_to_message.from_user else message.from_user
     rich = (
-        rich_heading("👤 User Info", level=3)
+        rich_heading(f"◍ {sc('user info')} ◍", level=3)
         + rich_kv_table([
-            ("Name", rich_esc(target.full_name)),
-            ("ID", f"<code>{target.id}</code>"),
-            ("Username", f"@{rich_esc(target.username)}" if target.username else "—"),
-            ("Is Bot", str(target.is_bot)),
-            ("Language", target.language_code or "—"),
-            ("Is Owner", "✅" if target.id==OWNER_ID else "❌"),
-            ("Is Sudo", "✅" if is_sudo(target.id) else "❌"),
+            (sc("name"), rich_esc(target.full_name)),
+            (sc("id"), f"<code>{target.id}</code>"),
+            (sc("username"), f"@{rich_esc(target.username)}" if target.username else "—"),
+            (sc("is bot"), str(target.is_bot)),
+            (sc("language"), target.language_code or "—"),
+            (sc("is owner"), "⬪" if target.id==OWNER_ID else "◍"),
+            (sc("is sudo"), "⬪" if is_sudo(target.id) else "◍"),
         ])
     )
     await message.answer(rich)
@@ -167,24 +160,24 @@ async def info_cmd(message: Message):
 @router.message(Command("about"))
 async def about_cmd(message: Message):
     rich = (
-        rich_heading("ℹ️ About Videl0", level=2)
+        rich_heading(f"⬪ {sc('about videl')} ⬪", level=2)
         + rich_kv_table([
-            ("Bot", f"<code>@{BOT_USERNAME}</code>"),
-            ("Framework", "aiogram 3.31 • Bot API 10.3"),
-            ("UI", "Richgram by Badmunda05"),
-            ("Music", "ShizuMusic core • yt-dlp • pytgcalls"),
-            ("DB", "Supabase + SQLite + Dropbox backup"),
-            ("Hosting", "Vercel • FastAPI keep-alive"),
+            (sc("bot"), f"<code>@{BOT_USERNAME}</code>"),
+            (sc("framework"), sb("aiogram 3.31") + f" ⫶ {sc('Bot API 10.3')}"),
+            (sc("ui"), sc("richgram by badmunda05")),
+            (sc("music"), sc("shizu core • yt-dlp • pytgcalls")),
+            (sc("db"), sc("supabase + sqlite + dropbox")),
+            (sc("hosting"), sc("vercel • fastapi keep-alive")),
         ])
-        + rich_note("Full-stack Telegram bot with Admin, Music, AI, Utility, Group Manager.\n"
-                    f"Source: <a href=\"https://github.com/Beasgohan-code/Videl0\">GitHub</a> • Updates: <a href=\"{SUPPORT_CHANNEL}\">Channel</a>")
+        + rich_note(f"⫶ {sc('full-stack bot with admin, music, ai, utility, group manager')} ⫶\n"
+                    f"◍ <a href=\"https://github.com/Beasgohan-code/Videl0\">{sc('github')}</a> ⫶ <a href=\"{SUPPORT_CHANNEL}\">{sc('channel')}</a> ◍")
     )
     await message.answer(rich)
 
 @router.message(Command("repo"))
 async def repo_cmd(message: Message):
     await message.answer(
-        rich_heading("💻 Videl0 Repo", level=3)
-        + rich_note('GitHub: <a href="https://github.com/Beasgohan-code/Videl0">Beasgohan-code/Videl0</a><br>Based on Richgram & ShizuMusic by Badmunda05')
-        + rich_kv_table([("Stack","aiogram 3.31 + FastAPI + Supabase + Vercel")])
+        rich_heading(f"◍ {sc('videl repo')} ◍", level=3)
+        + rich_note(f'◍ <a href="https://github.com/Beasgohan-code/Videl0">{sc("beasgohan-code/videl0")}</a> ◍<br>⫶ {sc("based on richgram & shizumusic by badmunda05")} ⫶')
+        + rich_kv_table([(sc("stack"), sb("aiogram 3.31") + f" ⫶ {sc('fastapi • supabase • vercel')}")])
     )

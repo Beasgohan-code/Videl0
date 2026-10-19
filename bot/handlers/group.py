@@ -10,6 +10,7 @@ from aiogram.enums import ChatType, ChatMemberStatus
 from bot.config import is_sudo
 from bot.database import db
 import bot.database_ext
+from bot.utils.fonts import sc, sb
 from bot.rich_ui import rich_heading, rich_kv_table, rich_note, rich_esc, rich_details
 
 router = Router()
@@ -98,7 +99,7 @@ async def set_rules(message: Message):
 async def get_rules(message: Message):
     r=await db.get_rules(message.chat.id)
     if not r: return await message.answer("No rules. Admins: /setrules <text>")
-    await message.answer(rich_heading("📜 Rules", level=3)+rich_note(rich_esc(r)))
+    await message.answer(rich_heading(f"◎ {sc('rules')} ◎", level=3)+rich_note(rich_esc(r)))
 
 # ── Filters ─────────────────────────────────────────────────────────────────
 @router.message(Command("filter"))
@@ -123,7 +124,7 @@ async def list_filters(message: Message):
     flts=await db.get_filters(message.chat.id)
     if not flts: return await message.answer("No filters.")
     txt="<br>".join(f"• <code>{rich_esc(f['keyword'])}</code> → {rich_esc(f['reply_text'][:50])}" for f in flts)
-    await message.answer(rich_heading("🔍 Filters", level=3)+rich_note(txt))
+    await message.answer(rich_heading(f"⬪ {sc('filters')} ⬪", level=3)+rich_note(txt))
 
 # ── Notes ───────────────────────────────────────────────────────────────────
 @router.message(Command("save","note"))
@@ -233,7 +234,7 @@ async def _is_admin(message: Message) -> bool:
         m=await message.bot.get_chat_member(message.chat.id, message.from_user.id)
         if m.status in (ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.CREATOR): return True
     except: pass
-    await message.reply("🔒 Admins only.")
+    await message.reply(f"⫶ {sc('admin only')} ⫶")
     return False
 
 # ── locks enforcement (url/bots/etc) ────────────────────────────────────────

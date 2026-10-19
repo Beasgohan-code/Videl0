@@ -3,6 +3,7 @@ Videl0 • Callbacks — all inline keyboards
 """
 from aiogram import Router, F
 from aiogram.types import CallbackQuery
+from bot.utils.fonts import sc, sb
 from bot.rich_ui import rich_heading, rich_kv_table, rich_note, rich_esc
 from bot.utils.keyboards import music_controls_kb, help_kb, owner_panel_kb
 from bot.config import is_sudo, OWNER_ID
@@ -68,14 +69,14 @@ async def cb_owner(cq: CallbackQuery):
     await cq.answer()
     if action=="stats":
         s=await db.get_stats()
-        await cq.message.edit_text(rich_heading("📊 Stats", level=3)+rich_kv_table([("Users",str(s["users"])),("Chats",str(s["chats"])),("Cmds",str(s["commands"]))]))
+        await cq.message.edit_text(rich_heading(f"⬪ {sc('stats')} ⬪", level=3)+rich_kv_table([("Users",str(s["users"])),("Chats",str(s["chats"])),("Cmds",str(s["commands"]))]))
     elif action=="gbans":
         lst=await db.list_gbans()
         txt="<br>".join(f"<code>{g['user_id']}</code>" for g in lst[:20]) or "None"
-        await cq.message.edit_text(rich_heading("🚫 Gbans", level=3)+rich_note(txt))
+        await cq.message.edit_text(rich_heading(f"⬪ {sc('gbans')} ⬪", level=3)+rich_note(txt))
     elif action=="sudolist":
         s=await db.get_chat_settings(0)
-        await cq.message.edit_text(rich_heading("👑 Sudo", level=3)+rich_note(str(s.get("sudo_users","[]"))))
+        await cq.message.edit_text(rich_heading(f"◍ {sc('sudo')} ◍", level=3)+rich_note(str(s.get("sudo_users","[]"))))
     elif action=="backup":
         await cq.message.edit_text("📦 Use /backup command.")
     elif action=="restart":

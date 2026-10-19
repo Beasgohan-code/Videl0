@@ -10,6 +10,7 @@ from aiogram.enums import ParseMode
 from bot.config import is_owner, is_sudo, OWNER_ID, LOG_CHANNEL_ID
 from bot.database import db
 import bot.database_ext
+from bot.utils.fonts import sc, sb
 from bot.rich_ui import rich_heading, rich_kv_table, rich_note, rich_esc, rich_code, rich_pre
 from bot.utils.decorators import owner_only, sudo_only
 
@@ -43,7 +44,7 @@ async def addsudo_cmd(message: Message):
         lst.add(uid)
         s["sudo_users"]=list(lst)
         await db.set_chat_settings(0,s)
-        await message.answer(rich_heading("✅ Sudo Added", level=3)+rich_note(f"User <code>{uid}</code> added. Restart may be needed for config reload."))
+        await message.answer(rich_heading(f"◍ {sc('sudo added')} ◍", level=3)+rich_note(f"User <code>{uid}</code> added. Restart may be needed for config reload."))
         if LOG_CHANNEL_ID:
             try: await message.bot.send_message(LOG_CHANNEL_ID, f"➕ Sudo added: {uid} by {message.from_user.id}")
             except: pass
@@ -82,7 +83,7 @@ async def gban_cmd(message: Message):
     if not uid: return await message.reply("Usage: /gban <reply|id> [reason]")
     if is_sudo(uid): return await message.reply("Can't gban privileged.")
     await db.gban(uid, reason, message.from_user.id)
-    await message.answer(rich_heading("🚫 Gbanned", level=3)+rich_kv_table([("User",f"<code>{uid}</code>"),("Reason",rich_esc(reason))])+rich_note("Enforced in all chats on next message."))
+    await message.answer(rich_heading(f"⬪ {sc('gbanned')} ⬪", level=3)+rich_kv_table([("User",f"<code>{uid}</code>"),("Reason",rich_esc(reason))])+rich_note("Enforced in all chats on next message."))
     # try to kick from all known chats
     try:
         chats=[]
@@ -108,7 +109,7 @@ async def gbans_cmd(message: Message):
     lst=await db.list_gbans()
     if not lst: return await message.answer("No gbans.")
     txt="<br>".join(f"<code>{g['user_id']}</code> — {rich_esc(g.get('reason',''))}" for g in lst[:30])
-    await message.answer(rich_heading("🚫 Gbans", level=3)+rich_note(txt)+(rich_note(f"+ {len(lst)-30} more…") if len(lst)>30 else ""))
+    await message.answer(rich_heading(f"⬪ {sc('gbans')} ⬪", level=3)+rich_note(txt)+(rich_note(f"+ {len(lst)-30} more…") if len(lst)>30 else ""))
 
 @router.message(Command("block"))
 async def block_cmd(message: Message):

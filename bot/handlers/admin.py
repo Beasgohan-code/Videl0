@@ -12,6 +12,7 @@ from aiogram.exceptions import TelegramBadRequest
 from bot.config import is_sudo, LOG_CHANNEL_ID
 from bot.database import db
 import bot.database_ext
+from bot.utils.fonts import sc, sb, CYBER
 from bot.rich_ui import rich_heading, rich_kv_table, rich_note, rich_esc, rich_send
 from bot.utils.helpers import parse_time, until_text, mention_html
 
@@ -46,7 +47,7 @@ async def _need_admin(message: Message) -> bool:
         if m.status in (ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.CREATOR):
             return True
     except: pass
-    await message.reply("🔒 Admins only.")
+    await message.reply(f"⫶ {sc('admin only')} ⫶")
     return False
 
 async def _bot_can(message: Message, action="restrict") -> bool:
@@ -87,7 +88,7 @@ async def ban_cmd(message: Message):
                 reason=parts[3] if len(parts)>3 else ""
                 until=int(time.time())+secs
         await message.bot.ban_chat_member(message.chat.id, uid, until_date=until)
-        rich = rich_heading("🔨 Banned", level=3)+rich_kv_table([
+        rich = rich_heading(f"⬪ {sc('banned')} ⬪", level=3)+rich_kv_table([
             ("User", f"<code>{uid}</code>"),
             ("By", rich_esc(message.from_user.full_name)),
             ("Reason", rich_esc(reason) or "—"),
@@ -105,7 +106,7 @@ async def unban_cmd(message: Message):
     if not uid: return await message.reply("Usage: /unban <user|reply>")
     try:
         await message.bot.unban_chat_member(message.chat.id, uid, only_if_banned=True)
-        await message.answer(rich_heading("♻️ Unbanned", level=3)+rich_note(f"User <code>{uid}</code> unbanned."))
+        await message.answer(rich_heading(f"◍ {sc('unbanned')} ◍", level=3)+rich_note(f"User <code>{uid}</code> unbanned."))
     except Exception as e: await message.reply(f"Unban failed: {e}")
 
 @router.message(Command("kick"))
@@ -138,7 +139,7 @@ async def mute_cmd(message: Message):
     until = until if secs else 0
     try:
         await message.bot.restrict_chat_member(message.chat.id, uid, permissions=None, until_date=until if until else None)
-        await message.answer(rich_heading("🔇 Muted", level=3)+rich_kv_table([
+        await message.answer(rich_heading(f"⦿ {sc('muted')} ⦿", level=3)+rich_kv_table([
             ("User", f"<code>{uid}</code>"),
             ("Duration", until_text(secs) if secs else "Forever"),
             ("Reason", rich_esc(reason) or "—")
@@ -173,7 +174,7 @@ async def warn_cmd(message: Message):
         s=await db.get_chat_settings(message.chat.id)
         lim=s.get("warn_limit", lim)
     except: pass
-    warn_rich=rich_heading("⚠️ Warned", level=3)+rich_kv_table([
+    warn_rich=rich_heading(f"⬩ {sc('warned')} ⬩", level=3)+rich_kv_table([
         ("User", f"<code>{uid}</code>"),
         ("Count", f"{count}/{lim}"),
         ("Reason", rich_esc(reason) or "—")
