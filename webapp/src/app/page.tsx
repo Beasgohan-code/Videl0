@@ -1,146 +1,144 @@
 "use client";
 import { useEffect, useState } from "react";
+import Link from "next/link";
+import { motion } from "framer-motion";
+import { Music2, Sparkles, Shield, Wrench, Users, Zap } from "lucide-react";
 
-type Stats = { users:number; chats:number; commands:number };
-type Health = { status:string; uptime?:number };
+type Stats = { users: number; chats: number; commands: number };
+type Health = { status: string; uptime?: number };
 
 export default function Home() {
-  const [stats, setStats] = useState<Stats>({users:0,chats:0,commands:0});
-  const [health, setHealth] = useState<Health|null>(null);
-  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState<Stats>({ users: 0, chats: 0, commands: 0 });
+  const [health, setHealth] = useState<Health | null>(null);
 
-  useEffect(()=> {
-    fetch("/api/stats").then(r=>r.json()).then(d=> setStats(d.stats ?? d)).catch(()=>{});
-    fetch("/api/health").then(r=>r.json()).then(setHealth).catch(()=>{});
-    const t=setTimeout(()=> setLoading(false), 600); return ()=> clearTimeout(t);
-  },[]);
+  useEffect(() => {
+    fetch("/api/stats").then(r => r.json()).then(d => setStats(d.stats ?? d)).catch(() => {});
+    fetch("/api/health").then(r => r.json()).then(setHealth).catch(() => {});
+  }, []);
 
-  const up = health?.uptime ? `${Math.floor(health.uptime/3600)}ʜ ${Math.floor(health.uptime%3600/60)}ᴍ` : "—";
+  const up = health?.uptime ? `${Math.floor(health.uptime / 3600)}h ${Math.floor((health.uptime % 3600) / 60)}m` : "—";
 
   return (
-    <main className="mx-auto max-w-6xl px-4 py-8">
-      <header className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-xl cyber-border flex items-center justify-center font-bold text-[13px]">◍</div>
+    <main className="mx-auto max-w-6xl py-6">
+      {/* iOS Hero */}
+      <motion.section initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }} className="ios-card-elevated p-6 md:p-10 overflow-hidden relative">
+        <div className="absolute -top-20 -right-20 h-64 w-64 rounded-full bg-[radial-gradient(circle_at_center,rgba(10,132,255,0.18),transparent_70%)] blur-2xl" />
+        <div className="grid md:grid-cols-[1.1fr_0.9fr] gap-8 items-center">
           <div>
-            <h1 className="text-[13px] font-bold tracking-[0.14em] uppercase">◍ Vɪᴅᴇʟ ⫶ ᴘᴇʀғᴇᴄᴛ</h1>
-            <p className="text-[11px] text-zinc-500 mono">ᴋᴜʀɪɢʀᴀᴍ ⫶ ᴘʏᴛɢᴄᴀʟʟs ⫶ ᴀɪᴏɢʀᴀᴍ 3.31 ⫶ ʀɪᴄʜɢʀᴀᴍ ⫶ sᴜᴘᴀʙᴀsᴇ ⫶ ᴅʀᴏᴘʙᴏx ⫶ ᴠᴇʀᴄᴇʟ</p>
-          </div>
-        </div>
-        <div className="flex gap-2 text-[11px]">
-          <a href="https://t.me/Videl0Bot" target="_blank" className="cyber-pill mono">⬪ ᴏᴘᴇɴ ɪɴ ᴛɢ ➪</a>
-          <a href="/dashboard" className="cyber-pill mono">◎ ᴅᴀsʜʙᴏᴀʀᴅ</a>
-          <a href="/api/health" target="_blank" className="cyber-pill" style={{color: health?.status==="ok"?"#10b981":"#f59e0b"}}>● {health?.status??"…"}</a>
-        </div>
-      </header>
-
-      <section className="mt-10 cyber-border rounded-[20px] p-8 md:p-10">
-        <div className="grid md:grid-cols-2 gap-8">
-          <div>
-            <p className="cyber-pill"><span className="cyber-dot"/> ᴏᴘᴇʀᴀᴛɪᴏɴᴀʟ ⫶ ᴋᴇᴇᴘ-ᴀʟɪᴠᴇ ᴀᴄᴛɪᴠᴇ</p>
-            <h2 className="mt-5 text-4xl md:text-[42px] font-black leading-[0.95] tracking-[-0.02em] uppercase">
-              ᴍᴜsɪᴄ, ᴀɪ &<br/><span style={{color:"#9aa0b0"}}>ᴀᴅᴍɪɴ — ɪɴ ᴏɴᴇ</span>
-            </h2>
-            <p className="mt-4 text-zinc-400 text-[13px] leading-6 max-w-lg">
-              ◍ ғᴜʟʟ-sᴛᴀᴄᴋ ᴛɢ ʙᴏᴛ ᴡɪᴛʜ ᴠᴄ sᴛʀᴇᴀᴍɪɴɢ, ᴀɪ ᴄʜᴀᴛ, ɢʀᴏᴜᴘ ᴍᴀɴᴀɢᴇʀ & ᴏᴡɴᴇʀ ᴛᴏᴏʟs. ᴄʏʙᴇʀ ᴅᴀʀᴋ ᴘᴇʀғᴇᴄᴛ. ʙᴜɪʟᴛ ʙʏ ʙᴇᴀsɢᴏʜᴀɴ-ᴄᴏᴅᴇ ⫶ ʙᴀsᴇᴅ ᴏɴ ʀɪᴄʜɢʀᴀᴍ & sʜɪᴢᴜ.
-            </p>
+            <span className="ios-pill ios-pill-blue"><span className="h-2 w-2 rounded-full bg-[#0A84FF] animate-pulse" /> Live • Keep-alive active</span>
+            <h1 className="ios-title-large mt-4">Music, AI<br/><span className="text-[var(--ios-label-secondary)]">and admin —</span> in one.</h1>
+            <p className="ios-subheadline mt-3 max-w-[520px]">◍ Full-stack TG bot with VC streaming, AI chat, group manager & owner tools. iOS 26 glass • Built by <b>Beasgohan-code</b> on Richgram & Shizu.</p>
             <div className="mt-6 flex flex-wrap gap-2">
-              <a href="https://t.me/Videl0Bot?startgroup=true" className="rounded-xl bg-white text-black px-5 py-2.5 text-[12px] font-bold uppercase tracking-wide">⬪ ᴀᴅᴅ ᴛᴏ ɢʀᴏᴜᴘ</a>
-              <a href="/dashboard" className="cyber-border rounded-xl px-5 py-2.5 text-[12px]">◎ ᴅᴀsʜʙᴏᴀʀᴅ</a>
-              <a href="https://github.com/Beasgohan-code/Videl0" target="_blank" className="cyber-border rounded-xl px-5 py-2.5 text-[12px]">⬢ ɢɪᴛʜᴜʙ</a>
+              <a href="https://t.me/Videl0Bot?startgroup=true" className="ios-btn ios-btn-primary">⬪ Add to Group</a>
+              <Link href="/dashboard" className="ios-btn ios-btn-glass">◎ Dashboard</Link>
+              <a href="https://github.com/Beasgohan-code/Videl0" target="_blank" className="ios-btn ios-btn-ghost">⬢ GitHub</a>
             </div>
-            <div className="mt-6 flex flex-wrap gap-2 text-[11px] text-zinc-500 mono">
-              <span className="cyber-pill">⬪ /play</span>
-              <span className="cyber-pill">⫶ /ask</span>
-              <span className="cyber-pill">◎ /ban</span>
-              <span className="cyber-pill">◍ /weather</span>
-              <span className="cyber-pill">⬩ 10.3 ʀɪᴄʜ</span>
+            <div className="mt-6 flex flex-wrap gap-2">
+              {["⬪ /play","⫶ /ask","◎ /ban","◍ /weather","⬩ Bot API 10.3"].map(s => (
+                <span key={s} className="ios-pill">{s}</span>
+              ))}
             </div>
           </div>
 
-          <div className="cyber-border rounded-2xl p-4 space-y-3">
+          <div className="ios-card p-4 space-y-3 bg-[#0A0A0B]">
             <div className="flex items-center justify-between">
-              <h3 className="text-[11px] tracking-[0.1em] uppercase text-zinc-400">◍ ɴᴏᴡ ᴘʟᴀʏɪɴɢ — ʀɪᴄʜ ᴜɪ</h3>
-              <span className="cyber-pill" style={{background:"#0f1a14", borderColor:"#143d2a", color:"#10b981"}}>● ʟɪᴠᴇ</span>
+              <h3 className="ios-caption2">◍ Now Playing — Rich UI</h3>
+              <span className="ios-pill" style={{ background: "rgba(48,209,88,0.12)", color: "#30D158", borderColor: "rgba(48,209,88,0.16)" }}>● Live</span>
             </div>
-            <div className="cyber-border rounded-xl p-4">
-              <img src="https://files.catbox.moe/f084wg.png" alt="thumb" className="w-full h-28 object-cover rounded-lg border border-[#1e1e22]" />
-              <h4 className="mt-3 text-[13px] font-semibold">sʜɪᴢᴜ — ʜɪɢʜ ǫᴜᴀʟɪᴛʏ ᴠᴄ</h4>
-              <p className="text-[11px] text-zinc-500 mono">ᴅᴜʀ 3:27 ⫶ ʙʏ @ʙᴇᴀsɢᴏʜᴀɴ</p>
-              <div className="mt-3 h-[3px] bg-[#1a1a1e] rounded-full overflow-hidden"><div className="h-full w-[42%] bg-white" /></div>
-              <p className="mono text-[11px] text-zinc-500 mt-1">0:52 ⬪ ──◍────── ⬪ 3:27</p>
+            <div className="ios-card-elevated p-4">
+              <img src="https://files.catbox.moe/f084wg.png" alt="" className="w-full h-28 object-cover rounded-[12px]" />
+              <h4 className="ios-headline mt-3 text-[14px]">Shizu — High Quality VC</h4>
+              <p className="ios-caption">Dur 3:27 ⫶ by @Beasgohan</p>
+              <div className="mt-3 h-1 bg-[#1E1E22] rounded-full overflow-hidden"><div className="h-full w-[42%] bg-white" /></div>
+              <p className="ios-caption mt-1">0:52 ⬪ ──◍────── ⬪ 3:27</p>
               <div className="mt-3 grid grid-cols-4 gap-2">
-                <button className="cyber-border rounded-lg py-2 text-[11px]">ɪɪ ᴘᴀᴜsᴇ</button>
-                <button className="cyber-border rounded-lg py-2 text-[11px]">▷ ʀᴇsᴜᴍᴇ</button>
-                <button className="cyber-border rounded-lg py-2 text-[11px]">‣‣ sᴋɪᴘ</button>
-                <button className="rounded-lg bg-[#1a0f0f] border border-[#2a1a1a] text-red-300 py-2 text-[11px]">⬩ sᴛᴏᴘ</button>
+                <button className="ios-btn ios-btn-glass py-2 text-[11px]">II Pause</button>
+                <button className="ios-btn ios-btn-glass py-2 text-[11px]">▷ Resume</button>
+                <button className="ios-btn ios-btn-glass py-2 text-[11px]">‣‣ Skip</button>
+                <button className="ios-btn ios-btn-red py-2 text-[11px]">⬩ Stop</button>
               </div>
             </div>
             <div className="grid grid-cols-3 gap-2 text-center">
-              {([["ᴜsᴇʀs", stats.users||"—"],["ᴄʜᴀᴛs", stats.chats||"—"],["ᴜᴘᴛɪᴍᴇ", up]] as const).map(([k,v])=>(
-                <div key={k} className="cyber-border rounded-xl p-3">
-                  <div className="text-[16px] font-bold">{loading?"…":v}</div>
-                  <div className="text-[10px] text-zinc-500 tracking-wide">{k}</div>
+              {[
+                ["Users", stats.users || "—"],
+                ["Chats", stats.chats || "—"],
+                ["Uptime", up],
+              ].map(([k, v]) => (
+                <div key={k} className="ios-card p-3">
+                  <div className="text-[16px] font-bold">{v}</div>
+                  <div className="ios-caption2">{k}</div>
                 </div>
               ))}
             </div>
           </div>
         </div>
-      </section>
+      </motion.section>
 
+      {/* Features — iOS grouped */}
       <section className="mt-6 grid md:grid-cols-3 gap-3">
         {[
-          ["◍ ᴍᴜsɪᴄ","ᴠᴄ sᴛʀᴇᴀᴍɪɴɢ ⫶ ǫᴜᴇᴜᴇ ⫶ ʟʏʀɪᴄs ⫶ ᴘʟᴀʏʟɪsᴛs"],
-          ["⬪ ᴀɪ ᴄʜᴀᴛ","ᴏᴘᴇɴᴀɪ ⫶ ɢʀᴏǫ ⫶ ɢᴇᴍɪɴɪ ⫶ ɪᴍᴀɢɪɴᴇ"],
-          ["⫶ ᴀᴅᴍɪɴ","ʙᴀɴ ⫶ ᴍᴜᴛᴇ ⫶ ᴡᴀʀɴ ⫶ ʟᴏᴄᴋ ⫶ ɢʙᴀɴ"],
-          ["◎ ᴜᴛɪʟs","ᴡᴇᴀᴛʜᴇʀ ⫶ ǫʀ ⫶ ɢɪᴛ ⫶ ᴄᴀʀʙᴏɴ ⫶ ᴡɪᴋɪ"],
-          ["⬢ ɢʀᴏᴜᴘs","ᴡᴇʟᴄᴏᴍᴇ ⫶ ғɪʟᴛᴇʀs ⫶ ɴᴏᴛᴇs ⫶ ʀᴜʟᴇs"],
-          ["𖦹 ᴏᴘs","ᴋᴇᴇᴘ-ᴀʟɪᴠᴇ ⫶ ᴡᴀᴛᴄʜᴅᴏɢ ⫶ ʟᴏɢs ⫶ ᴅʀᴏᴘʙᴏx"],
-        ].map(([t,d])=>(
-          <div key={t} className="cyber-border rounded-2xl p-5">
-            <h3 className="text-[11px] tracking-[0.12em] font-bold">{t}</h3>
-            <p className="text-[11px] text-zinc-500 mono mt-1 leading-5">{d}</p>
+          { icon: Music2, t: "◍ Music", d: "VC streaming ⫶ queue ⫶ lyrics ⫶ playlists ⫶ /song downloader" },
+          { icon: Sparkles, t: "⬪ AI Chat", d: "OpenAI ⫶ Groq ⫶ Gemini ⫶ imagine ⫶ vision ⫶ tts" },
+          { icon: Shield, t: "⫶ Admin", d: "Ban ⫶ mute ⫶ warn ⫶ lock ⫶ gban ⫶ federation" },
+          { icon: Wrench, t: "◎ Utils", d: "Weather ⫶ QR ⫶ carbon ⫶ git ⫶ wiki ⫶ afk" },
+          { icon: Users, t: "⬢ Groups", d: "Welcome ⫶ filters ⫶ notes ⫶ rules ⫶ connections" },
+          { icon: Zap, t: "𖦹 Ops", d: "Keep-alive ⫶ watchdog ⫶ logs ⫶ Dropbox ⫶ Vercel" },
+        ].map(f => (
+          <div key={f.t} className="ios-card p-5 flex gap-3">
+            <div className="h-9 w-9 rounded-full bg-white text-black flex items-center justify-center shrink-0"><f.icon size={16} /></div>
+            <div>
+              <h3 className="ios-caption2 !text-white">{f.t}</h3>
+              <p className="ios-caption mt-1 leading-5">{f.d}</p>
+            </div>
           </div>
         ))}
       </section>
 
-      <section className="mt-6 cyber-border rounded-2xl p-6">
-        <h3 className="text-[11px] tracking-[0.12em] font-bold">⬪ ʟɪᴠᴇ sᴛᴀᴛs ⬪</h3>
-        <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3">
-          {[
-            ["ᴛᴏᴛᴀʟ ᴜsᴇʀs", stats.users ?? "—"],
-            ["ᴀᴄᴛɪᴠᴇ ᴄʜᴀᴛs", stats.chats ?? "—"],
-            ["ᴄᴏᴍᴍᴀɴᴅs", stats.commands ?? "—"],
-            ["sᴛᴀᴛᴜs", health?.status==="ok" ? "ʜᴇᴀʟᴛʜʏ" : "ᴄʜᴇᴄᴋɪɴɢ…"],
-          ].map(([k,v])=>(
-            <div key={k} className="cyber-border rounded-xl p-4">
-              <div className="text-[18px] font-bold">{loading?"…":v}</div>
-              <div className="text-[10px] text-zinc-500 tracking-wide mt-1">{k}</div>
-            </div>
-          ))}
+      {/* Commands + Live stats */}
+      <section className="mt-6 grid md:grid-cols-2 gap-3">
+        <div className="ios-card p-6">
+          <h3 className="ios-caption2">⬪ Commands</h3>
+          <div className="mt-4 grid gap-3">
+            {Object.entries({
+              "◍ Music": "/play /vplay /cplay /queue /skip /stop /pause /lyrics /song /vsong",
+              "⬪ AI": "/ask /gpt /imagine /summarize /translate /tts /vision",
+              "⫶ Admin": "/ban /kick /mute /warn /pin /purge /lock /slowmode",
+              "◎ Owner": "/broadcast /gban /addsudo /backup /eval /logs",
+            }).map(([k, v]) => (
+              <div key={k} className="ios-list-row !py-3">
+                <span className="text-[13px] font-semibold">{k}</span>
+                <span className="ios-caption text-right max-w-[68%] leading-5">{v}</span>
+              </div>
+            ))}
+          </div>
         </div>
-        <p className="text-[10px] text-zinc-600 mono mt-4">sᴜᴘᴀʙᴀsᴇ ⫶ ᴅʀᴏᴘʙᴏx ⫶ ᴠᴇʀᴄᴇʟ ⫶ ᴡᴀᴛᴄʜᴅᴏɢ</p>
+
+        <div className="ios-card p-6">
+          <h3 className="ios-caption2">⬪ Live Stats</h3>
+          <div className="mt-4 grid grid-cols-2 gap-3">
+            {[
+              ["Total users", stats.users ?? "—"],
+              ["Active chats", stats.chats ?? "—"],
+              ["Commands", stats.commands ?? "—"],
+              ["Status", health?.status === "ok" ? "Healthy" : "Checking…"],
+            ].map(([k, v]) => (
+              <div key={k} className="ios-card p-4 text-center bg-[var(--ios-card-elevated)]">
+                <div className="text-[18px] font-bold">{v}</div>
+                <div className="ios-caption2 mt-1">{k}</div>
+              </div>
+            ))}
+          </div>
+          <p className="ios-caption mt-4">Supabase ⫶ Dropbox ⫶ Vercel ⫶ watchdog • {health?.status ?? "..."}</p>
+          <div className="mt-4 flex gap-2">
+            <Link href="/dashboard/channel" className="ios-btn ios-btn-primary flex-1">⬪ Studio</Link>
+            <Link href="/dashboard/chat" className="ios-btn ios-btn-glass flex-1">◍ Web Chat</Link>
+          </div>
+        </div>
       </section>
 
-      <section className="mt-6 cyber-border rounded-2xl p-6">
-        <h3 className="text-[11px] tracking-[0.12em] font-bold">⬪ ᴄᴏᴍᴍᴀɴᴅs ⬪</h3>
-        <div className="mt-4 grid md:grid-cols-2 gap-3 text-[11px] mono">
-          {Object.entries({
-            "◍ ᴍᴜsɪᴄ": "/play /vplay /queue /skip /stop /pause /lyrics /playlist /autoplay",
-            "⬪ ᴀɪ": "/ask /gpt /imagine /summarize /translate /tts /vision",
-            "⫶ ᴀᴅᴍɪɴ": "/ban /kick /mute /warn /pin /purge /lock /slowmode",
-            "◎ ᴏᴡɴᴇʀ": "/broadcast /gban /addsudo /backup /eval /logs",
-            "⬩ ᴜᴛɪʟs": "/weather /qr /shorten /calc /wiki /git /carbon /afk",
-            "⬢ ɢʀᴏᴜᴘ": "/welcome /filter /note /rules /report /staff /setlang",
-          }).map(([k,v])=>(
-            <div key={k} className="cyber-border rounded-xl p-4"><div className="text-zinc-200 tracking-wide">{k}</div><div className="text-zinc-500 text-[11px] mt-1 leading-5">{v}</div></div>
-          ))}
-        </div>
-      </section>
-
-      <footer className="mt-10 text-center text-[11px] text-zinc-600 mono pb-8">
-        <p>ᴍᴀᴅᴇ ᴡɪᴛʜ ◍ ʙʏ <a href="https://github.com/Beasgohan-code" className="text-zinc-400 border-zinc-700">ʙᴇᴀsɢᴏʜᴀɴ-ᴄᴏᴅᴇ</a> ⫶ ʀɪᴄʜɢʀᴀᴍ ʙʏ <a href="https://github.com/Badmunda05/richgram" className="text-zinc-400 border-zinc-700">ʙᴀᴅᴍᴜɴᴅᴀ05</a> ⫶ sʜɪᴢᴜᴍᴜsɪᴄ ⬪ ᴄʏʙᴇʀ ᴅᴀʀᴋ ᴘᴇʀғᴇᴄᴛ</p>
-        <p className="mt-1 mono">ᴠᴇʀᴄᴇʟ: ʜᴏsᴛɪɴɢ-ʙᴏᴛ-ᴅᴀsʜʙᴏᴀʀᴅ ⫶ sᴜᴘᴀʙᴀsᴇ: ʜᴀɴʀᴇ-sᴛᴜᴅɪᴏ ⫶ ᴅʀᴏᴘʙᴏx: /Vɪᴅᴇʟ0/ʙᴀᴄᴋᴜᴘs</p>
+      <footer className="mt-10 pb-8 text-center ios-caption">
+        Made with ◍ by <a href="https://github.com/Beasgohan-code" className="text-white">Beasgohan-code</a> ⫶ Richgram by <a href="https://github.com/Badmunda05/richgram" className="text-white">Badmunda05</a> ⫶ ShizuMusic ⬪ iOS 26 Perfect<br/>
+        Vercel: hosting-bot-dashboard ⫶ Supabase: hanre-studio ⫶ Dropbox: /Videl0/backups
       </footer>
     </main>
   );
