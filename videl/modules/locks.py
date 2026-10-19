@@ -117,11 +117,11 @@ async def antiflood_cmd(_, message: Message) -> None:
 
     if args[0].lower() in ("on", "yes", "true", "enable"):
         set_antiflood(chat_id, True)
-        await rich_send(bot, chat_id, rich_heading("✅ Anti-flood enabled", level=3))
+        await rich_send(bot, chat_id, rich_heading("◍ ᴀɴᴛɪғʟᴏᴏᴅ — ᴇɴᴀʙʟᴇᴅ ◍", level=3))
         return
     if args[0].lower() in ("off", "no", "false", "disable"):
         set_antiflood(chat_id, False)
-        await rich_send(bot, chat_id, rich_heading("✅ Anti-flood disabled", level=3))
+        await rich_send(bot, chat_id, rich_heading("◍ ᴀɴᴛɪғʟᴏᴏᴅ — ᴅɪsᴀʙʟᴇᴅ ◍", level=3))
         return
 
     if len(args) >= 2 and args[0].isdigit() and args[1].isdigit():
@@ -129,7 +129,7 @@ async def antiflood_cmd(_, message: Message) -> None:
         af = get_antiflood(chat_id)
         await rich_send(
             bot, chat_id,
-            rich_heading("✅ Anti-flood updated", level=3)
+            rich_heading("◍ ᴀɴᴛɪғʟᴏᴏᴅ — ᴜᴘᴅᴀᴛᴇᴅ ◍", level=3)
             + rich_kv_table([
                 ("Limit", str(af["limit"])),
                 ("Window", f"{af['window']}s"),

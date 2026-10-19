@@ -40,7 +40,7 @@ async def pause_cmd(_, message: Message) -> None:
     except Exception as e:
         await rich_send(
             bot, chat_id,
-            rich_heading("❌ Pause failed", level=3)
+            rich_heading("◍ Pause failed", level=3)
             + rich_note(f"<code>{rich_esc(e)}</code>"),
         )
 

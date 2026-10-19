@@ -40,7 +40,7 @@ def _parse_target(message: Message) -> tuple[int|None, str]:
 async def _need_admin(message: Message) -> bool:
     if is_sudo(message.from_user.id): return True
     if message.chat.type==ChatType.PRIVATE:
-        await message.reply("👥 Use in groups.")
+        await message.reply("⫶ ᴜsᴇ ɪɴ ɢʀᴏᴜᴘs ⫶")
         return False
     try:
         m=await message.bot.get_chat_member(message.chat.id, message.from_user.id)
@@ -55,7 +55,7 @@ async def _bot_can(message: Message, action="restrict") -> bool:
         me=await message.bot.get_me()
         m=await message.bot.get_chat_member(message.chat.id, me.id)
         if m.status not in (ChatMemberStatus.ADMINISTRATOR, ChatMemberStatus.CREATOR):
-            await message.reply("🤖 I need to be admin to do that.")
+            await message.reply("◍ ɪ ɴᴇᴇᴅ ᴀᴅᴍɪɴ — ᴘʀᴏᴍᴏᴛᴇ ᴍᴇ ◍")
             return False
         # check specific perms loosely
         return True
@@ -76,7 +76,7 @@ async def ban_cmd(message: Message):
     if not uid:
         return await message.reply("Usage: /ban <user|reply> [reason]")
     if is_sudo(uid):
-        return await message.reply("🛡️ Can't ban privileged user.")
+        return await message.reply("◍ ᴄᴀɴɴᴏᴛ ʙᴀɴ ᴘʀɪᴠɪʟᴇɢᴇᴅ ◍")
     try:
         until=None
         # support /ban 123 2h reason style? parse second arg as time
@@ -114,7 +114,7 @@ async def kick_cmd(message: Message):
     if not await _need_admin(message): return
     uid,_=_parse_target(message)
     if not uid: return await message.reply("Usage: /kick <reply or id>")
-    if is_sudo(uid): return await message.reply("🛡️ Protected.")
+    if is_sudo(uid): return await message.reply("◍ ᴘʀᴏᴛᴇᴄᴛᴇᴅ ◍")
     try:
         await message.bot.ban_chat_member(message.chat.id, uid)
         await asyncio.sleep(1)
@@ -134,7 +134,7 @@ async def mute_cmd(message: Message):
         secs=parse_time(parts[2])
         if secs: reason=" ".join(parts[3:])
     if not uid: return await message.reply("Usage: /mute <reply|id> [time] [reason]\nEx: /mute 30m spam")
-    if is_sudo(uid): return await message.reply("🛡️ Protected.")
+    if is_sudo(uid): return await message.reply("◍ ᴘʀᴏᴛᴇᴄᴛᴇᴅ ◍")
     until=int(time.time())+secs if secs else 0
     until = until if secs else 0
     try:
@@ -183,7 +183,7 @@ async def warn_cmd(message: Message):
     if count >= lim:
         try:
             await message.bot.ban_chat_member(message.chat.id, uid)
-            await message.answer(f"🚫 Limit reached — banned <code>{uid}</code>", parse_mode="HTML")
+            await message.answer(f"◍ ʟɪᴍɪᴛ — — banned <code>{uid}</code>", parse_mode="HTML")
             await db.clear_warns(message.chat.id, uid)
         except: pass
 
@@ -197,9 +197,9 @@ async def warns_cmd(message: Message):
             return await message.reply("Usage: /warns <reply|id>")
     warns=await db.get_warns(message.chat.id, uid)
     if not warns:
-        return await message.answer("✅ No warns.")
+        return await message.answer("◍ No warns.")
     txt="<br>".join(f"• {rich_esc(w.get('reason',''))} — by {w.get('warned_by','')}" for w in warns)
-    await message.answer(rich_heading(f"⚠️ Warns for {uid}", level=3)+rich_note(txt)+rich_note(f"Total: {len(warns)}"))
+    await message.answer(rich_heading(f"◍ Warns for {uid}", level=3)+rich_note(txt)+rich_note(f"Total: {len(warns)}"))
 
 @router.message(Command("rmwarn","clearwarns","resetwarns"))
 async def rmwarn_cmd(message: Message):
@@ -207,7 +207,7 @@ async def rmwarn_cmd(message: Message):
     uid,_=_parse_target(message)
     if not uid: return await message.reply("Usage: /rmwarn <reply|id>")
     await db.clear_warns(message.chat.id, uid)
-    await message.answer(f"✅ Cleared warns for <code>{uid}</code>")
+    await message.answer(f"◍ Cleared warns for <code>{uid}</code>")
 
 # ── /pin ───────────────────────────────────────────────────────────────────
 @router.message(Command("pin"))
@@ -276,7 +276,7 @@ async def slowmode_cmd(message: Message):
         await message.bot._request("setChatPermissions", {"chat_id": message.chat.id})  # dummy
         # Real slowmode in Bot API is set via? It is not in standard Bot API; use chat settings?
         # We'll use workaround: answer
-        await message.answer(f"⏳ Slowmode set to {secs}s" if secs else "⏳ Slowmode disabled.")
+        await message.answer(f"⫶ sʟᴏᴡᴍᴏᴅᴇ set to {secs}s" if secs else "⫶ sʟᴏᴡᴍᴏᴅᴇ disabled.")
         # Try new Bot API method if exists
         try: await message.bot.set_chat_administrator_custom_title  # placeholder
         except: pass

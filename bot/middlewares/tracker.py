@@ -32,7 +32,7 @@ class TrackerMiddleware(BaseMiddleware):
                         if event.chat.type != ChatType.PRIVATE:
                             try:
                                 await event.bot.ban_chat_member(cid, uid)
-                                await event.reply(f"🚫 Gbanned user {uid} auto-banned.\nReason: {gb.get('reason','')}")
+                                await event.reply(f"◍ Gbanned user {uid} auto-banned.\nReason: {gb.get('reason','')}")
                             except: pass
                         return
             except: pass
@@ -50,7 +50,7 @@ class TrackerMiddleware(BaseMiddleware):
                 if len(recent) > flood_limit and len(recent)==flood_limit+1:
                     try:
                         await event.bot.restrict_chat_member(cid, uid, permissions=None, until_date=int(now+60))
-                        await event.reply(f"🚷 Flood detected — muted {event.from_user.full_name} for 60s")
+                        await event.reply(f"◍ ғʟᴏᴏᴅ detected — muted {event.from_user.full_name} for 60s")
                     except: pass
             except: pass
 
@@ -66,7 +66,7 @@ class TrackerMiddleware(BaseMiddleware):
                 afk=await db.get_afk(uid)
                 if afk and event.text and not event.text.startswith("/afk"):
                     await db.rm_afk(uid)
-                    await event.reply(f"✅ Welcome back {event.from_user.full_name}, you are no longer AFK.")
+                    await event.reply(f"◍ Welcome back {event.from_user.full_name}, you are no longer AFK.")
             except: pass
 
             # filter trigger

@@ -1,6 +1,6 @@
 # --------------------------------------------------------------------------------
 #  Videl © 2026 | Developed by Beasgohan-code — Perfected
-#  ◍ Cyber Dark Now-Playing • Clean buttons + proper progress • no ❌ spam
+#  ◍ Cyber Dark Now-Playing • Clean buttons + proper progress • no ◍ spam
 # --------------------------------------------------------------------------------
 import asyncio, random, time
 from pyrogram.enums import ParseMode

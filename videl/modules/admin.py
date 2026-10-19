@@ -159,7 +159,7 @@ async def ban_cmd(_, message: Message) -> None:
     if not await _bot_can_restrict(chat_id):
         await rich_send(
             bot, chat_id,
-            rich_heading("❌ Missing permission", level=3)
+            rich_heading("◍ Missing permission", level=3)
             + rich_note("I need <b>Restrict Members</b> right."),
         )
         return
@@ -174,11 +174,11 @@ async def ban_cmd(_, message: Message) -> None:
         return
 
     if user_id == config.OWNER_ID or user_id == (await bot.get_me()).id:
-        await rich_send(bot, chat_id, rich_heading("❌ Can't ban this user", level=3))
+        await rich_send(bot, chat_id, rich_heading("◍ Can't ban this user", level=3))
         return
 
     if await _is_admin_or_owner(chat_id, user_id):
-        await rich_send(bot, chat_id, rich_heading("❌ Can't ban an admin", level=3))
+        await rich_send(bot, chat_id, rich_heading("◍ Can't ban an admin", level=3))
         return
 
     reason = " ".join(message.command[2:]) if len(message.command) > 2 else "No reason"
@@ -186,7 +186,7 @@ async def ban_cmd(_, message: Message) -> None:
         await bot.ban_chat_member(chat_id, user_id)
         await rich_send(
             bot, chat_id,
-            rich_heading("🚫 User banned", level=3)
+            rich_heading("◍ User banned", level=3)
             + rich_kv_table([
                 ("User", mention),
                 ("By", message.from_user.mention if message.from_user else "?"),
@@ -199,10 +199,10 @@ async def ban_cmd(_, message: Message) -> None:
             except Exception:
                 pass
     except (ChatAdminRequired, RightForbidden, UserAdminInvalid) as e:
-        await rich_send(bot, chat_id, rich_heading("❌ Ban failed", level=3) + rich_note(str(e)))
+        await rich_send(bot, chat_id, rich_heading("◍ Ban failed", level=3) + rich_note(str(e)))
     except Exception as e:
         LOGGER.warning(f"ban error: {e}")
-        await rich_send(bot, chat_id, rich_heading("❌ Ban failed", level=3) + rich_note(rich_esc(str(e))))
+        await rich_send(bot, chat_id, rich_heading("◍ Ban failed", level=3) + rich_note(rich_esc(str(e))))
 
 
 # ── /unban ─────────────────────────────────────────────────────────────────────
@@ -231,11 +231,11 @@ async def unban_cmd(_, message: Message) -> None:
         await bot.unban_chat_member(chat_id, user_id)
         await rich_send(
             bot, chat_id,
-            rich_heading("✅ User unbanned", level=3)
+            rich_heading("◍ User unbanned", level=3)
             + rich_kv_table([("User", mention)]),
         )
     except Exception as e:
-        await rich_send(bot, chat_id, rich_heading("❌ Unban failed", level=3) + rich_note(rich_esc(str(e))))
+        await rich_send(bot, chat_id, rich_heading("◍ Unban failed", level=3) + rich_note(rich_esc(str(e))))
 
 
 # ── /kick ──────────────────────────────────────────────────────────────────────
@@ -252,7 +252,7 @@ async def kick_cmd(_, message: Message) -> None:
 
     chat_id = message.chat.id
     if not await _bot_can_restrict(chat_id):
-        await rich_send(bot, chat_id, rich_heading("❌ Need Restrict Members right", level=3))
+        await rich_send(bot, chat_id, rich_heading("◍ Need Restrict Members right", level=3))
         return
 
     user_id, mention, _ = await _get_target(message)
@@ -265,7 +265,7 @@ async def kick_cmd(_, message: Message) -> None:
         return
 
     if await _is_admin_or_owner(chat_id, user_id):
-        await rich_send(bot, chat_id, rich_heading("❌ Can't kick an admin", level=3))
+        await rich_send(bot, chat_id, rich_heading("◍ Can't kick an admin", level=3))
         return
 
     try:
@@ -283,7 +283,7 @@ async def kick_cmd(_, message: Message) -> None:
             except Exception:
                 pass
     except Exception as e:
-        await rich_send(bot, chat_id, rich_heading("❌ Kick failed", level=3) + rich_note(rich_esc(str(e))))
+        await rich_send(bot, chat_id, rich_heading("◍ Kick failed", level=3) + rich_note(rich_esc(str(e))))
 
 
 # ── /mute ──────────────────────────────────────────────────────────────────────
@@ -300,7 +300,7 @@ async def mute_cmd(_, message: Message) -> None:
 
     chat_id = message.chat.id
     if not await _bot_can_restrict(chat_id):
-        await rich_send(bot, chat_id, rich_heading("❌ Need Restrict Members right", level=3))
+        await rich_send(bot, chat_id, rich_heading("◍ Need Restrict Members right", level=3))
         return
 
     user_id, mention, _ = await _get_target(message)
@@ -313,7 +313,7 @@ async def mute_cmd(_, message: Message) -> None:
         return
 
     if await _is_admin_or_owner(chat_id, user_id):
-        await rich_send(bot, chat_id, rich_heading("❌ Can't mute an admin", level=3))
+        await rich_send(bot, chat_id, rich_heading("◍ Can't mute an admin", level=3))
         return
 
     # optional duration
@@ -341,7 +341,7 @@ async def mute_cmd(_, message: Message) -> None:
             + rich_kv_table([("User", mention)]),
         )
     except Exception as e:
-        await rich_send(bot, chat_id, rich_heading("❌ Mute failed", level=3) + rich_note(rich_esc(str(e))))
+        await rich_send(bot, chat_id, rich_heading("◍ Mute failed", level=3) + rich_note(rich_esc(str(e))))
 
 
 # ── /unmute ────────────────────────────────────────────────────────────────────
@@ -384,7 +384,7 @@ async def unmute_cmd(_, message: Message) -> None:
             + rich_kv_table([("User", mention)]),
         )
     except Exception as e:
-        await rich_send(bot, chat_id, rich_heading("❌ Unmute failed", level=3) + rich_note(rich_esc(str(e))))
+        await rich_send(bot, chat_id, rich_heading("◍ Unmute failed", level=3) + rich_note(rich_esc(str(e))))
 
 
 # ── /promote ───────────────────────────────────────────────────────────────────
@@ -401,7 +401,7 @@ async def promote_cmd(_, message: Message) -> None:
 
     chat_id = message.chat.id
     if not await _bot_can_promote(chat_id):
-        await rich_send(bot, chat_id, rich_heading("❌ Need Promote Members right", level=3))
+        await rich_send(bot, chat_id, rich_heading("◍ Need Promote Members right", level=3))
         return
 
     user_id, mention, _ = await _get_target(message)
@@ -447,7 +447,7 @@ async def promote_cmd(_, message: Message) -> None:
             ]),
         )
     except Exception as e:
-        await rich_send(bot, chat_id, rich_heading("❌ Promote failed", level=3) + rich_note(rich_esc(str(e))))
+        await rich_send(bot, chat_id, rich_heading("◍ Promote failed", level=3) + rich_note(rich_esc(str(e))))
 
 
 # ── /demote ────────────────────────────────────────────────────────────────────
@@ -464,7 +464,7 @@ async def demote_cmd(_, message: Message) -> None:
 
     chat_id = message.chat.id
     if not await _bot_can_promote(chat_id):
-        await rich_send(bot, chat_id, rich_heading("❌ Need Promote Members right", level=3))
+        await rich_send(bot, chat_id, rich_heading("◍ Need Promote Members right", level=3))
         return
 
     user_id, mention, _ = await _get_target(message)
@@ -497,7 +497,7 @@ async def demote_cmd(_, message: Message) -> None:
             + rich_kv_table([("User", mention)]),
         )
     except Exception as e:
-        await rich_send(bot, chat_id, rich_heading("❌ Demote failed", level=3) + rich_note(rich_esc(str(e))))
+        await rich_send(bot, chat_id, rich_heading("◍ Demote failed", level=3) + rich_note(rich_esc(str(e))))
 
 
 # ── /warn ──────────────────────────────────────────────────────────────────────
@@ -523,7 +523,7 @@ async def warn_cmd(_, message: Message) -> None:
         return
 
     if await _is_admin_or_owner(chat_id, user_id):
-        await rich_send(bot, chat_id, rich_heading("❌ Can't warn an admin", level=3))
+        await rich_send(bot, chat_id, rich_heading("◍ Can't warn an admin", level=3))
         return
 
     reason = " ".join(message.command[2:]) if len(message.command) > 2 else (
@@ -534,7 +534,7 @@ async def warn_cmd(_, message: Message) -> None:
 
     await rich_send(
         bot, chat_id,
-        rich_heading("⚠️ User warned", level=3)
+        rich_heading("◍ User warned", level=3)
         + rich_kv_table([
             ("User", mention),
             ("Warns", f"{count}/{limit}"),
@@ -554,7 +554,7 @@ async def warn_cmd(_, message: Message) -> None:
                 await bot.ban_chat_member(chat_id, user_id)
                 await rich_send(
                     bot, chat_id,
-                    rich_heading("🚫 Auto-banned (warn limit reached)", level=3)
+                    rich_heading("◍ Auto-banned (warn limit reached)", level=3)
                     + rich_kv_table([("User", mention), ("Warns", f"{count}/{limit}")]),
                 )
                 reset_warns(chat_id, user_id)
@@ -621,7 +621,7 @@ async def resetwarns_cmd(_, message: Message) -> None:
     reset_warns(chat_id, user_id)
     await rich_send(
         bot, chat_id,
-        rich_heading("✅ Warns reset", level=3)
+        rich_heading("◍ Warns reset", level=3)
         + rich_kv_table([("User", mention)]),
     )
 
@@ -651,7 +651,7 @@ async def setwarnlimit_cmd(_, message: Message) -> None:
     set_warn_limit(chat_id, limit)
     await rich_send(
         bot, chat_id,
-        rich_heading("✅ Warn limit updated", level=3)
+        rich_heading("◍ Warn limit updated", level=3)
         + rich_kv_table([("Limit", str(get_warn_limit(chat_id)))]),
     )
 
@@ -670,7 +670,7 @@ async def purge_cmd(_, message: Message) -> None:
 
     chat_id = message.chat.id
     if not await _bot_can_delete(chat_id):
-        await rich_send(bot, chat_id, rich_heading("❌ Need Delete Messages right", level=3))
+        await rich_send(bot, chat_id, rich_heading("◍ Need Delete Messages right", level=3))
         return
 
     if not message.reply_to_message:
@@ -729,7 +729,7 @@ async def pin_cmd(_, message: Message) -> None:
         await message.reply_to_message.pin(disable_notification=False)
         await rich_send(bot, message.chat.id, rich_heading("📌 Message pinned", level=3))
     except Exception as e:
-        await rich_send(bot, message.chat.id, rich_heading("❌ Pin failed", level=3) + rich_note(rich_esc(str(e))))
+        await rich_send(bot, message.chat.id, rich_heading("◍ Pin failed", level=3) + rich_note(rich_esc(str(e))))
 
 
 @bot.on_message(
@@ -748,7 +748,7 @@ async def unpin_cmd(_, message: Message) -> None:
             await bot.unpin_chat_message(message.chat.id)
         await rich_send(bot, message.chat.id, rich_heading("📌 Unpinned", level=3))
     except Exception as e:
-        await rich_send(bot, message.chat.id, rich_heading("❌ Unpin failed", level=3) + rich_note(rich_esc(str(e))))
+        await rich_send(bot, message.chat.id, rich_heading("◍ Unpin failed", level=3) + rich_note(rich_esc(str(e))))
 
 
 # ── Welcome system ─────────────────────────────────────────────────────────────
@@ -783,7 +783,7 @@ async def setwelcome_cmd(_, message: Message) -> None:
     set_welcome(chat_id, text, enabled=True)
     await rich_send(
         bot, chat_id,
-        rich_heading("✅ Welcome message set", level=3)
+        rich_heading("◍ Welcome message set", level=3)
         + rich_note(rich_esc(text[:200])),
     )
 
@@ -804,10 +804,10 @@ async def welcome_toggle_cmd(_, message: Message) -> None:
 
     if arg in ("on", "yes", "true", "enable"):
         set_welcome_enabled(chat_id, True)
-        await rich_send(bot, chat_id, rich_heading("✅ Welcome enabled", level=3))
+        await rich_send(bot, chat_id, rich_heading("◍ Welcome enabled", level=3))
     elif arg in ("off", "no", "false", "disable"):
         set_welcome_enabled(chat_id, False)
-        await rich_send(bot, chat_id, rich_heading("✅ Welcome disabled", level=3))
+        await rich_send(bot, chat_id, rich_heading("◍ Welcome disabled", level=3))
     else:
         status = "ON" if data["enabled"] else "OFF"
         await rich_send(
@@ -845,7 +845,7 @@ async def setgoodbye_cmd(_, message: Message) -> None:
         return
 
     set_goodbye(chat_id, text, enabled=True)
-    await rich_send(bot, chat_id, rich_heading("✅ Goodbye message set", level=3))
+    await rich_send(bot, chat_id, rich_heading("◍ Goodbye message set", level=3))
 
 
 # ── New member / left member handlers ──────────────────────────────────────────
@@ -918,8 +918,8 @@ async def admins_cmd(_, message: Message) -> None:
             return
         await rich_send(
             bot, chat_id,
-            rich_heading("👑 Admins", level=3)
+            rich_heading("◍ Admins", level=3)
             + rich_note("\n".join(members[:30])),
         )
     except Exception as e:
-        await rich_send(bot, chat_id, rich_heading("❌ Failed", level=3) + rich_note(rich_esc(str(e))))
+        await rich_send(bot, chat_id, rich_heading("◍ Failed", level=3) + rich_note(rich_esc(str(e))))

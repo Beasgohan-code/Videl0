@@ -68,16 +68,16 @@ async def save_playlist_cmd(_, message: Message) -> None:
         is_group = True
         name = raw[2:].strip()
         if not await is_user_authorized(message):
-            await rich_send(bot, chat_id, rich_heading("❌ Only admins can save group playlists", level=3))
+            await rich_send(bot, chat_id, rich_heading("◍ Only admins can save group playlists", level=3))
             return
 
     if not name or len(name) > 40:
-        await rich_send(bot, chat_id, rich_heading("❌ Invalid name (1–40 chars)", level=3))
+        await rich_send(bot, chat_id, rich_heading("◍ Invalid name (1–40 chars)", level=3))
         return
 
     queue = get_queue(chat_id)
     if not queue:
-        await rich_send(bot, chat_id, rich_heading("❌ Queue is empty", level=3))
+        await rich_send(bot, chat_id, rich_heading("◍ Queue is empty", level=3))
         return
 
     # Store lightweight song info
@@ -96,7 +96,7 @@ async def save_playlist_cmd(_, message: Message) -> None:
     if ok:
         await rich_send(
             bot, chat_id,
-            rich_heading("✅ Playlist saved", level=3)
+            rich_heading("◍ Playlist saved", level=3)
             + rich_kv_table([
                 ("Name", rich_esc(name)),
                 ("Songs", str(len(songs))),
@@ -104,7 +104,7 @@ async def save_playlist_cmd(_, message: Message) -> None:
             ]),
         )
     else:
-        await rich_send(bot, chat_id, rich_heading("❌ Failed to save (DB error)", level=3))
+        await rich_send(bot, chat_id, rich_heading("◍ Failed to save (DB error)", level=3))
 
 
 @bot.on_message(
@@ -140,7 +140,7 @@ async def load_playlist_cmd(_, message: Message) -> None:
         alt_owner = (message.from_user.id if message.from_user else 0) if is_group else chat_id
         pl = get_playlist(alt_owner, name)
         if not pl or not pl.get("songs"):
-            await rich_send(bot, chat_id, rich_heading("❌ Playlist not found", level=3))
+            await rich_send(bot, chat_id, rich_heading("◍ Playlist not found", level=3))
             return
 
     added = 0
@@ -206,7 +206,7 @@ async def list_playlists_cmd(_, message: Message) -> None:
             n = len(p.get("songs") or [])
             lines.append(f"• <code>{rich_esc(p.get('display_name') or p.get('name'))}</code> ({n})")
     if group:
-        lines.append("\n<b>👥 Group playlists</b>")
+        lines.append("\n<b>⬢ ɢʀᴏᴜᴘ playlists</b>")
         for p in group[:15]:
             n = len(p.get("songs") or [])
             lines.append(f"• <code>g:{rich_esc(p.get('display_name') or p.get('name'))}</code> ({n})")
@@ -248,13 +248,13 @@ async def delete_playlist_cmd(_, message: Message) -> None:
 
     if is_group:
         if not await is_user_authorized(message):
-            await rich_send(bot, chat_id, rich_heading("❌ Only admins can delete group playlists", level=3))
+            await rich_send(bot, chat_id, rich_heading("◍ Only admins can delete group playlists", level=3))
             return
         owner = chat_id
     else:
         owner = message.from_user.id if message.from_user else 0
 
     if delete_playlist(owner, name):
-        await rich_send(bot, chat_id, rich_heading("✅ Playlist deleted", level=3) + rich_kv_table([("Name", rich_esc(name))]))
+        await rich_send(bot, chat_id, rich_heading("◍ Playlist deleted", level=3) + rich_kv_table([("Name", rich_esc(name))]))
     else:
-        await rich_send(bot, chat_id, rich_heading("❌ Playlist not found", level=3))
+        await rich_send(bot, chat_id, rich_heading("◍ Playlist not found", level=3))

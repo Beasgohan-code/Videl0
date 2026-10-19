@@ -58,7 +58,7 @@ async def set_welcome(message: Message):
     if message.reply_to_message and message.reply_to_message.photo:
         media=message.reply_to_message.photo[-1].file_id
     await db.set_welcome(message.chat.id, text, media)
-    await message.answer(f"✅ Welcome set:\n<code>{rich_esc(text)}</code>")
+    await message.answer(f"◍ Welcome set:\n<code>{rich_esc(text)}</code>")
 
 @router.message(Command("welcome"))
 async def get_welcome(message: Message):
@@ -69,7 +69,7 @@ async def get_welcome(message: Message):
 async def del_welcome(message: Message):
     if not await _is_admin(message): return
     await db.set_welcome(message.chat.id, None, None)
-    await message.answer("✅ Welcome deleted.")
+    await message.answer("◍ Welcome deleted.")
 
 # ── /goodbye ────────────────────────────────────────────────────────────────
 @router.message(Command("setgoodbye","setleave"))
@@ -78,7 +78,7 @@ async def set_goodbye(message: Message):
     text=(message.text.split(maxsplit=1)[1] if len(message.text.split(maxsplit=1))>1 else "")
     if not text: return await message.reply("Usage: /setgoodbye <text>")
     await db.set_goodbye(message.chat.id, text)
-    await message.answer("✅ Goodbye set.")
+    await message.answer("◍ Goodbye set.")
 
 @router.message(Command("goodbye","leave"))
 async def get_goodbye(message: Message):
@@ -93,7 +93,7 @@ async def set_rules(message: Message):
     if not text and message.reply_to_message: text=message.reply_to_message.text or ""
     if not text: return await message.reply("Usage: /setrules <rules>")
     await db.set_rules(message.chat.id, text)
-    await message.answer("✅ Rules set.")
+    await message.answer("◍ Rules set.")
 
 @router.message(Command("rules"))
 async def get_rules(message: Message):
@@ -109,7 +109,7 @@ async def add_filter(message: Message):
     if len(parts)<3: return await message.reply("Usage: /filter <keyword> <reply text>\nEx: /filter hi Hello there!")
     kw=parts[1]; reply_text=parts[2]
     await db.add_filter(message.chat.id, kw, reply_text)
-    await message.answer(f"✅ Filter <code>{kw}</code> added.")
+    await message.answer(f"◍ Filter <code>{kw}</code> added.")
 
 @router.message(Command("stopfilter","delfilter","rmfilter"))
 async def del_filter(message: Message):
@@ -117,7 +117,7 @@ async def del_filter(message: Message):
     arg=(message.text.split(maxsplit=1)[1] if len(message.text.split(maxsplit=1))>1 else "")
     if not arg: return await message.reply("Usage: /stopfilter <keyword>")
     await db.delete_filter(message.chat.id, arg)
-    await message.answer(f"✅ Filter <code>{arg}</code> removed.")
+    await message.answer(f"◍ Filter <code>{arg}</code> removed.")
 
 @router.message(Command("filters"))
 async def list_filters(message: Message):
@@ -140,7 +140,7 @@ async def save_note(message: Message):
         if not content: content=message.reply_to_message.caption or ""
     if not content and not media: return await message.reply("Give content or reply to media.")
     await db.add_note(message.chat.id, name, content, media)
-    await message.answer(f"✅ Saved note <code>{name}</code>. Get with /get {name}")
+    await message.answer(f"◍ Saved note <code>{name}</code>. Get with /get {name}")
 
 @router.message(Command("get"))
 async def get_note(message: Message):
@@ -161,7 +161,7 @@ async def clear_note(message: Message):
     arg=(message.text.split(maxsplit=1)[1] if len(message.text.split(maxsplit=1))>1 else "")
     if not arg: return await message.reply("Usage: /clear <name>")
     await db.delete_note(message.chat.id, arg)
-    await message.answer(f"✅ Deleted note <code>{arg}</code>")
+    await message.answer(f"◍ Deleted note <code>{arg}</code>")
 
 @router.message(Command("notes"))
 async def list_notes(message: Message):
@@ -201,7 +201,7 @@ async def report_cmd(message: Message):
         admins=await message.bot.get_chat_administrators(message.chat.id)
         mentions=" ".join(f"<a href=\"tg://user?id={a.user.id}\">{a.user.full_name}</a>" for a in admins if not a.user.is_bot)
         await message.answer(f"🚨 Report by {message.from_user.full_name}:\nReason: {reason}\nReported msg: <a href=\"https://t.me/c/{str(message.chat.id).replace('-100','')}/{message.reply_to_message.message_id}\">link</a>\n\nAdmins: {mentions}")
-        await message.bot.send_message(message.reply_to_message.from_user.id, f"⚠️ You were reported in {message.chat.title}: {reason}", disable_notification=True)
+        await message.bot.send_message(message.reply_to_message.from_user.id, f"◍ You were reported in {message.chat.title}: {reason}", disable_notification=True)
     except: await message.reply("Could not notify admins (bot not admin?).")
 
 # ── /staff /admins ───────────────────────────────────────────────────────────
@@ -211,7 +211,7 @@ async def staff_cmd(message: Message):
         admins=await message.bot.get_chat_administrators(message.chat.id)
         txt=rich_heading("👮 Staff", level=3)
         for a in admins:
-            role="👑 Creator" if a.status=="creator" else "🛡️ Admin"
+            role="◍ Creator" if a.status=="creator" else "⦿ ᴀᴅᴍɪɴ"
             txt+=rich_note(f"{role}: {rich_esc(a.user.full_name)} — <code>{a.user.id}</code>")
         await message.answer(txt)
     except Exception as e: await message.reply(f"Fail: {e}")
@@ -225,7 +225,7 @@ async def setlang_cmd(message: Message):
     arg=arg.lower()
     if arg not in ("en","hi","pa"): return await message.reply("Supported: en, hi, pa")
     await db.set_chat_lang(message.chat.id, arg)
-    await message.answer(f"✅ Language set to <code>{arg}</code>")
+    await message.answer(f"◍ Language set to <code>{arg}</code>")
 
 async def _is_admin(message: Message) -> bool:
     if is_sudo(message.from_user.id): return True
@@ -265,5 +265,5 @@ async def anti_bot_lock(message: Message):
         if u.is_bot:
             try:
                 await message.bot.ban_chat_member(message.chat.id, u.id)
-                await message.answer(f"🤖 Bot {u.full_name} auto-banned (bots locked).")
+                await message.answer(f"◍ {u.full_name} — ʙᴏᴛs ʟᴏᴄᴋᴇᴅ ◍")
             except: pass

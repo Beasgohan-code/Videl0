@@ -71,7 +71,7 @@ async def on_stream_end(_: object, update: StreamEnded) -> None:
             from videl.core.player import play_song
             msg = await rich_send(
                 bot, chat_id,
-                rich_heading("🔁 ʟᴏᴏᴘ ᴏɴᴇ", level=3)
+                rich_heading("⦿ ʟᴏᴏᴘ ᴏɴᴇ", level=3)
                 + rich_kv_table([("ᴛɪᴛʟᴇ", f"<code>{rich_esc(current.get('title', '?'))}</code>")]),
             )
             await play_song(chat_id, msg, current)
@@ -107,7 +107,7 @@ async def on_stream_end(_: object, update: StreamEnded) -> None:
 
             # Fetch more songs in background if queue is getting low
             asyncio.create_task(
-                maybe_refetch(chat_id, "🔁 AutoPlay", 0)
+                maybe_refetch(chat_id, "⦿ ᴀᴜᴛᴏᴘʟᴀʏ", 0)
             )
 
     except Exception as ap_err:
@@ -184,7 +184,7 @@ async def on_stream_end(_: object, update: StreamEnded) -> None:
 
                 # If still nothing after waiting, try one more fetch
                 from videl.core.autoplay import maybe_refetch
-                await maybe_refetch(chat_id, "🔁 AutoPlay", 0)
+                await maybe_refetch(chat_id, "⦿ ᴀᴜᴛᴏᴘʟᴀʏ", 0)
                 await asyncio.sleep(5)
 
                 nxt3 = peek_current(chat_id)

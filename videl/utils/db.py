@@ -47,17 +47,17 @@ def start_mongo() -> bool:
         except Exception:
             pass
         _db = _client[db_name]
-        logger.info(f"✅ MongoDB connected (db={db_name}).")
+        logger.info(f"◍ ᴍᴏɴɢᴏ — ᴄᴏɴɴᴇᴄᴛᴇᴅ (db={db_name}) ◍")
         return True
 
     except (ConnectionFailure, ServerSelectionTimeoutError) as e:
-        logger.error(f"❌ MongoDB connection failed: {e}")
+        logger.error(f"◍ ᴍᴏɴɢᴏ — ғᴀɪʟᴇᴅ: {e} ◍")
         _client = None
         _db = None
         return False
 
     except Exception as e:
-        logger.error(f"❌ MongoDB unexpected error: {e}")
+        logger.error(f"◍ ᴍᴏɴɢᴏ — ᴇʀʀᴏʀ: {e} ◍")
         _client = None
         _db = None
         return False

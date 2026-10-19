@@ -17,7 +17,7 @@ async def watchdog_loop(bot):
             mem=psutil.virtual_memory().percent
             log.debug(f"Watchdog ok @{me.username} cpu={cpu}% mem={mem}%")
             if time.time()-last_ok > 600 and LOG_CHANNEL_ID:
-                try: await bot.send_message(LOG_CHANNEL_ID, f"⚠️ Watchdog: bot silent for 10m, health check running...")
+                try: await bot.send_message(LOG_CHANNEL_ID, f"◍ Watchdog: bot silent for 10m, health check running...")
                 except: pass
         except Exception as e:
             log.error(f"Watchdog health check fail: {e}")

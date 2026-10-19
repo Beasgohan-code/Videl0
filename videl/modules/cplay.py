@@ -63,7 +63,7 @@ async def channelplay_cmd(_, message: Message) -> None:
         text = f"<code>{linked}</code>" if linked else "Not set"
         await rich_send(
             bot, chat_id,
-            rich_heading("📢 Channel play", level=3)
+            rich_heading("⬪ Channel play", level=3)
             + rich_kv_table([("Linked channel", text)])
             + rich_note(
                 "<code>/channelplay @channel</code> or <code>/channelplay -100xxxx</code>\n"
@@ -74,19 +74,19 @@ async def channelplay_cmd(_, message: Message) -> None:
         return
 
     if not await is_user_authorized(message):
-        await rich_send(bot, chat_id, rich_heading("❌ Admins only", level=3))
+        await rich_send(bot, chat_id, rich_heading("◍ Admins only", level=3))
         return
 
     if args[0].lower() in ("unlink", "clear", "off", "remove"):
         clear_linked_channel(chat_id)
-        await rich_send(bot, chat_id, rich_heading("✅ Channel unlinked", level=3))
+        await rich_send(bot, chat_id, rich_heading("◍ Channel unlinked", level=3))
         return
 
     channel_id = await _resolve_channel(chat_id, args[0])
     if not channel_id:
         await rich_send(
             bot, chat_id,
-            rich_heading("❌ Invalid channel", level=3)
+            rich_heading("◍ Invalid channel", level=3)
             + rich_note("Use @username or numeric ID. Bot must be admin in the channel."),
         )
         return
@@ -94,12 +94,12 @@ async def channelplay_cmd(_, message: Message) -> None:
     try:
         chat = await bot.get_chat(channel_id)
         if chat.type not in (ChatType.CHANNEL, ChatType.SUPERGROUP):
-            await rich_send(bot, chat_id, rich_heading("❌ Target must be a channel/supergroup", level=3))
+            await rich_send(bot, chat_id, rich_heading("◍ Target must be a channel/supergroup", level=3))
             return
     except Exception as e:
         await rich_send(
             bot, chat_id,
-            rich_heading("❌ Cannot access channel", level=3)
+            rich_heading("◍ Cannot access channel", level=3)
             + rich_note(f"<code>{rich_esc(str(e))}</code>\nAdd the bot as admin in the channel first."),
         )
         return
@@ -108,7 +108,7 @@ async def channelplay_cmd(_, message: Message) -> None:
     title = getattr(chat, "title", None) or str(channel_id)
     await rich_send(
         bot, chat_id,
-        rich_heading("✅ Channel linked", level=3)
+        rich_heading("◍ Channel linked", level=3)
         + rich_kv_table([
             ("Channel", rich_esc(title)),
             ("ID", f"<code>{channel_id}</code>"),
@@ -141,7 +141,7 @@ async def cplay_handler(_, message: Message) -> None:
     if not channel_id:
         await rich_send(
             bot, group_id,
-            rich_heading("📢 No channel linked", level=3)
+            rich_heading("⬪ No channel linked", level=3)
             + rich_note(
                 "Set one first:\n"
                 "<code>/channelplay @YourChannel</code>\n"
@@ -168,13 +168,13 @@ async def cplay_handler(_, message: Message) -> None:
         if not media and reply.document:
             ok, _ = _is_playable_document(reply.document)
             if not ok:
-                await rich_send(bot, group_id, rich_heading("❌ Unsupported file", level=3))
+                await rich_send(bot, group_id, rich_heading("◍ Unsupported file", level=3))
                 return
         if not media:
             # fall through to query
             pass
         else:
-            pm = await rich_send(bot, group_id, rich_heading("⏳ Channel play — downloading...", level=3))
+            pm = await rich_send(bot, group_id, rich_heading("◍ Channel play — downloading...", level=3))
             try:
                 fresh = await bot.get_messages(reply.chat.id, reply.id)
                 target = (
@@ -183,7 +183,7 @@ async def cplay_handler(_, message: Message) -> None:
                 )
                 fp = await bot.download_media(target)
             except Exception as e:
-                await rich_send(bot, group_id, rich_heading("❌ Download failed", level=3) + rich_note(str(e)))
+                await rich_send(bot, group_id, rich_heading("◍ Download failed", level=3) + rich_note(str(e)))
                 return
 
             is_video = force_video or bool(reply.video or reply.video_note)
@@ -208,7 +208,7 @@ async def cplay_handler(_, message: Message) -> None:
             # Notify in group
             await rich_send(
                 bot, group_id,
-                rich_heading("📢 Playing in channel", level=3)
+                rich_heading("⬪ Playing in channel", level=3)
                 + rich_kv_table([
                     ("Title", rich_esc(short(name))),
                     ("Channel", f"<code>{channel_id}</code>"),
@@ -244,20 +244,20 @@ async def cplay_handler(_, message: Message) -> None:
     # Pyrogram Message is frozen; so duplicate the search logic lightly.
 
     is_url = any(x in query for x in ("youtube.com", "youtu.be", "playlist?list="))
-    pm = await rich_send(bot, group_id, rich_heading("⏳ Channel play — searching...", level=3))
+    pm = await rich_send(bot, group_id, rich_heading("◍ Channel play — searching...", level=3))
 
     try:
         from videl.utils.assistant import is_assistant_in, try_join_assistant
         status = await is_assistant_in(channel_id)
         if status == "banned":
-            await rich_send(bot, group_id, rich_heading("🚫 Assistant banned in channel", level=3))
+            await rich_send(bot, group_id, rich_heading("◍ Assistant banned in channel", level=3))
             return
         if not status:
             ok = await try_join_assistant(channel_id, pm)
             if not ok:
                 await rich_send(
                     bot, group_id,
-                    rich_heading("❌ Assistant could not join channel", level=3)
+                    rich_heading("◍ Assistant could not join channel", level=3)
                     + rich_note("Add the assistant account to the channel and grant VC rights."),
                 )
                 return
@@ -273,7 +273,7 @@ async def cplay_handler(_, message: Message) -> None:
 
             results = await search_yt_multi(query, limit=1)
             if not results:
-                await rich_send(bot, group_id, rich_heading("❌ No results", level=3))
+                await rich_send(bot, group_id, rich_heading("◍ No results", level=3))
                 return
             r = results[0]
             secs = iso_to_sec(r.get("duration_iso", "PT0S"))
@@ -293,7 +293,7 @@ async def cplay_handler(_, message: Message) -> None:
             pos = add_to_queue(channel_id, song)
             await rich_send(
                 bot, group_id,
-                rich_heading("📢 Queued in channel", level=3)
+                rich_heading("⬪ Queued in channel", level=3)
                 + rich_kv_table([
                     ("Title", rich_esc(short(r["title"]))),
                     ("Channel", f"<code>{channel_id}</code>"),
@@ -330,7 +330,7 @@ async def cplay_handler(_, message: Message) -> None:
         pos = add_to_queue(channel_id, song)
         await rich_send(
             bot, group_id,
-            rich_heading("📢 Queued in channel", level=3)
+            rich_heading("⬪ Queued in channel", level=3)
             + rich_kv_table([
                 ("Title", rich_esc(short(title))),
                 ("Channel", f"<code>{channel_id}</code>"),
@@ -342,6 +342,6 @@ async def cplay_handler(_, message: Message) -> None:
         LOGGER.error(f"[cplay] {e}")
         await rich_send(
             bot, group_id,
-            rich_heading("❌ Channel play failed", level=3)
+            rich_heading("◍ Channel play failed", level=3)
             + rich_note(f"<code>{rich_esc(str(e))}</code>"),
         )

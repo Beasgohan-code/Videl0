@@ -39,7 +39,7 @@ async def repo_cmd(_, message: Message) -> None:
         [
             [
                 InlineKeyboardButton(
-                    "📦 Source Code",
+                    "◍ Source Code",
                     url=SOURCE_URL,
                 ),
                 InlineKeyboardButton(
@@ -49,11 +49,11 @@ async def repo_cmd(_, message: Message) -> None:
             ],
             [
                 InlineKeyboardButton(
-                    "💬 Support",
+                    "⫶ sᴜᴘᴘᴏʀᴛ",
                     url=config.SUPPORT_GROUP,
                 ),
                 InlineKeyboardButton(
-                    "📢 Updates",
+                    "⬪ Updates",
                     url=config.UPDATES_CHANNEL,
                 ),
             ],
@@ -61,13 +61,13 @@ async def repo_cmd(_, message: Message) -> None:
     )
 
     content = (
-        rich_heading("📦 Videl Source", level=3)
+        rich_heading("◍ Videl Source", level=3)
         + "<p>❍ ᴏᴘᴇɴ sᴏᴜʀᴄᴇ ᴍᴜsɪᴄ ʙᴏᴛ, ᴅᴇᴠᴇʟᴏᴘᴇᴅ ʙʏ <b>ʙᴇᴀꜱɢᴏʜᴀɴ</b> ❤️</p>"
         + rich_details(
             "⚡ ʜᴏsᴛɪɴɢ sᴜᴘᴘᴏʀᴛ",
             rich_kv_table([
-                ("ғʀᴇᴇ", "ʀᴇɴᴅᴇʀ ✅ · ᴋᴏʏᴇʙ ✅ · ʀᴀɪʟᴡᴀʏ ✅"),
-                ("ᴘʀᴇᴍɪᴜᴍ", "ʜᴇʀᴏᴋᴜ 💎 · ᴠᴘs 🚀 (24x7 sᴍᴏᴏᴛʜ ʜᴏsᴛ)"),
+                ("ғʀᴇᴇ", "ʀᴇɴᴅᴇʀ ◍ · ᴋᴏʏᴇʙ ◍ · ʀᴀɪʟᴡᴀʏ ◍"),
+                ("ᴘʀᴇᴍɪᴜᴍ", "ʜᴇʀᴏᴋᴜ ⬪ ᴠᴘs (24x7)"),
             ]),
             open=True,
         )
@@ -163,12 +163,12 @@ async def cleanup_cmd(_, message: Message) -> None:
         rows.append(("downloads_removed", str(dl)))
         await rich_reply(
             message,
-            _rh("✅ Cleanup complete", level=3)
+            _rh("◍ Cleanup complete", level=3)
             + _rkv(rows)
             + _rn("Inactive chats/users & old playlists older than 30 days removed."),
         )
     except Exception as e:
         await rich_reply(
             message,
-            _rh("❌ Cleanup failed", level=3) + _rn(str(e)),
+            _rh("◍ Cleanup failed", level=3) + _rn(str(e)),
         )

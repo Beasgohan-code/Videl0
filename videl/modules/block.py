@@ -91,7 +91,7 @@ async def gblock_cmd(_, message: Message) -> None:
     block_group(chat_id)
     await rich_send(
         bot, message.chat.id,
-        rich_heading("❍ ɢʀᴏᴜᴘ ʙʟᴏᴄᴋᴇᴅ ✅", level=3)
+        rich_heading("◍ ɢʀᴏᴜᴘ ʙʟᴏᴄᴋᴇᴅ ◍", level=3)
         + rich_kv_table([("ᴄʜᴀᴛ ɪᴅ", f"<code>{chat_id}</code>")])
         + rich_note("ɴᴏ ᴄᴏᴍᴍᴀɴᴅs ᴡɪʟʟ ᴡᴏʀᴋ ɪɴ ᴛʜɪs ɢʀᴏᴜᴘ ɴᴏᴡ."),
     )
@@ -136,7 +136,7 @@ async def gunblock_cmd(_, message: Message) -> None:
     unblock_group(chat_id)
     await rich_send(
         bot, message.chat.id,
-        rich_heading("❍ ɢʀᴏᴜᴘ ᴜɴʙʟᴏᴄᴋᴇᴅ ✅", level=3)
+        rich_heading("◍ ɢʀᴏᴜᴘ ᴜɴʙʟᴏᴄᴋᴇᴅ ◍", level=3)
         + rich_kv_table([("ᴄʜᴀᴛ ɪᴅ", f"<code>{chat_id}</code>")])
         + rich_note("ᴄᴏᴍᴍᴀɴᴅs ᴀʀᴇ ɴᴏᴡ ᴇɴᴀʙʟᴇᴅ ɪɴ ᴛʜɪs ɢʀᴏᴜᴘ."),
     )
@@ -191,7 +191,7 @@ async def ublock_cmd(_, message: Message) -> None:
         rows.append(("ɴᴀᴍᴇ", rich_esc(user_name)))
     await rich_send(
         bot, chat_id,
-        rich_heading("❍ ᴜsᴇʀ ʙʟᴏᴄᴋᴇᴅ ✅", level=3)
+        rich_heading("◍ ᴜsᴇʀ ʙʟᴏᴄᴋᴇᴅ ◍", level=3)
         + rich_kv_table(rows)
         + rich_note("ᴛʜɪs ᴜsᴇʀ ᴄᴀɴɴᴏᴛ ᴜsᴇ ᴀɴʏ ʙᴏᴛ ᴄᴏᴍᴍᴀɴᴅs ɴᴏᴡ."),
     )
@@ -242,7 +242,7 @@ async def uunblock_cmd(_, message: Message) -> None:
         rows.append(("ɴᴀᴍᴇ", rich_esc(user_name)))
     await rich_send(
         bot, chat_id,
-        rich_heading("❍ ᴜsᴇʀ ᴜɴʙʟᴏᴄᴋᴇᴅ ✅", level=3)
+        rich_heading("◍ ᴜsᴇʀ ᴜɴʙʟᴏᴄᴋᴇᴅ ◍", level=3)
         + rich_kv_table(rows)
         + rich_note("ᴛʜɪs ᴜsᴇʀ ᴄᴀɴ ɴᴏᴡ ᴜsᴇ ʙᴏᴛ ᴄᴏᴍᴍᴀɴᴅs ᴀɢᴀɪɴ."),
     )

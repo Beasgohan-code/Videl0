@@ -54,7 +54,7 @@ class Database:
                 # test query
                 self.supabase.table("videl_users").select("id").limit(1).execute()
                 self.use_supabase = True
-                log.info("Supabase connected ✅")
+                log.info("◍ sᴜᴘᴀʙᴀsᴇ — ᴄᴏɴɴᴇᴄᴛᴇᴅ ◍")
             except Exception as e:
                 log.warning(f"Supabase init failed, falling back to SQLite: {e}")
                 self.supabase = None

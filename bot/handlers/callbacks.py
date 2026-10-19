@@ -25,8 +25,8 @@ async def cb_help(cq: CallbackQuery):
     from bot.handlers.start import COMMANDS_HELP
     # map
     key={
-        "general":"🚀 General", "music":"🎵 Music", "ai":"🤖 AI Chat",
-        "utility":"🧰 Utility", "admin":"🛡️ Group Admin", "owner":"👑 Owner/Sudo", "fun":"🎲 Fun"
+        "general":"◍ ɢᴇɴᴇʀᴀʟ", "music":"⬪ ᴍᴜsɪᴄ", "ai":"⦿ ᴀɪ ᴄʜᴀᴛ",
+        "utility":"◎ ᴜᴛɪʟɪᴛʏ", "admin":"⦿ ɢʀᴏᴜᴘ ᴀᴅᴍɪɴ", "owner":"◍ ᴏᴡɴᴇʀ/Sudo", "fun":"𖦹 ғᴜɴ"
     }.get(cat, cat)
     await cq.answer()
     # build text
@@ -60,7 +60,7 @@ async def cb_owner_panel(cq: CallbackQuery):
     if not is_sudo(cq.from_user.id):
         return await cq.answer("Sudo only", show_alert=True)
     await cq.answer()
-    await cq.message.edit_text(rich_heading("👑 Owner Panel", level=2)+rich_note("Manage bot:"), reply_markup=owner_panel_kb())
+    await cq.message.edit_text(rich_heading("◍ ᴏᴡɴᴇʀ ᴘᴀɴᴇʟ", level=2)+rich_note("Manage bot:"), reply_markup=owner_panel_kb())
 
 @router.callback_query(F.data.startswith("owner:"))
 async def cb_owner(cq: CallbackQuery):
@@ -78,13 +78,13 @@ async def cb_owner(cq: CallbackQuery):
         s=await db.get_chat_settings(0)
         await cq.message.edit_text(rich_heading(f"◍ {sc('sudo')} ◍", level=3)+rich_note(str(s.get("sudo_users","[]"))))
     elif action=="backup":
-        await cq.message.edit_text("📦 Use /backup command.")
+        await cq.message.edit_text("◍ ᴜsᴇ /backup command.")
     elif action=="restart":
         await cq.message.edit_text("🔄 Use /restart")
     elif action=="logs":
         await cq.message.edit_text("📜 Use /logs")
     elif action=="broadcast":
-        await cq.message.edit_text("📢 Use /broadcast <text>")
+        await cq.message.edit_text("⬪ Use /broadcast <text>")
 
 # ── Music callbacks ─────────────────────────────────────────────────────────
 @router.callback_query(F.data.startswith("music:"))
@@ -117,7 +117,7 @@ async def cb_music(cq: CallbackQuery):
             await stop_call(chat_id)
         except: pass
         await cq.answer("Stopped")
-        try: await cq.message.edit_text("⏹ Stopped & cleared.")
+        try: await cq.message.edit_text("⬩ sᴛᴏᴘᴘᴇᴅ & cleared.")
         except: pass
     elif action=="queue":
         q=await db.queue_list(chat_id)
@@ -140,4 +140,4 @@ async def cb_fun(cq: CallbackQuery):
     await cq.answer()
     action=cq.data.split(":",1)[1] if ":" in cq.data else ""
     if action=="dice":
-        import random; await cq.message.reply(f"🎲 {random.randint(1,6)}")
+        import random; await cq.message.reply(f"◍ {random.randint(1,6)} ◍")

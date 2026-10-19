@@ -31,7 +31,7 @@ async def _resolve_user(message: Message, arg: str) -> int|None:
 # ── /addsudo /rmsudo /sudolist ────────────────────────────────────────────
 @router.message(Command("addsudo"))
 async def addsudo_cmd(message: Message):
-    if not is_owner(message.from_user.id): return await message.reply("👑 Owner only.")
+    if not is_owner(message.from_user.id): return await message.reply("◍ ᴏᴡɴᴇʀ ᴏɴʟʏ.")
     arg=(message.text.split(maxsplit=1)[1] if len(message.text.split(maxsplit=1))>1 else "")
     uid=await _resolve_user(message, arg)
     if not uid: return await message.reply("Usage: /addsudo <reply|id>")
@@ -52,7 +52,7 @@ async def addsudo_cmd(message: Message):
 
 @router.message(Command("rmsudo"))
 async def rmsudo_cmd(message: Message):
-    if not is_owner(message.from_user.id): return await message.reply("👑 Owner only.")
+    if not is_owner(message.from_user.id): return await message.reply("◍ ᴏᴡɴᴇʀ ᴏɴʟʏ.")
     arg=(message.text.split(maxsplit=1)[1] if len(message.text.split(maxsplit=1))>1 else "")
     uid=await _resolve_user(message, arg)
     if not uid: return await message.reply("Usage: /rmsudo <reply|id>")
@@ -70,7 +70,7 @@ async def sudolist_cmd(message: Message):
     from bot.config import SUDO_USERS, OWNER_ID
     all_ids=set(lst) | set(SUDO_USERS) | ({OWNER_ID} if OWNER_ID else set())
     txt="<br>".join(f"<code>{i}</code>" for i in all_ids) or "None"
-    await message.answer(rich_heading("👑 Sudo List", level=3)+rich_note(txt))
+    await message.answer(rich_heading("◍ sᴜᴅᴏ ʟɪsᴛ", level=3)+rich_note(txt))
 
 # ── /gban /ungban /gbans /block /unblock ──────────────────────────────────
 @router.message(Command("gban"))
@@ -102,7 +102,7 @@ async def ungban_cmd(message: Message):
     uid=await _resolve_user(message, arg)
     if not uid: return await message.reply("Usage: /ungban <reply|id>")
     await db.ungban(uid)
-    await message.answer(f"✅ Ungbanned <code>{uid}</code>")
+    await message.answer(f"◍ Ungbanned <code>{uid}</code>")
 
 @router.message(Command("gbans"))
 async def gbans_cmd(message: Message):
@@ -120,9 +120,9 @@ async def block_cmd(message: Message):
     if not target: return await message.reply("Usage: /block <user|chat>")
     # decide chat or user by range: chats are negative or big, users positive
     if str(target).startswith("-"):
-        await db.block_chat(target); await message.answer(f"🚫 Blocked chat <code>{target}</code>")
+        await db.block_chat(target); await message.answer(f"◍ Blocked chat <code>{target}</code>")
     else:
-        await db.block_user(target, "blocked", message.from_user.id); await message.answer(f"🚫 Blocked user <code>{target}</code>")
+        await db.block_user(target, "blocked", message.from_user.id); await message.answer(f"◍ Blocked user <code>{target}</code>")
 
 @router.message(Command("unblock"))
 async def unblock_cmd(message: Message):
@@ -132,9 +132,9 @@ async def unblock_cmd(message: Message):
     target=uid or (int(arg) if arg.lstrip("-").isdigit() else None)
     if not target: return await message.reply("Usage: /unblock <user|chat>")
     if str(target).startswith("-"):
-        await db.unblock_chat(target); await message.answer(f"✅ Unblocked chat <code>{target}</code>")
+        await db.unblock_chat(target); await message.answer(f"◍ Unblocked chat <code>{target}</code>")
     else:
-        await db.unblock_user(target); await message.answer(f"✅ Unblocked user <code>{target}</code>")
+        await db.unblock_user(target); await message.answer(f"◍ Unblocked user <code>{target}</code>")
 
 # ── /broadcast ─────────────────────────────────────────────────────────────
 @router.message(Command("broadcast","gcast"))
@@ -155,17 +155,17 @@ async def broadcast_cmd(message: Message):
     except: chats=[]
     if not chats: return await message.reply("No chats to broadcast.")
     sent=0; failed=0
-    prog=await message.answer(f"📢 Broadcasting to {len(chats)} chats…")
+    prog=await message.answer(f"⬪ ʙʀᴏᴀᴅᴄᴀsᴛɪɴɢ to {len(chats)} chats…")
     for cid in chats:
         try:
-            await message.bot.send_message(cid, f"📢 <b>Broadcast</b>\n\n{text}")
+            await message.bot.send_message(cid, f"⬪ <b>Broadcast</b>\n\n{text}")
             sent+=1
         except: failed+=1
         await asyncio.sleep(0.04)
         if sent%20==0:
-            try: await prog.edit_text(f"📢 {sent}/{len(chats)}…")
+            try: await prog.edit_text(f"⬪ {sent}/{len(chats)}…")
             except: pass
-    await prog.edit_text(rich_heading("📢 Broadcast Done", level=3)+rich_kv_table([("Sent",str(sent)),("Failed",str(failed))]))
+    await prog.edit_text(rich_heading("⬪ ʙʀᴏᴀᴅᴄᴀsᴛ Done", level=3)+rich_kv_table([("Sent",str(sent)),("Failed",str(failed))]))
 
 # ── /eval /exec /shell ─────────────────────────────────────────────────────
 @router.message(Command("eval"))
@@ -191,7 +191,7 @@ async def eval_cmd(message: Message):
             exec(code, ctx)
             out=""
         stdout=buf.getvalue()
-        text=(stdout+"\n"+out).strip() or "✅ Done (no output)"
+        text=(stdout+"\n"+out).strip() or "◍ Done (no output)"
         if len(text)>3800: text=text[:3800]+"…"
         await message.reply(rich_pre(text, "python"))
     except Exception:
@@ -231,7 +231,7 @@ async def restart_cmd(message: Message):
 @router.message(Command("backup"))
 async def backup_cmd(message: Message):
     if not is_sudo(message.from_user.id): return
-    await message.answer("📦 Backing up…")
+    await message.answer("◍ ʙᴀᴄᴋɪɴɢ ᴜᴘ…")
     # dump stats to file then upload to Dropbox if configured
     try:
         s=await db.get_stats()
@@ -244,12 +244,12 @@ async def backup_cmd(message: Message):
             import dropbox
             dbx=dropbox.Dropbox(DROPBOX_ACCESS_TOKEN)
             with open(fname,"rb") as f: dbx.files_upload(f.read(), f"{DROPBOX_BACKUP_FOLDER}/{os.path.basename(fname)}", mode=dropbox.files.WriteMode.overwrite)
-            await message.answer("✅ Backup uploaded to Dropbox.")
+            await message.answer("◍ Backup uploaded to Dropbox.")
         else:
-            await message.answer(f"✅ Local backup at {fname}\n<code>{html.escape(dump)}</code>")
+            await message.answer(f"◍ Local backup at {fname}\n<code>{html.escape(dump)}</code>")
         # also log channel
         if LOG_CHANNEL_ID:
-            try: await message.bot.send_document(LOG_CHANNEL_ID, document=open(fname,"rb"), caption="📦 Backup")
+            try: await message.bot.send_document(LOG_CHANNEL_ID, document=open(fname,"rb"), caption="◍ ʙᴀᴄᴋᴜᴘ")
             except: pass
     except Exception as e: await message.answer(f"Backup fail: {e}")
 
@@ -261,7 +261,7 @@ async def activevc_cmd(message: Message):
         if db._sqlite:
             cur=db._sqlite.execute("SELECT DISTINCT chat_id FROM videl_music_queue")
             chats=[r[0] for r in cur.fetchall()]
-            await message.answer(rich_heading("🎵 Active Queues", level=3)+rich_note("<br>".join(f"<code>{c}</code>" for c in chats) or "None"))
+            await message.answer(rich_heading("⬪ Active Queues", level=3)+rich_note("<br>".join(f"<code>{c}</code>" for c in chats) or "None"))
         else:
             r=db.supabase.table("videl_music_queue").select("chat_id").execute()
             chats=list({x["chat_id"] for x in (r.data or [])})

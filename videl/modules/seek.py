@@ -106,7 +106,7 @@ async def _seek_to(chat_id: int, target_sec: int, message: Message) -> None:
     # True rich card — same pattern as the now-playing message in player.py
     # (embedded thumbnail via rich_img, real heading + table), not a caption.
     content = (
-        rich_heading("🎧 Now Playing", level=3)
+        rich_heading("◍ Now Playing", level=3)
         + (rich_img(song["thumbnail"]) if song.get("thumbnail") else "")
         + rich_kv_table([
             ("ᴛɪᴛʟᴇ", rich_esc(short(song["title"]))),

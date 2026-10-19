@@ -34,7 +34,7 @@ async def stop_cmd(_, message: Message) -> None:
 
     await rich_send(
         bot, chat_id,
-        rich_heading("⏹ Playback stopped", level=3)
+        rich_heading("⬩ Playback stopped", level=3)
         + rich_note("Queue cleared · left voice chat"),
     )
 

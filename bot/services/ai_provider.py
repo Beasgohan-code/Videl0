@@ -69,7 +69,7 @@ async def ask_ai(prompt: str, history: list[dict] | None = None, model: str | No
             return resp.choices[0].message.content
         except Exception as e: log.warning(f"Mistral fail: {e}")
 
-    return "🤖 AI is not configured. Add OPENAI_API_KEY / GROQ_API_KEY / GEMINI_API_KEY to .env"
+    return "◍ ᴀɪ ɴᴏᴛ ᴄᴏɴғɪɢᴜʀᴇᴅ — Add OPENAI_API_KEY / GROQ_API_KEY / GEMINI_API_KEY to .env"
 
 async def generate_image(prompt: str, model: str="dall-e-3") -> str | None:
     """Returns image URL if available."""

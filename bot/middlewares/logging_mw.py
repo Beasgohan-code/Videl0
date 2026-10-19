@@ -15,7 +15,7 @@ class LoggingMiddleware(BaseMiddleware):
             log.exception(f"Handler error: {e}")
             # try to answer user
             if isinstance(event, Message):
-                try: await event.answer(f"⚠️ Error: <code>{e}</code>")
+                try: await event.answer(f"◍ ᴇʀʀᴏʀ: <code>{e}</code>")
                 except: pass
             raise
         finally:

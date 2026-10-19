@@ -51,9 +51,9 @@ async def ai_chat_cmd(message: Message):
             for chunk in split_text(ans[3900:], 3800):
                 await message.answer(rich_note(rich_esc(chunk)))
         else:
-            await draft.finish(rich_heading(f"⬪ {sc('videl')} ⬪", level=3)+rich_note(rich_esc(ans)) + rich_note(f'💬 <code>/ask</code> to continue • <code>/clearhistory</code> to reset'))
+            await draft.finish(rich_heading(f"⬪ {sc('videl')} ⬪", level=3)+rich_note(rich_esc(ans)) + rich_note(f'⫶ <code>/ask</code> to continue • <code>/clearhistory</code> to reset'))
     except Exception as e:
-        await draft.finish(rich_heading("⚠️ AI Error", level=3)+rich_note(rich_esc(str(e))))
+        await draft.finish(rich_heading("◍ AI Error", level=3)+rich_note(rich_esc(str(e))))
 
 @router.message(Command("clearhistory","clearchat"))
 async def clear_history(message: Message):
@@ -69,7 +69,7 @@ async def imagine_cmd(message: Message):
     m=await message.answer("🎨 Generating…")
     url=await generate_image(prompt)
     if not url:
-        return await m.edit_text("❌ Image gen failed (no API key).")
+        return await m.edit_text("◍ Image gen failed (no API key).")
     try:
         await message.bot.send_photo(message.chat.id, photo=url, caption=f"🎨 <b>{prompt[:200]}</b>\n🔗 <a href=\"{url}\">Open</a>", parse_mode=ParseMode.HTML)
         await m.delete()

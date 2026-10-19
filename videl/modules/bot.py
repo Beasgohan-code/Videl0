@@ -63,7 +63,7 @@ async def bot_added_watcher(_, message: Message) -> None:
                     "❍ ᴍᴀɴᴀɢᴇ ᴠɪᴅᴇᴏ ᴄʜᴀᴛs<br>"
                     "❍ ɪɴᴠɪᴛᴇ ᴜsᴇʀs</p>"
                 )
-                + rich_note("ᴡɪᴛʜᴏᴜᴛ ᴀᴅᴍɪɴ ᴘᴇʀᴍs sᴏᴍᴇ ғᴇᴀᴛᴜʀᴇs ᴡᴏɴ'ᴛ ᴡᴏʀᴋ! 🚫")
+                + rich_note("ᴡɪᴛʜᴏᴜᴛ ᴀᴅᴍɪɴ ᴘᴇʀᴍs sᴏᴍᴇ ғᴇᴀᴛᴜʀᴇs ᴡᴏɴ'ᴛ ᴡᴏʀᴋ! ◍")
             )
             admin_kb = InlineKeyboardMarkup([[
                 InlineKeyboardButton("⚡ ᴍᴀᴋᴇ ᴍᴇ ᴀᴅᴍɪɴ ⚡", url=f"tg://user?id={me.id}")

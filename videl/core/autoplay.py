@@ -80,7 +80,7 @@ async def _fetch_more(chat_id: int, requester: str, requester_id: int) -> int:
                             "title":            item.get("title", "Unknown"),
                             "duration":         iso_to_human(item.get("duration", "PT0S")),
                             "duration_seconds": iso_to_sec(item.get("duration", "PT0S")),
-                            "requester":        f"🔁 AutoPlay",
+                            "requester":        f"⦿ ᴀᴜᴛᴏᴘʟᴀʏ",
                             "requester_id":     requester_id,
                             "thumbnail":        item.get("thumbnail", ""),
                         })
@@ -99,7 +99,7 @@ async def _fetch_more(chat_id: int, requester: str, requester_id: int) -> int:
                             "title":            title,
                             "duration":         iso_to_human(dur_iso),
                             "duration_seconds": iso_to_sec(dur_iso),
-                            "requester":        f"🔁 AutoPlay",
+                            "requester":        f"⦿ ᴀᴜᴛᴏᴘʟᴀʏ",
                             "requester_id":     requester_id,
                             "thumbnail":        thumb,
                         })

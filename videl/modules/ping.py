@@ -28,7 +28,7 @@ from videl.utils.rich_ui import (
 
 def supp_markup():
     return InlineKeyboardMarkup([[
-        InlineKeyboardButton(text="🍬 sᴜᴘᴘᴏʀᴛ 🍬", url=config.SUPPORT_GROUP),
+        InlineKeyboardButton(text="⫶ sᴜᴘᴘᴏʀᴛ", url=config.SUPPORT_GROUP),
     ]])
 
 
@@ -105,14 +105,14 @@ def _run_speedtest(m):
 async def speedtest_cmd(client, message: Message) -> None:
 
     chat_id = message.chat.id
-    m = await rich_send(bot, chat_id, rich_heading("⏳ Running speedtest...", level=3))
+    m = await rich_send(bot, chat_id, rich_heading("◍ Running speedtest...", level=3))
 
     loop   = asyncio.get_event_loop()
     result = await loop.run_in_executor(None, _run_speedtest, m)
 
     if result is None:
         from videl.utils.rich_ui import rich_edit
-        await rich_edit(m, rich_heading("❌ Speedtest failed", level=3))
+        await rich_edit(m, rich_heading("◍ Speedtest failed", level=3))
         return
 
     download = result["download"] / 1_000_000

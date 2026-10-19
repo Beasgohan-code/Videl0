@@ -266,7 +266,7 @@ async def _run_broadcast(message: Message) -> None:
     # ── Done ──────────────────────────────────────────────────────────────────
     await rich_edit(
         pm,
-        rich_heading("❍ ʙʀᴏᴀᴅᴄᴀsᴛ ᴄᴏᴍᴘʟᴇᴛᴇᴅ ✅", level=3)
+        rich_heading("◍ ʙʀᴏᴀᴅᴄᴀsᴛ ᴄᴏᴍᴘʟᴇᴛᴇᴅ ◍", level=3)
         + rich_kv_table([
             ("ɢʀᴏᴜᴘs", f"<code>{success_g}</code>"),
             ("ᴜsᴇʀs", f"<code>{success_u}</code>"),

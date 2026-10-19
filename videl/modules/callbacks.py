@@ -36,9 +36,9 @@ def _support_updates_pills() -> str:
     return (
         "<p>"
         f'<tg-button type="url" style="primary" url="{config.SUPPORT_GROUP}">'
-        "🍬 sᴜᴘᴘᴏʀᴛ</tg-button> "
+        "⫶ sᴜᴘᴘᴏʀᴛ</tg-button> "
         f'<tg-button type="url" style="success" url="{config.UPDATES_CHANNEL}">'
-        "🍹 ᴜᴘᴅᴀᴛᴇs</tg-button>"
+        "◎ ᴜᴘᴅᴀᴛᴇs</tg-button>"
         "</p>"
     )
 
@@ -126,7 +126,7 @@ _HELP_TEXTS = {
     },
 
     "help_autoplay": {
-        "title": "🔁 ᴀᴜᴛᴏᴘʟᴀʏ ᴄᴏᴍᴍᴀɴᴅs",
+        "title": "⦿ ᴀᴜᴛᴏᴘʟᴀʏ ᴄᴏᴍᴍᴀɴᴅs",
         "desc": "ᴋᴇᴇᴘ ᴛʜᴇ ǫᴜᴇᴜᴇ ɢᴏɪɴɢ ᴀᴜᴛᴏᴍᴀᴛɪᴄᴀʟʟʏ ʙᴀsᴇᴅ ᴏɴ ᴀ ǫᴜᴇʀʏ.",
         "rows": [
             ("/autoplay &lt;query&gt;", "ᴄᴏɴᴛɪɴᴜᴏᴜsʟʏ ᴘʟᴀʏ sᴏɴɢs ʙᴀsᴇᴅ ᴏɴ ʏᴏᴜʀ ǫᴜᴇʀʏ"),
@@ -137,7 +137,7 @@ _HELP_TEXTS = {
     },
 
     "help_gcast": {
-        "title": "📢 ɢ-ᴄᴀsᴛ ᴄᴏᴍᴍᴀɴᴅs",
+        "title": "⬪ ɢ-ᴄᴀsᴛ ᴄᴏᴍᴍᴀɴᴅs",
         "desc": "ʙʀᴏᴀᴅᴄᴀsᴛ ᴛᴏ ᴇᴠᴇʀʏ sᴇʀᴠᴇᴅ ᴄʜᴀᴛ (ᴏᴡɴᴇʀ ᴏɴʟʏ).",
         "rows": [
             ("/broadcast, /gcast", "ʀᴇᴘʟʏ ᴛᴏ ᴀ ᴍsɢ ᴏʀ ᴛʏᴘᴇ ᴛᴇxᴛ"),
@@ -149,7 +149,7 @@ _HELP_TEXTS = {
     },
 
     "help_blchat": {
-        "title": "🚫 ʙʟ-ᴄʜᴀᴛ ᴄᴏᴍᴍᴀɴᴅs",
+        "title": "◍ ʙʟ-ᴄʜᴀᴛ ᴄᴏᴍᴍᴀɴᴅs",
         "desc": "ʙʟᴏᴄᴋ ᴏʀ ᴜɴʙʟᴏᴄᴋ ᴡʜᴏʟᴇ ɢʀᴏᴜᴘs (ᴏᴡɴᴇʀ ᴏɴʟʏ).",
         "rows": [
             ("/gblock", "ʙʟᴏᴄᴋ ᴄᴜʀʀᴇɴᴛ ɢʀᴏᴜᴘ — ɴᴏ ᴄᴏᴍᴍᴀɴᴅs ᴡɪʟʟ ᴡᴏʀᴋ"),
@@ -161,7 +161,7 @@ _HELP_TEXTS = {
     },
 
     "help_blusers": {
-        "title": "🚫 ʙʟ-ᴜsᴇʀs ᴄᴏᴍᴍᴀɴᴅs",
+        "title": "◍ ʙʟ-ᴜsᴇʀs ᴄᴏᴍᴍᴀɴᴅs",
         "desc": "ʙʟᴏᴄᴋ ᴏʀ ᴜɴʙʟᴏᴄᴋ ɪɴᴅɪᴠɪᴅᴜᴀʟ ᴜsᴇʀs (ᴏᴡɴᴇʀ ᴏɴʟʏ).",
         "rows": [
             ("/ublock", "ʀᴇᴘʟʏ ᴛᴏ ᴀ ᴜsᴇʀ's ᴍsɢ ᴛᴏ ʙʟᴏᴄᴋ — ᴛʜᴇʏ ᴄᴀɴ'ᴛ ᴜsᴇ ᴀɴʏ ᴄᴏᴍᴍᴀɴᴅ"),
@@ -183,7 +183,7 @@ _HELP_TEXTS = {
     },
 
     "help_play": {
-        "title": "🎵 ᴘʟᴀʏ ᴄᴏᴍᴍᴀɴᴅs",
+        "title": "⬪ ᴘʟᴀʏ ᴄᴏᴍᴍᴀɴᴅs",
         "desc": "ᴀᴜᴅɪᴏ, ᴠɪᴅᴇᴏ, ғɪʟᴇs &amp; ᴄʜᴀɴɴᴇʟ ᴘʟᴀʏ.",
         "rows": [
             ("/play &lt;name or URL&gt;", "ᴘʟᴀʏ ᴀᴜᴅɪᴏ ɪɴ ɢʀᴏᴜᴘ ᴠᴄ"),
@@ -349,7 +349,7 @@ async def on_callback(client, cbq: CallbackQuery) -> None:
         await cbq.answer("sᴛᴏᴘᴘᴇᴅ")
         await rich_send(
             bot, chat_id,
-            rich_heading("⏹ ᴘʟᴀʏʙᴀᴄᴋ sᴛᴏᴘᴘᴇᴅ", level=3)
+            rich_heading("⬩ ᴘʟᴀʏʙᴀᴄᴋ sᴛᴏᴘᴘᴇᴅ", level=3)
             + rich_note(f"❍ ʙʏ » {user.mention}"),
         )
 
@@ -471,7 +471,7 @@ async def _go_back(cbq: CallbackQuery) -> None:
     caption = (
             rich_img(photo)
             + rich_note(f"<p>❍ ʜᴇʏ <a href='tg://user?id={uid}'>{rich_esc(name)}</a>, "
-            "ᴡᴇʟᴄᴏᴍᴇ ᴀʙᴏᴀʀᴅ! 🎶</p>"
+            "ᴡᴇʟᴄᴏᴍᴇ ᴀʙᴏᴀʀᴅ! ⬪</p>"
             + f"<p>ɪ ᴀᴍ <b>{rich_esc(config.BOT_NAME)}</b> — ᴀ ғᴀsᴛ &amp; "
               "ᴘᴏᴡᴇʀғᴜʟ ᴛᴇʟᴇɢʀᴀᴍ ᴍᴜsɪᴄ ᴘʟᴀʏᴇʀ ʙᴏᴛ ᴡɪᴛʜ sᴏᴍᴇ ᴀᴡᴇsᴏᴍᴇ "
               "ғᴇᴀᴛᴜʀᴇs.</p>")
@@ -480,10 +480,10 @@ async def _go_back(cbq: CallbackQuery) -> None:
                 rich_table(
                     ["ғᴇᴀᴛᴜʀᴇ", "ᴅᴇᴛᴀɪʟs"],
                     [
-                        ("🎵 sᴛʀᴇᴀᴍɪɴɢ", "ᴘʟᴀʏ ᴀᴜᴅɪᴏ &amp; ᴠɪᴅᴇᴏ ɪɴ ᴠᴏɪᴄᴇ ᴄʜᴀᴛs"),
-                        ("🔁 ᴀᴜᴛᴏᴘʟᴀʏ", "ᴋᴇᴇᴘs ᴛʜᴇ ǫᴜᴇᴜᴇ ɢᴏɪɴɢ ᴀᴜᴛᴏᴍᴀᴛɪᴄᴀʟʟʏ"),
+                        ("⬪ sᴛʀᴇᴀᴍɪɴɢ", "ᴘʟᴀʏ ᴀᴜᴅɪᴏ &amp; ᴠɪᴅᴇᴏ ɪɴ ᴠᴏɪᴄᴇ ᴄʜᴀᴛs"),
+                        ("⦿ ᴀᴜᴛᴏᴘʟᴀʏ", "ᴋᴇᴇᴘs ᴛʜᴇ ǫᴜᴇᴜᴇ ɢᴏɪɴɢ ᴀᴜᴛᴏᴍᴀᴛɪᴄᴀʟʟʏ"),
                         ("🎚️ ᴇғғᴇᴄᴛs", "sᴘᴇᴇᴅ ᴄᴏɴᴛʀᴏʟ &amp; ʙᴀss ʙᴏᴏsᴛ"),
-                        ("🛡️ ᴍᴏᴅᴇʀᴀᴛɪᴏɴ", "ʙʟᴏᴄᴋ/ᴜɴʙʟᴏᴄᴋ ᴄʜᴀᴛs &amp; ᴜsᴇʀs"),
+                        ("⬪ ᴍᴏᴅᴇʀᴀᴛɪᴏɴ", "ʙʟᴏᴄᴋ/ᴜɴʙʟᴏᴄᴋ ᴄʜᴀᴛs &amp; ᴜsᴇʀs"),
                     ],
                 ),
                 open=True,
@@ -491,7 +491,7 @@ async def _go_back(cbq: CallbackQuery) -> None:
             + rich_details(
                 "✧ ᴡʜʏ ᴄʜᴏᴏsᴇ ɪᴛ? ✧",
                 "<p>⭐ sɪᴍᴘʟᴇ sʟᴀsʜ ᴄᴏᴍᴍᴀɴᴅs, ɴᴏ sᴇᴛᴜᴘ ɴᴇᴇᴅᴇᴅ.</p>"
-                "<p>🎧 ᴄʟᴇᴀɴ, ʟᴏᴡ-ʟᴀɢ sᴛʀᴇᴀᴍɪɴɢ.</p>"
+                "<p>◍ ᴄʟᴇᴀɴ, ʟᴏᴡ-ʟᴀɢ sᴛʀᴇᴀᴍɪɴɢ.</p>"
                 "<p>❍ ᴄʟɪᴄᴋ ʜᴇʟᴘ ʙᴇʟᴏᴡ ғᴏʀ ᴀʟʟ ᴄᴏᴍᴍᴀɴᴅs.</p>",
                 open=True,
             )
@@ -502,8 +502,8 @@ async def _go_back(cbq: CallbackQuery) -> None:
         [InlineKeyboardButton("⛩️ ᴧᴅᴅ мᴇ ʙᴧʙʏ ⛩️",
                               url=f"{config.BOT_LINK}?startgroup=true")],
         [
-            InlineKeyboardButton("💬 Support", url=config.SUPPORT_GROUP),
-            InlineKeyboardButton("📢 Updates",  url=config.UPDATES_CHANNEL),
+            InlineKeyboardButton("⫶ sᴜᴘᴘᴏʀᴛ", url=config.SUPPORT_GROUP),
+            InlineKeyboardButton("⬪ Updates",  url=config.UPDATES_CHANNEL),
         ],
         [InlineKeyboardButton("🏩 ʜᴇʟᴘ & ᴄᴏᴍᴍᴀɴᴅs 🏩",
                               callback_data="show_help")],

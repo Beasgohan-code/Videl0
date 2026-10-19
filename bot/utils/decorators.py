@@ -10,7 +10,7 @@ def owner_only(func):
     @functools.wraps(func)
     async def wrap(message: Message, *args, **kwargs):
         if not is_owner(message.from_user.id):
-            return await message.reply("👑 Owner only.")
+            return await message.reply("◍ ᴏᴡɴᴇʀ ᴏɴʟʏ ◍")
         return await func(message, *args, **kwargs)
     return wrap
 
@@ -42,7 +42,7 @@ def group_only(func):
     @functools.wraps(func)
     async def wrap(message: Message, *args, **kwargs):
         if message.chat.type == ChatType.PRIVATE:
-            return await message.reply("👥 This works in groups only.")
+            return await message.reply("⫶ ɢʀᴏᴜᴘs ᴏɴʟʏ ⫶")
         return await func(message, *args, **kwargs)
     return wrap
 
@@ -65,7 +65,7 @@ def cooldown(rate: int=3, per: int=10):
             bucket=_buckets.get(uid, [])
             bucket=[t for t in bucket if now-t < per]
             if len(bucket) >= rate:
-                return await message.reply(f"⏳ Slow down — {per}s cooldown.")
+                return await message.reply(f"◍ sʟᴏᴡ ᴅᴏᴡɴ — {per}s ⫶")
             bucket.append(now); _buckets[uid]=bucket
             return await func(message, *args, **kwargs)
         return wrap

@@ -54,10 +54,10 @@ async def _play_song_internal(bot, chat_id:int, song:dict, status_msg: Message|N
     try:
         fp=await download_song(song.get("url") or song.get("link",""))
         if fp and os.path.exists(fp):
-            await bot.send_audio(chat_id, audio=open(fp,"rb"), title=song.get("title",""), performer=song.get("channel",""), caption=f"🎵 {song.get('title','')} • requested by {song.get('requester','')}")
+            await bot.send_audio(chat_id, audio=open(fp,"rb"), title=song.get("title",""), performer=song.get("channel",""), caption=f"⬪ {song.get('title','')} • requested by {song.get('requester','')}")
             return True
         # if download fails, send stream link
-        await bot.send_message(chat_id, f"🎵 <b>{song['title']}</b>\n🔗 <a href=\"{song.get('link','')}\">YouTube</a>\n👤 Requested by {song.get('requester','')}\n\n<i>Download unavailable — streaming link above</i>")
+        await bot.send_message(chat_id, f"⬪ <b>{song['title']}</b>\n🔗 <a href=\"{song.get('link','')}\">YouTube</a>\n👤 Requested by {song.get('requester','')}\n\n<i>Download unavailable — streaming link above</i>")
         return True
     except Exception as e:
         log.warning(f"file send fail {e}")
@@ -105,7 +105,7 @@ async def play_handler(message: Message):
     if chat_id in _last and now - _last[chat_id] < COOLDOWN:
         rem=int(COOLDOWN-(now-_last[chat_id]))
         if chat_id not in _pending:
-            rep=await message.bot.send_message(chat_id, f"⏳ Cooldown {rem}s — queuing your request…")
+            rep=await message.bot.send_message(chat_id, f"◍ Cooldown {rem}s — queuing your request…")
             _pending[chat_id]=(message, rep, query, cmd)
             async def _later():
                 await asyncio.sleep(rem)
@@ -123,7 +123,7 @@ async def play_handler(message: Message):
         orig=message.reply_to_message
         media=orig.audio or orig.video
         if media and getattr(media,"file_size",0) and media.file_size > 100*1024*1024:
-            return await message.bot.send_message(chat_id, "❌ File too large (max 100MB).")
+            return await message.bot.send_message(chat_id, "◍ File too large (max 100MB).")
         title=getattr(media,"file_name","Audio")
         song={"title":title, "url": getattr(media,"file_id",""), "link": "", "duration":"0:00","duration_seconds": getattr(media,"duration",0) or 0,
               "thumbnail":None, "channel":"Telegram","requester": user.full_name, "requester_id": user.id}
@@ -143,7 +143,7 @@ async def play_handler(message: Message):
         )
     # blocked words
     if any(w in query.lower() for w in BLOCKED_WORDS):
-        return await message.bot.send_message(chat_id, "🚫 Blocked query.")
+        return await message.bot.send_message(chat_id, "◍ Blocked query.")
     await _do_play(message, query, cmd.endswith("vplay"), chat_id)
 
 async def _do_play(message: Message, query: str, video: bool, chat_id:int):
@@ -151,14 +151,14 @@ async def _do_play(message: Message, query: str, video: bool, chat_id:int):
     # queue limit
     q=await db.queue_list(chat_id)
     if len(q) >= QUEUE_LIMIT:
-        return await message.bot.send_message(chat_id, f"❌ Queue full ({QUEUE_LIMIT}). Skip or clear.")
+        return await message.bot.send_message(chat_id, f"◍ Queue full ({QUEUE_LIMIT}). Skip or clear.")
 
     status=await message.bot.send_message(chat_id, rich_heading(f"⫶ {sc('searching')} ⫶", level=3)+rich_note(rich_esc(query)))
 
     # search
     results=await search_yt(query, limit=1)
     if not results:
-        await status.edit_text("❌ No results.")
+        await status.edit_text("◍ No results.")
         return
     info=results[0]
     dur_sec = info.get("duration")
@@ -168,7 +168,7 @@ async def _do_play(message: Message, query: str, video: bool, chat_id:int):
         except: dur_sec=0
     dur_sec = int(dur_sec or 0)
     if dur_sec and dur_sec > MAX_DURATION_SECONDS:
-        await status.edit_text(f"❌ Too long ({format_duration(dur_sec)} > {format_duration(MAX_DURATION_SECONDS)}).")
+        await status.edit_text(f"◍ Too long ({format_duration(dur_sec)} > {format_duration(MAX_DURATION_SECONDS)}).")
         return
     thumb = (info.get("thumbnails") or [{}])[0].get("url") if info.get("thumbnails") else info.get("thumbnail","")
     link = info.get("link") or f"https://www.youtube.com/watch?v={info.get('id','')}"
@@ -221,7 +221,7 @@ async def skip_cmd(message: Message):
         # attempt play next
         await _play_song_internal(message.bot, message.chat.id, {"title":ns["title"],"url":ns["url"],"link":ns["url"],"duration":format_duration(ns.get("duration",0)),"duration_seconds":ns.get("duration",0),"requester":str(ns.get("requested_by",""))})
     else:
-        await message.answer("⏹ Queue empty — stopped.")
+        await message.answer("⬩ ǫᴜᴇᴜᴇ ᴇᴍᴘᴛʏ — stopped.")
         try:
             from bot.services.music_service import stop_call
             await stop_call(message.chat.id)
@@ -313,7 +313,7 @@ async def lyrics_cmd(message: Message):
         except: pass
     if lyrics:
         if len(lyrics)>3800: lyrics=lyrics[:3800]+"…"
-        await message.answer(rich_heading(f"🎤 Lyrics — {query}", level=3)+rich_note(f"<pre>{rich_esc(lyrics)}</pre>"))
+        await message.answer(rich_heading(f"◍ ʟʏʀɪᴄs — {query}", level=3)+rich_note(f"<pre>{rich_esc(lyrics)}</pre>"))
     else:
         await message.answer(rich_heading(f"◍ {sc('lyrics')} ◍", level=3)+rich_note(f"No lyrics found for <code>{rich_esc(query)}</code>.<br>⫶ <a href=\"https://genius.com/search?q={query.replace(' ','+')}\">Genius Search</a> ⫶"))
 
@@ -330,7 +330,7 @@ async def playlist_cmd(message: Message):
     if sub=="create":
         if not rest: return await message.reply("Give a name: /playlist create mylist")
         await db.add_playlist(uid, rest, [])
-        await message.answer(f"✅ Created playlist <code>{rest}</code>")
+        await message.answer(f"◍ Created playlist <code>{rest}</code>")
     elif sub=="add":
         if not rest or " " not in rest: return await message.reply("Usage: /playlist add <name> <song>")
         name,song_q=rest.split(maxsplit=1)
@@ -362,9 +362,9 @@ async def playlist_cmd(message: Message):
 @router.message(Command("thumbnail"))
 async def thumbnail_cmd(message: Message):
     arg=(message.text.split(maxsplit=1)[1] if len(message.text.split(maxsplit=1))>1 else "").lower()
-    if arg in ("on","enable","true"): await db.set_thumbnail(message.chat.id, True); await message.answer("🖼 Thumbnail ON")
-    elif arg in ("off","disable","false"): await db.set_thumbnail(message.chat.id, False); await message.answer("🖼 Thumbnail OFF")
-    else: on=await db.is_thumbnail_enabled(message.chat.id); await message.answer(f"🖼 Thumbnail is {'ON' if on else 'OFF'} — use /thumbnail on/off")
+    if arg in ("on","enable","true"): await db.set_thumbnail(message.chat.id, True); await message.answer("◍ ᴛʜᴜᴍʙɴᴀɪʟ ON")
+    elif arg in ("off","disable","false"): await db.set_thumbnail(message.chat.id, False); await message.answer("◍ ᴛʜᴜᴍʙɴᴀɪʟ OFF")
+    else: on=await db.is_thumbnail_enabled(message.chat.id); await message.answer(f"◍ ᴛʜᴜᴍʙɴᴀɪʟ is {'ON' if on else 'OFF'} — use /thumbnail on/off")
 
 @router.message(Command("autoplay"))
 async def autoplay_cmd(message: Message):

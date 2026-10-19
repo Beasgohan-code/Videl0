@@ -77,13 +77,13 @@ def create_dispatcher() -> Dispatcher:
     return dp
 
 async def on_startup(bot: Bot):
-    log.info(f"🚀 Videl0 starting — Bot API 10.3 • aiogram 3.31 • Richgram • ShizuMusic")
+    log.info(f"◍ Vɪᴅᴇʟ sᴛᴀʀᴛɪɴɢ — ᴀᴘɪ 10.3 ⫶ ᴀɪᴏɢʀᴀᴍ 3.31 ⫶ ʀɪᴄʜɢʀᴀᴍ")
     await set_commands(bot)
     # log channel notify
     if LOG_CHANNEL_ID:
         try:
             me=await bot.get_me()
-            await bot.send_message(LOG_CHANNEL_ID, f"✅ <b>Videl0 started</b> @{me.username} | Polling={not bool(WEBHOOK_URL)} | Env={cfg.ENV}")
+            await bot.send_message(LOG_CHANNEL_ID, f"◍ <b>Vɪᴅᴇʟ sᴛᴀʀᴛᴇᴅ</b> @{me.username} ⫶ ᴘᴏʟʟɪɴɢ={not bool(WEBHOOK_URL)} ⫶ {cfg.ENV} ◍")
         except: pass
     # watchdog + keepalive
     try:
@@ -101,7 +101,7 @@ async def on_startup(bot: Bot):
                 await call_py.start()
                 log.info("Assistant + calls started")
                 if LOG_CHANNEL_ID:
-                    try: await assistant.send_message(LOG_CHANNEL_ID, "🎧 Assistant connected for VC")
+                    try: await assistant.send_message(LOG_CHANNEL_ID, "◍ ᴀssɪsᴛᴀɴᴛ — ᴠᴄ ʀᴇᴀᴅʏ ◍")
                     except: pass
             except Exception as e: log.warning(f"Assistant start fail: {e}")
     except: pass

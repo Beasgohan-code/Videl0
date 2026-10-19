@@ -89,7 +89,7 @@ def _keep_alive() -> None:
 async def _notify_owner(me, assistant_username: str) -> None:
     """Notify logger group + send DM to owner when bot starts."""
     content = (
-        rich_heading("🎵 Videl Started", level=3)
+        rich_heading("◍ Vɪᴅᴇʟ sᴛᴀʀᴛᴇᴅ ◍", level=3)
         + rich_kv_table([
             ("Bot", f"@{rich_esc(me.username or 'N/A')}"),
             ("Assistant", f"@{rich_esc(assistant_username)}"),
@@ -109,7 +109,7 @@ async def _notify_owner(me, assistant_username: str) -> None:
         await bot.send_message(
             config.OWNER_ID,
             (
-                f"🚀 <b>{config.BOT_NAME}</b> is now online!\n\n"
+                f"◍ <b>{config.BOT_NAME}</b> — ᴏɴʟɪɴᴇ ⫶\n\n"
                 f"• Bot: @{me.username or 'N/A'}\n"
                 f"• Assistant: @{assistant_username or 'N/A'}\n"
                 f"• ID: <code>{me.id}</code>\n\n"
@@ -209,7 +209,7 @@ if __name__ == "__main__":
             LOGGER.info(f"Assistant started: @{ASSISTANT_USERNAME}")
         except Exception as e:
             LOGGER.error(
-                "❌ Assistant failed to start.\n"
+                "◍ ᴀssɪsᴛᴀɴᴛ ғᴀɪʟᴇᴅ —\n"
                 "STRING_SESSION is invalid or not a Pyrogram session for this API_ID/API_HASH.\n"
                 f"Error: {e}"
             )
@@ -220,7 +220,7 @@ if __name__ == "__main__":
             await call_py.start()
             LOGGER.info("PyTgCalls started")
         except Exception as e:
-            LOGGER.error(f"❌ PyTgCalls start failed: {e}")
+            LOGGER.error(f"◍ ᴘʏᴛɢᴄᴀʟʟs ғᴀɪʟᴇᴅ: {e} ◍")
             raise SystemExit(1) from e
 
         # Block middleware
