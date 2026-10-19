@@ -972,3 +972,372 @@ def cleanup_old_data(days: int = 30) -> dict:
 
     logger.info(f"[cleanup] {days}-day cleanup done: {stats}")
     return stats
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+#  Elite Group Help — better than Rose / GroupHelp
+#  Inspired by PaulSonOfLars/tgbot, AnonymousX1025/FallenRobot, botdev72/GroupHelp
+#  + AnnieXMusic group management patterns — all credited, none copied
+# ════════════════════════════════════════════════════════════════════════════════
+
+# ── Federations (Rose-style fed bans across groups) ───────────────────────────
+
+def create_fed(fed_id: str, name: str, owner_id: int) -> bool:
+    col = _col("feds")
+    if col is None: return False
+    try:
+        col.update_one({"_id": fed_id}, {"$set": {"_id": fed_id, "name": name, "owner": owner_id, "created": __import__("time").time()}}, upsert=True)
+        col2 = _col("fed_chats"); col2.update_one({"fed": fed_id, "chat": -1}, {"$set": {"fed": fed_id, "chat": -1}}, upsert=True)
+        return True
+    except Exception as e: logger.error(f"[fed] create: {e}"); return False
+
+def delete_fed(fed_id: str) -> bool:
+    col = _col("feds")
+    if col is None: return False
+    try:
+        col.delete_one({"_id": fed_id}); _col("fed_chats").delete_many({"fed": fed_id}); _col("fed_bans").delete_many({"fed": fed_id}); _col("fed_admins").delete_many({"fed": fed_id}); return True
+    except Exception as e: logger.error(f"[fed] delete: {e}"); return False
+
+def get_fed(fed_id: str) -> dict | None:
+    col = _col("feds")
+    if col is None: return None
+    try: return col.find_one({"_id": fed_id})
+    except: return None
+
+def list_feds() -> list:
+    col = _col("feds")
+    if col is None: return []
+    try: return list(col.find({}))
+    except: return []
+
+def join_fed_chat(fed_id: str, chat_id: int) -> bool:
+    col = _col("fed_chats")
+    if col is None: return False
+    try: col.update_one({"fed": fed_id, "chat": chat_id}, {"$set": {"fed": fed_id, "chat": chat_id}}, upsert=True); return True
+    except Exception as e: logger.error(f"[fed] join: {e}"); return False
+
+def leave_fed_chat(fed_id: str, chat_id: int) -> bool:
+    col = _col("fed_chats")
+    if col is None: return False
+    try: col.delete_one({"fed": fed_id, "chat": chat_id}); return True
+    except: return False
+
+def get_chat_fed(chat_id: int) -> str | None:
+    col = _col("fed_chats")
+    if col is None: return None
+    try:
+        doc = col.find_one({"chat": chat_id})
+        return doc["fed"] if doc else None
+    except: return None
+
+def set_chat_fed(chat_id: int, fed_id: str | None) -> None:
+    col = _col("fed_chats")
+    if col is None: return
+    try:
+        if fed_id is None: col.delete_one({"chat": chat_id})
+        else: col.update_one({"chat": chat_id}, {"$set": {"fed": fed_id, "chat": chat_id}}, upsert=True)
+    except Exception as e: logger.error(f"[fed] set_chat: {e}")
+
+def fban(fed_id: str, user_id: int, reason: str, banner: int) -> bool:
+    col = _col("fed_bans")
+    if col is None: return False
+    try: col.update_one({"fed": fed_id, "user": user_id}, {"$set": {"fed": fed_id, "user": user_id, "reason": reason, "banner": banner, "time": __import__("time").time()}}, upsert=True); return True
+    except Exception as e: logger.error(f"[fban]: {e}"); return False
+
+def unfban(fed_id: str, user_id: int) -> bool:
+    col = _col("fed_bans")
+    if col is None: return False
+    try: col.delete_one({"fed": fed_id, "user": user_id}); return True
+    except: return False
+
+def get_fban(fed_id: str, user_id: int) -> dict | None:
+    col = _col("fed_bans")
+    if col is None: return None
+    try: return col.find_one({"fed": fed_id, "user": user_id})
+    except: return None
+
+def list_fbans(fed_id: str) -> list:
+    col = _col("fed_bans")
+    if col is None: return []
+    try: return list(col.find({"fed": fed_id}))
+    except: return []
+
+def is_fbanned_any(user_id: int) -> dict | None:
+    col = _col("fed_bans")
+    if col is None: return None
+    try: return col.find_one({"user": user_id})
+    except: return None
+
+def fed_add_admin(fed_id: str, user_id: int) -> None:
+    col = _col("fed_admins")
+    if col is None: return
+    try: col.update_one({"fed": fed_id, "user": user_id}, {"$set": {"fed": fed_id, "user": user_id}}, upsert=True)
+    except: pass
+
+def fed_remove_admin(fed_id: str, user_id: int) -> None:
+    col = _col("fed_admins")
+    if col is None: return
+    try: col.delete_one({"fed": fed_id, "user": user_id})
+    except: pass
+
+def fed_list_admins(fed_id: str) -> list:
+    col = _col("fed_admins")
+    if col is None: return []
+    try: return [d["user"] for d in col.find({"fed": fed_id})]
+    except: return []
+
+def is_fed_admin(fed_id: str, user_id: int) -> bool:
+    fed = get_fed(fed_id)
+    if not fed: return False
+    if fed.get("owner") == user_id: return True
+    return user_id in fed_list_admins(fed_id)
+
+def get_fed_chats(fed_id: str) -> list:
+    col = _col("fed_chats")
+    if col is None: return []
+    try: return [d["chat"] for d in col.find({"fed": fed_id, "chat": {"$ne": -1}})]
+    except: return []
+
+
+# ── Blacklist (words + stickers) — FallenRobot style ─────────────────────────
+
+def add_blacklist(chat_id: int, trigger: str, mode: str = "del") -> None:
+    col = _col("blacklist")
+    if col is None: return
+    try: col.update_one({"chat": chat_id, "trigger": trigger.lower()}, {"$set": {"chat": chat_id, "trigger": trigger.lower(), "mode": mode}}, upsert=True)
+    except Exception as e: logger.error(f"[bl] add: {e}")
+
+def remove_blacklist(chat_id: int, trigger: str) -> bool:
+    col = _col("blacklist")
+    if col is None: return False
+    try: r=col.delete_one({"chat": chat_id, "trigger": trigger.lower()}); return r.deleted_count>0
+    except: return False
+
+def get_blacklist(chat_id: int) -> list:
+    col = _col("blacklist")
+    if col is None: return []
+    try: return list(col.find({"chat": chat_id}))
+    except: return []
+
+def get_blacklist_mode(chat_id: int) -> str:
+    col = _col("chat_settings")
+    if col is None: return "del"
+    try:
+        doc=col.find_one({"_id": chat_id})
+        return doc.get("blacklist_mode","del") if doc else "del"
+    except: return "del"
+
+def set_blacklist_mode(chat_id: int, mode: str) -> None:
+    col = _col("chat_settings")
+    if col is None: return
+    try: col.update_one({"_id": chat_id}, {"$set": {"blacklist_mode": mode}}, upsert=True)
+    except: pass
+
+def add_blacklist_sticker(chat_id: int, file_unique: str) -> None:
+    col = _col("bl_stickers")
+    if col is None: return
+    try: col.update_one({"chat": chat_id, "sticker": file_unique}, {"$set": {"chat": chat_id, "sticker": file_unique}}, upsert=True)
+    except: pass
+
+def remove_blacklist_sticker(chat_id: int, file_unique: str) -> bool:
+    col = _col("bl_stickers")
+    if col is None: return False
+    try: r=col.delete_one({"chat": chat_id, "sticker": file_unique}); return r.deleted_count>0
+    except: return False
+
+def is_bl_sticker(chat_id: int, file_unique: str) -> bool:
+    col = _col("bl_stickers")
+    if col is None: return False
+    try: return col.find_one({"chat": chat_id, "sticker": file_unique}) is not None
+    except: return False
+
+def list_bl_stickers(chat_id: int) -> list:
+    col = _col("bl_stickers")
+    if col is None: return []
+    try: return [d["sticker"] for d in col.find({"chat": chat_id})]
+    except: return []
+
+
+# ── Approve (whitelist from locks/antiflood) ─────────────────────────────────
+
+def approve_user(chat_id: int, user_id: int) -> None:
+    col = _col("approved")
+    if col is None: return
+    try: col.update_one({"chat": chat_id, "user": user_id}, {"$set": {"chat": chat_id, "user": user_id}}, upsert=True)
+    except Exception as e: logger.error(f"[approve]: {e}")
+
+def disapprove_user(chat_id: int, user_id: int) -> bool:
+    col = _col("approved")
+    if col is None: return False
+    try: r=col.delete_one({"chat": chat_id, "user": user_id}); return r.deleted_count>0
+    except: return False
+
+def is_approved(chat_id: int, user_id: int) -> bool:
+    col = _col("approved")
+    if col is None: return False
+    try: return col.find_one({"chat": chat_id, "user": user_id}) is not None
+    except: return False
+
+def list_approved(chat_id: int) -> list:
+    col = _col("approved")
+    if col is None: return []
+    try: return [d["user"] for d in col.find({"chat": chat_id})]
+    except: return []
+
+
+# ── Captcha / verification ────────────────────────────────────────────────────
+
+def get_captcha(chat_id: int) -> dict:
+    col = _col("chat_settings")
+    if col is None: return {"enabled": False, "mode": "math", "timeout": 120}
+    try:
+        doc=col.find_one({"_id": chat_id}) or {}
+        c=doc.get("captcha", {"enabled": False, "mode": "math", "timeout": 120})
+        if isinstance(c, bool): c={"enabled": c, "mode": "math", "timeout": 120}
+        return c
+    except: return {"enabled": False, "mode": "math", "timeout": 120}
+
+def set_captcha(chat_id: int, enabled: bool, mode: str = "math", timeout: int = 120) -> None:
+    col = _col("chat_settings")
+    if col is None: return
+    try: col.update_one({"_id": chat_id}, {"$set": {"captcha": {"enabled": enabled, "mode": mode, "timeout": timeout}}}, upsert=True)
+    except Exception as e: logger.error(f"[captcha] set: {e}")
+
+
+# ── Disable commands per chat ─────────────────────────────────────────────────
+
+def disable_cmd(chat_id: int, cmd: str) -> None:
+    col = _col("disabled_cmds")
+    if col is None: return
+    try: col.update_one({"chat": chat_id, "cmd": cmd.lower()}, {"$set": {"chat": chat_id, "cmd": cmd.lower()}}, upsert=True)
+    except: pass
+
+def enable_cmd(chat_id: int, cmd: str) -> bool:
+    col = _col("disabled_cmds")
+    if col is None: return False
+    try: r=col.delete_one({"chat": chat_id, "cmd": cmd.lower()}); return r.deleted_count>0
+    except: return False
+
+def is_disabled(chat_id: int, cmd: str) -> bool:
+    col = _col("disabled_cmds")
+    if col is None: return False
+    try: return col.find_one({"chat": chat_id, "cmd": cmd.lower()}) is not None
+    except: return False
+
+def list_disabled(chat_id: int) -> list:
+    col = _col("disabled_cmds")
+    if col is None: return []
+    try: return [d["cmd"] for d in col.find({"chat": chat_id})]
+    except: return []
+
+
+# ── Connections (admin controls group via PM) ─────────────────────────────────
+
+def connect_user(user_id: int, chat_id: int) -> None:
+    col = _col("connections")
+    if col is None: return
+    try: col.update_one({"user": user_id}, {"$set": {"user": user_id, "chat": chat_id}}, upsert=True)
+    except: pass
+
+def disconnect_user(user_id: int) -> None:
+    col = _col("connections")
+    if col is None: return
+    try: col.delete_one({"user": user_id})
+    except: pass
+
+def get_connected_chat(user_id: int) -> int | None:
+    col = _col("connections")
+    if col is None: return None
+    try:
+        doc=col.find_one({"user": user_id})
+        return doc["chat"] if doc else None
+    except: return None
+
+def allow_connect(chat_id: int, allow: bool) -> None:
+    col = _col("chat_settings")
+    if col is None: return
+    try: col.update_one({"_id": chat_id}, {"$set": {"allow_connect": allow}}, upsert=True)
+    except: pass
+
+def is_connect_allowed(chat_id: int) -> bool:
+    col = _col("chat_settings")
+    if col is None: return False
+    try:
+        doc=col.find_one({"_id": chat_id})
+        return bool(doc.get("allow_connect", False)) if doc else False
+    except: return False
+
+
+# ── Reports / log channel / back-ups / nightmode / cleaner ────────────────────
+
+def set_log_channel(chat_id: int, log_chat: int | None) -> None:
+    col = _col("chat_settings")
+    if col is None: return
+    try: col.update_one({"_id": chat_id}, {"$set": {"log_channel": log_chat}}, upsert=True)
+    except: pass
+
+def get_log_channel(chat_id: int) -> int | None:
+    col = _col("chat_settings")
+    if col is None: return None
+    try:
+        doc=col.find_one({"_id": chat_id})
+        return doc.get("log_channel") if doc else None
+    except: return None
+
+def set_reports(chat_id: int, enabled: bool) -> None:
+    col = _col("chat_settings")
+    if col is None: return
+    try: col.update_one({"_id": chat_id}, {"$set": {"reports": enabled}}, upsert=True)
+    except: pass
+
+def get_reports(chat_id: int) -> bool:
+    col = _col("chat_settings")
+    if col is None: return True
+    try:
+        doc=col.find_one({"_id": chat_id})
+        return bool(doc.get("reports", True)) if doc else True
+    except: return True
+
+def set_clean_service(chat_id: int, enabled: bool) -> None:
+    col = _col("chat_settings")
+    if col is None: return
+    try: col.update_one({"_id": chat_id}, {"$set": {"clean_service": enabled}}, upsert=True)
+    except: pass
+
+def get_clean_service(chat_id: int) -> bool:
+    col = _col("chat_settings")
+    if col is None: return False
+    try:
+        doc=col.find_one({"_id": chat_id})
+        return bool(doc.get("clean_service", False)) if doc else False
+    except: return False
+
+def set_nightmode(chat_id: int, enabled: bool, start: str = "00:00", end: str = "06:00") -> None:
+    col = _col("chat_settings")
+    if col is None: return
+    try: col.update_one({"_id": chat_id}, {"$set": {"nightmode": {"enabled": enabled, "start": start, "end": end}}}, upsert=True)
+    except: pass
+
+def get_nightmode(chat_id: int) -> dict:
+    col = _col("chat_settings")
+    if col is None: return {"enabled": False, "start": "00:00", "end": "06:00"}
+    try:
+        doc=col.find_one({"_id": chat_id})
+        return doc.get("nightmode", {"enabled": False, "start": "00:00", "end": "06:00"}) if doc else {"enabled": False, "start": "00:00", "end": "06:00"}
+    except: return {"enabled": False, "start": "00:00", "end": "06:00"}
+
+def save_backup(chat_id: int, data: dict) -> str:
+    col = _col("backups")
+    if col is None: return ""
+    try:
+        bid=__import__("uuid").uuid4().hex[:8]
+        col.update_one({"_id": bid}, {"$set": {"_id": bid, "chat": chat_id, "data": data, "time": __import__("time").time()}}, upsert=True)
+        return bid
+    except: return ""
+
+def get_backup(bid: str) -> dict | None:
+    col = _col("backups")
+    if col is None: return None
+    try: return col.find_one({"_id": bid})
+    except: return None
+

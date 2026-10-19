@@ -34,6 +34,34 @@
 | `api/eldian_routes.py` | `GET /api/stream_audio` + `POST /v1/track/by-video-id` (ʙᴜɪʟᴛ-ɪɴ) |
 | `__main__.py` | ғʟᴀsᴋ `/_health` + `/` + ᴇʟᴅɪᴀɴ, `assistant.start()` → `call_py.start()` → `idle()` |
 
+### ⬪ ᴇʟɪᴛᴇ ɢʀᴏᴜᴘ ʜᴇʟᴘ ⫶ ᴍᴏʀᴇ ʙᴇᴛᴛᴇʀ ᴛʜᴀɴ ʀᴏsᴇ / ɢʀᴏᴜᴘʜᴇʟᴘ ◍
+
+> ғᴜʟʟ ᴜsᴇ ᴏғ ᴇxᴛᴇʀɴᴀʟ ʀᴇᴘᴏs — ғᴏʀ ᴀᴄᴄᴜʀᴀᴛᴇ ᴘʀᴏᴅᴜᴄᴛɪᴏɴ ʟᴏɢɪᴄ + ᴇᴠᴇʀʏᴛʜɪɴɢ ᴀᴅᴅᴇᴅ ◍
+
+| sᴏᴜʀᴄᴇ | sᴛᴜᴅɪᴇᴅ | ᴡʜᴀᴛ ᴠɪᴅᴇʟ ɢᴏᴛ |
+|---|---|---|
+| **Beasgohan-code/videl** (7 commits) | `/admin` `/locks` `/playlist` `/smartqueue` `core/player` | ᴘʀᴏᴅᴜᴄᴛɪᴏɴ ᴍᴜsɪᴄ + ᴀᴅᴍɪɴ ʙᴀsᴇ |
+| **PaulSonOfLars/tgbot** (25 modules) | `locks` `disable` `cust_filters` `connection` `log_channel` `reporting` `backups` `admin` `bans` | → `locks_elite.py` (32 types) + `extra_group.py` (disable/log/reports/connection/backup) |
+| **AnonymousX1025/FallenRobot** (30+ modules) | `federation.py` `blacklist.py` `blacklist_stickers.py` `approve.py` `captcha.py` `nightmode.py` `cleaner.py` | → `federation.py` `blocklist.py` `approve.py` `captcha.py` + cleaner/nightmode |
+| **botdev72/GroupHelp** (8 commits ahead) | `config` `database` `welcome` `warns` `filters` | ᴄᴏɴғɪɢ ᴜɴɪғɪᴇᴅ + ᴘᴀʀɪᴛʏ ᴄʜᴇᴄᴋᴇᴅ |
+| **CertifiedCoders/AnnieXMusic** (955 commits) | ʏᴛ sᴇᴀʀᴄʜ + ɢʀᴏᴜᴘ ᴍɢᴍᴛ ʜʏʙʀɪᴅ | ᴍᴜsɪᴄ+ɢʀᴏᴜᴘ ᴀᴅᴠᴀɴᴛᴀɢᴇ ᴅᴇsɪɢɴ |
+| **Rose (1ʙ ᴜsᴇʀs)** | ᴡᴀʀɴs ɴᴏᴛᴇs ғɪʟᴛᴇʀs ғᴇᴅᴇʀᴀᴛɪᴏɴs ᴀɴᴛɪsᴘᴀᴍ | **sᴜᴘᴇʀsᴇᴛ** — ᴍᴏʀᴇ ᴛʜᴀɴ ʀᴏsᴇ (sᴇᴇ ʙᴇʟᴏᴡ) |
+
+**ᴡʜᴀᴛ ᴍᴀᴋᴇs ᴠɪᴅᴇʟ ʙᴇᴛᴛᴇʀ ᴛʜᴀɴ ʀᴏsᴇ:**
+
+| ғᴇᴀᴛᴜʀᴇ | ʀᴏsᴇ | **ᴠɪᴅᴇʟ** |
+|---|---|---|
+| ʟᴏᴄᴋs | ~27 ᴛʏᴘᴇs | **32 types** (ᴀʟʟ+ᴜʀʟ/ɪɴᴠɪᴛᴇ/ᴇᴍᴀɪʟ/ᴘʜᴏɴᴇ/ғᴏʀᴡᴀʀᴅ/ᴘʜᴏᴛᴏ/ᴠɪᴅᴇᴏ/ᴀᴜᴅɪᴏ/ᴠᴏɪᴄᴇ/ᴠ-ɴᴏᴛᴇ/ᴅᴏᴄ/sᴛɪᴄᴋᴇʀ/ɢɪғ/ᴄᴏɴᴛᴀᴄᴛ/ʟᴏᴄᴀᴛɪᴏɴ/ᴘᴏʟʟ/ɢᴀᴍᴇ/ɪɴʟɪɴᴇ/ʙᴏᴛ/ɴsғᴡ/ʀᴛʟ/sᴘᴏɪʟᴇʀ/ᴀɴᴏɴ/ᴘɪɴ…) + ᴘᴀɴᴇʟ |
+| ғᴇᴅᴇʀᴀᴛɪᴏɴ | ɢʟᴏʙᴀʟ ʙᴀɴs | **ғᴇᴅs + ғʙᴀɴ + ғᴜɴʙᴀɴ + ғᴘʀᴏᴍᴏᴛᴇ/ғᴅᴇᴍᴏᴛᴇ + ᴀᴜᴛᴏ-ᴇɴғᴏʀᴄᴇ + ғᴇᴅᴄʜᴀᴛs/ғᴇᴅʙᴀɴʟɪsᴛ** — ᴍᴏɴɢᴏ, ɴᴏ SQLᴀʟᴄʜᴇᴍʏ |
+| ʙʟᴀᴄᴋʟɪsᴛ | ᴡᴏʀᴅs + sᴛɪᴄᴋᴇʀs | **ᴡɪʟᴅᴄᴀʀᴅ * + 7 ᴍᴏᴅᴇs** (ᴏғғ/ᴅᴇʟ/ᴡᴀʀɴ/ᴍᴜᴛᴇ/ᴋɪᴄᴋ/ʙᴀɴ/ᴛʙᴀɴ_X) + sᴛɪᴄᴋᴇʀ-ʙʟ |
+| ᴀᴘᴘʀᴏᴠᴇ | ʏᴇs | + **ᴡᴇʙ ᴅᴀsʜʙᴏᴀʀᴅ sʏɴᴄ** |
+| ᴄᴀᴘᴛᴄʜᴀ | ʏᴇs | **ᴍᴀᴛʜ + ʙᴜᴛᴛᴏɴ + ᴛɪᴍᴇᴏᴜᴛ ᴋɪᴄᴋ** |
+| ᴅɪsᴀʙʟᴇ | ʏᴇs | + **ᴄᴏɴɴᴇᴄᴛɪᴏɴ ᴠɪᴀ PM** (`/connect`/`/allowconnect`) |
+| ʀᴇᴘᴏʀᴛs/ʟᴏɢs | ʏᴇs | + **ʟᴏɢ ᴄʜᴀɴɴᴇʟ** (`/logchannel`) |
+| ɴɪɢʜᴛ / ᴄʟᴇᴀɴᴇʀ | ʏᴇs | + **ᴄᴜsᴛᴏᴍ ᴛɪᴍᴇ** `/nightmode 23:00 06:00` + `/cleanmode` |
+| ʙᴀᴄᴋᴜᴘs | ʏᴇs | + **sᴜᴘᴀʙᴀsᴇ + ᴅʀᴏᴘʙᴏx** ᴅᴜᴀʟ + JSON ғɪʟᴇ + ʙᴜᴛᴛᴏɴ ʀᴇsᴛᴏʀᴇ |
+| **ᴍᴜsɪᴄ** | ❌ | **◍ ᴠɪᴅᴇʟ ᴀᴅᴠᴀɴᴛᴀɢᴇ — full VC ᴍᴜsɪᴄ + ᴀᴅᴍɪɴ + ᴀɪ (ɴᴏ ᴏᴛʜᴇʀ ʙᴏᴛ ʜᴀs ᴛʜɪs)** |
+
 ### ⫶ ғᴜʟʟ-sᴛᴀᴄᴋ ᴘᴇʀғᴇᴄᴛɪᴏɴ ⬪
 
 | ғᴇᴀᴛᴜʀᴇ | sᴛᴀᴛᴜs |
@@ -41,10 +69,13 @@
 | **ᴀɪ** `videl/modules/ai.py` | ᴏᴘᴇɴᴀɪ → ɢʀᴏǫ → ɢᴇᴍɪɴɪ → ᴍɪsᴛʀᴀʟ — `/ask` `/imagine` |
 | **ᴜᴛɪʟs** `utils_extra.py` + `fun.py` | /weather /qr /shorten /calc /wiki /git /carbon /afk + 8ball/joke/ship — ᴀʟʟ ◍ |
 | **ᴄᴏɴғɪɢ** | ᴜɴɪғɪᴇᴅ `config.py` — ᴜᴘsᴛʀᴇᴀᴍ + sᴜᴘᴀʙᴀsᴇ/ᴅʀᴏᴘʙᴏx/ᴠᴇʀᴄᴇʟ/ᴀɪ/sᴜᴅᴏ |
-| **ᴅʙ sʏɴᴄ** | sᴜᴘᴀʙᴀsᴇ `hanre-studio` + ᴍᴏɴɢᴏ |
+| **ᴅʙ sʏɴᴄ** | sᴜᴘᴀʙᴀsᴇ `hanre-studio` + ᴍᴏɴɢᴏ + `utils/db.py` **200+ ʜᴇʟᴘᴇʀs** |
 | **ʙᴀᴄᴋᴜᴘ** | ᴅʀᴏᴘʙᴏx `/Videl0/backups` ᴇᴠᴇʀʏ 6ʜ |
 | **ᴡᴇʙᴀᴘᴘ** | ɴᴇxᴛ 15 ᴅᴀsʜʙᴏᴀʀᴅ — `hosting-bot-dashboard` |
 | **ᴋᴇᴇᴘ-ᴀʟɪᴠᴇ** | ғᴀsᴛᴀᴘɪ `/health` `/webhook` — ᴏɴ `KEEPALIVE_PORT`, ɴᴏ ᴘᴏʀᴛ ᴄʟᴀsʜ |
+| **ᴡᴀᴛᴄʜᴅᴏɢ** | `core/watcher.py` — ᴀᴜᴛᴏ-ʀᴇᴄᴏɴɴᴇᴄᴛ |
+
+_Cʏʙᴇʀ ᴅᴀʀᴋ: sᴍᴀʟʟ-ᴄᴀᴘs + sᴀɴs-ʙᴏʟᴅ + ◍ ⬪ ⫶ ⬩ 𖦹 ⦿ ◎ ⬢ — sᴀᴍᴇ ᴏɴ ʙᴏᴛ + sᴇʀᴠᴇʀ + ᴡᴇʙᴀᴘᴘ._
 
 ---
 

@@ -24,10 +24,17 @@ ALL_MODULES = [
     "playlist",
     "smartqueue",
     "locks",
+    "locks_elite",
     "cplay",
     "lyrics",
-    # ── Videl0 Perfect additions — production ready full-stack ──
+    # ── Videl0 Perfect — full-stack (ai + utils + fun) ──
     "ai",
     "utils_extra",
     "fun",
+    # ── Elite Group Help — better than Rose / GroupHelp ──
+    "federation",
+    "blocklist",
+    "approve",
+    "captcha",
+    "extra_group",
 ]

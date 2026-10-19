@@ -176,27 +176,42 @@ if __name__ == "__main__":
         me = await bot.get_me()
         LOGGER.info(f"Bot: @{me.username}")
 
-        # Bot commands
+        # Bot commands — elite group help better than Rose/GroupHelp + music
         try:
             await bot.set_bot_commands([
-                BotCommand("start",  "Start the bot"),
-                BotCommand("help",   "Help menu"),
-                BotCommand("play",   "Play a song (audio)"),
-                BotCommand("vplay",  "Play video in VC"),
-                BotCommand("cplay",  "Play in linked channel"),
-                BotCommand("pause",  "Pause playback"),
-                BotCommand("resume", "Resume playback"),
-                BotCommand("skip",   "Skip song"),
-                BotCommand("stop",   "Stop & clear"),
-                BotCommand("queue",  "Show queue"),
-                BotCommand("lyrics", "Song lyrics"),
-                BotCommand("ping",   "Bot stats"),
-                BotCommand("ban",    "Ban a user"),
-                BotCommand("mute",   "Mute a user"),
-                BotCommand("warn",   "Warn a user"),
-                BotCommand("admins", "List admins"),
+                BotCommand("start",      "◍ Vɪᴅᴇʟ — Start"),
+                BotCommand("help",       "⬪ Help — all modules"),
+                BotCommand("play",       "⬪ Play music in VC"),
+                BotCommand("vplay",      "⬪ Play video in VC"),
+                BotCommand("cplay",      "⬪ Play in channel"),
+                BotCommand("pause",      "ɪɪ Pause"),
+                BotCommand("resume",     "▷ Resume"),
+                BotCommand("skip",       "‣‣ Skip"),
+                BotCommand("stop",       "⬩ Stop & clear"),
+                BotCommand("queue",      "⫶ Queue"),
+                BotCommand("lyrics",     "◍ Lyrics"),
+                BotCommand("ping",       "⦿ Ping & stats"),
+                BotCommand("ban",        "◍ Ban — elite admin"),
+                BotCommand("mute",       "⦿ Mute / tmute"),
+                BotCommand("warn",       "⬪ Warn with limit"),
+                BotCommand("admins",     "◎ Admin list"),
+                BotCommand("locks",      "◍ Elite locks — 32 types"),
+                BotCommand("approve",    "◎ Approve bypass"),
+                BotCommand("captcha",    "𖦹 Captcha verification"),
+                BotCommand("blacklist",  "⬢ Blocklist words"),
+                BotCommand("fban",       "⬪ Federation ban"),
+                BotCommand("reports",    "◍ Reports to admins"),
+                BotCommand("rules",      "◎ Group rules"),
+                BotCommand("notes",      "⫶ Saved notes"),
+                BotCommand("filters",    "⬪ Custom filters"),
+                BotCommand("welcome",    "◍ Welcome control"),
+                BotCommand("nightmode",  "⬢ Night mode"),
+                BotCommand("disable",    "⫶ Disable commands"),
+                BotCommand("backup",     "◍ Chat backup"),
+                BotCommand("ask",        "⦿ AI ask — Videl"),
+                BotCommand("weather",    "◎ Weather etc."),
             ])
-            LOGGER.info("Bot commands set")
+            LOGGER.info("Bot commands set — elite group help")
         except Exception as e:
             LOGGER.warning(f"Could not set bot commands: {e}")
 
