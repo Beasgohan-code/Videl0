@@ -135,7 +135,7 @@ async def bot_added_watcher(_, message: Message) -> None:
                 pass
 
     except Exception as e:
-        print(f"[watcher] bot_added_watcher error: {e}")
+        LOGGER.warning(f"[watcher] bot_added: {e}", exc_info=True)
 
 
 # ── Bot left / removed ─────────────────────────────────────────────────────────
@@ -182,4 +182,4 @@ async def bot_left_watcher(_, message: Message) -> None:
             pass
 
     except Exception as e:
-        print(f"[watcher] bot_left_watcher error: {e}")
+        LOGGER.warning(f"[watcher] bot_left: {e}", exc_info=True)

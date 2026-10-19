@@ -39,4 +39,8 @@ ALL_MODULES = [
     "extra_group",
     # ── Premium Costume — emoji packs + sticker per event ──
     "costume",
+    # ── Videl0 Expansion — downloader + owner utils + AI pro (professional) ──
+    "downloader",
+    "owner_utils",
+    "ai_pro",
 ]
