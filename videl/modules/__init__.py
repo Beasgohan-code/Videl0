@@ -37,4 +37,6 @@ ALL_MODULES = [
     "approve",
     "captcha",
     "extra_group",
+    # ── Premium Costume — emoji packs + sticker per event ──
+    "costume",
 ]

@@ -210,6 +210,7 @@ ENCRYPTION_KEY: str = _str("ENCRYPTION_KEY", "")
 
 # ── Aesthetic ─────────────────────────────────────────────────────────────────
 CYBER_DARK: bool = _bool("CYBER_DARK", True)
+USE_PREMIUM_EMOJI: bool = _bool("USE_PREMIUM_EMOJI", True)
 ENABLE_RICH_MESSAGES: bool = _bool("ENABLE_RICH_MESSAGES", True)
 ENABLE_BUSINESS: bool = _bool("ENABLE_BUSINESS", True)
 ENABLE_PAID_BROADCAST: bool = _bool("ENABLE_PAID_BROADCAST", True)

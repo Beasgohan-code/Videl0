@@ -79,10 +79,32 @@ _Cʏʙᴇʀ ᴅᴀʀᴋ: sᴍᴀʟʟ-ᴄᴀᴘs + sᴀɴs-ʙᴏʟᴅ + ◍ ⬪ �
 
 ---
 
+## ⬪ ᴘʀᴇᴍɪᴜᴍ ᴄᴏsᴛᴜᴍᴇ ⫶ ᴇᴍᴏᴊɪ + sᴛɪᴄᴋᴇʀs ◍
+
+> **ɴᴏ ᴘʀᴇᴍɪᴜᴍ sᴜʙsᴄʀɪᴘᴛɪᴏɴ ɴᴇᴇᴅᴇᴅ** — ʙᴏᴛ sᴇɴᴅs ᴘʀᴇᴍɪᴜᴍ ᴇᴍᴏᴊɪ ᴠɪᴀ `custom_emoji_id` sᴏ ᴇᴠᴇʀʏᴏɴᴇ sᴇᴇs ɪᴛ ⫶
+
+**ᴘᴀᴄᴋs ᴡɪʀᴇᴅ (your IDs):**
+- `t.me/addemoji/NewsEmoji` — `5210956306952758910` 👀 `5461117441612462242` 🙂 `5456140674028019486` ⚡️ (63 mapped)
+- `t.me/addemoji/tgiosicons` — `6028346797368283073` ✈️ `5942734685976138521` 🖥 `6030425896546996257` ⭐️
+- `t.me/addemoji/Udif7rr7_by_fStikBot` — `5042225965518816316` ❤️‍🔥 `5042302287087666158` 🔮 `5042151130008650810` 💍
+- `t.me/addemoji/SoLo_HaMiD` — `5084979757905347540` ✅ `5116395218882528029` ⏫ `5172834782823842584` ✨
+
+**ᴄʏʙᴇʀ ɢʟʏᴘʜs → ᴘʀᴇᴍɪᴜᴍ:** `◍ ⬪ ⫶ ⬩ 𖦹 ⦿ ◎ ⬢ ➪` are now `<tg-emoji emoji-id="...">` via `videl/utils/premium_emojis.py` + `USE_PREMIUM_EMOJI=1`
+fallback to plain glyph for old clients. Toggle: `USE_PREMIUM_EMOJI=0` for pure text.
+
+**ᴄᴏsᴛᴜᴍᴇ sᴛɪᴄᴋᴇʀs per chat:**
+```bash
+/costumes               # list set stickers
+/setcostume welcome     # reply to sticker → sets welcome costume
+/setcostume ban         # ban/mute/warn/lock/captcha/play/help all supported
+/delcostume welcome
+/premium test           # showcase all premium emoji
+```
+`videl/utils/db.py` → `costume_stickers` + `videl/modules/costume.py` (welcome/goodbye auto-send).
+
 ## ⬪ sᴛʏʟᴇ ᴘʀᴇᴠɪᴇᴡ ◍
 
-```
-/start → ◍ 𝗩𝗶𝗱𝗲𝗹 𝗠𝘂𝘀𝗶𝗰 ◍
+```/start → ◍ 𝗩𝗶𝗱𝗲𝗹 𝗠𝘂𝘀𝗶𝗰 ◍
          ⬪ ʜᴇʏ Beasgohan ⬪
          ⫶ ᴡᴇʟᴄᴏᴍᴇ — ᴀ ᴛᴇʟᴇɢʀᴀᴍ ᴠᴄ ᴍᴜsɪᴄ ʙᴏᴛ ⫶
          ⬪ ғᴇᴀᴛᴜʀᴇs ⬪  ◍ ᴀᴜᴅɪᴏ & ᴠɪᴅᴇᴏ ɪɴ ᴠᴏɪᴄᴇ ᴄʜᴀᴛ

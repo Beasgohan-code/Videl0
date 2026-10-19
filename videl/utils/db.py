@@ -1341,3 +1341,31 @@ def get_backup(bid: str) -> dict | None:
     try: return col.find_one({"_id": bid})
     except: return None
 
+# ── Costume stickers (premium costume per chat event) ─────────────────────────
+
+def set_costume(chat_id: int, event: str, file_id: str) -> None:
+    col = _col("costume_stickers")
+    if col is None: return
+    try: col.update_one({"chat": chat_id, "event": event.lower()}, {"$set": {"chat": chat_id, "event": event.lower(), "file_id": file_id}}, upsert=True)
+    except Exception as e: logger.error(f"[costume] set: {e}")
+
+def get_costume(chat_id: int, event: str) -> str | None:
+    col = _col("costume_stickers")
+    if col is None: return None
+    try:
+        doc=col.find_one({"chat": chat_id, "event": event.lower()})
+        return doc["file_id"] if doc else None
+    except: return None
+
+def del_costume(chat_id: int, event: str) -> bool:
+    col = _col("costume_stickers")
+    if col is None: return False
+    try: r=col.delete_one({"chat": chat_id, "event": event.lower()}); return r.deleted_count>0
+    except: return False
+
+def list_costumes(chat_id: int) -> list:
+    col = _col("costume_stickers")
+    if col is None: return []
+    try: return list(col.find({"chat": chat_id}))
+    except: return []
+

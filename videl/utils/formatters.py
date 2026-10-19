@@ -56,10 +56,35 @@ _SB = str.maketrans(
      **{chr(ord('A')+i): chr(0x1D5D4+i) for i in range(26)},
      **{chr(ord('0')+i): chr(0x1D7EC+i) for i in range(10)}},
 )
+# ── Try premium emoji wrappers — fallback to text glyph if not configured ──
+try:
+    from videl.utils.premium_emojis import pe as _pe, USE_PREMIUM as _USE_PREM
+    _HAS_PREM=True
+except Exception:
+    _HAS_PREM=False
+    def _pe(k, fb): return fb
+    _USE_PREM=False
+
+def _cyber(glyph: str, key: str) -> str:
+    # If premium enabled, pe() returns <tg-emoji> tag; else plain glyph
+    if _HAS_PREM and _USE_PREM:
+        return _pe(key, glyph)
+    return glyph
+
 CYBER = {
-    "dot":"◍","diamond":"⬪","line":"⫶","small":"⬩","spark":"𖦹",
-    "circle":"⦿","target":"◎","hex":"⬢","arrow":"➪","dash":"─",
+    "dot":     _cyber("◍","orb"),
+    "diamond": _cyber("⬪","diamond"),
+    "line":    _cyber("⫶","line"),
+    "small":   _cyber("⬩","small"),
+    "spark":   _cyber("𖦹","spark"),
+    "circle":  _cyber("⦿","circle"),
+    "target":  _cyber("◎","target"),
+    "hex":     _cyber("⬢","hex"),
+    "arrow":   _cyber("➪","arrow"),
+    "dash":    _cyber("─","dash"),
 }
+# Also expose premium helpers for modules that want explicit premium:
+PREM = {"orb":"orb","diamond":"diamond","line":"line","small":"small","spark":"spark","circle":"circle","target":"target","hex":"hex","arrow":"arrow"}
 
 def sc(text: str) -> str:
     if not text: return text
