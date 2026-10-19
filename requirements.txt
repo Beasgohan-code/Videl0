@@ -9,7 +9,7 @@ httpx[http2]==0.28.1
 # ── Telegram — aiogram (Videl0 webapp/webhook side) ───────────────────────────
 aiogram==3.31.0
 aiogram-dialog==2.6.0
-magic-filter==1.5.0
+magic-filter==1.0.12
 richgram==0.2.0
 
 # ── Voice Chat — Real VC (not file fallback) ─────────────────────────────────
