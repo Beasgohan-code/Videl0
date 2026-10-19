@@ -1,11 +1,13 @@
 .env
+.env.production
 __pycache__/
 *.pyc
 *.pyo
 videl.db
 *.db
 downloads/
-cookies.txt
+# keep placeholder cookies.txt for deploy (upstream requirement) — real secrets in env
+!cookies.txt
 log.txt
 .env.*
 !*.example

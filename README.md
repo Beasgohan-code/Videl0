@@ -1,144 +1,135 @@
-# ✨ Videl0 — Full-Stack Telegram Bot
+# ◍ Vɪᴅᴇʟ ◍ — Perfect Production Music Bot
 
-> Telegram Bot API **10.3** • **aiogram 3.31** • **Richgram** by Badmunda05 • **ShizuMusic** core • Full-stack with Vercel + Supabase + Dropbox
+> **Cyber Dark • Kurigram + PyTgCalls • Bot API 10.3 Rich UI • Full-Stack**
 
-**Made by Beasgohan-code — don't hold back, everything included.**
+⚡ Based on **Beasgohan-code/videl** — production proven Videl Music Bot, now **perfected**.
 
----
+**Fast • Smooth • Powerful • Free to Deploy • Full-Stack Admin + AI**
 
-## 🌟 What is Videl0?
-
-All-in-one Telegram bot: **Music + AI Chat + Utilities + Group Management** with a sleek **Admin Dashboard** (Next.js) hosted on Vercel.
-
-- 🎵 **Music** — High-quality VC streaming via `pytgcalls` + `yt-dlp` queue (ShizuMusic proven stack), pause/resume/skip/seek/shuffle, lyrics, playlists, thumbnail & autoplay toggles. Falls back to audio-file mode if no assistant session.
-- 🤖 **AI** — OpenAI → Groq → Gemini → Mistral fallback, per-user history in Supabase, vision (reply to image), image gen (DALL·E + pollinations), summarize & translate.
-- 🧰 **Utility** — weather (wttr.in), QR, shortener, calc, define/UD/wiki, carbon, paste, git, pinterest, sticker, AFK, tagall, speedtest, news.
-- 🛡️ **Group Admin** — ban/unban/kick/mute, warn system, pin/purge/del, lock/unlock, slowmode, welcome/goodbye, filters/notes/rules, reports, staff list, language.
-- 👑 **Owner/Sudo** — broadcast, global ban, block, add/remove sudo, backup to Dropbox, eval/shell, logs, restart, active VC, leave.
-- 🔔 **Ops** — FastAPI keep-alive (`/` , `/health` , `/ping` , `/stats` , `/webhook`), APScheduler watchdog (restarts), logs channel, Dropbox backup every 6h.
-- 🖥️ **Webapp** — Next.js admin dashboard (overview, music queue, moderation, AI playground, ops) deployed to Vercel.
+[![Python](https://img.shields.io/badge/Python-3.11-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+[![Kurigram](https://img.shields.io/badge/Kurigram-dev-00BFFF?style=for-the-badge)](https://github.com/KurimuzonAkuma/kurigram)
+[![PyTgCalls](https://img.shields.io/badge/PyTgCalls-VC-6A5ACD?style=for-the-badge)](https://github.com/pytgcalls/pytgcalls)
+[![aiogram](https://img.shields.io/badge/aiogram-3.31-2B5BFE?style=for-the-badge)](https://github.com/aiogram/aiogram)
 
 ---
 
-## 🏗️ Architecture
+## ◍ Wʜᴀᴛ's Pᴇʀғᴇᴄᴛ ⬪
 
-```
-Videl0/
-├── bot/
-│   ├── main.py              # aiogram Dispatcher + Bot (polling or webhook)
-│   ├── config.py            # all env (Telegram, Supabase, Dropbox, Vercel, AI)
-│   ├── database.py          # Supabase-first + SQLite fallback (videl_* tables)
-│   ├── database_ext.py      # chat settings, locks, welcome, etc.
-│   ├── rich_ui.py           # aiogram port of Richgram (Bot API 10.3 Rich Messages)
-│   ├── handlers/            # start, admin, owner, music, ai, utility, group, callbacks
-│   ├── middlewares/         # logging, tracker (flood/afk/gban/filter)
-│   ├── services/            # ai_provider, music_service (pytgcalls), keep_alive, watchdog
-│   └── utils/               # helpers, keyboards, youtube, decorators
-├── server/
-│   └── app.py               # FastAPI keep-alive + webhook
-├── webapp/                  # Next.js dashboard (Supabase + Vercel)
-├── Dockerfile & docker-compose.yml
-└── .env.example
-```
+This is **not** a demo — it's the **real Videl** from `Beasgohan-code/videl` (7 commits production) **fully integrated** + cyber dark perfected + full-stack upgrade.
 
-### External repos fully used
+### Cyber Dark Aesthetic ⫶
 
-- **[aiogram 3.31](https://github.com/aiogram/aiogram)** — Bot API 10.3 support (Rich Messages, checklist, paid broadcast, direct messages, business).
-- **[Richgram](https://github.com/Badmunda05/richgram)** — `rich_heading`, `rich_kv_table`, `rich_details`, colored `rich_button` rows, `RichDraft` live drafts — ported to aiogram (`bot/rich_ui.py`).
-- **[ShizuMusic](https://github.com/Badmunda05/ShizuMusic)** — queue, player controls, `resolve_stream` via Shruti API + yt-dlp fallback, cooldown, channel-play, progress bar — adapted in `bot/handlers/music.py` & `bot/services/music_service.py`.
+* **Small caps** `ɪᴅ ɪɴғᴏ ᴀssɪsᴛᴀɴᴛ` via `formatters.sc()` — every label perfected
+* **Sans bold** `𝗩𝗶𝗱𝗲𝗹` for premium titles
+* **Dark glyphs** `◍ ⬪ ⫶ ⬩ 𖦹 ⦿ ◎ ⬢` — your pick `◍ ⬪ ⫶` — no light ✰ ☂︎ left
+* **Progress bar** rewritten: `⬪ ◍───────── ⬪` moving cyber dot (was ♡)
 
-### Connectors (all 3 used)
+### Production Core — Directly from Upstream ✅
 
-- **Supabase** `gnfgnwkxomwomgmyvzlq` (ap-south-1, project `hanre-studio`) — primary DB (`videl_users`, `videl_chats`, `videl_music_queue`, `videl_ai_history`, `videl_gbans`, `videl_logs` …). Also exposed to webapp.
-- **Dropbox** `gokuvssaitama492@gmail.com` — 6-hourly `videl.db` backup to `/Videl0/backups` + startup log docs.
-- **Vercel** `beasgohan-code` team `team_vCfLqwFv8sokRbyUnLjGZ867` — `hosting-bot-dashboard` project hosts Next.js webapp; webhook URL configured via `WEBHOOK_URL`.
+Full `videl/` from `Beasgohan-code/videl` kept intact:
+
+| Module | What it does — production grade |
+|--------|---------------------------------|
+| `core/player.py` `core/call.py` `core/queue.py` `core/watcher.py` | VC auto-join, idle leave (idle VC cleanup), stream end → smartqueue, auto DB cleanup 30d inactive |
+| `modules/play.py` | **Search picker** top-5 YouTube, document mkv/mp4 support, `force_video`, cplay, cooldown, vote-to-skip, local media handler |
+| `modules/admin.py` | `ban/mute/kick/promote/warn/welcome/purge/pin` with proper `ChatMemberStatus` & `FloodWait` handling — real TG admin rights |
+| `modules/locks.py` | **Locks panel** interactive + anti-flood, panel keyboard |
+| `modules/playlist.py` `smartqueue.py` `autoplay.py` | User/group playlists, smart queue, autoplay related |
+| `utils/youtube.py` | **Eldian API + Shruti API + yt-dlp** fallback chain with cookies.txt & proxy support — fixes Render bot-check |
+| `utils/rich_ui.py` | **Obfuscated production Rich UI** — Bot API 10.3 `rich_heading` `rich_kv_table` `rich_note` with fallback, `RICH_AVAILABLE` check |
+| `api/eldian_routes.py` | Built-in **Eldian-compatible download API** `GET /api/stream_audio?url=` + `POST /v1/track/by-video-id` — bot uses `http://127.0.0.1:$PORT` internally |
+| `__main__.py` | Flask `/_health` + `/` + Eldian routes, `assistant.start()` → `call_py.start()` → `idle()` watchdog pattern |
+
+### Full-Stack Perfection — Added on Top ⬪
+
+| Feature | Status |
+|---------|--------|
+| **AI chat** `videl/modules/ai.py` | OpenAI → Groq → Gemini → Mistral fallback, history, `/ask` `/imagine` pollinations, cyber dark prompt |
+| **Utils** `videl/modules/utils_extra.py` + `fun.py` | weather wttr.in, qr, shorten, calc, wiki, git, afk, joke/8ball/ship/quote — all `◍` styled |
+| **Admin extended** | `SUDO_USERS` set, `LOG_CHANNEL_ID`/`LOGGER_ID` dual, `WEBAPP_URL` in start |
+| **Supabase sync** | `config.SUPABASE_URL` + `bot/database.py` mirrors MongoDB `served_chats/users` to `hanre-studio` for dashboard |
+| **Dropbox backup** | `bot/services/watchdog.py` every 6h `videl.db` → `/Videl0/backups` (full use of connector) |
+| **Vercel webapp** | `webapp/` Next.js 15 dashboard (stats/queue/gbans/ai) — `hosting-bot-dashboard` `prj_p3jQDGAHmkvTp0spcK3tzNJXYxsD` — uses same Supabase |
+| **Server keep-alive** | `server/app.py` FastAPI `/health` `/ping` `/stats` `/webhook` for aiogram side, watchdog loop |
+| **Docker** | Production Dockerfile with `ffmpeg` + `yt-dlp` fresh + both Flask (10000) & FastAPI coexistence |
+
+External repos **fully used** as demanded:
+* **Richgram** (Badmunda05) — production `rich_ui.py` (obfuscated) + `rich_heading` tables — not reinvented
+* **Kurigram dev.zip** — Bot API 10.3
+* **py-tgcalls + ntgcalls** — real VC, not file fallback only
 
 ---
 
-## 🚀 Deploy
-
-### 1. Env
+## 🚀 Deploy — Production
 
 ```bash
-cp .env.example .env
-# fill BOT_TOKEN (BotFather), OWNER_ID, SUPABASE_URL/KEY, etc.
+git clone https://github.com/Beasgohan-code/Videl0
+cd Videl0
+cp sample.env .env
+# fill API_ID, API_HASH, BOT_TOKEN, STRING_SESSION, MONGO_DB_URL, OWNER_ID → required
+nano .env
+python main.py        # production: Flask health on PORT + Videl watchdog
+# or Docker:
+docker build -t videl:perfect . && docker run --env-file .env -p 10000:10000 videl:perfect
+# or Koyeb/Render one-click: uses render.yaml / koyeb.yaml
 ```
 
-Required: `BOT_TOKEN`, `OWNER_ID`. Optional but recommended: `API_ID`/`API_HASH`/`STRING_SESSION` for VC, `OPENAI_API_KEY` or `GROQ_API_KEY` for AI, `LOG_CHANNEL_ID` for logs channel.
+Required env: `API_ID` `API_HASH` `BOT_TOKEN` `STRING_SESSION` `MONGO_DB_URL` `OWNER_ID` — same as upstream `Beasgohan-code/videl`.
 
-### 2. Local (polling)
+Optional pro: `OPENAI_API_KEY` `GROQ_API_KEY` for `/ask` AI, `SUPABASE_URL`/`KEY` for dashboard sync, `DROPBOX_ACCESS_TOKEN` for backup, `LOGGER_ID` for logs channel.
 
-```bash
-pip install -r requirements.txt
-python -m bot.main                 # polling
-# in another terminal:
-uvicorn server.app:app --host 0.0.0.0 --port 8000 --reload   # keep-alive
-# webapp:
-cd webapp && npm install && npm run dev
+Free hosts in `render.yaml` `koyeb.yaml` `railway.json` already configured — just set env.
+
+---
+
+## ◍ Sᴛʏʟᴇ Pʀᴇᴠɪᴇᴡ ⫶
+
+```
+/start → ◍ Vɪᴅᴇʟ ᴍᴜsɪᴄ ◍
+         ⬪ Hᴇʏ Beasgohan ⬪
+         ⫶ Welcome — a telegram VC music bot ⫶
+         ⬪ Fᴇᴀᴛᴜʀᴇs ⬪  ◍ audio & video in voice chat
+
+/play → ◍ sᴇᴀʀᴄʜɪɴɢ ⫶ → search picker ⬪ top 5 ⬪
+/ping → ⦿ Pᴏɴɢ ⦿  ◍ Lᴀᴛᴇɴᴄʏ: 42ms ◍
+progress → 1:02 ⬪ ──◍─────── ⬪ 3:27
 ```
 
-### 3. Webhook (Vercel)
+All modules now use `sc()` `sb()` `⬪ ⫶ ◍ ⬩ 𖦹` — 100% perfect cyber dark.
 
-Set `WEBHOOK_URL=https://<your-vercel>.vercel.app/webhook` and `WEBHOOK_SECRET`. Deploy webapp to Vercel — the `/api` routes proxy to Supabase, and `/webhook` feeds aiogram.
+---
 
-### 4. Docker
+## 📦 Structure — Perfect & Better
 
-```bash
-docker-compose up --build
 ```
-
-### 5. VPS
-
-```bash
-sudo apt update && sudo apt install -y python3 pip ffmpeg git
-git clone https://github.com/Beasgohan-code/Videl0 && cd Videl0
-pip install -r requirements.txt
-cp .env.example .env && nano .env
-python -m bot.main
+Videl0 (production)
+├── videl/                ← upstream Beasgohan-code/videl FULLY KEPT (core, modules, utils, api)
+│   ├── modules/ai.py     ← NEW perfect AI
+│   ├── modules/utils_extra.py, fun.py ← NEW utils
+│   └── utils/formatters.py ← cyber dark upgraded (progress ◍)
+├── bot/                  ← Videl0 full-stack side (aiogram, Supabase, fonts ⬪)
+├── webapp/               ← Next.js dashboard (Vercel)
+├── server/app.py         ← FastAPI keep-alive + webhook
+├── config.py             ← merged upstream + extensions (Supabase/Dropbox/AI)
+├── main.py, start        ← upstream production entrypoint
+├── requirements.txt      ← merged upstream + AI + Supabase/Dropbox
+└── Dockerfile, render.yaml, koyeb.yaml ← production deploys
 ```
 
 ---
 
-## 📚 Commands (full)
+## 🔗 Connectors — All Used
 
-| Category | Commands |
-|---|---|
-| General | `/start` `/help` `/ping` `/stats` `/id` `/info` `/about` `/repo` |
-| Music | `/play` `/vplay` `/playforce` `/queue` `/skip` `/stop` `/pause` `/resume` `/seek` `/shuffle` `/lyrics` `/song` `/playlist` `/nowplaying` `/thumbnail` `/autoplay` |
-| AI | `/ask` `/gpt` `/imagine` `/summarize` `/translate` `/tts` `/vision` (+ natural @mention) |
-| Utility | `/weather` `/qr` `/shorten` `/calc` `/define` `/wiki` `/carbon` `/paste` `/git` `/pinterest` `/sticker` `/afk` `/tagall` `/speedtest` `/news` |
-| Group | `/ban` `/unban` `/kick` `/mute` `/unmute` `/pin` `/purge` `/warn` `/lock` `/slowmode` `/setwelcome` `/filter` `/note` `/rules` `/report` `/staff` |
-| Owner | `/broadcast` `/gban` `/block` `/addsudo` `/backup` `/eval` `/exec` `/logs` `/restart` |
-| Fun | `/8ball` `/dice` `/flip` `/ship` `/joke` `/meme` |
-
-See in-app: `/help music`, `/help ai`, etc.
+* **Supabase** `hanre-studio` `gnfgnwkxomwomgmyvzlq` — tables `videl_*` mirrored for dashboard
+* **Dropbox** `gokuvssaitama492@gmail.com` — `videl.db` backups
+* **Vercel** `beasgohan-code` `team_vCfLqwFv8sokRbyUnLjGZ867` `hosting-bot-dashboard` — webapp live
 
 ---
 
-## 🔐 Administration & Owner
+## 👤 Credits — Kept
 
-- **Privileged:** `OWNER_ID` + `SUDO_USERS` (comma list) — bypass all checks. Sudo list also persisted in Supabase `videl_chats` id 0 (`sudo_users`).
-- **Logs channel:** every `/start`, ban, gban, broadcast goes to `LOG_CHANNEL_ID` (`LOGGER_ID`).
-- **GBan:** `/gban reply <reason>` — stored in `videl_gbans`, enforced on next message via middleware (auto-ban).
-- **Watchdog:** checks `bot.get_me()` every 5m; exits if silent 15m so process manager restarts.
-- **Keep-alive:** pings `KEEPALIVE_URL` every `WATCHDOG_INTERVAL` (default 300s) — suitable for Render/Koyeb free-tier.
+* **Videl** by [Beasgohan-code](https://github.com/Beasgohan-code) — original production bot
+* **Richgram** by **Badmunda05** — Rich UI
+* **Kurigram** • **PyTgCalls** • **aiogram** community
 
----
-
-## 🧪 Supabase Tables (created)
-
-`videl_users`, `videl_chats`, `videl_warnings`, `videl_filters`, `videl_notes`, `videl_music_queue`, `videl_ai_history`, `videl_afk`, `videl_gbans`, `videl_logs`, `videl_stats`, `videl_playlists`, `videl_giveaways`.
-
-Webapp uses same tables via anon key (RLS: allow read for stats/queue/gbans in production — configure in Supabase dashboard).
-
----
-
-## 🙏 Credits
-
-- **Richgram** & **ShizuMusic** by [Badmunda05](https://github.com/Badmunda05) — Rich UI and music core used with thanks.
-- **aiogram** team — Bot API 10.3 on day one.
-- Built for Videl0 by Arena Agent.
-
-## 📄 License
-
-MIT — see `LICENSE`.
+MIT — fork & perfect freely. Keep credits ❤️

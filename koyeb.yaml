@@ -1,0 +1,19 @@
+# Koyeb • videl perfect — docker deploy
+services:
+  - name: videl-perfect
+    type: web
+    instance_type: nano
+    regions: [sin]
+    docker:
+      dockerfile: Dockerfile
+    env:
+      API_ID: ""
+      API_HASH: ""
+      BOT_TOKEN: ""
+      STRING_SESSION: ""
+      MONGO_DB_URL: ""
+      OWNER_ID: ""
+      PORT: "8000"
+    health_check:
+      path: /health
+      port: 8000
