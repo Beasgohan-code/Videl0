@@ -1,0 +1,22 @@
+.env
+.env.production
+__pycache__/
+*.pyc
+*.pyo
+videl.db
+*.db
+downloads/
+# keep placeholder cookies.txt for deploy (upstream requirement) — real secrets in env
+!cookies.txt
+log.txt
+.env.*
+!*.example
+node_modules/
+.next/
+dist/
+.vercel/
+.venv/
+venv/
+.DS_Store
+*.log
+tmp/

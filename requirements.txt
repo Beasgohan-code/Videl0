@@ -1,0 +1,68 @@
+# ◍ Vɪᴅᴇʟ Perfect — Production Requirements • Pinned & Clean
+# Python 3.11 • Kurigram (Bot API 10.3) • PyTgCalls • aiogram 3.31 • Full Stack
+
+# ── Telegram — Kurigram (upstream Videl, Bot API 10.3) ──────────────────────
+https://github.com/KurimuzonAkuma/kurigram/archive/refs/heads/dev.zip
+tgcrypto==1.2.5
+httpx[http2]==0.28.1
+
+# ── Telegram — aiogram (Videl0 webapp/webhook side) ───────────────────────────
+aiogram==3.31.0
+aiogram-dialog==2.6.0
+magic-filter==1.0.12
+richgram==0.2.0
+
+# ── Voice Chat — Real VC (not file fallback) ─────────────────────────────────
+py-tgcalls==2.2.11
+ntgcalls
+yt-dlp
+py-yt-search==0.6.2
+
+# ── Web — Flask (videl health+Eldian API) + FastAPI (keep-alive/webhook) ─────
+flask==3.1.3
+fastapi==0.110.3
+uvicorn[standard]==0.30.1
+apscheduler==3.10.4
+
+# ── Network & Async ───────────────────────────────────────────────────────────
+aiohttp==3.13.5
+aiofiles==25.1.0
+requests==2.33.1
+feedparser==6.0.11
+
+# ── Database — Mongo (Videl) + Supabase (Dashboard) ──────────────────────────
+pymongo==4.17.0
+motor==3.4.0
+supabase==2.10.0
+
+# ── Utilities — Media & Helpers ───────────────────────────────────────────────
+isodate==0.7.2
+psutil==7.2.2
+python-dotenv==1.2.2
+beautifulsoup4==4.12.3
+lxml==5.2.2
+pillow==10.4.0
+qrcode[pil]==8.0
+python-barcode==0.15.0
+pyshorteners==1.0.1
+gtts==2.5.1
+Pillow==10.4.0
+
+# ── AI — Multi-Provider Fallback (OpenAI → Groq → Gemini → Mistral) ──────────
+openai==1.35.0
+groq==0.9.9
+google-generativeai==0.5.4
+mistralai==0.4.2
+
+# ── Connectors — Supabase / Dropbox / Vercel (all 3 fully used) ──────────────
+dropbox==12.0.1
+
+# ── Extras — Config & Deploy ─────────────────────────────────────────────────
+pydantic==2.8.2
+pydantic-settings==2.4.0
+PyYAML==6.0.2
+
+# ── Optional — if available on image ──────────────────────────────────────────
+# redis==5.0.5          # uncomment if you use Redis queue
+# ffmpeg-python==0.2.0  # system ffmpeg preferred; python wrapper optional
+# speedtest-cli         # only if /speedtest enabled

@@ -1,0 +1,17 @@
+# Netscape HTTP Cookie File
+# ---------------------------------------------------------------------------
+# REPLACE THIS FILE with real cookies exported from your browser.
+#
+# How to get cookies:
+#   1. Install Chrome extension: "Get cookies.txt LOCALLY"
+#   2. Open https://www.youtube.com and log in
+#   3. Export cookies → save as cookies.txt
+#   4. Upload this file to your Render service (root or /app/cookies.txt)
+#   5. Env (optional if file is at /app/cookies.txt):
+#        YTDLP_COOKIES=/app/cookies.txt
+#
+# Format: one cookie per line:
+#   domain  flag  path  secure  expiry  name  value
+# ---------------------------------------------------------------------------
+.youtube.com	TRUE	/	TRUE	2147483647	CONSENT	YES+
+.youtube.com	TRUE	/	FALSE	2147483647	PREF	f6=40000000&hl=en

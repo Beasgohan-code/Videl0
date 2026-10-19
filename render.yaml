@@ -1,0 +1,43 @@
+services:
+  - type: web
+    name: videl-perfect
+    runtime: docker
+    region: singapore
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: API_ID
+        sync: false
+      - key: API_HASH
+        sync: false
+      - key: BOT_TOKEN
+        sync: false
+      - key: STRING_SESSION
+        sync: false
+      - key: MONGO_DB_URL
+        sync: false
+      - key: OWNER_ID
+        sync: false
+      - key: LOGGER_ID
+        sync: false
+      - key: PORT
+        value: "10000"
+      # KEEPALIVE_PORT intentionally NOT set on Render — single port → only videl Flask owns 10000
+      # For VPS two-port setup, set KEEPALIVE_PORT=8000
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: DROPBOX_ACCESS_TOKEN
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: CYBER_DARK
+        value: "1"
+      - key: ENV
+        value: "production"
