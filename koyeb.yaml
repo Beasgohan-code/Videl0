@@ -1,4 +1,4 @@
-# Koyeb • videl perfect — docker deploy
+# Koyeb — videl perfect • docker • single PORT (videl owns it)
 services:
   - name: videl-perfect
     type: web
@@ -13,7 +13,8 @@ services:
       STRING_SESSION: ""
       MONGO_DB_URL: ""
       OWNER_ID: ""
-      PORT: "8000"
+      PORT: "10000"
+      CYBER_DARK: "1"
     health_check:
       path: /health
-      port: 8000
+      port: 10000

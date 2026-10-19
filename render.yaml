@@ -5,6 +5,7 @@ services:
     region: singapore
     plan: free
     dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
     envVars:
       - key: API_ID
         sync: false
@@ -21,7 +22,9 @@ services:
       - key: LOGGER_ID
         sync: false
       - key: PORT
-        value: 10000
+        value: "10000"
+      # KEEPALIVE_PORT intentionally NOT set on Render — single port → only videl Flask owns 10000
+      # For VPS two-port setup, set KEEPALIVE_PORT=8000
       - key: SUPABASE_URL
         sync: false
       - key: SUPABASE_KEY
@@ -32,6 +35,9 @@ services:
         sync: false
       - key: GROQ_API_KEY
         sync: false
+      - key: GEMINI_API_KEY
+        sync: false
       - key: CYBER_DARK
         value: "1"
-    healthCheckPath: /health
+      - key: ENV
+        value: "production"
