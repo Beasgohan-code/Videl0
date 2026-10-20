@@ -115,14 +115,14 @@ def _run_speedtest(m):
 async def speedtest_cmd(client, message: Message) -> None:
 
     chat_id = message.chat.id
-    m = await rich_send(bot, chat_id, rich_heading("◍ Running speedtest...", level=3))
+    m = await rich_send(bot, chat_id, rich_heading(" Running speedtest...", level=3))
 
     loop   = asyncio.get_event_loop()
     result = await loop.run_in_executor(None, _run_speedtest, m)
 
     if result is None:
         from videl.utils.rich_ui import rich_edit
-        await rich_edit(m, rich_heading("◍ Speedtest failed", level=3))
+        await rich_edit(m, rich_heading(" Speedtest failed", level=3))
         return
 
     download = result["download"] / 1_000_000
@@ -140,20 +140,20 @@ async def speedtest_cmd(client, message: Message) -> None:
         rich_heading("⚡ Speedtest Results", level=3)
         + rich_img(share)
         + rich_kv_table([
-            ("ɪsᴘ", f"<code>{rich_esc(isp)}</code>"),
-            ("ᴄᴏᴜɴᴛʀʏ", f"<code>{rich_esc(country)}</code>"),
-        ], headers=["ᴄʟɪᴇɴᴛ ɪɴғᴏ", ""])
+            ("isp", f"<code>{rich_esc(isp)}</code>"),
+            ("country", f"<code>{rich_esc(country)}</code>"),
+        ], headers=["client info", ""])
         + rich_kv_table([
-            ("ɴᴀᴍᴇ", f"<code>{rich_esc(server)}</code>"),
-            ("sᴘᴏɴsᴏʀ", f"<code>{rich_esc(sponsor)}</code>"),
-            ("ᴄᴏᴜɴᴛʀʏ", f"<code>{rich_esc(s_cc)}</code>"),
-            ("ʟᴀᴛᴇɴᴄʏ", f"<code>{s_lat} ms</code>"),
-        ], headers=["sᴇʀᴠᴇʀ ɪɴғᴏ", ""])
+            ("name", f"<code>{rich_esc(server)}</code>"),
+            ("sponsor", f"<code>{rich_esc(sponsor)}</code>"),
+            ("country", f"<code>{rich_esc(s_cc)}</code>"),
+            ("latency", f"<code>{s_lat} ms</code>"),
+        ], headers=["server info", ""])
         + rich_kv_table([
-            ("ᴘɪɴɢ", f"<code>{ping:.2f} ms</code>"),
-            ("ᴅᴏᴡɴʟᴏᴀᴅ", f"<code>{download:.2f} Mbps</code>"),
-            ("ᴜᴘʟᴏᴀᴅ", f"<code>{upload:.2f} Mbps</code>"),
-        ], headers=["sᴘᴇᴇᴅ", ""])
+            ("ping", f"<code>{ping:.2f} ms</code>"),
+            ("download", f"<code>{download:.2f} Mbps</code>"),
+            ("upload", f"<code>{upload:.2f} Mbps</code>"),
+        ], headers=["speed", ""])
         + f"<p>By <a href=\"{config.SUPPORT_GROUP}\">Videl Music</a></p>"
     )
 

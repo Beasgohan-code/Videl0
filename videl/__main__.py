@@ -164,18 +164,22 @@ def _internal_channel_post():
     chat_id = str(body.get("chat_id", "")).strip()
     text = str(body.get("text", "")).strip()
     media_url = str(body.get("media_url", "")).strip()
-    if not chat_id or len(chat_id) > 128 or not text and not media_url or len(text) > 4096:
+    if not chat_id or len(chat_id) > 128 or not text and not media_url or len(text) > 65536:
         return jsonify({"ok": False, "error": "A channel ID and post text or media are required"}), 400
     parse_mode = body.get("parse_mode", "HTML")
     if parse_mode not in ("HTML", "Markdown", "MarkdownV2"):
         return jsonify({"ok": False, "error": "Unsupported parse mode"}), 400
+    from videl.utils.post_format import post_text_length
+    text_length = post_text_length(text, parse_mode)
+    if text_length > 4096:
+        return jsonify({"ok": False, "error": "Post text is limited to 4096 visible characters"}), 400
     method = "sendMessage"
     payload = {"chat_id": chat_id, "parse_mode": parse_mode}
     if media_url:
         parsed = urlparse(media_url)
         if parsed.scheme != "https" or not parsed.netloc or len(media_url) > 2048:
             return jsonify({"ok": False, "error": "Media URL must be a valid HTTPS URL"}), 400
-        if len(text) > 1024:
+        if text_length > 1024:
             return jsonify({"ok": False, "error": "Photo captions are limited to 1024 characters"}), 400
         method = "sendPhoto"
         payload.update({"photo": media_url, "caption": text})

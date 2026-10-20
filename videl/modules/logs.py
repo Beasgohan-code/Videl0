@@ -27,21 +27,21 @@ async def sysinfo_rows():
         vm = psutil.virtual_memory()
         du = psutil.disk_usage("/")
         return [
-            ("ᴜᴘᴛɪᴍᴇ", f"<code>{uptime}</code>"),
-            ("ᴘʟᴀᴛғᴏʀᴍ", f"<code>{platform.system()} {platform.release()}</code>"),
-            ("ᴘʏᴛʜᴏɴ", f"<code>{platform.python_version()}</code>"),
-            ("ᴄᴘᴜ", f"<code>{cpu}% • {psutil.cpu_count()} cores</code>"),
-            ("ʀᴀᴍ", f"<code>{vm.percent}% • {vm.used//1_000_000} / {vm.total//1_000_000} MB</code>"),
-            ("ᴅɪsᴋ", f"<code>{du.percent}% • {du.used//1_000_000_000} / {du.total//1_000_000_000} GB</code>"),
-            ("ᴘʀᴏᴄs", f"<code>{len(psutil.pids())}</code>"),
+            ("uptime", f"<code>{uptime}</code>"),
+            ("platform", f"<code>{platform.system()} {platform.release()}</code>"),
+            ("python", f"<code>{platform.python_version()}</code>"),
+            ("cpu", f"<code>{cpu}% • {psutil.cpu_count()} cores</code>"),
+            ("ram", f"<code>{vm.percent}% • {vm.used//1_000_000} / {vm.total//1_000_000} MB</code>"),
+            ("disk", f"<code>{du.percent}% • {du.used//1_000_000_000} / {du.total//1_000_000_000} GB</code>"),
+            ("procs", f"<code>{len(psutil.pids())}</code>"),
         ]
     except Exception as e:
-        return [("ᴇʀʀᴏʀ", f"<code>{e}</code>")]
+        return [("error", f"<code>{e}</code>")]
 
 @Client.on_message(filters.command(["logs","log"]) & filters.private)
 async def logs_cmd(client: Client, m: Message):
     if not is_owner(m.from_user.id):
-        return await rich_send(client, m.chat.id, rich_heading("◍ ᴀᴄᴄᴇss ᴅᴇɴɪᴇᴅ ◍", 3) + rich_note("owner only — you are not the owner."), reply_to=m.id)
+        return await rich_send(client, m.chat.id, rich_heading(" access denied ", 3) + rich_note("owner only — you are not the owner."), reply_to=m.id)
     args = (m.text or "").split()
     filt = args[1].lower() if len(args) > 1 else "all"  # all/start/stop/error/other
     # fetch log.txt tail (last 30 lines)
@@ -84,17 +84,17 @@ async def logs_cmd(client: Client, m: Message):
     except Exception:
         pass
     body = (
-        rich_heading(f"◍ ᴠɪᴅᴇʟ ʟᴏɢs — {filt} ◍", 1)
+        rich_heading(f" videl logs — {filt} ", 1)
         + rich_kv_table([
-            ("ʟᴏɢɢᴇʀ", f"<code>{LOGGER_ID or 'not set'}</code>"),
-            ("ғɪʟᴛᴇʀ", f"<code>{filt}</code> — try /logs start | stop | error | other"),
-            ("ᴛɪᴍᴇ", f"<code>{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}</code>"),
-            ("ᴜᴘᴛɪᴍᴇ", f"<code>{int(time.time()-START_TS)}s</code>"),
-            ("sᴛᴏʀᴀɢᴇ", "<code>MongoDB + log.txt</code>"),
-        ], headers=["ᴋᴇʏ","ᴠᴀʟᴜᴇ"])
-        + rich_details("📄 ʟᴏɢ.ᴛxᴛ ᴛᴀɪʟ (30 lines)", rich_pre(tail or "empty", "log"), open=(filt != "all"))
-        + (rich_details("❌ ᴍᴏɴɢᴏ ᴇʀʀᴏʀs (5)", extra or "<i>no mongo errors</i>", open=False) if extra or filt in ("all","error") else "")
-        + rich_note("⬪ live start/stop/error/other → your LOGGER_ID channel • /sysinfo for system • /logs error for errors only")
+            ("logger", f"<code>{LOGGER_ID or 'not set'}</code>"),
+            ("filter", f"<code>{filt}</code> — try /logs start | stop | error | other"),
+            ("time", f"<code>{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}</code>"),
+            ("uptime", f"<code>{int(time.time()-START_TS)}s</code>"),
+            ("storage", "<code>MongoDB + log.txt</code>"),
+        ], headers=["key","value"])
+        + rich_details("📄 log.txt tail (30 lines)", rich_pre(tail or "empty", "log"), open=(filt != "all"))
+        + (rich_details("❌ mongo errors (5)", extra or "<i>no mongo errors</i>", open=False) if extra or filt in ("all","error") else "")
+        + rich_note(" live start/stop/error/other → your LOGGER_ID channel • /sysinfo for system • /logs error for errors only")
     )
     try:
         await rich_send(client, m.chat.id, body, reply_to=m.id)
@@ -104,21 +104,21 @@ async def logs_cmd(client: Client, m: Message):
 @Client.on_message(filters.command(["sysinfo","sys","stats"]) & filters.private)
 async def sysinfo_cmd(client: Client, m: Message):
     if not is_owner(m.from_user.id):
-        return await rich_send(client, m.chat.id, rich_heading("◎ ᴀᴄᴄᴇss ᴅᴇɴɪᴇᴅ ◎", 3) + rich_note("owner only."), reply_to=m.id)
+        return await rich_send(client, m.chat.id, rich_heading(" access denied ", 3) + rich_note("owner only."), reply_to=m.id)
     rows = await sysinfo_rows()
     body = (
-        rich_heading("⬢ sʏsᴛᴇᴍ ɪɴғᴏ ⬢", 1)
-        + rich_kv_table(rows, headers=["ᴍᴇᴛʀɪᴄ","ᴠᴀʟᴜᴇ"])
-        + rich_note(f"⬪ bot started <code>{datetime.fromtimestamp(START_TS, tz=timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}</code>")
-        + rich_details("ᴍᴏʀᴇ", f"LOGGER_ID <code>{LOGGER_ID}</code> • OWNER_ID <code>{config.OWNER_ID}</code>", open=False)
+        rich_heading(" system info ", 1)
+        + rich_kv_table(rows, headers=["metric","value"])
+        + rich_note(f" bot started <code>{datetime.fromtimestamp(START_TS, tz=timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}</code>")
+        + rich_details("more", f"LOGGER_ID <code>{LOGGER_ID}</code> • OWNER_ID <code>{config.OWNER_ID}</code>", open=False)
     )
     await rich_send(client, m.chat.id, body, reply_to=m.id)
 
 @Client.on_message(filters.command(["uptime","up"]) & filters.private)
 async def uptime_cmd(client: Client, m: Message):
     rows = await sysinfo_rows()
-    up = next((v for k,v in rows if k=="ᴜᴘᴛɪᴍᴇ"), "<code>?</code>")
-    await rich_send(client, m.chat.id, rich_heading("◎ ᴜᴘᴛɪᴍᴇ ◎", 2) + rich_kv_table([("ᴜᴘᴛɪᴍᴇ", up)]), reply_to=m.id)
+    up = next((v for k,v in rows if k=="uptime"), "<code>?</code>")
+    await rich_send(client, m.chat.id, rich_heading(" uptime ", 2) + rich_kv_table([("uptime", up)]), reply_to=m.id)
 
 # ── Auto loggers — start/stop handled in __main__, here: other/new_chat/error/commands ──
 # Log ALL commands to LOGGER_ID (group -1, doesn't block others)
@@ -158,7 +158,7 @@ async def left_chat_logger(client: Client, m: Message):
         if left and left.id == me.id:
             await log_left_chat(client, m.chat)
         elif left:
-            await log_event(client, "⬪ ᴍᴇᴍʙᴇʀ ʟᴇғᴛ ⬪", [("ᴜsᴇʀ", f"{left.first_name} (<code>{left.id}</code>)"), ("ᴄʜᴀᴛ", f"<code>{m.chat.id}</code> — {getattr(m.chat,'title','')}")])
+            await log_event(client, " member left ", [("user", f"{left.first_name} (<code>{left.id}</code>)"), ("chat", f"<code>{m.chat.id}</code> — {getattr(m.chat,'title','')}")])
     except Exception:
         pass
 
@@ -167,5 +167,5 @@ async def left_chat_logger(client: Client, m: Message):
 async def pin_logger(client: Client, m: Message):
     try:
         from videl.utils.logger import log_event
-        await log_event(client, "📌 ᴘɪɴɴᴇᴅ", [("ᴄʜᴀᴛ", f"<code>{m.chat.id}</code>"), ("ʙʏ", f"<code>{m.from_user.id if m.from_user else '?'}</code>")], note=f"<code>{(m.text or '')[:80]}</code>")
+        await log_event(client, "📌 pinned", [("chat", f"<code>{m.chat.id}</code>"), ("by", f"<code>{m.from_user.id if m.from_user else '?'}</code>")], note=f"<code>{(m.text or '')[:80]}</code>")
     except: pass

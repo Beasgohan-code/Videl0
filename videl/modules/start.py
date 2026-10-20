@@ -2,6 +2,7 @@
 #  Videl 👑 Telegram Web App & Music/Group Bot © 2026 | Beasgohan-code
 #  Cyber-Dark Studio UI • Native Telegram Mini App + Single Vercel URL
 # --------------------------------------------------------------------------------
+import html
 import asyncio
 import time
 from pyrogram import filters
@@ -57,33 +58,33 @@ def _start_kb(is_private: bool = True, use_webapp_btn: bool = True) -> InlineKey
     web = _webapp_url()
 
     if is_private and use_webapp_btn and web.startswith("https://"):
-        studio_row = [_btn("👑 Launch Videl Web App Studio", web_app=WebAppInfo(url=web))]
+        studio_row = [_btn("Open Videl Studio", web_app=WebAppInfo(url=web))]
     else:
-        studio_row = [_btn("👑 Open Videl Web App Studio", url=web)]
+        studio_row = [_btn("Open Videl Studio", url=web)]
 
     return InlineKeyboardMarkup([
         studio_row,
         [
-            _btn("➕ Add to Group", url=f"{bot_link}?startgroup=true"),
-            _btn("⚡ Group Wizard", callback_data="wiz2_start_full"),
+            _btn("Add to Group", url=f"{bot_link}?startgroup=true"),
+            _btn("Group Setup", callback_data="wiz2_start_full"),
         ],
         [
-            _btn("💬 Smart Chat & Post", url=f"{web}?tab=post"),
-            _btn("👥 Group Manager", url=f"{web}?tab=groups"),
+            _btn("Post Studio", url=f"{web}?tab=post"),
+            _btn("Group Manager", url=f"{web}?tab=groups"),
         ],
         [
-            _btn("🎵 Music & Commands", callback_data="show_help"),
-            _btn("🛠️ Pro Modules", callback_data="pro_plugins_0"),
+            _btn("Music & Commands", callback_data="show_help"),
+            _btn("More Tools", callback_data="pro_plugins_0"),
         ],
         [
-            _btn("💬 Support", url=sup),
-            _btn("📢 Updates", url=upd),
+            _btn("Support", url=sup),
+            _btn("Updates", url=upd),
         ],
     ])
 
 
 def _studio_private_caption(uid: int, name: str) -> str:
-    bn = getattr(config, "BOT_NAME", "Videl")
+    bn = html.escape(getattr(config, "BOT_NAME", "Videl"))
     uptime_s = max(0, int(time.time() - bot_start_time))
     h, rem = divmod(uptime_s, 3600)
     m, _ = divmod(rem, 60)
@@ -95,34 +96,34 @@ def _studio_private_caption(uid: int, name: str) -> str:
         groups, users, plays = 0, 0, 0
 
     return (
-        f"✈️ <b>{bn} 👑 — Telegram Web App &amp; Bot Studio</b>\n"
+        f"<b>{bn} — Your Telegram Studio</b>\n"
         f"<i>Your Bot. Your Groups. Your Community.</i>\n\n"
-        f"👋 Welcome, <a href='tg://user?id={uid}'><b>{name}</b></a>!\n"
+        f"Welcome, <a href='tg://user?id={uid}'><b>{name}</b></a>!\n"
         f"Manage groups, stream music, publish rich posts, chat &amp; automate — all from one unified Telegram Web App.\n\n"
         f"<blockquote>"
-        f"📊 <b>Live Studio Telemetry</b>\n"
+        f"<b>At a glance</b>\n"
         f"• <b>Groups:</b> <code>{groups}</code>  |  <b>Users:</b> <code>{users}</code>\n"
         f"• <b>Streams:</b> <code>{plays}</code>  |  <b>Uptime:</b> <code>{h}h {m}m</code>"
         f"</blockquote>\n\n"
-        f"⚡ <b>Core Modules</b>\n"
-        f"• 💬 <b>Smart Chat:</b> Chat as bot or user from the web console\n"
-        f"• 📝 <b>Post Studio:</b> Rich media posts with inline buttons\n"
-        f"• 👥 <b>Group Manager:</b> Locks, anti-spam, welcome &amp; moderation\n"
-        f"• 🎵 <b>Voice Music:</b> <code>/play</code> · <code>/vplay</code> · Eldian HD audio\n"
-        f"• 📈 <b>Analytics:</b> Real-time MongoDB command &amp; group metrics\n\n"
-        f"<i>“Discipline today… Freedom tomorrow.” — Gohan</i>"
+        f"<b>Your workspace</b>\n"
+        f"• <b>Smart Chat:</b> Chat as bot or user from the web console\n"
+        f"• <b>Post Studio:</b> Rich media posts with inline buttons\n"
+        f"• <b>Group Manager:</b> Locks, anti-spam, welcome &amp; moderation\n"
+        f"• <b>Voice Music:</b> <code>/play</code> · <code>/vplay</code> · Eldian HD audio\n"
+        f"• <b>Analytics:</b> Real-time MongoDB command &amp; group metrics\n\n"
+        f"<i>Everything you need. One connected workspace.</i>"
     )
 
 
 def _studio_group_caption(uid: int, name: str, title: str) -> str:
-    bn = getattr(config, "BOT_NAME", "Videl")
+    bn = html.escape(getattr(config, "BOT_NAME", "Videl"))
     return (
-        f"✈️ <b>{bn} 👑 — Community &amp; Music Studio</b>\n\n"
-        f"👋 Hey <a href='tg://user?id={uid}'><b>{name}</b></a>, <b>{title}</b> is connected!\n\n"
+        f"<b>{bn} — Community Studio</b>\n\n"
+        f"Hello <a href='tg://user?id={uid}'><b>{name}</b></a>, <b>{title}</b> is connected!\n\n"
         f"<blockquote>"
-        f"• 🎵 <b>Stream Music:</b> <code>/play song name</code> or <code>/vplay</code>\n"
-        f"• 🛡️ <b>Group Protection:</b> <code>/setup</code> or <code>/locks</code>\n"
-        f"• 👑 <b>Web App Studio:</b> Manage this group from the single Vercel URL"
+        f"• <b>Stream Music:</b> <code>/play song name</code> or <code>/vplay</code>\n"
+        f"• <b>Group Protection:</b> <code>/setup</code> or <code>/locks</code>\n"
+        f"• <b>Web App Studio:</b> Manage this group from the single Vercel URL"
         f"</blockquote>"
     )
 
@@ -173,7 +174,7 @@ async def start_handler(_, message: Message):
     try:
         uid = message.from_user.id if message.from_user else 0
         name = (message.from_user.first_name if message.from_user else "User") or "User"
-        name = name.replace("<", "").replace(">", "")
+        name = html.escape(name)
         chat_type = message.chat.type
         try:
             if uid:
@@ -188,7 +189,7 @@ async def start_handler(_, message: Message):
             except Exception:
                 pass
             return
-        title = (message.chat.title or "this group").replace("<", "").replace(">", "")
+        title = html.escape(message.chat.title or "this group")
         await _send_start(message, _studio_group_caption(uid, name, title), is_private=False)
         try:
             add_broadcast_chat(chat_id, "group")
@@ -197,6 +198,6 @@ async def start_handler(_, message: Message):
     except Exception as e:
         LOGGER.error("/start error: %s", e)
         try:
-            await message.reply_text("✈️ <b>Videl 👑 Studio</b> — Use <code>/play song</code> or <code>/help</code>", parse_mode=ParseMode.HTML)
+            await message.reply_text("<b>Videl 👑 Studio</b> — Use <code>/play song</code> or <code>/help</code>", parse_mode=ParseMode.HTML)
         except Exception:
             pass

@@ -17,11 +17,11 @@ from videl.utils.db import add_blacklist, remove_blacklist, get_blacklist, get_b
 try:
     from videl.utils.premium_emojis import pe
 except Exception:
-    def pe(k, fb="◍"):
+    def pe(k, fb=""):
         return fb
 
 def _hdr(t, lvl=3):
-    return rich_heading(pe("orb","◍") + " " + t + " " + pe("spark","𖦹"), level=lvl)
+    return rich_heading(pe("orb","") + " " + t + " " + pe("spark",""), level=lvl)
 
 VALID_MODES = {"off","del","warn","mute","ban","kick","tban"}
 
@@ -30,9 +30,9 @@ async def addbl_cmd(_, m):
     if not await is_user_authorized(m):
         return
     if not m.text or len(m.text.split(maxsplit=1)) < 2:
-        body = _hdr(sc("add to blacklist"),3) + rich_note(pe("diamond","⬪") + " " + sc("usage") + ": <code>/addblacklist &lt;word&gt; [word2 ...]</code><br>" + pe("spark","𖦹") + " " + sc("supports") + " *" + sc("wildcards") + " ⫶ <code>bad*</code> " + pe("small","⬩") + " " + sc("case-insensitive"))
+        body = _hdr(sc("add to blacklist"),3) + rich_note(pe("diamond","") + " " + sc("usage") + ": <code>/addblacklist &lt;word&gt; [word2 ...]</code><br>" + pe("spark","") + " " + sc("supports") + " *" + sc("wildcards") + "  <code>bad*</code> " + pe("small","") + " " + sc("case-insensitive"))
         body += rich_details(pe("info","ℹ️") + " " + sc("examples"), rich_note("<code>/addblacklist spam scam*</code><br><code>/addblacklist badword*</code>"))
-        body += "<p>" + rich_button(pe("eyes","👀") + " " + sc("view list"), callback_data="bl:view") + " " + rich_button(pe("target","◎") + " " + sc("set mode"), callback_data="bl:mode") + "</p>"
+        body += "<p>" + rich_button(pe("eyes","👀") + " " + sc("view list"), callback_data="bl:view") + " " + rich_button(pe("target","") + " " + sc("set mode"), callback_data="bl:mode") + "</p>"
         kb = InlineKeyboardMarkup([[InlineKeyboardButton(pe("eyes","👀") + " " + sc("view list"), callback_data="bl:view")]])
         return await rich_send(bot, m.chat.id, body, reply_markup=kb)
     triggers = m.text.split(maxsplit=1)[1].lower().split()
@@ -43,8 +43,8 @@ async def addbl_cmd(_, m):
     rows = []
     for x in added[:20]:
         rows.append(("<code>" + rich_esc(x) + "</code>", rich_button(pe("cross","❌") + " " + sc("remove"), callback_data="bl:rm:" + rich_esc(x), style="danger")))
-    body = _hdr(pe("check","✅") + " " + sc("blacklist added") + " • " + str(len(added)),3) + rich_table([pe("hex","⬢") + " " + sc("word"), pe("diamond","⬪") + " " + sc("action")], rows)
-    body += "<p>" + rich_button(pe("eyes","👀") + " " + sc("view all"), callback_data="bl:view") + " " + rich_button(pe("target","◎") + " " + sc("change mode"), callback_data="bl:mode") + "</p>"
+    body = _hdr(pe("check","✅") + " " + sc("blacklist added") + " • " + str(len(added)),3) + rich_table([pe("hex","") + " " + sc("word"), pe("diamond","") + " " + sc("action")], rows)
+    body += "<p>" + rich_button(pe("eyes","👀") + " " + sc("view all"), callback_data="bl:view") + " " + rich_button(pe("target","") + " " + sc("change mode"), callback_data="bl:mode") + "</p>"
     kb = InlineKeyboardMarkup([[InlineKeyboardButton(pe("eyes","👀") + " " + sc("view all"), callback_data="bl:view")]])
     await rich_send(bot, m.chat.id, body, reply_markup=kb)
 
@@ -56,7 +56,7 @@ async def delbl_cmd(_, m):
         return await rich_send(bot, m.chat.id, _hdr(sc("remove from blacklist"),3) + rich_note("<code>/delblacklist &lt;word&gt;</code>"))
     trig = m.text.split(maxsplit=1)[1].lower()
     if remove_blacklist(m.chat.id, trig):
-        body = _hdr(pe("cross","❌") + " " + sc("removed"),3) + rich_kv_table([(pe("hex","⬢") + " " + sc("word"), "<code>" + rich_esc(trig) + "</code>")])
+        body = _hdr(pe("cross","❌") + " " + sc("removed"),3) + rich_kv_table([(pe("hex","") + " " + sc("word"), "<code>" + rich_esc(trig) + "</code>")])
         body += "<p>" + rich_button(pe("eyes","👀") + " " + sc("view list"), callback_data="bl:view") + "</p>"
         kb = InlineKeyboardMarkup([[InlineKeyboardButton(pe("eyes","👀") + " " + sc("view list"), callback_data="bl:view")]])
         await rich_send(bot, m.chat.id, body, reply_markup=kb)
@@ -68,21 +68,21 @@ async def listbl_cmd(_, m):
     bl = get_blacklist(m.chat.id)
     mode = get_blacklist_mode(m.chat.id)
     if not bl:
-        body = _hdr(pe("circle","⦿") + " " + sc("blacklist") + " — " + sc("empty"),3) + rich_kv_table([(pe("target","◎") + " " + sc("mode"), "<code>" + rich_esc(mode) + "</code>")])
-        body += rich_note(pe("diamond","⬪") + " <code>/addblacklist spam</code> " + sc("to add"))
-        body += "<p>" + rich_button(pe("target","◎") + " " + sc("set mode"), callback_data="bl:mode") + "</p>"
-        kb = InlineKeyboardMarkup([[InlineKeyboardButton(pe("target","◎") + " " + sc("set mode"), callback_data="bl:mode")]])
+        body = _hdr(pe("circle","") + " " + sc("blacklist") + " — " + sc("empty"),3) + rich_kv_table([(pe("target","") + " " + sc("mode"), "<code>" + rich_esc(mode) + "</code>")])
+        body += rich_note(pe("diamond","") + " <code>/addblacklist spam</code> " + sc("to add"))
+        body += "<p>" + rich_button(pe("target","") + " " + sc("set mode"), callback_data="bl:mode") + "</p>"
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton(pe("target","") + " " + sc("set mode"), callback_data="bl:mode")]])
         return await rich_send(bot, m.chat.id, body, reply_markup=kb)
     rows = []
     for b in bl[:24]:
         w = rich_esc(b["trigger"])
         rows.append(("<code>" + w + "</code>", rich_button(pe("cross","❌") + " " + sc("delete"), callback_data="bl:rm:" + w, style="danger")))
-    body = _hdr(sb("Blacklist") + " • " + str(len(bl)),2) + rich_kv_table([(pe("target","◎") + " " + sc("mode"), "<code>" + rich_esc(mode) + "</code>"), (pe("hex","⬢") + " " + sc("total"), "<code>" + str(len(bl)) + "</code>")])
-    body += rich_table([pe("hex","⬢") + " " + sc("word"), pe("diamond","⬪") + " " + sc("action")], rows)
+    body = _hdr(sb("Blacklist") + " • " + str(len(bl)),2) + rich_kv_table([(pe("target","") + " " + sc("mode"), "<code>" + rich_esc(mode) + "</code>"), (pe("hex","") + " " + sc("total"), "<code>" + str(len(bl)) + "</code>")])
+    body += rich_table([pe("hex","") + " " + sc("word"), pe("diamond","") + " " + sc("action")], rows)
     if len(bl) > 24:
-        body += "<p>" + sc("and") + " " + str(len(bl)-24) + " " + sc("more") + "… " + pe("line","⫶") + "</p>"
-    body += "<p>" + rich_button(pe("cross","❌") + " " + sc("clear all"), callback_data="bl:clear", style="danger") + " " + rich_button(pe("target","◎") + " " + sc("change mode"), callback_data="bl:mode") + "</p>"
-    kb = InlineKeyboardMarkup([[InlineKeyboardButton(pe("cross","❌") + " " + sc("clear all"), callback_data="bl:clear"), InlineKeyboardButton(pe("target","◎") + " " + sc("change mode"), callback_data="bl:mode")],[InlineKeyboardButton(pe("spark","𖦹") + " " + sc("close"), callback_data="bl:close")]])
+        body += "<p>" + sc("and") + " " + str(len(bl)-24) + " " + sc("more") + "… " + pe("line","") + "</p>"
+    body += "<p>" + rich_button(pe("cross","❌") + " " + sc("clear all"), callback_data="bl:clear", style="danger") + " " + rich_button(pe("target","") + " " + sc("change mode"), callback_data="bl:mode") + "</p>"
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton(pe("cross","❌") + " " + sc("clear all"), callback_data="bl:clear"), InlineKeyboardButton(pe("target","") + " " + sc("change mode"), callback_data="bl:mode")],[InlineKeyboardButton(pe("spark","") + " " + sc("close"), callback_data="bl:close")]])
     await rich_send(bot, m.chat.id, body, reply_markup=kb)
 
 @bot.on_message(filters.command(["blacklistmode","blmode","blaction"]) & filters.group & group_allowed & user_allowed)
@@ -91,8 +91,8 @@ async def blmode_cmd(_, m):
         return
     if not m.text or len(m.text.split(maxsplit=1)) < 2:
         cur = get_blacklist_mode(m.chat.id)
-        body = _hdr(pe("target","◎") + " " + sc("blacklist mode"),3) + rich_kv_table([(pe("diamond","⬪") + " " + sc("current"), "<code>" + rich_esc(cur) + "</code>")])
-        body += rich_table([sc("mode"), sc("action")], [("<code>del</code>", pe("cross","❌") + " " + sc("delete message")), ("<code>warn</code>", pe("warn","⚠️") + " " + sc("warn user")), ("<code>mute</code>", pe("lock","🔒") + " " + sc("mute 1h")), ("<code>ban</code>", pe("ban","⛔️") + " " + sc("ban")), ("<code>kick</code>", pe("spark","𖦹") + " " + sc("kick")), ("<code>off</code>", pe("circle","⦿") + " " + sc("no action")), ("<code>tban 2h</code>", "⏱ " + sc("temp ban"))])
+        body = _hdr(pe("target","") + " " + sc("blacklist mode"),3) + rich_kv_table([(pe("diamond","") + " " + sc("current"), "<code>" + rich_esc(cur) + "</code>")])
+        body += rich_table([sc("mode"), sc("action")], [("<code>del</code>", pe("cross","❌") + " " + sc("delete message")), ("<code>warn</code>", pe("warn","⚠️") + " " + sc("warn user")), ("<code>mute</code>", pe("lock","🔒") + " " + sc("mute 1h")), ("<code>ban</code>", pe("ban","⛔️") + " " + sc("ban")), ("<code>kick</code>", pe("spark","") + " " + sc("kick")), ("<code>off</code>", pe("circle","") + " " + sc("no action")), ("<code>tban 2h</code>", "⏱ " + sc("temp ban"))])
         body += "<p>" + rich_button(pe("check","✅") + " del", callback_data="bl:mode:del") + " " + rich_button(pe("warn","⚠️") + " warn", callback_data="bl:mode:warn") + " " + rich_button(pe("lock","🔒") + " mute", callback_data="bl:mode:mute") + " " + rich_button(pe("ban","⛔️") + " ban", callback_data="bl:mode:ban", style="danger") + "</p>"
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("del", callback_data="bl:mode:del"), InlineKeyboardButton("warn", callback_data="bl:mode:warn"), InlineKeyboardButton("mute", callback_data="bl:mode:mute")],[InlineKeyboardButton("ban", callback_data="bl:mode:ban"), InlineKeyboardButton("kick", callback_data="bl:mode:kick"), InlineKeyboardButton("off", callback_data="bl:mode:off")],[InlineKeyboardButton("tban 1h", callback_data="bl:mode:tban_1h"), InlineKeyboardButton("tban 1d", callback_data="bl:mode:tban_1d")]])
         return await rich_send(bot, m.chat.id, body, reply_markup=kb)
@@ -108,7 +108,7 @@ async def blmode_cmd(_, m):
     elif mode not in VALID_MODES and not mode.startswith("tban_"):
         return await rich_send(bot, m.chat.id, _hdr(pe("warn","⚠️") + " " + sc("invalid mode"),3) + rich_note("✓ " + sc("valid") + ": <code>off/del/warn/mute/ban/kick/tban</code>"))
     set_blacklist_mode(m.chat.id, mode)
-    await rich_send(bot, m.chat.id, _hdr(pe("check","✅") + " " + sc("mode updated"),3) + rich_kv_table([(pe("target","◎") + " " + sc("mode"), "<code>" + rich_esc(mode) + "</code>")]) + "<p>" + rich_button(pe("eyes","👀") + " " + sc("view list"), callback_data="bl:view") + "</p>")
+    await rich_send(bot, m.chat.id, _hdr(pe("check","✅") + " " + sc("mode updated"),3) + rich_kv_table([(pe("target","") + " " + sc("mode"), "<code>" + rich_esc(mode) + "</code>")]) + "<p>" + rich_button(pe("eyes","👀") + " " + sc("view list"), callback_data="bl:view") + "</p>")
 
 @bot.on_message(filters.command(["addblsticker","addblackliststicker"]) & filters.group & group_allowed & user_allowed)
 async def add_bl_sticker(_, m):
@@ -118,7 +118,7 @@ async def add_bl_sticker(_, m):
         return await rich_send(bot, m.chat.id, _hdr(pe("pin","📌") + " " + sc("reply to sticker"),3) + rich_note("<code>/addblsticker</code> " + sc("reply to a sticker to blacklist it")))
     fid = m.reply_to_message.sticker.file_unique_id
     add_blacklist_sticker(m.chat.id, fid)
-    body = _hdr(pe("check","✅") + " " + sc("sticker blacklisted"),3) + rich_kv_table([(pe("hex","⬢") + " " + sc("sticker"), "<code>" + rich_esc(fid[:16]) + "…</code>")])
+    body = _hdr(pe("check","✅") + " " + sc("sticker blacklisted"),3) + rich_kv_table([(pe("hex","") + " " + sc("sticker"), "<code>" + rich_esc(fid[:16]) + "…</code>")])
     body += "<p>" + rich_button(pe("eyes","👀") + " " + sc("view stickers"), callback_data="bl:stickers") + "</p>"
     await rich_send(bot, m.chat.id, body)
 
@@ -138,8 +138,8 @@ async def del_bl_sticker(_, m):
 async def list_bl_stickers_cmd(_, m):
     lst = list_bl_stickers(m.chat.id)
     if not lst:
-        return await rich_send(bot, m.chat.id, _hdr(pe("circle","⦿") + " " + sc("no bl stickers"),3))
-    body = _hdr(pe("pin","📌") + " " + sc("bl stickers") + " • " + str(len(lst)),3) + rich_table([pe("hex","⬢") + " " + sc("sticker id")], [("<code>" + rich_esc(x) + "</code>",) for x in lst[:20]])
+        return await rich_send(bot, m.chat.id, _hdr(pe("circle","") + " " + sc("no bl stickers"),3))
+    body = _hdr(pe("pin","📌") + " " + sc("bl stickers") + " • " + str(len(lst)),3) + rich_table([pe("hex","") + " " + sc("sticker id")], [("<code>" + rich_esc(x) + "</code>",) for x in lst[:20]])
     if len(lst) > 20:
         body += "<p>" + str(len(lst)-20) + " " + sc("more") + "…</p>"
     await rich_send(bot, m.chat.id, body)
@@ -157,12 +157,12 @@ async def bl_cbs(_, q):
         mode = get_blacklist_mode(chat_id)
         if not bl:
             try:
-                await rich_edit(q.message, _hdr(pe("circle","⦿") + " " + sc("no blacklist"),3))
+                await rich_edit(q.message, _hdr(pe("circle","") + " " + sc("no blacklist"),3))
             except Exception:
                 pass
             return
         rows = [("<code>" + rich_esc(b["trigger"]) + "</code>", rich_button(pe("cross","❌") + " " + sc("delete"), callback_data="bl:rm:" + rich_esc(b["trigger"]), style="danger")) for b in bl[:24]]
-        body = _hdr(sb("Blacklist") + " • " + str(len(bl)),2) + rich_kv_table([(pe("target","◎") + " " + sc("mode"), "<code>" + rich_esc(mode) + "</code>")]) + rich_table([pe("hex","⬢") + " " + sc("word"), pe("diamond","⬪") + " " + sc("action")], rows)
+        body = _hdr(sb("Blacklist") + " • " + str(len(bl)),2) + rich_kv_table([(pe("target","") + " " + sc("mode"), "<code>" + rich_esc(mode) + "</code>")]) + rich_table([pe("hex","") + " " + sc("word"), pe("diamond","") + " " + sc("action")], rows)
         try:
             await rich_edit(q.message, body)
         except Exception:
@@ -176,12 +176,12 @@ async def bl_cbs(_, q):
             mode = get_blacklist_mode(chat_id)
             if not bl:
                 try:
-                    await rich_edit(q.message, _hdr(pe("circle","⦿") + " " + sc("no blacklist"),3))
+                    await rich_edit(q.message, _hdr(pe("circle","") + " " + sc("no blacklist"),3))
                 except Exception:
                     pass
                 return
             rows = [("<code>" + rich_esc(b["trigger"]) + "</code>", rich_button(pe("cross","❌") + " " + sc("delete"), callback_data="bl:rm:" + rich_esc(b["trigger"]), style="danger")) for b in bl[:24]]
-            body = _hdr(sb("Blacklist") + " • " + str(len(bl)),2) + rich_kv_table([(pe("target","◎") + " " + sc("mode"), "<code>" + rich_esc(mode) + "</code>")]) + rich_table([pe("hex","⬢") + " " + sc("word"), pe("diamond","⬪") + " " + sc("action")], rows)
+            body = _hdr(sb("Blacklist") + " • " + str(len(bl)),2) + rich_kv_table([(pe("target","") + " " + sc("mode"), "<code>" + rich_esc(mode) + "</code>")]) + rich_table([pe("hex","") + " " + sc("word"), pe("diamond","") + " " + sc("action")], rows)
             try:
                 await rich_edit(q.message, body)
             except Exception:
@@ -197,13 +197,13 @@ async def bl_cbs(_, q):
             set_blacklist_mode(chat_id, mode_name)
             await q.answer(pe("check","✅") + " " + mode_name)
             try:
-                await rich_edit(q.message, _hdr(pe("check","✅") + " " + sc("mode updated"),3) + rich_kv_table([(pe("target","◎") + " " + sc("mode"), "<code>" + rich_esc(mode_name) + "</code>")]))
+                await rich_edit(q.message, _hdr(pe("check","✅") + " " + sc("mode updated"),3) + rich_kv_table([(pe("target","") + " " + sc("mode"), "<code>" + rich_esc(mode_name) + "</code>")]))
             except Exception:
                 pass
         else:
             await q.answer()
             cur = get_blacklist_mode(chat_id)
-            body = _hdr(pe("target","◎") + " " + sc("blacklist mode"),3) + rich_kv_table([(pe("diamond","⬪") + " " + sc("current"), "<code>" + rich_esc(cur) + "</code>")])
+            body = _hdr(pe("target","") + " " + sc("blacklist mode"),3) + rich_kv_table([(pe("diamond","") + " " + sc("current"), "<code>" + rich_esc(cur) + "</code>")])
             body += rich_table([sc("mode"), sc("action")], [("<code>del</code>", pe("cross","❌")), ("<code>warn</code>", pe("warn","⚠️")), ("<code>mute</code>", pe("lock","🔒")), ("<code>ban</code>", pe("ban","⛔️"))])
             body += "<p>" + rich_button(pe("check","✅") + " del", callback_data="bl:mode:del") + " " + rich_button(pe("warn","⚠️") + " warn", callback_data="bl:mode:warn") + " " + rich_button(pe("ban","⛔️") + " ban", callback_data="bl:mode:ban", style="danger") + "</p>"
             try:
@@ -290,7 +290,7 @@ async def blacklist_watcher(_, m):
         from videl.utils.db import add_warn, get_warn_limit
         c = add_warn(m.chat.id, m.from_user.id, "blacklist: " + hit["trigger"])
         lim = get_warn_limit(m.chat.id)
-        body = _hdr(pe("warn","⚠️") + " " + sc("warned — blacklist"),3) + rich_kv_table([(pe("circle","⦿") + " " + sc("user"), m.from_user.mention), (pe("hex","⬢") + " " + sc("word"), "<code>" + rich_esc(hit["trigger"]) + "</code>"), (pe("target","◎") + " " + sc("warns"), "<code>" + str(c) + "/" + str(lim) + "</code>")])
+        body = _hdr(pe("warn","⚠️") + " " + sc("warned — blacklist"),3) + rich_kv_table([(pe("circle","") + " " + sc("user"), m.from_user.mention), (pe("hex","") + " " + sc("word"), "<code>" + rich_esc(hit["trigger"]) + "</code>"), (pe("target","") + " " + sc("warns"), "<code>" + str(c) + "/" + str(lim) + "</code>")])
         body += "<p>" + rich_button(pe("eyes","👀") + " " + sc("warns"), callback_data="warns_view") + "</p>"
         await rich_send(bot, m.chat.id, body)
         if c >= lim:
@@ -304,7 +304,7 @@ async def blacklist_watcher(_, m):
             from datetime import datetime, timedelta
             from pyrogram.types import ChatPermissions
             await bot.restrict_chat_member(m.chat.id, m.from_user.id, ChatPermissions(), until_date=datetime.utcnow()+timedelta(hours=1))
-            await rich_send(bot, m.chat.id, _hdr(pe("lock","🔒") + " " + sc("muted — blacklist"),3) + rich_kv_table([(pe("circle","⦿") + " " + sc("user"), m.from_user.mention), (pe("hex","⬢") + " " + sc("word"), "<code>" + rich_esc(hit["trigger"]) + "</code>")]))
+            await rich_send(bot, m.chat.id, _hdr(pe("lock","🔒") + " " + sc("muted — blacklist"),3) + rich_kv_table([(pe("circle","") + " " + sc("user"), m.from_user.mention), (pe("hex","") + " " + sc("word"), "<code>" + rich_esc(hit["trigger"]) + "</code>")]))
         except Exception:
             pass
         return

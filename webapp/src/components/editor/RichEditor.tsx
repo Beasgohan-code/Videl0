@@ -1,95 +1,41 @@
 "use client";
-import { useRef } from "react";
-
-type Props = {
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-};
-
-export function RichEditor({ value, onChange, placeholder }: Props) {
-  const ref = useRef<HTMLTextAreaElement>(null);
-
-  function wrap(before: string, after: string, fallback = "") {
-    const el = ref.current;
-    if (!el) return;
-    const start = el.selectionStart ?? value.length;
-    const end = el.selectionEnd ?? value.length;
-    const sel = value.slice(start, end) || fallback;
-    const next = value.slice(0, start) + before + sel + after + value.slice(end);
-    onChange(next);
-    requestAnimationFrame(() => {
-      el.focus();
-      const pos = start + before.length + sel.length + after.length;
-      el.setSelectionRange(pos, pos);
-    });
-  }
-
-  function insertAtCursor(text: string) {
-    const el = ref.current;
-    if (!el) return onChange(value + text);
-    const s = el.selectionStart ?? value.length;
-    const e = el.selectionEnd ?? value.length;
-    const next = value.slice(0, s) + text + value.slice(e);
-    onChange(next);
-    requestAnimationFrame(() => {
-      el.focus();
-      el.setSelectionRange(s + text.length, s + text.length);
-    });
-  }
-
-  return (
-    <div className="ios-card overflow-hidden">
-      {/* Toolbar — iOS style */}
-      <div className="flex flex-wrap gap-1.5 p-2 border-b border-[var(--ios-separator)] bg-[var(--ios-bg-subtle)]">
-        <ToolbarBtn onClick={() => wrap("<b>", "</b>", "bold")} label="B" title="Bold" />
-        <ToolbarBtn onClick={() => wrap("<i>", "</i>", "italic")} label="I" italic title="Italic" />
-        <ToolbarBtn onClick={() => wrap("<u>", "</u>", "underline")} label="U" underline title="Underline" />
-        <ToolbarBtn onClick={() => wrap("<s>", "</s>", "strike")} label="S" strike title="Strike" />
-        <ToolbarBtn onClick={() => wrap('<span class="tg-spoiler">', "</span>", "spoiler")} label="◍" title="Spoiler" />
-        <div className="w-px h-6 bg-[var(--ios-separator)] mx-1 self-center" />
-        <ToolbarBtn onClick={() => insertAtCursor("\n<b>◍ Heading</b>\n")} label="H1" title="Heading" small />
-        <ToolbarBtn onClick={() => wrap("<code>", "</code>", "code")} label="</>" title="Code" small />
-        <ToolbarBtn onClick={() => wrap("<pre>", "</pre>", "block code")} label="≋" title="Pre" />
-        <ToolbarBtn onClick={() => wrap('<a href="">', "</a>", "link")} label="🔗" title="Link" />
-        <div className="w-px h-6 bg-[var(--ios-separator)] mx-1 self-center" />
-        <ToolbarBtn onClick={() => wrap("<blockquote>", "</blockquote>", "quote")} label="❝" title="Quote" />
-        <ToolbarBtn onClick={() => insertAtCursor("\n• ")} label="•" title="Bullet" />
-        <ToolbarBtn onClick={() => insertAtCursor("\n1. ")} label="1." title="Ordered" small />
-        <div className="w-px h-6 bg-[var(--ios-separator)] mx-1 self-center" />
-        {["◍","⬪","⫶","◎","⬢","𖦹","⦿"].map(s => (
-          <button key={s} onClick={() => insertAtCursor(s)} className="h-8 w-8 rounded-full bg-[var(--ios-card)] border border-[var(--ios-border)] flex items-center justify-center text-[13px] hover:bg-white hover:text-black transition">{s}</button>
-        ))}
-      </div>
-
-      {/* Editor */}
-      <div className="p-3">
-        <textarea
-          ref={ref}
-          value={value}
-          onChange={e => onChange(e.target.value)}
-          placeholder={placeholder || "◍ Vɪᴅᴇʟ ⫶ ᴀɴɴᴏᴜɴᴄᴇᴍᴇɴᴛ 𖦹\n\n⬪ <b>Bold</b> • <i>italic</i> • <code>code</code> • <a href=\"https://t.me/Videl0Bot\">Link</a>\n⫶ <blockquote>Quote line</blockquote>\n◎ Bullet list\n• Clean formatting"}
-          rows={12}
-          className="w-full min-h-[220px] bg-transparent outline-none text-[15px] leading-6 placeholder:text-[var(--ios-label-tertiary)] resize-none"
-          style={{ fieldSizing: "content" } as any}
-        />
-        <div className="mt-3 flex flex-wrap gap-2 ios-caption">
-          <span>HTML supported: &lt;b&gt; &lt;i&gt; &lt;u&gt; &lt;s&gt; &lt;code&gt; &lt;pre&gt; &lt;a href&gt; &lt;blockquote&gt;</span>
-          <span className="ml-auto">{value.length} chars</span>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ToolbarBtn({ onClick, label, title, italic, underline, strike, small }: any) {
-  return (
-    <button
-      onClick={onClick}
-      title={title}
-      className={`h-8 px-3 rounded-full bg-white text-black text-[12px] font-bold flex items-center justify-center hover:bg-zinc-100 active:scale-95 transition ${italic ? "italic" : ""} ${underline ? "underline" : ""} ${strike ? "line-through" : ""} ${small ? "text-[11px]" : ""}`}
-    >
-      {label}
-    </button>
-  );
+import { useEffect, useRef, useState } from "react";
+import { useEditor, EditorContent } from "@tiptap/react";
+import { BubbleMenu } from "@tiptap/react/menus";
+import { Mark, mergeAttributes } from "@tiptap/core";
+import StarterKit from "@tiptap/starter-kit";
+import Underline from "@tiptap/extension-underline";
+import Link from "@tiptap/extension-link";
+import Placeholder from "@tiptap/extension-placeholder";
+import { Bold, Italic, Underline as UnderlineIcon, Strikethrough, Link2, Quote, Code, EyeOff, List, ListOrdered, Undo2, Redo2, RemoveFormatting } from "lucide-react";
+import { editorHtml, safeLink, telegramHtml, visibleLength } from "@/lib/telegram-format";
+const Spoiler=Mark.create({name:"spoiler",parseHTML:()=>[{tag:'span[data-spoiler="true"]'},{tag:"tg-spoiler"}],renderHTML:({HTMLAttributes})=>["span",mergeAttributes(HTMLAttributes,{"data-spoiler":"true"}),0]});
+export function RichEditor({value,onChange,placeholder}:{value:string;onChange:(v:string)=>void;placeholder?:string}){
+ const callback=useRef(onChange);callback.current=onChange;const emitted=useRef(value);
+ const [linkOpen,setLinkOpen]=useState(false);const [url,setUrl]=useState("");const [error,setError]=useState("");
+ const editor=useEditor({immediatelyRender:false,shouldRerenderOnTransaction:true,extensions:[StarterKit.configure({heading:{levels:[2]},horizontalRule:false,link:false,underline:false}),Underline,Link.configure({openOnClick:false,autolink:true,linkOnPaste:true,protocols:["https","http","tg"],validate:url=>Boolean(safeLink(url))}),Spoiler,Placeholder.configure({placeholder:placeholder||"Write your post. Select any words to style them."})],content:editorHtml(value),editorProps:{attributes:{class:"visual-post-editor",role:"textbox","aria-label":"Post text — visual rich editor","aria-multiline":"true"}},onUpdate:({editor})=>{const html=telegramHtml(editor.getJSON());emitted.current=html;callback.current(html)}});
+ useEffect(()=>{if(editor&&value!==emitted.current){editor.commands.setContent(editorHtml(value),{emitUpdate:false});emitted.current=value}},[editor,value]);
+ function openLink(){if(!editor)return;setUrl(editor.getAttributes("link").href||"");setError("");setLinkOpen(true)}
+ function applyLink(){if(!editor)return;if(!url.trim()){editor.chain().focus().extendMarkRange("link").unsetLink().run();setLinkOpen(false);return}const href=safeLink(url.trim());if(!href){setError("Enter a complete https://, http:// or tg:// link.");return}editor.chain().focus().extendMarkRange("link").setLink({href}).run();setLinkOpen(false)}
+ const basic=[
+  {label:"Bold",icon:Bold,active:editor?.isActive("bold"),run:()=>editor?.chain().focus().toggleBold().run()},
+  {label:"Italic",icon:Italic,active:editor?.isActive("italic"),run:()=>editor?.chain().focus().toggleItalic().run()},
+  {label:"Underline",icon:UnderlineIcon,active:editor?.isActive("underline"),run:()=>editor?.chain().focus().toggleUnderline().run()},
+  {label:"Strikethrough",icon:Strikethrough,active:editor?.isActive("strike"),run:()=>editor?.chain().focus().toggleStrike().run()},
+  {label:"Link",icon:Link2,active:editor?.isActive("link"),run:openLink},
+ ];
+ const tools=[...basic,
+  {label:"Spoiler",icon:EyeOff,active:editor?.isActive("spoiler"),run:()=>editor?.chain().focus().toggleMark("spoiler").run()},
+  {label:"Quote",icon:Quote,active:editor?.isActive("blockquote"),run:()=>editor?.chain().focus().toggleBlockquote().run()},
+  {label:"Code",icon:Code,active:editor?.isActive("code"),run:()=>editor?.chain().focus().toggleCode().run()},
+  {label:"Bullet list",icon:List,active:editor?.isActive("bulletList"),run:()=>editor?.chain().focus().toggleBulletList().run()},
+  {label:"Numbered list",icon:ListOrdered,active:editor?.isActive("orderedList"),run:()=>editor?.chain().focus().toggleOrderedList().run()},
+  {label:"Clear formatting",icon:RemoveFormatting,active:false,run:()=>editor?.chain().focus().unsetAllMarks().clearNodes().run()},
+ ];
+ return <div className="ios-card overflow-hidden"><div role="toolbar" aria-label="Text formatting" className="flex flex-wrap items-center gap-1 border-b border-white/10 p-2">{tools.map(t=><button type="button" key={t.label} aria-label={t.label} aria-pressed={!!t.active} title={t.label} disabled={!editor} onPointerDown={e=>e.preventDefault()} onClick={t.run} className={`rounded-lg p-2.5 transition ${t.active?"bg-[#c1cdb3]/20 text-[#d5e4c5]":"text-stone-400 hover:bg-white/5 hover:text-white"}`}><t.icon size={16}/></button>)}<div className="ml-auto flex gap-1"><button type="button" aria-label="Undo" disabled={!editor?.can().undo()} onPointerDown={e=>e.preventDefault()} onClick={()=>editor?.chain().focus().undo().run()} className="rounded-lg p-2 text-stone-400 disabled:opacity-25"><Undo2 size={16}/></button><button type="button" aria-label="Redo" disabled={!editor?.can().redo()} onPointerDown={e=>e.preventDefault()} onClick={()=>editor?.chain().focus().redo().run()} className="rounded-lg p-2 text-stone-400 disabled:opacity-25"><Redo2 size={16}/></button></div></div>
+  {editor&&<BubbleMenu editor={editor} options={{placement:"top"}}><div className="flex rounded-xl border border-stone-600 bg-[#202b24] p-1 shadow-xl" role="toolbar" aria-label="Format selected text">{basic.map(t=><button type="button" key={t.label} aria-label={`Selection ${t.label}`} aria-pressed={!!t.active} onPointerDown={e=>e.preventDefault()} onClick={t.run} className={`rounded-lg p-3 ${t.active?"bg-white/15 text-white":"text-stone-300"}`}><t.icon size={16}/></button>)}</div></BubbleMenu>}
+  {linkOpen&&<div className="border-b border-white/10 p-3" role="group" aria-label="Edit selected text link"><label htmlFor="post-link" className="text-xs text-stone-400">Link address · leave empty to remove</label><div className="mt-2 flex flex-wrap gap-2"><input id="post-link" autoFocus type="url" value={url} onChange={e=>setUrl(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"){e.preventDefault();applyLink()}if(e.key==="Escape")setLinkOpen(false)}} placeholder="https://example.com" className="ios-input flex-1"/><button type="button" onClick={applyLink} className="ios-btn ios-btn-primary text-xs">Apply link</button><button type="button" onClick={()=>setLinkOpen(false)} className="ios-btn ios-btn-glass text-xs">Cancel</button></div>{error&&<p role="alert" className="mt-2 text-xs text-amber-200">{error}</p>}</div>}
+  <EditorContent editor={editor}/>
+  <div className="flex flex-wrap justify-between gap-2 border-t border-white/5 px-4 py-3 text-[10px] text-stone-500"><span>Select text or long-press on mobile to format. No HTML needed.</span><span>{visibleLength(value).toLocaleString()} characters</span></div>
+ </div>
 }

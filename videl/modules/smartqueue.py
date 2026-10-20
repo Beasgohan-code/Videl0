@@ -72,7 +72,7 @@ async def set_voteskip_cmd(_, message: Message) -> None:
     set_skip_votes_needed(chat_id, n)
     await rich_send(
         bot, chat_id,
-        rich_heading("◍ ᴠᴏᴛᴇ-sᴋɪᴘ — ᴜᴘᴅᴀᴛᴇᴅ ◍", level=3)
+        rich_heading(" vote-skip — updated ", level=3)
         + rich_kv_table([("Votes needed", str(get_skip_votes_needed(chat_id)))]),
     )
 

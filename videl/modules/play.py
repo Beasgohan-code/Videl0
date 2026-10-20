@@ -155,12 +155,12 @@ async def _play_local_media(message: Message, chat_id: int, user_id: int, force_
     else:
         return False
 
-    pm = await rich_send(bot, chat_id, rich_heading("◍ Processing media...", level=3))
+    pm = await rich_send(bot, chat_id, rich_heading(" Processing media...", level=3))
 
     if file_size and file_size > _MAX_FILE_MB * 1024 * 1024:
         await rich_edit(
             pm,
-            rich_heading("◍ File too large", level=3)
+            rich_heading(" File too large", level=3)
             + rich_kv_table([("Max", f"<code>{_MAX_FILE_MB} MB</code>")]),
         )
         return True
@@ -178,13 +178,13 @@ async def _play_local_media(message: Message, chat_id: int, user_id: int, force_
     except Exception as e:
         await rich_edit(
             pm,
-            rich_heading("◍ Download failed", level=3)
+            rich_heading(" Download failed", level=3)
             + rich_note(f"<code>{rich_esc(e)}</code>"),
         )
         return True
 
     if not fp:
-        await rich_edit(pm, rich_heading("◍ Download failed", level=3))
+        await rich_edit(pm, rich_heading(" Download failed", level=3))
         return True
 
     # Infer video from extension if still unclear
@@ -264,7 +264,7 @@ async def play_handler(_, message: Message) -> None:
 
     # Blocked words check
     if query and any(x in query.lower() for x in BLOCKED_WORDS):
-        await rich_send(bot, chat_id, rich_heading("◍ Song blocked", level=3))
+        await rich_send(bot, chat_id, rich_heading(" Song blocked", level=3))
         return
 
     # Cooldown check
@@ -274,7 +274,7 @@ async def play_handler(_, message: Message) -> None:
         if chat_id not in _pending:
             rep = await rich_send(
                 bot, chat_id,
-                rich_heading("◍ Cooldown active", level=3)
+                rich_heading(" Cooldown active", level=3)
                 + rich_kv_table([("Processing in", f"<code>{rem}s</code>")]),
             )
             _pending[chat_id] = (message, rep)
@@ -305,7 +305,7 @@ async def play_handler(_, message: Message) -> None:
 async def _process_play(message: Message, query: str, video: bool = False) -> None:
     chat_id = message.chat.id
 
-    pm = await rich_send(bot, chat_id, rich_heading("◍ Processing...", level=3))
+    pm = await rich_send(bot, chat_id, rich_heading(" Processing...", level=3))
 
     # Assistant check — uses utils/assistant.py
     status = await is_assistant_in(chat_id)
@@ -313,7 +313,7 @@ async def _process_play(message: Message, query: str, video: bool = False) -> No
     if status == "banned":
         await rich_edit(
             pm,
-            rich_heading("◍ Assistant is banned", level=3)
+            rich_heading(" Assistant is banned", level=3)
             + rich_note("Unban the assistant and try again."),
         )
         return
@@ -325,7 +325,7 @@ async def _process_play(message: Message, query: str, video: bool = False) -> No
             return
         await rich_edit(
             pm,
-            rich_heading("◍ Assistant joined", level=3)
+            rich_heading(" Assistant joined", level=3)
             + rich_note("Processing..."),
         )
 
@@ -345,13 +345,13 @@ async def _process_play(message: Message, query: str, video: bool = False) -> No
         except Exception as e:
             await rich_edit(
                 pm,
-                rich_heading("◍ Search failed", level=3)
+                rich_heading(" Search failed", level=3)
                 + rich_note(f"<code>{rich_esc(e)}</code>"),
             )
             return
 
         if not results:
-            await rich_edit(pm, rich_heading("◍ No results found", level=3))
+            await rich_edit(pm, rich_heading(" No results found", level=3))
             return
 
         # Store pending results for callback (chat_id + user_id keyed)
@@ -389,7 +389,7 @@ async def _process_play(message: Message, query: str, video: bool = False) -> No
     except Exception as e:
         await rich_edit(
             pm,
-            rich_heading("◍ Search failed", level=3)
+            rich_heading(" Search failed", level=3)
             + rich_note(f"<code>{rich_esc(e)}</code>"),
         )
         return
@@ -418,15 +418,15 @@ async def _process_play(message: Message, query: str, video: bool = False) -> No
             })
 
         rows = [
-            ("sᴏɴɢs", f"<code>{len(items)}</code>"),
-            ("ғɪʀsᴛ", f"<code>{rich_esc(short(items[0]['title']))}</code>"),
+            ("songs", f"<code>{len(items)}</code>"),
+            ("first", f"<code>{rich_esc(short(items[0]['title']))}</code>"),
         ]
         if len(items) > 1:
-            rows.append(("ɴᴇxᴛ", f"<code>{rich_esc(short(items[1]['title']))}</code>"))
+            rows.append(("next", f"<code>{rich_esc(short(items[1]['title']))}</code>"))
 
         await rich_send(
             bot, chat_id,
-            rich_heading("❍ ᴘʟᴀʏʟɪsᴛ ᴀᴅᴅᴇᴅ", level=3) + rich_kv_table(rows),
+            rich_heading("❍ playlist added", level=3) + rich_kv_table(rows),
         )
 
         if first_was_empty:
@@ -441,7 +441,7 @@ async def _process_play(message: Message, query: str, video: bool = False) -> No
     url, title, dur_iso, thumb = result
 
     if not url:
-        await rich_edit(pm, rich_heading("❍ sᴏɴɢ ɴᴏᴛ ғᴏᴜɴᴅ", level=3))
+        await rich_edit(pm, rich_heading("❍ song not found", level=3))
         return
 
     secs = iso_to_sec(dur_iso)
@@ -449,10 +449,10 @@ async def _process_play(message: Message, query: str, video: bool = False) -> No
     if secs > config.MAX_DURATION_SECONDS:
         await rich_edit(
             pm,
-            rich_heading("❍ sᴏɴɢ ᴛᴏᴏ ʟᴏɴɢ", level=3)
+            rich_heading("❍ song too long", level=3)
             + rich_kv_table([
-                ("ᴅᴜʀ", f"<code>{iso_to_human(dur_iso)}</code>"),
-                ("ᴍᴀx", f"<code>{config.MAX_DURATION_SECONDS // 60} min</code>"),
+                ("dur", f"<code>{iso_to_human(dur_iso)}</code>"),
+                ("max", f"<code>{config.MAX_DURATION_SECONDS // 60} min</code>"),
             ]),
         )
         return
@@ -486,17 +486,17 @@ async def _process_play(message: Message, query: str, video: bool = False) -> No
         await play_song(chat_id, pm, song)
     else:
         kb = InlineKeyboardMarkup([[
-            InlineKeyboardButton("⌯ sᴋɪᴘ ⌯",  callback_data="skip"),
-            InlineKeyboardButton("⌯ ᴄʟᴇᴀʀ ⌯", callback_data="clear"),
+            InlineKeyboardButton("⌯ skip ⌯",  callback_data="skip"),
+            InlineKeyboardButton("⌯ clear ⌯", callback_data="clear"),
         ]])
         await rich_send(
             bot, chat_id,
             rich_heading("➕ Added to queue", level=3)
             + rich_kv_table([
-                ("ᴛɪᴛʟᴇ", f"<code>{rich_esc(short(title))}</code>"),
-                ("ᴅᴜʀ", f"<code>{iso_to_human(dur_iso)}</code>"),
-                ("ʙʏ", f"<code>{rich_esc(req)}</code>"),
-                ("ᴘᴏs", f"<code>#{pos - 1}</code>"),
+                ("title", f"<code>{rich_esc(short(title))}</code>"),
+                ("dur", f"<code>{iso_to_human(dur_iso)}</code>"),
+                ("by", f"<code>{rich_esc(req)}</code>"),
+                ("pos", f"<code>#{pos - 1}</code>"),
             ]),
             reply_markup=kb,
         )

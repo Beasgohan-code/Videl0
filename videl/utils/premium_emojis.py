@@ -115,6 +115,8 @@ def tg_emoji(emoji_id: str | int, fallback: str = "◍") -> str:
 
 def pe(key: str, fallback: str | None = None) -> str:
     """Premium emoji by logical key — auto falls back to cyber glyph."""
+    if key in {"orb", "diamond", "line", "small", "spark", "circle", "target", "hex", "arrow", "dash"}:
+        return ""
     fid = PREMIUM_IDS.get(key, "")
     fb = fallback if fallback is not None else FALLBACK.get(key, "◍")
     return tg_emoji(fid, fb)

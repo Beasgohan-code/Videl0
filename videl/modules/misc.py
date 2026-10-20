@@ -39,7 +39,7 @@ async def repo_cmd(_, message: Message) -> None:
         [
             [
                 InlineKeyboardButton(
-                    "◍ Source Code",
+                    " Source Code",
                     url=SOURCE_URL,
                 ),
                 InlineKeyboardButton(
@@ -49,11 +49,11 @@ async def repo_cmd(_, message: Message) -> None:
             ],
             [
                 InlineKeyboardButton(
-                    "⫶ sᴜᴘᴘᴏʀᴛ",
+                    " support",
                     url=config.SUPPORT_GROUP,
                 ),
                 InlineKeyboardButton(
-                    "⬪ Updates",
+                    " Updates",
                     url=config.UPDATES_CHANNEL,
                 ),
             ],
@@ -61,18 +61,18 @@ async def repo_cmd(_, message: Message) -> None:
     )
 
     content = (
-        rich_heading("◍ Videl Source", level=3)
-        + "<p>❍ ᴏᴘᴇɴ sᴏᴜʀᴄᴇ ᴍᴜsɪᴄ ʙᴏᴛ, ᴅᴇᴠᴇʟᴏᴘᴇᴅ ʙʏ <b>ʙᴇᴀꜱɢᴏʜᴀɴ</b> ❤️</p>"
+        rich_heading(" Videl Source", level=3)
+        + "<p>❍ open source music bot, developed by <b>beaꜱgohan</b> ❤️</p>"
         + rich_details(
-            "⚡ ʜᴏsᴛɪɴɢ sᴜᴘᴘᴏʀᴛ",
+            "⚡ hosting support",
             rich_kv_table([
-                ("ғʀᴇᴇ", "ʀᴇɴᴅᴇʀ ◍ · ᴋᴏʏᴇʙ ◍ · ʀᴀɪʟᴡᴀʏ ◍"),
-                ("ᴘʀᴇᴍɪᴜᴍ", "ʜᴇʀᴏᴋᴜ ⬪ ᴠᴘs (24x7)"),
+                ("free", "render  · koyeb  · railway "),
+                ("premium", "heroku  vps (24x7)"),
             ]),
             open=True,
         )
         + rich_note(
-            f"❍ <a href='{SOURCE_URL}'>ɢɪᴛʜᴜʙ ʀᴇᴘᴏ</a> — ғᴇᴇʟ ғʀᴇᴇ ᴛᴏ ʜɪᴛ ⭐ ᴏɴ ɢɪᴛʜᴜʙ!"
+            f"❍ <a href='{SOURCE_URL}'>github repo</a> — feel free to hit ⭐ on github!"
         )
     )
 
@@ -91,8 +91,8 @@ async def id_cmd(client, message: Message) -> None:
 
     # ── Base rows ──────────────────────────────────────────────────────────────
     rows = [
-        ("<a href='{}'>ᴍᴇssᴀɢᴇ ɪᴅ</a>".format(message.link), f"<code>{message_id}</code>"),
-        (f"<a href='tg://user?id={your_id}'>ʏᴏᴜʀ ɪᴅ</a>", f"<code>{your_id}</code>"),
+        ("<a href='{}'>message id</a>".format(message.link), f"<code>{message_id}</code>"),
+        (f"<a href='tg://user?id={your_id}'>your id</a>", f"<code>{your_id}</code>"),
     ]
 
     # ── Optional: lookup another user by username or ID ───────────────────────
@@ -101,11 +101,11 @@ async def id_cmd(client, message: Message) -> None:
         try:
             target    = await client.get_users(args[0])
             target_id = target.id
-            rows.append((f"<a href='tg://user?id={target_id}'>ᴜsᴇʀ ɪᴅ</a>", f"<code>{target_id}</code>"))
+            rows.append((f"<a href='tg://user?id={target_id}'>user id</a>", f"<code>{target_id}</code>"))
         except Exception:
             await rich_reply(
                 message,
-                rich_heading("❍ ᴜsᴇʀ ɴᴏᴛ ғᴏᴜɴᴅ", level=3),
+                rich_heading("❍ user not found", level=3),
             )
             return
 
@@ -115,33 +115,33 @@ async def id_cmd(client, message: Message) -> None:
     else:
         chat_link = f"tg://user?id={chat.id}"
 
-    rows.append((f"<a href='{chat_link}'>ᴄʜᴀᴛ ɪᴅ</a>", f"<code>{chat.id}</code>"))
+    rows.append((f"<a href='{chat_link}'>chat id</a>", f"<code>{chat.id}</code>"))
 
     # ── Replied message ────────────────────────────────────────────────────────
     if reply and not getattr(reply, "empty", True):
 
         # Replied user ID
         if reply.from_user and not getattr(reply, "sender_chat", None):
-            rows.append((f"<a href='{reply.link}'>ʀᴇᴘʟɪᴇᴅ ᴍsɢ ɪᴅ</a>", f"<code>{reply.id}</code>"))
+            rows.append((f"<a href='{reply.link}'>replied msg id</a>", f"<code>{reply.id}</code>"))
             rows.append((
-                f"<a href='tg://user?id={reply.from_user.id}'>ʀᴇᴘʟɪᴇᴅ ᴜsᴇʀ</a>",
+                f"<a href='tg://user?id={reply.from_user.id}'>replied user</a>",
                 f"<code>{reply.from_user.id}</code>",
             ))
 
         # Forwarded from channel
         fwd_chat = getattr(reply, "forward_from_chat", None)
         if fwd_chat:
-            rows.append(("ғᴡᴅ ᴄʜᴀɴɴᴇʟ", fwd_chat.title))
-            rows.append(("ғᴡᴅ ᴄʜᴀɴɴᴇʟ ɪᴅ", f"<code>{fwd_chat.id}</code>"))
+            rows.append(("fwd channel", fwd_chat.title))
+            rows.append(("fwd channel id", f"<code>{fwd_chat.id}</code>"))
 
         # Sender chat (anonymous group admin / channel post)
         sender_chat = getattr(reply, "sender_chat", None)
         if sender_chat:
-            rows.append(("sᴇɴᴅᴇʀ ᴄʜᴀᴛ", sender_chat.title))
-            rows.append(("sᴇɴᴅᴇʀ ᴄʜᴀᴛ ɪᴅ", f"<code>{sender_chat.id}</code>"))
+            rows.append(("sender chat", sender_chat.title))
+            rows.append(("sender chat id", f"<code>{sender_chat.id}</code>"))
 
     content = (
-        rich_heading("❍ ɪᴅ ɪɴғᴏ", level=3)
+        rich_heading("❍ id info", level=3)
         + rich_kv_table(rows)
     )
 
@@ -163,12 +163,12 @@ async def cleanup_cmd(_, message: Message) -> None:
         rows.append(("downloads_removed", str(dl)))
         await rich_reply(
             message,
-            _rh("◍ Cleanup complete", level=3)
+            _rh(" Cleanup complete", level=3)
             + _rkv(rows)
             + _rn("Inactive chats/users & old playlists older than 30 days removed."),
         )
     except Exception as e:
         await rich_reply(
             message,
-            _rh("◍ Cleanup failed", level=3) + _rn(str(e)),
+            _rh(" Cleanup failed", level=3) + _rn(str(e)),
         )

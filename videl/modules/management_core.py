@@ -997,4 +997,4 @@ async def stats_cmd(_, message: Message):
     m, s = divmod(r, 60)
     await rich_reply(message, rich_heading("📊 Videl Stats", level=3) + rich_kv_table([("Uptime", f"<code>{h}h {m}m {s}s</code>"), ("Chats", f"<code>{chat_count}</code>"), ("Warnings", f"<code>{warn_count}</code>"), ("Notes", f"<code>{note_count}</code>"), ("Bot", f"@{getattr(config, 'BOT_USERNAME', 'Videl0Bot')}")]))
 
-LOGGER.info("◍ Videl → Videl integrated ✅ — all 9 modules ported, Richgram UI, credits → Videl")
+LOGGER.info(" Videl → Videl integrated ✅ — all 9 modules ported, Richgram UI, credits → Videl")

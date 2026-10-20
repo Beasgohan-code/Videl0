@@ -46,8 +46,8 @@ async def autoplay_cmd(_, message: Message) -> None:
     if not await is_user_authorized(message):
         await rich_send(
             bot, chat_id,
-            rich_heading("⛔ ᴀᴅᴍɪɴ ᴏɴʟʏ", level=3)
-            + rich_note("ᴏɴʟʏ ɢʀᴏᴜᴘ ᴀᴅᴍɪɴs ᴄᴀɴ ᴜsᴇ /autoplay"),
+            rich_heading("⛔ admin only", level=3)
+            + rich_note("only group admins can use /autoplay"),
         )
         return
 
@@ -59,23 +59,23 @@ async def autoplay_cmd(_, message: Message) -> None:
         if is_autoplay(chat_id) and current_q:
             await rich_send(
                 bot, chat_id,
-                rich_heading("🔁 ᴀᴜᴛᴏᴘʟᴀʏ ɪs ᴀʟʀᴇᴀᴅʏ ʀᴜɴɴɪɴɢ", level=3)
-                + rich_kv_table([("ǫᴜᴇʀʏ", f"<code>{rich_esc(current_q)}</code>")])
-                + rich_note("ᴜsᴇ /end ᴛᴏ sᴛᴏᴘ ᴀᴜᴛᴏᴘʟᴀʏ ғɪʀsᴛ"),
+                rich_heading("🔁 autoplay is already running", level=3)
+                + rich_kv_table([("query", f"<code>{rich_esc(current_q)}</code>")])
+                + rich_note("use /end to stop autoplay first"),
             )
         else:
             await rich_send(
                 bot, chat_id,
-                rich_heading("🔁 ᴀᴜᴛᴏᴘʟᴀʏ ᴜsᴀɢᴇ", level=3)
-                + rich_kv_table([("ᴜsᴀɢᴇ", "<code>/autoplay sidhu moose wala</code>")])
-                + rich_note("ᴛʜɪs ᴡɪʟʟ ᴄᴏɴᴛɪɴᴜᴏᴜsʟʏ ᴘʟᴀʏ sᴏɴɢs ᴀᴜᴛᴏᴍᴀᴛɪᴄᴀʟʟʏ"),
+                rich_heading("🔁 autoplay usage", level=3)
+                + rich_kv_table([("usage", "<code>/autoplay sidhu moose wala</code>")])
+                + rich_note("this will continuously play songs automatically"),
             )
         return
 
     pm = await rich_send(
         bot, chat_id,
-        rich_heading("🔁 sᴇᴛᴛɪɴɢ ᴜᴘ ᴀᴜᴛᴏᴘʟᴀʏ...", level=3)
-        + rich_kv_table([("ǫᴜᴇʀʏ", f"<code>{rich_esc(query)}</code>")]),
+        rich_heading("🔁 setting up autoplay...", level=3)
+        + rich_kv_table([("query", f"<code>{rich_esc(query)}</code>")]),
     )
 
     req    = user.first_name if user else "AutoPlay"
@@ -88,8 +88,8 @@ async def autoplay_cmd(_, message: Message) -> None:
         stop_autoplay(chat_id)
         await rich_edit(
             pm,
-            rich_heading("❍ ᴀᴜᴛᴏᴘʟᴀʏ ғᴀɪʟᴇᴅ", level=3)
-            + rich_note("ɴᴏ sᴏɴɢs ᴡᴇʀᴇ ғᴏᴜɴᴅ, ᴘʟᴇᴀsᴇ ᴛʀʏ ᴀɢᴀɪɴ"),
+            rich_heading("❍ autoplay failed", level=3)
+            + rich_note("no songs were found, please try again"),
         )
         return
 
@@ -97,19 +97,19 @@ async def autoplay_cmd(_, message: Message) -> None:
 
     await rich_edit(
         pm,
-        rich_heading("🔁 ᴀᴜᴛᴏᴘʟᴀʏ sᴛᴀʀᴛᴇᴅ", level=3)
+        rich_heading("🔁 autoplay started", level=3)
         + rich_kv_table([
-            ("ǫᴜᴇʀʏ", f"<code>{rich_esc(query)}</code>"),
-            ("ᴀᴅᴅᴇᴅ", f"{count} sᴏɴɢs ᴛᴏ ǫᴜᴇᴜᴇ"),
+            ("query", f"<code>{rich_esc(query)}</code>"),
+            ("added", f"{count} songs to queue"),
         ])
-        + rich_note("ᴜsᴇ /end ᴛᴏ sᴛᴏᴘ ᴀᴜᴛᴏᴘʟᴀʏ"),
+        + rich_note("use /end to stop autoplay"),
     )
 
     if not was_playing and first:
         dm = await rich_send(
             bot, chat_id,
-            rich_heading("❍ ɴᴏᴡ ᴘʟᴀʏɪɴɢ", level=3)
-            + rich_kv_table([("ᴛɪᴛʟᴇ", f"<code>{rich_esc(short(first['title']))}</code>")]),
+            rich_heading("❍ now playing", level=3)
+            + rich_kv_table([("title", f"<code>{rich_esc(short(first['title']))}</code>")]),
         )
         await play_song(chat_id, dm, first)
 

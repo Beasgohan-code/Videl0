@@ -36,9 +36,9 @@ def _support_updates_pills() -> str:
     return (
         "<p>"
         f'<tg-button type="url" style="primary" url="{config.SUPPORT_GROUP}">'
-        "⫶ sᴜᴘᴘᴏʀᴛ</tg-button> "
+        " support</tg-button> "
         f'<tg-button type="url" style="success" url="{config.UPDATES_CHANNEL}">'
-        "◎ ᴜᴘᴅᴀᴛᴇs</tg-button>"
+        " updates</tg-button>"
         "</p>"
     )
 
@@ -52,7 +52,7 @@ def _category_html(title: str, desc: str, rows, photo: str = None) -> str:
         html
         + rich_heading(title, level=3)
         + f"<p>{desc}</p>"
-        + rich_table(["ᴄᴏᴍᴍᴀɴᴅ", "ᴅᴇsᴄʀɪᴘᴛɪᴏɴ"], rows)
+        + rich_table(["command", "description"], rows)
         + _support_updates_pills()
     )
 
@@ -108,126 +108,126 @@ _BACK_KB = InlineKeyboardMarkup([
 _HELP_TEXTS = {
 
     "help_admin": {
-        "title": "⚙️ ᴀᴅᴍɪɴ &amp; ᴍᴏᴅᴇʀᴀᴛɪᴏɴ",
-        "desc": "ᴘʟᴀʏʙᴀᴄᴋ ᴄᴏɴᴛʀᴏʟs + ɢʀᴏᴜᴘ ᴍᴀɴᴀɢᴇᴍᴇɴᴛ (ʀᴇǫᴜɪʀᴇs ʙᴏᴛ ᴀᴅᴍɪɴ ʀɪɢʜᴛs).",
+        "title": "⚙️ admin &amp; moderation",
+        "desc": "playback controls + group management (requires bot admin rights).",
         "rows": [
-            ("/pause /resume /skip /stop", "ᴘʟᴀʏʙᴀᴄᴋ ᴄᴏɴᴛʀᴏʟs"),
-            ("/seek &lt;sec&gt; /seekback", "sᴇᴇᴋ ғᴏʀᴡᴀʀᴅ / ʙᴀᴄᴋ"),
-            ("/ban /unban /kick", "ʙᴀɴ, ᴜɴʙᴀɴ ᴏʀ ᴋɪᴄᴋ ᴀ ᴜsᴇʀ"),
-            ("/mute [1h] /unmute", "ᴍᴜᴛᴇ (ᴏᴘᴛɪᴏɴᴀʟ ᴅᴜʀᴀᴛɪᴏɴ) / ᴜɴᴍᴜᴛᴇ"),
-            ("/warn /warns /resetwarns", "ᴡᴀʀɴ sʏsᴛᴇᴍ (ᴀᴜᴛᴏ-ʙᴀɴ ᴀᴛ ʟɪᴍɪᴛ)"),
-            ("/setwarnlimit &lt;n&gt;", "sᴇᴛ ᴡᴀʀɴ ʟɪᴍɪᴛ (ᴅᴇғᴀᴜʟᴛ 3)"),
-            ("/promote /demote", "ᴘʀᴏᴍᴏᴛᴇ ᴏʀ ᴅᴇᴍᴏᴛᴇ ᴀᴅᴍɪɴ"),
-            ("/purge", "ᴅᴇʟᴇᴛᴇ ᴍᴇssᴀɢᴇs ғʀᴏᴍ ʀᴇᴘʟʏ ᴛᴏ ʜᴇʀᴇ"),
-            ("/pin /unpin", "ᴘɪɴ ᴏʀ ᴜɴᴘɪɴ ᴀ ᴍᴇssᴀɢᴇ"),
-            ("/setwelcome /welcome on|off", "ᴡᴇʟᴄᴏᴍᴇ ᴍᴇssᴀɢᴇ"),
-            ("/setgoodbye", "ɢᴏᴏᴅʙʏᴇ ᴍᴇssᴀɢᴇ"),
-            ("/admins", "ʟɪsᴛ ɢʀᴏᴜᴘ ᴀᴅᴍɪɴs"),
-            ("/locks", "ᴄᴏɴᴛᴇɴᴛ ʟᴏᴄᴋs ᴘᴀɴᴇʟ"),
-            ("/antiflood", "ᴀɴᴛɪ-ғʟᴏᴏᴅ sᴇᴛᴛɪɴɢs"),
-            ("/voteskip &lt;n&gt;", "ᴠᴏᴛᴇs ɴᴇᴇᴅᴇᴅ ᴛᴏ sᴋɪᴘ"),
-            ("/queue", "sʜᴏᴡ ᴄᴜʀʀᴇɴᴛ ǫᴜᴇᴜᴇ"),
-            ("/saveplaylist /playlist", "sᴀᴠᴇ / ʟᴏᴀᴅ ᴘʟᴀʏʟɪsᴛs"),
+            ("/pause /resume /skip /stop", "playback controls"),
+            ("/seek &lt;sec&gt; /seekback", "seek forward / back"),
+            ("/ban /unban /kick", "ban, unban or kick a user"),
+            ("/mute [1h] /unmute", "mute (optional duration) / unmute"),
+            ("/warn /warns /resetwarns", "warn system (auto-ban at limit)"),
+            ("/setwarnlimit &lt;n&gt;", "set warn limit (default 3)"),
+            ("/promote /demote", "promote or demote admin"),
+            ("/purge", "delete messages from reply to here"),
+            ("/pin /unpin", "pin or unpin a message"),
+            ("/setwelcome /welcome on|off", "welcome message"),
+            ("/setgoodbye", "goodbye message"),
+            ("/admins", "list group admins"),
+            ("/locks", "content locks panel"),
+            ("/antiflood", "anti-flood settings"),
+            ("/voteskip &lt;n&gt;", "votes needed to skip"),
+            ("/queue", "show current queue"),
+            ("/saveplaylist /playlist", "save / load playlists"),
         ],
     },
 
     "help_autoplay": {
-        "title": "⦿ ᴀᴜᴛᴏᴘʟᴀʏ ᴄᴏᴍᴍᴀɴᴅs",
-        "desc": "ᴋᴇᴇᴘ ᴛʜᴇ ǫᴜᴇᴜᴇ ɢᴏɪɴɢ ᴀᴜᴛᴏᴍᴀᴛɪᴄᴀʟʟʏ ʙᴀsᴇᴅ ᴏɴ ᴀ ǫᴜᴇʀʏ.",
+        "title": " autoplay commands",
+        "desc": "keep the queue going automatically based on a query.",
         "rows": [
-            ("/autoplay &lt;query&gt;", "ᴄᴏɴᴛɪɴᴜᴏᴜsʟʏ ᴘʟᴀʏ sᴏɴɢs ʙᴀsᴇᴅ ᴏɴ ʏᴏᴜʀ ǫᴜᴇʀʏ"),
-            ("/end, /stop", "sᴛᴏᴘ ᴀᴜᴛᴏᴘʟᴀʏ &amp; ᴄʟᴇᴀʀ ǫᴜᴇᴜᴇ"),
-            ("<code>/autoplay sidhu moose wala</code>", "ᴇxᴀᴍᴘʟᴇ"),
-            ("<code>/autoplay arijit singh</code>", "ᴇxᴀᴍᴘʟᴇ"),
+            ("/autoplay &lt;query&gt;", "continuously play songs based on your query"),
+            ("/end, /stop", "stop autoplay &amp; clear queue"),
+            ("<code>/autoplay sidhu moose wala</code>", "example"),
+            ("<code>/autoplay arijit singh</code>", "example"),
         ],
     },
 
     "help_gcast": {
-        "title": "⬪ ɢ-ᴄᴀsᴛ ᴄᴏᴍᴍᴀɴᴅs",
-        "desc": "ʙʀᴏᴀᴅᴄᴀsᴛ ᴛᴏ ᴇᴠᴇʀʏ sᴇʀᴠᴇᴅ ᴄʜᴀᴛ (ᴏᴡɴᴇʀ ᴏɴʟʏ).",
+        "title": " g-cast commands",
+        "desc": "broadcast to every served chat (owner only).",
         "rows": [
-            ("/broadcast, /gcast", "ʀᴇᴘʟʏ ᴛᴏ ᴀ ᴍsɢ ᴏʀ ᴛʏᴘᴇ ᴛᴇxᴛ"),
-            ("-pin", "ᴘɪɴ sɪʟᴇɴᴛʟʏ ɪɴ ɢʀᴏᴜᴘs"),
-            ("-pinloud", "ᴘɪɴ ᴡɪᴛʜ ɴᴏᴛɪғɪᴄᴀᴛɪᴏɴ"),
-            ("-nogroup", "sᴋɪᴘ ɢʀᴏᴜᴘs"),
-            ("-user", "ᴀʟsᴏ sᴇɴᴅ ᴛᴏ ᴜsᴇʀs"),
+            ("/broadcast, /gcast", "reply to a msg or type text"),
+            ("-pin", "pin silently in groups"),
+            ("-pinloud", "pin with notification"),
+            ("-nogroup", "skip groups"),
+            ("-user", "also send to users"),
         ],
     },
 
     "help_blchat": {
-        "title": "◍ ʙʟ-ᴄʜᴀᴛ ᴄᴏᴍᴍᴀɴᴅs",
-        "desc": "ʙʟᴏᴄᴋ ᴏʀ ᴜɴʙʟᴏᴄᴋ ᴡʜᴏʟᴇ ɢʀᴏᴜᴘs (ᴏᴡɴᴇʀ ᴏɴʟʏ).",
+        "title": " bl-chat commands",
+        "desc": "block or unblock whole groups (owner only).",
         "rows": [
-            ("/gblock", "ʙʟᴏᴄᴋ ᴄᴜʀʀᴇɴᴛ ɢʀᴏᴜᴘ — ɴᴏ ᴄᴏᴍᴍᴀɴᴅs ᴡɪʟʟ ᴡᴏʀᴋ"),
-            ("/gblock &lt;-100xxxxxxx&gt;", "ʙʟᴏᴄᴋ ʙʏ ᴄʜᴀᴛ ɪᴅ"),
-            ("/gunblock", "ᴜɴʙʟᴏᴄᴋ ɢʀᴏᴜᴘ"),
-            ("/gunblock &lt;-100xxxxxxx&gt;", "ᴜɴʙʟᴏᴄᴋ ʙʏ ᴄʜᴀᴛ ɪᴅ"),
-            ("/blocklist", "sʜᴏᴡ ᴀʟʟ ʙʟᴏᴄᴋᴇᴅ ɢʀᴏᴜᴘs &amp; ᴜsᴇʀs"),
+            ("/gblock", "block current group — no commands will work"),
+            ("/gblock &lt;-100xxxxxxx&gt;", "block by chat id"),
+            ("/gunblock", "unblock group"),
+            ("/gunblock &lt;-100xxxxxxx&gt;", "unblock by chat id"),
+            ("/blocklist", "show all blocked groups &amp; users"),
         ],
     },
 
     "help_blusers": {
-        "title": "◍ ʙʟ-ᴜsᴇʀs ᴄᴏᴍᴍᴀɴᴅs",
-        "desc": "ʙʟᴏᴄᴋ ᴏʀ ᴜɴʙʟᴏᴄᴋ ɪɴᴅɪᴠɪᴅᴜᴀʟ ᴜsᴇʀs (ᴏᴡɴᴇʀ ᴏɴʟʏ).",
+        "title": " bl-users commands",
+        "desc": "block or unblock individual users (owner only).",
         "rows": [
-            ("/ublock", "ʀᴇᴘʟʏ ᴛᴏ ᴀ ᴜsᴇʀ's ᴍsɢ ᴛᴏ ʙʟᴏᴄᴋ — ᴛʜᴇʏ ᴄᴀɴ'ᴛ ᴜsᴇ ᴀɴʏ ᴄᴏᴍᴍᴀɴᴅ"),
-            ("/ublock &lt;user id&gt;", "ʙʟᴏᴄᴋ ʙʏ ᴜsᴇʀ ɪᴅ"),
-            ("/uunblock", "ʀᴇᴘʟʏ ᴛᴏ ᴀ ᴜsᴇʀ's ᴍsɢ ᴛᴏ ᴜɴʙʟᴏᴄᴋ"),
-            ("/uunblock &lt;user id&gt;", "ᴜɴʙʟᴏᴄᴋ ʙʏ ᴜsᴇʀ ɪᴅ"),
-            ("/blocklist", "sʜᴏᴡ ᴀʟʟ ʙʟᴏᴄᴋᴇᴅ ᴜsᴇʀs &amp; ᴄʜᴀᴛs"),
+            ("/ublock", "reply to a user's msg to block — they can't use any command"),
+            ("/ublock &lt;user id&gt;", "block by user id"),
+            ("/uunblock", "reply to a user's msg to unblock"),
+            ("/uunblock &lt;user id&gt;", "unblock by user id"),
+            ("/blocklist", "show all blocked users &amp; chats"),
         ],
     },
 
     "help_ping": {
-        "title": "🏓 ᴘɪɴɢ ᴄᴏᴍᴍᴀɴᴅs",
-        "desc": "ʟᴀᴛᴇɴᴄʏ ᴀɴᴅ sʏsᴛᴇᴍ ᴅɪᴀɢɴᴏsᴛɪᴄs.",
+        "title": "🏓 ping commands",
+        "desc": "latency and system diagnostics.",
         "rows": [
-            ("/ping", "ʙᴏᴛ ʟᴀᴛᴇɴᴄʏ, ʀᴀᴍ, ᴄᴘᴜ, ᴅɪsᴋ &amp; ᴜᴘᴛɪᴍᴇ sᴛᴀᴛs"),
-            ("/speedtest, /spt", "ɴᴇᴛᴡᴏʀᴋ sᴘᴇᴇᴅ ᴛᴇsᴛ (ᴏᴡɴᴇʀ ᴏɴʟʏ)"),
-            ("/stats", "ғᴜʟʟ sʏsᴛᴇᴍ + ᴍᴏɴɢᴏᴅʙ sᴛᴀᴛs (ᴏᴡɴᴇʀ ᴏɴʟʏ)"),
+            ("/ping", "bot latency, ram, cpu, disk &amp; uptime stats"),
+            ("/speedtest, /spt", "network speed test (owner only)"),
+            ("/stats", "full system + mongodb stats (owner only)"),
         ],
     },
 
     "help_play": {
-        "title": "⬪ ᴘʟᴀʏ ᴄᴏᴍᴍᴀɴᴅs",
-        "desc": "ᴀᴜᴅɪᴏ, ᴠɪᴅᴇᴏ, ғɪʟᴇs &amp; ᴄʜᴀɴɴᴇʟ ᴘʟᴀʏ.",
+        "title": " play commands",
+        "desc": "audio, video, files &amp; channel play.",
         "rows": [
-            ("/play &lt;name or URL&gt;", "ᴘʟᴀʏ ᴀᴜᴅɪᴏ ɪɴ ɢʀᴏᴜᴘ ᴠᴄ"),
-            ("/vplay &lt;name or URL&gt;", "ᴘʟᴀʏ ᴠɪᴅᴇᴏ ɪɴ ɢʀᴏᴜᴘ ᴠᴄ"),
-            ("/cplay &lt;name or URL&gt;", "ᴘʟᴀʏ ᴀᴜᴅɪᴏ ɪɴ ʟɪɴᴋᴇᴅ ᴄʜᴀɴɴᴇʟ"),
-            ("/cvplay &lt;name or URL&gt;", "ᴘʟᴀʏ ᴠɪᴅᴇᴏ ɪɴ ʟɪɴᴋᴇᴅ ᴄʜᴀɴɴᴇʟ"),
-            ("/channelplay @ch", "ʟɪɴᴋ ᴀ ᴄʜᴀɴɴᴇʟ ғᴏʀ /cplay"),
-            ("ʀᴇᴘʟʏ + /play or /vplay", "ᴀᴜᴅɪᴏ, ᴠɪᴅᴇᴏ, ᴍᴋᴠ, ᴍᴘ4, ᴡᴇʙᴍ…"),
-            ("sᴇᴀʀᴄʜ ᴘɪᴄᴋᴇʀ", "ᴄʜᴏᴏsᴇ ғʀᴏᴍ ᴛᴏᴘ 5 ʏᴛ ʀᴇsᴜʟᴛs"),
-            ("/lyrics", "ʟʏʀɪᴄs ғᴏʀ ᴄᴜʀʀᴇɴᴛ ᴏʀ sᴇᴀʀᴄʜ"),
-            ("ɴᴏᴡ ᴘʟᴀʏɪɴɢ ʙᴛɴ", "ǫᴜᴇᴜᴇ · ʟʏʀɪᴄs · sᴀᴠᴇ ᴘʟ"),
-            ("ᴍᴀx ᴅᴜʀᴀᴛɪᴏɴ", f"{config.MAX_DURATION_SECONDS // 60} ᴍɪɴᴜᴛᴇs"),
-            ("ǫᴜᴇᴜᴇ ʟɪᴍɪᴛ", f"{config.QUEUE_LIMIT} sᴏɴɢs"),
+            ("/play &lt;name or URL&gt;", "play audio in group vc"),
+            ("/vplay &lt;name or URL&gt;", "play video in group vc"),
+            ("/cplay &lt;name or URL&gt;", "play audio in linked channel"),
+            ("/cvplay &lt;name or URL&gt;", "play video in linked channel"),
+            ("/channelplay @ch", "link a channel for /cplay"),
+            ("reply + /play or /vplay", "audio, video, mkv, mp4, webm…"),
+            ("search picker", "choose from top 5 yt results"),
+            ("/lyrics", "lyrics for current or search"),
+            ("now playing btn", "queue · lyrics · save pl"),
+            ("max duration", f"{config.MAX_DURATION_SECONDS // 60} minutes"),
+            ("queue limit", f"{config.QUEUE_LIMIT} songs"),
         ],
     },
 
     "help_speed": {
-        "title": "🎚️ sᴘᴇᴇᴅ &amp; ᴇғғᴇᴄᴛs",
-        "desc": "ᴀᴅᴊᴜsᴛ ᴘʟᴀʏʙᴀᴄᴋ sᴘᴇᴇᴅ ᴀɴᴅ ᴀᴜᴅɪᴏ ᴇғғᴇᴄᴛs.",
+        "title": "🎚️ speed &amp; effects",
+        "desc": "adjust playback speed and audio effects.",
         "rows": [
-            ("/speed &lt;0.25–4.0&gt;", "ᴄʜᴀɴɢᴇ ᴘʟᴀʏʙᴀᴄᴋ sᴘᴇᴇᴅ — ᴇ.ɢ. /speed 1.5"),
-            ("/speedreset", "ʀᴇsᴇᴛ sᴘᴇᴇᴅ ᴛᴏ ɴᴏʀᴍᴀʟ (1.0x)"),
-            ("/bass &lt;1–20&gt;", "ʙᴏᴏsᴛ ʙᴀss ʙʏ ɴ ᴅʙ — ᴇ.ɢ. /bass 10"),
-            ("/bassoff", "ᴛᴜʀɴ ᴏғғ ʙᴀss ʙᴏᴏsᴛ"),
-            ("/effecton", "ᴀᴘᴘʟʏ ᴇғғᴇᴄᴛs ᴛᴏ ᴀʟʟ sᴏɴɢs"),
-            ("/effectoff", "ᴅɪsᴀʙʟᴇ ᴀᴜᴛᴏ ᴇғғᴇᴄᴛs"),
-            ("/effects", "sʜᴏᴡ ᴄᴜʀʀᴇɴᴛ ᴇғғᴇᴄᴛ sᴛᴀᴛᴜs"),
+            ("/speed &lt;0.25–4.0&gt;", "change playback speed — e.g. /speed 1.5"),
+            ("/speedreset", "reset speed to normal (1.0x)"),
+            ("/bass &lt;1–20&gt;", "boost bass by n db — e.g. /bass 10"),
+            ("/bassoff", "turn off bass boost"),
+            ("/effecton", "apply effects to all songs"),
+            ("/effectoff", "disable auto effects"),
+            ("/effects", "show current effect status"),
         ],
     },
 
     "help_info": {
-        "title": "ℹ️ ɪɴғᴏ ᴄᴏᴍᴍᴀɴᴅs",
-        "desc": "ʙᴏᴛ, ᴄʜᴀᴛ, ᴀɴᴅ ᴜsᴇʀ ɪɴғᴏʀᴍᴀᴛɪᴏɴ.",
+        "title": "ℹ️ info commands",
+        "desc": "bot, chat, and user information.",
         "rows": [
-            ("/id", "ɢᴇᴛ ɪᴅs ᴏғ ᴜsᴇʀ / ᴄʜᴀᴛ / ᴍsɢ — ᴀʟsᴏ ᴡᴏʀᴋs ᴡɪᴛʜ ʀᴇᴘʟʏ"),
-            ("/id @username", "ɢᴇᴛ ᴀɴʏ ᴜsᴇʀ's ɪᴅ"),
-            ("/repo", "sᴏᴜʀᴄᴇ ᴄᴏᴅᴇ ʟɪɴᴋ"),
-            ("/stats", "ғᴜʟʟ sᴛᴀᴛs — sʏsᴛᴇᴍ + ᴍᴏɴɢᴏᴅʙ ɪɴғᴏ (ᴏᴡɴᴇʀ ᴏɴʟʏ)"),
+            ("/id", "get ids of user / chat / msg — also works with reply"),
+            ("/id @username", "get any user's id"),
+            ("/repo", "source code link"),
+            ("/stats", "full stats — system + mongodb info (owner only)"),
         ],
     },
 }
@@ -252,16 +252,16 @@ async def on_callback(client, cbq: CallbackQuery) -> None:
     # ── Admin check for playback controls ─────────────────────────────────────
     if data in ("pause", "resume", "skip", "stop", "clear", "replay", "cycle_loop"):
         if not await is_user_authorized(cbq):
-            await cbq.answer("❍ ᴀᴅᴍɪɴs ᴏɴʟʏ", show_alert=True)
+            await cbq.answer("❍ admins only", show_alert=True)
             return
 
     # ── REPLAY ────────────────────────────────────────────────────────────
     if data == "replay":
         cur = peek_current(chat_id)
         if not cur:
-            await cbq.answer("ǫᴜᴇᴜᴇ ᴇᴍᴘᴛʏ", show_alert=True)
+            await cbq.answer("queue empty", show_alert=True)
             return
-        await cbq.answer("ʀᴇᴘʟᴀʏɪɴɢ…")
+        await cbq.answer("replaying…")
         try:
             await call_py.leave_call(chat_id)
         except Exception:
@@ -270,7 +270,7 @@ async def on_callback(client, cbq: CallbackQuery) -> None:
         try:
             await play_song(chat_id, cbq.message, cur)
         except Exception:
-            await cbq.answer("ʀᴇᴘʟᴀʏ ғᴀɪʟᴇᴅ", show_alert=True)
+            await cbq.answer("replay failed", show_alert=True)
         return
 
     # ── PAUSE ────────────────────────────────────────────────────────────
@@ -279,10 +279,10 @@ async def on_callback(client, cbq: CallbackQuery) -> None:
             await call_py.pause(chat_id)
             from videl.core.player import set_paused, refresh_np_ui
             set_paused(chat_id, True)
-            await cbq.answer("ᴘᴀᴜsᴇᴅ")
+            await cbq.answer("paused")
             await refresh_np_ui(chat_id)
         except Exception:
-            await cbq.answer("ғᴀɪʟᴇᴅ ᴛᴏ ᴘᴀᴜsᴇ", show_alert=True)
+            await cbq.answer("failed to pause", show_alert=True)
 
     # ── RESUME ────────────────────────────────────────────────────────────
     elif data == "resume":
@@ -290,26 +290,26 @@ async def on_callback(client, cbq: CallbackQuery) -> None:
             await call_py.resume(chat_id)
             from videl.core.player import set_paused, refresh_np_ui
             set_paused(chat_id, False)
-            await cbq.answer("ʀᴇsᴜᴍᴇᴅ")
+            await cbq.answer("resumed")
             await refresh_np_ui(chat_id)
         except Exception:
-            await cbq.answer("ғᴀɪʟᴇᴅ ᴛᴏ ʀᴇsᴜᴍᴇ", show_alert=True)
+            await cbq.answer("failed to resume", show_alert=True)
 
     # ── LOOP CYCLE ────────────────────────────────────────────────────────
     elif data == "cycle_loop":
         try:
             from videl.core.player import cycle_loop, refresh_np_ui
             mode = cycle_loop(chat_id)
-            labels = {"off": "ʟᴏᴏᴘ ᴏғғ", "one": "ʟᴏᴏᴘ ᴏɴᴇ", "all": "ʟᴏᴏᴘ ǫᴜᴇᴜᴇ"}
+            labels = {"off": "loop off", "one": "loop one", "all": "loop queue"}
             await cbq.answer(labels.get(mode, mode))
             await refresh_np_ui(chat_id)
         except Exception:
-            await cbq.answer("ғᴀɪʟᴇᴅ", show_alert=True)
+            await cbq.answer("failed", show_alert=True)
 
     # ── SKIP ────────────────────────────────────────────────────────────[...]
     elif data == "skip":
         if not queue_size(chat_id):
-            await cbq.answer("ǫᴜᴇᴜᴇ ɪs ᴇᴍᴘᴛʏ", show_alert=True)
+            await cbq.answer("queue is empty", show_alert=True)
             return
 
         skipped = pop_current(chat_id)
@@ -328,45 +328,45 @@ async def on_callback(client, cbq: CallbackQuery) -> None:
 
         await rich_send(
             bot, chat_id,
-            rich_heading("⏭ ᴛʀᴀᴄᴋ sᴋɪᴘᴘᴇᴅ", level=3)
+            rich_heading("⏭ track skipped", level=3)
             + rich_kv_table([
-                ("ʙʏ", user.mention),
-                ("sᴏɴɢ", f"<code>{rich_esc(short(skipped['title']))}</code>"),
+                ("by", user.mention),
+                ("song", f"<code>{rich_esc(short(skipped['title']))}</code>"),
             ]),
         )
 
         nxt = peek_current(chat_id)
         if nxt:
-            await cbq.answer("ᴘʟᴀʏɪɴɢ ɴᴇxᴛ")
+            await cbq.answer("playing next")
             dm = await rich_send(
                 bot, chat_id,
-                rich_heading("⏭ ɴᴇxᴛ ᴛʀᴀᴄᴋ", level=3)
+                rich_heading("⏭ next track", level=3)
                 + rich_kv_table([
-                    ("sᴏɴɢ", f"<code>{rich_esc(short(nxt['title']))}</code>"),
+                    ("song", f"<code>{rich_esc(short(nxt['title']))}</code>"),
                 ]),
             )
             await play_song(chat_id, dm, nxt)
         else:
-            await cbq.answer("ǫᴜᴇᴜᴇ ᴇᴍᴘᴛʏ", show_alert=True)
+            await cbq.answer("queue empty", show_alert=True)
 
     # ── STOP ────────────────────────────────────────────────────────────[...]
     elif data == "stop":
         await leave_vc(chat_id)
-        await cbq.answer("sᴛᴏᴘᴘᴇᴅ")
+        await cbq.answer("stopped")
         await rich_send(
             bot, chat_id,
-            rich_heading("⬩ ᴘʟᴀʏʙᴀᴄᴋ sᴛᴏᴘᴘᴇᴅ", level=3)
-            + rich_note(f"❍ ʙʏ » {user.mention}"),
+            rich_heading(" playback stopped", level=3)
+            + rich_note(f"❍ by » {user.mention}"),
         )
 
     # ── CLEAR ────────────────────────────────────────────────────────────[...]
     elif data == "clear":
         clear_queue(chat_id)
-        await cbq.answer("ǫᴜᴇᴜᴇ ᴄʟᴇᴀʀᴇᴅ")
+        await cbq.answer("queue cleared")
         await rich_edit(
             cbq.message,
-            rich_heading("🧹 ǫᴜᴇᴜᴇ ᴄʟᴇᴀʀᴇᴅ", level=3)
-            + rich_note(f"❍ ʙʏ » {user.mention}"),
+            rich_heading("🧹 queue cleared", level=3)
+            + rich_note(f"❍ by » {user.mention}"),
         )
 
     # ── NOOP ────────────────────────────────────────────────────────────[...]

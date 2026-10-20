@@ -66,16 +66,16 @@ async def gblock_cmd(_, message: Message) -> None:
         except ValueError:
             await rich_send(
                 bot, chat_id,
-                rich_heading("❍ ɪɴᴠᴀʟɪᴅ ᴄʜᴀᴛ ɪᴅ", level=3)
-                + rich_kv_table([("ᴜsᴀɢᴇ", "<code>/gblock -100xxxxxxx</code>")]),
+                rich_heading("❍ invalid chat id", level=3)
+                + rich_kv_table([("usage", "<code>/gblock -100xxxxxxx</code>")]),
             )
             return
     else:
         if message.chat.type.name == "PRIVATE":
             await rich_send(
                 bot, chat_id,
-                rich_heading("❍ ᴜsᴇ ɪɴ ᴀ ɢʀᴏᴜᴘ ᴏʀ ᴘʀᴏᴠɪᴅᴇ ᴀ ᴄʜᴀᴛ ɪᴅ", level=3)
-                + rich_kv_table([("ᴜsᴀɢᴇ", "<code>/gblock -100xxxxxxx</code>")]),
+                rich_heading("❍ use in a group or provide a chat id", level=3)
+                + rich_kv_table([("usage", "<code>/gblock -100xxxxxxx</code>")]),
             )
             return
         chat_id = message.chat.id
@@ -83,17 +83,17 @@ async def gblock_cmd(_, message: Message) -> None:
     if is_group_blocked(chat_id):
         await rich_send(
             bot, message.chat.id,
-            rich_heading("❍ ᴀʟʀᴇᴀᴅʏ ʙʟᴏᴄᴋᴇᴅ", level=3)
-            + rich_kv_table([("ɢʀᴏᴜᴘ", f"<code>{chat_id}</code>")]),
+            rich_heading("❍ already blocked", level=3)
+            + rich_kv_table([("group", f"<code>{chat_id}</code>")]),
         )
         return
 
     block_group(chat_id)
     await rich_send(
         bot, message.chat.id,
-        rich_heading("◍ ɢʀᴏᴜᴘ ʙʟᴏᴄᴋᴇᴅ ◍", level=3)
-        + rich_kv_table([("ᴄʜᴀᴛ ɪᴅ", f"<code>{chat_id}</code>")])
-        + rich_note("ɴᴏ ᴄᴏᴍᴍᴀɴᴅs ᴡɪʟʟ ᴡᴏʀᴋ ɪɴ ᴛʜɪs ɢʀᴏᴜᴘ ɴᴏᴡ."),
+        rich_heading(" group blocked ", level=3)
+        + rich_kv_table([("chat id", f"<code>{chat_id}</code>")])
+        + rich_note("no commands will work in this group now."),
     )
 
 
@@ -111,16 +111,16 @@ async def gunblock_cmd(_, message: Message) -> None:
         except ValueError:
             await rich_send(
                 bot, chat_id,
-                rich_heading("❍ ɪɴᴠᴀʟɪᴅ ᴄʜᴀᴛ ɪᴅ", level=3)
-                + rich_kv_table([("ᴜsᴀɢᴇ", "<code>/gunblock -100xxxxxxx</code>")]),
+                rich_heading("❍ invalid chat id", level=3)
+                + rich_kv_table([("usage", "<code>/gunblock -100xxxxxxx</code>")]),
             )
             return
     else:
         if message.chat.type.name == "PRIVATE":
             await rich_send(
                 bot, chat_id,
-                rich_heading("❍ ᴜsᴇ ɪɴ ᴀ ɢʀᴏᴜᴘ ᴏʀ ᴘʀᴏᴠɪᴅᴇ ᴀ ᴄʜᴀᴛ ɪᴅ", level=3)
-                + rich_kv_table([("ᴜsᴀɢᴇ", "<code>/gunblock -100xxxxxxx</code>")]),
+                rich_heading("❍ use in a group or provide a chat id", level=3)
+                + rich_kv_table([("usage", "<code>/gunblock -100xxxxxxx</code>")]),
             )
             return
         chat_id = message.chat.id
@@ -128,17 +128,17 @@ async def gunblock_cmd(_, message: Message) -> None:
     if not is_group_blocked(chat_id):
         await rich_send(
             bot, message.chat.id,
-            rich_heading("❍ ɴᴏᴛ ʙʟᴏᴄᴋᴇᴅ", level=3)
-            + rich_kv_table([("ɢʀᴏᴜᴘ", f"<code>{chat_id}</code>")]),
+            rich_heading("❍ not blocked", level=3)
+            + rich_kv_table([("group", f"<code>{chat_id}</code>")]),
         )
         return
 
     unblock_group(chat_id)
     await rich_send(
         bot, message.chat.id,
-        rich_heading("◍ ɢʀᴏᴜᴘ ᴜɴʙʟᴏᴄᴋᴇᴅ ◍", level=3)
-        + rich_kv_table([("ᴄʜᴀᴛ ɪᴅ", f"<code>{chat_id}</code>")])
-        + rich_note("ᴄᴏᴍᴍᴀɴᴅs ᴀʀᴇ ɴᴏᴡ ᴇɴᴀʙʟᴇᴅ ɪɴ ᴛʜɪs ɢʀᴏᴜᴘ."),
+        rich_heading(" group unblocked ", level=3)
+        + rich_kv_table([("chat id", f"<code>{chat_id}</code>")])
+        + rich_note("commands are now enabled in this group."),
     )
 
 
@@ -161,39 +161,39 @@ async def ublock_cmd(_, message: Message) -> None:
         except ValueError:
             await rich_send(
                 bot, chat_id,
-                rich_heading("❍ ɪɴᴠᴀʟɪᴅ ᴜsᴇʀ ɪᴅ", level=3)
-                + rich_note("ᴜsᴇ » <code>/ublock 123456789</code> ᴏʀ ʀᴇᴘʟʏ ᴛᴏ ᴀ ᴜsᴇʀ."),
+                rich_heading("❍ invalid user id", level=3)
+                + rich_note("use » <code>/ublock 123456789</code> or reply to a user."),
             )
             return
     else:
         await rich_send(
             bot, chat_id,
-            rich_heading("❍ ʀᴇᴘʟʏ ᴛᴏ ᴀ ᴜsᴇʀ's ᴍᴇssᴀɢᴇ ᴏʀ ᴘʀᴏᴠɪᴅᴇ ᴀ ᴜsᴇʀ ɪᴅ", level=3)
-            + rich_kv_table([("ᴜsᴀɢᴇ", "<code>/ublock 123456789</code>")]),
+            rich_heading("❍ reply to a user's message or provide a user id", level=3)
+            + rich_kv_table([("usage", "<code>/ublock 123456789</code>")]),
         )
         return
 
     if user_id == config.OWNER_ID:
-        await rich_send(bot, chat_id, rich_heading("❍ ʏᴏᴜ ᴄᴀɴɴᴏᴛ ʙʟᴏᴄᴋ ʏᴏᴜʀsᴇʟғ (ᴏᴡɴᴇʀ)", level=3))
+        await rich_send(bot, chat_id, rich_heading("❍ you cannot block yourself (owner)", level=3))
         return
 
     if is_user_blocked_db(user_id):
         await rich_send(
             bot, chat_id,
-            rich_heading("❍ ᴀʟʀᴇᴀᴅʏ ʙʟᴏᴄᴋᴇᴅ", level=3)
-            + rich_kv_table([("ᴜsᴇʀ", f"<code>{user_id}</code>")]),
+            rich_heading("❍ already blocked", level=3)
+            + rich_kv_table([("user", f"<code>{user_id}</code>")]),
         )
         return
 
     block_user(user_id)
-    rows = [("ᴜsᴇʀ ɪᴅ", f"<code>{user_id}</code>")]
+    rows = [("user id", f"<code>{user_id}</code>")]
     if user_name:
-        rows.append(("ɴᴀᴍᴇ", rich_esc(user_name)))
+        rows.append(("name", rich_esc(user_name)))
     await rich_send(
         bot, chat_id,
-        rich_heading("◍ ᴜsᴇʀ ʙʟᴏᴄᴋᴇᴅ ◍", level=3)
+        rich_heading(" user blocked ", level=3)
         + rich_kv_table(rows)
-        + rich_note("ᴛʜɪs ᴜsᴇʀ ᴄᴀɴɴᴏᴛ ᴜsᴇ ᴀɴʏ ʙᴏᴛ ᴄᴏᴍᴍᴀɴᴅs ɴᴏᴡ."),
+        + rich_note("this user cannot use any bot commands now."),
     )
 
 
@@ -216,35 +216,35 @@ async def uunblock_cmd(_, message: Message) -> None:
         except ValueError:
             await rich_send(
                 bot, chat_id,
-                rich_heading("❍ ɪɴᴠᴀʟɪᴅ ᴜsᴇʀ ɪᴅ", level=3)
-                + rich_note("ᴜsᴇ » <code>/uunblock 123456789</code> ᴏʀ ʀᴇᴘʟʏ ᴛᴏ ᴀ ᴜsᴇʀ."),
+                rich_heading("❍ invalid user id", level=3)
+                + rich_note("use » <code>/uunblock 123456789</code> or reply to a user."),
             )
             return
     else:
         await rich_send(
             bot, chat_id,
-            rich_heading("❍ ʀᴇᴘʟʏ ᴛᴏ ᴀ ᴜsᴇʀ's ᴍᴇssᴀɢᴇ ᴏʀ ᴘʀᴏᴠɪᴅᴇ ᴀ ᴜsᴇʀ ɪᴅ", level=3)
-            + rich_kv_table([("ᴜsᴀɢᴇ", "<code>/uunblock 123456789</code>")]),
+            rich_heading("❍ reply to a user's message or provide a user id", level=3)
+            + rich_kv_table([("usage", "<code>/uunblock 123456789</code>")]),
         )
         return
 
     if not is_user_blocked_db(user_id):
         await rich_send(
             bot, chat_id,
-            rich_heading("❍ ɴᴏᴛ ʙʟᴏᴄᴋᴇᴅ", level=3)
-            + rich_kv_table([("ᴜsᴇʀ", f"<code>{user_id}</code>")]),
+            rich_heading("❍ not blocked", level=3)
+            + rich_kv_table([("user", f"<code>{user_id}</code>")]),
         )
         return
 
     unblock_user(user_id)
-    rows = [("ᴜsᴇʀ ɪᴅ", f"<code>{user_id}</code>")]
+    rows = [("user id", f"<code>{user_id}</code>")]
     if user_name:
-        rows.append(("ɴᴀᴍᴇ", rich_esc(user_name)))
+        rows.append(("name", rich_esc(user_name)))
     await rich_send(
         bot, chat_id,
-        rich_heading("◍ ᴜsᴇʀ ᴜɴʙʟᴏᴄᴋᴇᴅ ◍", level=3)
+        rich_heading(" user unblocked ", level=3)
         + rich_kv_table(rows)
-        + rich_note("ᴛʜɪs ᴜsᴇʀ ᴄᴀɴ ɴᴏᴡ ᴜsᴇ ʙᴏᴛ ᴄᴏᴍᴍᴀɴᴅs ᴀɢᴀɪɴ."),
+        + rich_note("this user can now use bot commands again."),
     )
 
 
@@ -256,14 +256,14 @@ async def blocklist_cmd(_, message: Message) -> None:
     groups = get_blocked_groups()
     users  = get_blocked_users()
 
-    rows = [("ɢʀᴏᴜᴘ", f"<code>{g}</code>") for g in groups]
-    rows += [("ᴜsᴇʀ", f"<code>{u}</code>") for u in users]
+    rows = [("group", f"<code>{g}</code>") for g in groups]
+    rows += [("user", f"<code>{u}</code>") for u in users]
 
-    content = rich_heading(f"❍ ʙʟᴏᴄᴋ ʟɪsᴛ — {len(groups)} ɢʀᴏᴜᴘs, {len(users)} ᴜsᴇʀs", level=3)
+    content = rich_heading(f"❍ block list — {len(groups)} groups, {len(users)} users", level=3)
     if rows:
-        content += rich_kv_table(rows, headers=["ᴛʏᴘᴇ", "ɪᴅ"])
+        content += rich_kv_table(rows, headers=["type", "id"])
     else:
-        content += rich_note("ɴᴏᴛʜɪɴɢ ɪs ʙʟᴏᴄᴋᴇᴅ.")
+        content += rich_note("nothing is blocked.")
 
     await rich_send(bot, message.chat.id, content)
     

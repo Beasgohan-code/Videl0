@@ -73,22 +73,22 @@ async def skip_cmd(_, message: Message) -> None:
     if nxt:
         await rich_edit(
             sm,
-            rich_heading("⏭ ᴛʀᴀᴄᴋ Skipped", level=3)
+            rich_heading("⏭ track Skipped", level=3)
             + rich_kv_table([
                 ("Skipped", f"<code>{rich_esc(short(skipped['title']))}</code>"),
-                ("ɴᴏᴡ ᴘʟᴀʏɪɴɢ", f"<code>{rich_esc(nxt['title'])}</code>"),
+                ("now playing", f"<code>{rich_esc(nxt['title'])}</code>"),
             ]),
         )
         dm = await rich_send(
             bot, chat_id,
             rich_heading("▶️ Next track", level=3)
-            + rich_kv_table([("ᴛɪᴛʟᴇ", f"<code>{rich_esc(nxt['title'])}</code>")]),
+            + rich_kv_table([("title", f"<code>{rich_esc(nxt['title'])}</code>")]),
         )
         await play_song(chat_id, dm, nxt)
     else:
         await rich_edit(
             sm,
-            rich_heading("⏭ ᴛʀᴀᴄᴋ Skipped", level=3)
+            rich_heading("⏭ track Skipped", level=3)
             + rich_kv_table([("Skipped", f"<code>{rich_esc(short(skipped['title']))}</code>")])
             + rich_note("Queue is now empty."),
         )

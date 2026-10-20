@@ -66,7 +66,9 @@ except Exception:
     _USE_PREM=False
 
 def _cyber(glyph: str, key: str) -> str:
-    # If premium enabled, pe() returns <tg-emoji> tag; else plain glyph
+    # Decorative glyphs are no longer part of the shared Studio design.
+    if key in {"orb", "diamond", "line", "small", "spark", "circle", "target", "hex", "arrow", "dash"}:
+        return ""
     if _HAS_PREM and _USE_PREM:
         return _pe(key, glyph)
     return glyph
@@ -88,18 +90,18 @@ PREM = {"orb":"orb","diamond":"diamond","line":"line","small":"small","spark":"s
 
 def sc(text: str) -> str:
     if not text: return text
-    return str(text).translate(_SC)
+    return str(text)
 
 def sb(text: str) -> str:
     if not text: return text
-    return str(text).translate(_SB)
+    return str(text)
 
 def deco(text: str, left: str="◍", right: str="◍") -> str:
-    return f"{left} {sc(text.lower())} {right}"
+    return str(text)
 
-def header(title: str) -> str:  return f"⬪ {sc(title.lower())} ⬪"
-def header2(title: str) -> str: return f"⫶ {sc(title.lower())} ⫶"
-def bullet(label: str) -> str:  return f"⫶ {sc(label.lower())}"
+def header(title: str) -> str:  return str(title)
+def header2(title: str) -> str: return str(title)
+def bullet(label: str) -> str:  return str(label)
 def kv(label: str) -> str:       return sc(label.lower())
 def divider() -> str:            return "─" * 16
 def cyber_bar() -> str:          return "⬪ ⫶ ◍ ⫶ ⬪"

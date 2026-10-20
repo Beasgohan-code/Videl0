@@ -50,7 +50,7 @@ from videl.utils.rich_ui import (
 try:
     from videl.utils.premium_emojis import pe
 except Exception:
-    def pe(k, fb="◍"):
+    def pe(k, fb=""):
         return fb
 
 # ── Professional Logger ───────────────────────────────────────────────────────
@@ -201,7 +201,7 @@ async def _download_media(source: str, audio_only: bool = True, status_msg: Opti
         log.info(f"Searching for: {source}")
         if status_msg:
             try:
-                await rich_edit(status_msg, rich_heading(f"{pe('circle','⦿')} {sc('searching')} • {sc(source[:40])}", level=3))
+                await rich_edit(status_msg, rich_heading(f"{pe('circle','')} {sc('searching')} • {sc(source[:40])}", level=3))
             except Exception:
                 pass
         results = await _search_youtube(source, limit=1)
@@ -218,7 +218,7 @@ async def _download_media(source: str, audio_only: bool = True, status_msg: Opti
 
     if status_msg:
         try:
-            await rich_edit(status_msg, rich_heading(f"{pe('diamond','⬪')} {sc('downloading')} • {sc('please wait')}", level=3) + rich_note(f"<code>{rich_esc(url[:60])}</code> • {pe('hex','⬢')} {sc('quality')}: <code>{'MP3 192kbps' if audio_only else 'MP4 1080p'}</code>"))
+            await rich_edit(status_msg, rich_heading(f"{pe('diamond','')} {sc('downloading')} • {sc('please wait')}", level=3) + rich_note(f"<code>{rich_esc(url[:60])}</code> • {pe('hex','')} {sc('quality')}: <code>{'MP3 192kbps' if audio_only else 'MP4 1080p'}</code>"))
         except Exception:
             pass
 
@@ -255,7 +255,7 @@ async def _download_media(source: str, audio_only: bool = True, status_msg: Opti
 
 
 def _hdr(t: str, lvl: int = 3):
-    return rich_heading(pe("orb","◍") + " " + t + " " + pe("spark","𖦹"), level=lvl)
+    return rich_heading(pe("orb","") + " " + t + " " + pe("spark",""), level=lvl)
 
 def _hero_img(url: Optional[str] = None):
     if url and url.startswith("http"):
@@ -271,9 +271,9 @@ async def song_cmd(_, m: Message):
         query = m.reply_to_message.text.strip()
     if not query:
         body = _hdr(sc("song downloader") + " • " + pe("music","🎵"), 2)
-        body += rich_note(pe("diamond","⬪") + " " + sc("usage") + ": <code>/song &lt;name or URL&gt;</code><br>" + pe("small","⬩") + " " + sc("e.g.") + " <code>/song Believer Imagine Dragons</code><br>" + pe("small","⬩") + " <code>/song https://youtu.be/dQw4w9WgXcQ</code>")
+        body += rich_note(pe("diamond","") + " " + sc("usage") + ": <code>/song &lt;name or URL&gt;</code><br>" + pe("small","") + " " + sc("e.g.") + " <code>/song Believer Imagine Dragons</code><br>" + pe("small","") + " <code>/song https://youtu.be/dQw4w9WgXcQ</code>")
         body += rich_table([sc("command"), sc("description")], [("<code>/song</code>", sc("download audio MP3 192kbps")), ("<code>/vsong</code>", sc("download video MP4 1080p")), ("<code>/download</code>", sc("auto-detect audio/video"))])
-        body += rich_details(pe("star","⭐️") + " " + sc("features"), rich_note(pe("line","⫶") + " " + sc("yt-dlp + aria2c + cookies + proxy support") + "<br>" + pe("line","⫶") + " " + sc("supports YouTube, YT Music, SoundCloud, IG, TikTok") + "<br>" + pe("line","⫶") + " " + sc("metadata + thumbnail + progress bar")))
+        body += rich_details(pe("star","⭐️") + " " + sc("features"), rich_note(pe("line","") + " " + sc("yt-dlp + aria2c + cookies + proxy support") + "<br>" + pe("line","") + " " + sc("supports YouTube, YT Music, SoundCloud, IG, TikTok") + "<br>" + pe("line","") + " " + sc("metadata + thumbnail + progress bar")))
         body += "<p>" + rich_button(pe("music","🎵") + " " + sc("play in vc"), callback_data="help_play") + " " + rich_button(pe("eyes","👀") + " " + sc("search"), callback_data="song_search") + "</p>"
         return await rich_send(bot, m.chat.id, body)
 
@@ -283,7 +283,7 @@ async def song_cmd(_, m: Message):
     if any(w in low for w in blocked):
         return await rich_send(bot, m.chat.id, _hdr(pe("warn","⚠️") + " " + sc("blocked content"),3) + rich_note(sc("this content is not allowed")))
 
-    status = await rich_send(bot, m.chat.id, _hdr(pe("circle","⦿") + " " + sc("preparing") + " • " + sc(query[:30]),3) + rich_note(pe("diamond","⬪") + " " + sc("searching & downloading") + "…<br>" + pe("hex","⬢") + " " + sc("this may take 10-30 seconds")))
+    status = await rich_send(bot, m.chat.id, _hdr(pe("circle","") + " " + sc("preparing") + " • " + sc(query[:30]),3) + rich_note(pe("diamond","") + " " + sc("searching & downloading") + "…<br>" + pe("hex","") + " " + sc("this may take 10-30 seconds")))
 
     path = None
     try:
@@ -319,13 +319,13 @@ async def song_cmd(_, m: Message):
         cap = _hdr(pe("music","🎵") + " " + rich_esc(title[:60]), 2)
         cap += _hero_img(thumb) if thumb else ""
         cap += rich_kv_table([
-            (pe("target","◎") + " " + sc("title"), rich_esc(title[:60])),
-            (pe("hex","⬢") + " " + sc("duration"), f"<code>{rich_esc(duration)}</code>"),
-            (pe("diamond","⬪") + " " + sc("size"), f"<code>{size_mb:.2f} MB</code>"),
-            (pe("circle","⦿") + " " + sc("elapsed"), f"<code>{elapsed:.1f}s</code>"),
-            (pe("small","⬩") + " " + sc("requested by"), f"<a href=\"tg://user?id={m.from_user.id}\">{rich_esc(m.from_user.first_name or 'User')}</a>" if m.from_user else "?"),
-        ], headers=[pe("spark","𖦹") + " " + sc("downloaded"), ""])
-        cap += rich_note(pe("line","⫶") + " " + sc("via yt-dlp • ffmpeg • aria2c") + " " + pe("spark","𖦹"))
+            (pe("target","") + " " + sc("title"), rich_esc(title[:60])),
+            (pe("hex","") + " " + sc("duration"), f"<code>{rich_esc(duration)}</code>"),
+            (pe("diamond","") + " " + sc("size"), f"<code>{size_mb:.2f} MB</code>"),
+            (pe("circle","") + " " + sc("elapsed"), f"<code>{elapsed:.1f}s</code>"),
+            (pe("small","") + " " + sc("requested by"), f"<a href=\"tg://user?id={m.from_user.id}\">{rich_esc(m.from_user.first_name or 'User')}</a>" if m.from_user else "?"),
+        ], headers=[pe("spark","") + " " + sc("downloaded"), ""])
+        cap += rich_note(pe("line","") + " " + sc("via yt-dlp • ffmpeg • aria2c") + " " + pe("spark",""))
 
         # Send audio with professional metadata
         try:
@@ -338,7 +338,7 @@ async def song_cmd(_, m: Message):
                 performer="Videl • Beasgohan-code",
                 reply_to_message_id=m.id,
             )
-            await rich_edit(status, _hdr(pe("check","✅") + " " + sc("sent") + " • " + pe("music","🎵"),3) + rich_note(pe("diamond","⬪") + " <code>" + rich_esc(title[:40]) + "</code> " + pe("hex","⬢") + f" {size_mb:.2f} MB " + pe("small","⬩") + f" {elapsed:.1f}s"))
+            await rich_edit(status, _hdr(pe("check","✅") + " " + sc("sent") + " • " + pe("music","🎵"),3) + rich_note(pe("diamond","") + " <code>" + rich_esc(title[:40]) + "</code> " + pe("hex","") + f" {size_mb:.2f} MB " + pe("small","") + f" {elapsed:.1f}s"))
             log.info(f"/song by {m.from_user.id} in {m.chat.id}: {title} ({size_mb:.2f} MB, {elapsed:.1f}s)")
         except Exception as e:
             log.error(f"send_audio fail: {e}", exc_info=True)
@@ -360,7 +360,7 @@ async def song_cmd(_, m: Message):
         log.warning(f"/song not found: {query} — {e}")
     except Exception as e:
         log.error(f"/song error for '{query}': {e}", exc_info=True)
-        await rich_edit(status, _hdr(pe("cross","❌") + " " + sc("download failed"),3) + rich_note(f"<code>{rich_esc(str(e)[:300])}</code><br>" + pe("line","⫶") + " " + sc("try again or use different query") + "<br>" + pe("small","⬩") + " " + sc("check cookies/proxy if YouTube blocked")))
+        await rich_edit(status, _hdr(pe("cross","❌") + " " + sc("download failed"),3) + rich_note(f"<code>{rich_esc(str(e)[:300])}</code><br>" + pe("line","") + " " + sc("try again or use different query") + "<br>" + pe("small","") + " " + sc("check cookies/proxy if YouTube blocked")))
         if path and path.exists():
             try:
                 path.unlink(missing_ok=True)
@@ -375,9 +375,9 @@ async def vsong_cmd(_, m: Message):
     if not query and m.reply_to_message and m.reply_to_message.text:
         query = m.reply_to_message.text.strip()
     if not query:
-        return await rich_send(bot, m.chat.id, _hdr(sc("video downloader"),2) + rich_note("<code>/vsong &lt;name or URL&gt;</code><br>" + pe("small","⬩") + " <code>/vsong Believer</code> • MP4 1080p"))
+        return await rich_send(bot, m.chat.id, _hdr(sc("video downloader"),2) + rich_note("<code>/vsong &lt;name or URL&gt;</code><br>" + pe("small","") + " <code>/vsong Believer</code> • MP4 1080p"))
 
-    status = await rich_send(bot, m.chat.id, _hdr(pe("circle","⦿") + " " + sc("preparing video") + " • " + sc(query[:30]),3))
+    status = await rich_send(bot, m.chat.id, _hdr(pe("circle","") + " " + sc("preparing video") + " • " + sc(query[:30]),3))
 
     path = None
     try:
@@ -394,7 +394,7 @@ async def vsong_cmd(_, m: Message):
             return
 
         title = path.stem[:60]
-        cap = _hdr(pe("pin","📌") + " " + rich_esc(title),2) + rich_kv_table([(pe("hex","⬢") + " " + sc("size"), f"<code>{size_mb:.2f} MB</code>"), (pe("circle","⦿") + " " + sc("elapsed"), f"<code>{elapsed:.1f}s</code>")])
+        cap = _hdr(pe("pin","📌") + " " + rich_esc(title),2) + rich_kv_table([(pe("hex","") + " " + sc("size"), f"<code>{size_mb:.2f} MB</code>"), (pe("circle","") + " " + sc("elapsed"), f"<code>{elapsed:.1f}s</code>")])
         await bot.send_video(chat_id=m.chat.id, video=str(path), caption=cap, parse_mode=ParseMode.HTML, reply_to_message_id=m.id, supports_streaming=True)
         await status.delete()
         path.unlink(missing_ok=True)
@@ -415,7 +415,7 @@ async def vsong_cmd(_, m: Message):
 async def download_cmd(_, m: Message):
     query = " ".join(m.command[1:]) if len(m.command) > 1 else ""
     if not query:
-        return await rich_send(bot, m.chat.id, _hdr(sc("downloader"),3) + rich_note("<code>/download &lt;URL or name&gt;</code><br>" + pe("small","⬩") + " " + sc("audio if music, video if video URL") + "<br>" + rich_details(sc("supported"), sc("YouTube • TikTok • Instagram • SoundCloud • Twitter • Facebook • 1000+ sites via yt-dlp")) + "<p>" + rich_button(pe("music","🎵") + " " + sc("song"), callback_data="dl:song") + " " + rich_button(pe("pin","📌") + " " + sc("video"), callback_data="dl:video") + "</p>"))
+        return await rich_send(bot, m.chat.id, _hdr(sc("downloader"),3) + rich_note("<code>/download &lt;URL or name&gt;</code><br>" + pe("small","") + " " + sc("audio if music, video if video URL") + "<br>" + rich_details(sc("supported"), sc("YouTube • TikTok • Instagram • SoundCloud • Twitter • Facebook • 1000+ sites via yt-dlp")) + "<p>" + rich_button(pe("music","🎵") + " " + sc("song"), callback_data="dl:song") + " " + rich_button(pe("pin","📌") + " " + sc("video"), callback_data="dl:video") + "</p>"))
     # Auto-detect: if query contains video keywords, use video, else audio
     is_video = any(x in query.lower() for x in (".mp4", "video", "tiktok", "instagram", "reel"))
     if is_video:
@@ -443,4 +443,4 @@ async def dl_cbs(_, q: CallbackQuery):
         except Exception:
             pass
 
-log.info("⬪ ᴅᴏᴡɴʟᴏᴀᴅᴇʀ — ᴘᴇʀғᴇᴄᴛ ◍")
+log.info(" downloader — perfect ")

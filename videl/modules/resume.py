@@ -34,13 +34,13 @@ async def resume_cmd(_, message: Message) -> None:
         await call_py.resume(chat_id)
         await rich_send(
             bot, chat_id,
-            rich_heading("▶ sᴛʀᴇᴀᴍ ʀᴇsᴜᴍᴇᴅ", level=3)
+            rich_heading("▶ stream resumed", level=3)
             + rich_note("Playback continued."),
         )
     except Exception as e:
         await rich_send(
             bot, chat_id,
-            rich_heading("◍ Resume failed", level=3)
+            rich_heading(" Resume failed", level=3)
             + rich_note(f"<code>{rich_esc(e)}</code>"),
         )
 

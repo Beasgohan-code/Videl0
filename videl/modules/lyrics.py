@@ -115,7 +115,7 @@ async def lyrics_cmd(_, message: Message) -> None:
 
     status = await rich_send(
         bot, chat_id,
-        rich_heading(f"◍ {sc('searching lyrics')}…", level=3)
+        rich_heading(f" {sc('searching lyrics')}…", level=3)
         + rich_note(rich_esc(short(query, 50))),
     )
 
@@ -123,7 +123,7 @@ async def lyrics_cmd(_, message: Message) -> None:
     if not data:
         await rich_edit(
             status,
-            rich_heading(f"◍ {sc('no lyrics found')}", level=3)
+            rich_heading(f" {sc('no lyrics found')}", level=3)
             + rich_note(rich_esc(short(query, 50))),
         )
         return
@@ -144,7 +144,7 @@ async def lyrics_callback(_, cq: CallbackQuery) -> None:
     if not data:
         await rich_send(
             bot, chat_id,
-            rich_heading(f"◍ {sc('no lyrics found')}", level=3)
+            rich_heading(f" {sc('no lyrics found')}", level=3)
             + rich_note(rich_esc(short(current.get("title", "?"), 50))),
         )
         return

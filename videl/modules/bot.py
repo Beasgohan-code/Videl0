@@ -53,20 +53,20 @@ async def bot_added_watcher(_, message: Message) -> None:
             add_broadcast_chat(chat_id, "group")
 
             added_by         = message.from_user
-            added_by_mention = added_by.mention if added_by else "ᴜɴᴋɴᴏᴡɴ"
+            added_by_mention = added_by.mention if added_by else "unknown"
 
             admin_request_text = (
-                rich_heading("❍ ᴛʜᴀɴᴋs ғᴏʀ ᴀᴅᴅɪɴɢ ᴍᴇ! 🥀", level=3)
+                rich_heading("❍ thanks for adding me! 🥀", level=3)
                 + rich_note(
-                    "<p>❍ ᴘʟᴇᴀsᴇ ᴍᴀᴋᴇ ᴍᴇ ᴀɴ ᴀᴅᴍɪɴ ᴡɪᴛʜ ᴛʜᴇsᴇ ᴘᴇʀᴍɪssɪᴏɴs:</p>"
-                    "<p>❍ ᴅᴇʟᴇᴛᴇ ᴍᴇssᴀɢᴇs<br>"
-                    "❍ ᴍᴀɴᴀɢᴇ ᴠɪᴅᴇᴏ ᴄʜᴀᴛs<br>"
-                    "❍ ɪɴᴠɪᴛᴇ ᴜsᴇʀs</p>"
+                    "<p>❍ please make me an admin with these permissions:</p>"
+                    "<p>❍ delete messages<br>"
+                    "❍ manage video chats<br>"
+                    "❍ invite users</p>"
                 )
-                + rich_note("ᴡɪᴛʜᴏᴜᴛ ᴀᴅᴍɪɴ ᴘᴇʀᴍs sᴏᴍᴇ ғᴇᴀᴛᴜʀᴇs ᴡᴏɴ'ᴛ ᴡᴏʀᴋ! ◍")
+                + rich_note("without admin perms some features won't work! ")
             )
             admin_kb = InlineKeyboardMarkup([[
-                InlineKeyboardButton("⚡ ᴍᴀᴋᴇ ᴍᴇ ᴀᴅᴍɪɴ ⚡", url=f"tg://user?id={me.id}")
+                InlineKeyboardButton("⚡ make me admin ⚡", url=f"tg://user?id={me.id}")
             ]])
             try:
                 await rich_send(bot, chat_id, admin_request_text, reply_markup=admin_kb)
@@ -78,16 +78,16 @@ async def bot_added_watcher(_, message: Message) -> None:
 
             try:
                 invite_link = await bot.export_chat_invite_link(chat_id)
-                link_text   = f"<a href='{invite_link}'>ɢᴇᴛ ʟɪɴᴋ</a>"
+                link_text   = f"<a href='{invite_link}'>get link</a>"
             except (ChatAdminRequired, Exception):
-                link_text = "ɴᴏ ʟɪɴᴋ"
+                link_text = "no link"
 
             try:
                 count = await bot.get_chat_members_count(chat_id)
             except Exception:
                 count = "N/A"
 
-            username   = f"@{chat.username}" if chat.username else "ᴘʀɪᴠᴀᴛᴇ ɢʀᴏᴜᴘ"
+            username   = f"@{chat.username}" if chat.username else "private group"
             chat_photo = None
             try:
                 if chat.photo:
@@ -99,16 +99,16 @@ async def bot_added_watcher(_, message: Message) -> None:
                 chat_photo = None
 
             log_rows = [
-                ("ᴄʜᴀᴛ ɴᴀᴍᴇ", rich_esc(chat.title)),
-                ("ᴄʜᴀᴛ ɪᴅ", f"<code>{chat_id}</code>"),
-                ("ᴜsᴇʀɴᴀᴍᴇ", rich_esc(username)),
-                ("ɢʀᴏᴜᴘ ʟɪɴᴋ", link_text),
-                ("ᴍᴇᴍʙᴇʀs", str(count)),
-                ("ᴀᴅᴅᴇᴅ ʙʏ", added_by_mention),
+                ("chat name", rich_esc(chat.title)),
+                ("chat id", f"<code>{chat_id}</code>"),
+                ("username", rich_esc(username)),
+                ("group link", link_text),
+                ("members", str(count)),
+                ("added by", added_by_mention),
             ]
             log_kb = InlineKeyboardMarkup([[
                 InlineKeyboardButton(
-                    f"👤 {added_by.first_name if added_by else 'ᴜsᴇʀ'}",
+                    f"👤 {added_by.first_name if added_by else 'user'}",
                     user_id=added_by.id if added_by else config.OWNER_ID,
                 )
             ]]) if added_by else None
@@ -118,7 +118,7 @@ async def bot_added_watcher(_, message: Message) -> None:
                     # Locally downloaded file — no public URL, so this has
                     # to stay a caption (rich_img() only takes URLs).
                     log_text = (
-                        "<b>📝 #ɴᴇᴡɢʀᴏᴜᴘ — ʙᴏᴛ ᴀᴅᴅᴇᴅ!</b>\n\n"
+                        "<b>📝 #newgroup — bot added!</b>\n\n"
                         + "\n".join(f"<b>{k} :</b> {v}" for k, v in log_rows)
                     )
                     await bot.send_photo(
@@ -127,7 +127,7 @@ async def bot_added_watcher(_, message: Message) -> None:
                     )
                 else:
                     content = (
-                        rich_heading("📝 #ɴᴇᴡɢʀᴏᴜᴘ — ʙᴏᴛ ᴀᴅᴅᴇᴅ!", level=3)
+                        rich_heading("📝 #newgroup — bot added!", level=3)
                         + rich_kv_table(log_rows)
                     )
                     await rich_send(bot, config.LOGGER_ID, content, reply_markup=log_kb)
@@ -158,21 +158,21 @@ async def bot_left_watcher(_, message: Message) -> None:
         remove_broadcast_chat(chat_id)
 
         removed_by         = message.from_user
-        removed_by_mention = removed_by.mention if removed_by else "ᴜɴᴋɴᴏᴡɴ ᴜsᴇʀ"
-        username           = f"@{chat.username}" if chat.username else "ᴘʀɪᴠᴀᴛᴇ ᴄʜᴀᴛ"
+        removed_by_mention = removed_by.mention if removed_by else "unknown user"
+        username           = f"@{chat.username}" if chat.username else "private chat"
 
         if not config.LOGGER_ID:
             return
 
         content = (
-            rich_heading("✫ #ʟᴇғᴛɢʀᴏᴜᴘ ✫", level=3)
+            rich_heading("✫ #leftgroup ✫", level=3)
             + rich_img(random.choice(LEFT_PHOTOS))
             + rich_kv_table([
-                ("ᴄʜᴀᴛ ᴛɪᴛʟᴇ", rich_esc(chat.title)),
-                ("ᴄʜᴀᴛ ɪᴅ", f"<code>{chat_id}</code>"),
-                ("ᴜsᴇʀɴᴀᴍᴇ", rich_esc(username)),
-                ("ʀᴇᴍᴏᴠᴇᴅ ʙʏ", removed_by_mention),
-                ("ʙᴏᴛ", f"@{me.username}"),
+                ("chat title", rich_esc(chat.title)),
+                ("chat id", f"<code>{chat_id}</code>"),
+                ("username", rich_esc(username)),
+                ("removed by", removed_by_mention),
+                ("bot", f"@{me.username}"),
             ])
         )
 

@@ -16,28 +16,28 @@ import config
 try:
     from videl.utils.premium_emojis import pe
 except Exception:
-    def pe(k, fb="◍"):
+    def pe(k, fb=""):
         return fb
 
 _HERO = "https://iili.io/n5ClDil.jpg"
 def _hdr(t, lvl=3):
-    return rich_heading(pe("orb","◍") + " " + t + " " + pe("spark","𖦹"), level=lvl)
+    return rich_heading(pe("orb","") + " " + t + " " + pe("spark",""), level=lvl)
 def _hero():
     return rich_img(_HERO)
 def _fed_id(name):
     return re.sub(r"[^a-z0-9_]", "", name.lower().replace(" ", "_"))[:32]
 def _fed_pills(fid=""):
     if fid:
-        return "<p>" + rich_button(pe("hex","⬢") + " " + sc("info"), callback_data="fed:info:" + fid) + " " + rich_button(pe("cross","❌") + " " + sc("leave"), callback_data="fed:leave:" + fid, style="danger") + " " + rich_button(pe("ban","⛔️") + " " + sc("fban"), callback_data="fed:fban:" + fid) + "</p>"
-    return "<p>" + rich_button(pe("hex","⬢") + " " + sc("my feds"), callback_data="fed:myfeds") + " " + rich_button(pe("target","◎") + " " + sc("my chats"), callback_data="fed:mychats") + "</p>"
+        return "<p>" + rich_button(pe("hex","") + " " + sc("info"), callback_data="fed:info:" + fid) + " " + rich_button(pe("cross","❌") + " " + sc("leave"), callback_data="fed:leave:" + fid, style="danger") + " " + rich_button(pe("ban","⛔️") + " " + sc("fban"), callback_data="fed:fban:" + fid) + "</p>"
+    return "<p>" + rich_button(pe("hex","") + " " + sc("my feds"), callback_data="fed:myfeds") + " " + rich_button(pe("target","") + " " + sc("my chats"), callback_data="fed:mychats") + "</p>"
 
 @bot.on_message(filters.command("newfed") & filters.group & group_allowed & user_allowed)
 async def newfed_cmd(_, m):
     if not m.text or len(m.text.split(maxsplit=1)) < 2:
-        body = _hero() + _hdr(sc("create federation"),2) + rich_note(pe("diamond","⬪") + " " + sc("usage") + ": <code>/newfed &lt;name&gt;</code> " + pe("small","⬩") + " " + sc("e.g.") + " <code>/newfed VidelElite</code>")
-        body += rich_details(pe("info","ℹ️") + " " + sc("what is a federation"), rich_note(pe("line","⫶") + " " + sc("group multiple chats under one global ban list") + "<br>" + pe("line","⫶") + " " + sc("fban in one group → auto-ban in all fed chats")))
+        body = _hero() + _hdr(sc("create federation"),2) + rich_note(pe("diamond","") + " " + sc("usage") + ": <code>/newfed &lt;name&gt;</code> " + pe("small","") + " " + sc("e.g.") + " <code>/newfed VidelElite</code>")
+        body += rich_details(pe("info","ℹ️") + " " + sc("what is a federation"), rich_note(pe("line","") + " " + sc("group multiple chats under one global ban list") + "<br>" + pe("line","") + " " + sc("fban in one group → auto-ban in all fed chats")))
         body += _fed_pills()
-        kb = InlineKeyboardMarkup([[InlineKeyboardButton(pe("hex","⬢") + " " + sc("my feds"), callback_data="fed:myfeds")]])
+        kb = InlineKeyboardMarkup([[InlineKeyboardButton(pe("hex","") + " " + sc("my feds"), callback_data="fed:myfeds")]])
         return await rich_send(bot, m.chat.id, body, reply_markup=kb)
     name = m.text.split(maxsplit=1)[1].strip()
     fid = _fed_id(name)
@@ -46,9 +46,9 @@ async def newfed_cmd(_, m):
     if get_fed(fid):
         return await rich_send(bot, m.chat.id, _hdr(pe("warn","⚠️") + " " + sc("fed exists"),3) + rich_note("<code>" + rich_esc(fid) + "</code> " + sc("already exists")))
     create_fed(fid, name, m.from_user.id)
-    body = _hero() + _hdr(pe("check","✅") + " " + sc("federation created"),2) + rich_kv_table([(pe("target","◎") + " " + sc("name"), rich_esc(name)), (pe("hex","⬢") + " " + sc("id"), "<code>" + rich_esc(fid) + "</code>"), (pe("circle","⦿") + " " + sc("owner"), "<code>" + str(m.from_user.id) + "</code>")], headers=[pe("spark","𖦹") + " " + sc("federation"), ""])
-    body += rich_note(pe("diamond","⬪") + " " + sc("add groups") + ": <code>/joinfed " + rich_esc(fid) + "</code> " + pe("line","⫶")) + _fed_pills(fid)
-    kb = InlineKeyboardMarkup([[InlineKeyboardButton(pe("hex","⬢") + " " + sc("info"), callback_data="fed:info:" + fid), InlineKeyboardButton(pe("diamond","⬪") + " " + sc("join this chat"), callback_data="fed:join:" + fid)],[InlineKeyboardButton(pe("eyes","👀") + " " + sc("my feds"), callback_data="fed:myfeds")]])
+    body = _hero() + _hdr(pe("check","✅") + " " + sc("federation created"),2) + rich_kv_table([(pe("target","") + " " + sc("name"), rich_esc(name)), (pe("hex","") + " " + sc("id"), "<code>" + rich_esc(fid) + "</code>"), (pe("circle","") + " " + sc("owner"), "<code>" + str(m.from_user.id) + "</code>")], headers=[pe("spark","") + " " + sc("federation"), ""])
+    body += rich_note(pe("diamond","") + " " + sc("add groups") + ": <code>/joinfed " + rich_esc(fid) + "</code> " + pe("line","")) + _fed_pills(fid)
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton(pe("hex","") + " " + sc("info"), callback_data="fed:info:" + fid), InlineKeyboardButton(pe("diamond","") + " " + sc("join this chat"), callback_data="fed:join:" + fid)],[InlineKeyboardButton(pe("eyes","👀") + " " + sc("my feds"), callback_data="fed:myfeds")]])
     await rich_send(bot, m.chat.id, body, reply_markup=kb)
 
 @bot.on_message(filters.command("delfed") & group_allowed & user_allowed)
@@ -74,8 +74,8 @@ async def joinfed_cmd(_, m):
     if not get_fed(fid):
         return await rich_send(bot, m.chat.id, _hdr(pe("warn","⚠️") + " " + sc("fed not found"),3))
     set_chat_fed(m.chat.id, fid)
-    body = _hdr(pe("check","✅") + " " + sc("joined federation"),3) + rich_kv_table([(pe("hex","⬢") + " " + sc("fed"), "<code>" + rich_esc(fid) + "</code>"), (pe("target","◎") + " " + sc("chat"), "<code>" + str(m.chat.id) + "</code>")]) + _fed_pills(fid)
-    kb = InlineKeyboardMarkup([[InlineKeyboardButton(pe("hex","⬢") + " " + sc("info"), callback_data="fed:info:" + fid), InlineKeyboardButton(pe("cross","❌") + " " + sc("leave"), callback_data="fed:leave:" + fid)]])
+    body = _hdr(pe("check","✅") + " " + sc("joined federation"),3) + rich_kv_table([(pe("hex","") + " " + sc("fed"), "<code>" + rich_esc(fid) + "</code>"), (pe("target","") + " " + sc("chat"), "<code>" + str(m.chat.id) + "</code>")]) + _fed_pills(fid)
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton(pe("hex","") + " " + sc("info"), callback_data="fed:info:" + fid), InlineKeyboardButton(pe("cross","❌") + " " + sc("leave"), callback_data="fed:leave:" + fid)]])
     await rich_send(bot, m.chat.id, body, reply_markup=kb)
 
 @bot.on_message(filters.command("leavefed") & filters.group & group_allowed & user_allowed)
@@ -86,7 +86,7 @@ async def leavefed_cmd(_, m):
     if not cur:
         return await rich_send(bot, m.chat.id, _hdr(pe("warn","⚠️") + " " + sc("not in fed"),3))
     set_chat_fed(m.chat.id, None)
-    await rich_send(bot, m.chat.id, _hdr(pe("cross","❌") + " " + sc("left federation"),3) + rich_note("<code>" + rich_esc(cur) + "</code> " + pe("diamond","⬪")))
+    await rich_send(bot, m.chat.id, _hdr(pe("cross","❌") + " " + sc("left federation"),3) + rich_note("<code>" + rich_esc(cur) + "</code> " + pe("diamond","")))
 
 @bot.on_message(filters.command("fban") & group_allowed & user_allowed)
 async def fban_cmd(_, m):
@@ -129,7 +129,7 @@ async def fban_cmd(_, m):
             count += 1
         except Exception:
             pass
-    body = _hero() + _hdr(pe("ban","⛔️") + " " + sc("fbanned"),2) + rich_kv_table([(pe("hex","⬢") + " " + sc("user"), "<code>" + str(uid) + "</code>"), (pe("target","◎") + " " + sc("fed"), "<code>" + rich_esc(fid) + "</code>"), (pe("diamond","⬪") + " " + sc("reason"), rich_esc(reason)), (pe("circle","⦿") + " " + sc("enforced"), "<code>" + str(count) + "/" + str(len(chats)) + "</code> " + sc("chats"))], headers=[pe("spark","𖦹") + " " + sc("federation ban"), ""])
+    body = _hero() + _hdr(pe("ban","⛔️") + " " + sc("fbanned"),2) + rich_kv_table([(pe("hex","") + " " + sc("user"), "<code>" + str(uid) + "</code>"), (pe("target","") + " " + sc("fed"), "<code>" + rich_esc(fid) + "</code>"), (pe("diamond","") + " " + sc("reason"), rich_esc(reason)), (pe("circle","") + " " + sc("enforced"), "<code>" + str(count) + "/" + str(len(chats)) + "</code> " + sc("chats"))], headers=[pe("spark","") + " " + sc("federation ban"), ""])
     body += "<p>" + rich_button(pe("check","✅") + " " + sc("unfban"), callback_data="fed:unfban:" + fid + ":" + str(uid), style="danger") + "</p>"
     kb = InlineKeyboardMarkup([[InlineKeyboardButton(pe("check","✅") + " " + sc("unfban"), callback_data="fed:unfban:" + fid + ":" + str(uid))]])
     await rich_send(bot, m.chat.id, body, reply_markup=kb)
@@ -164,7 +164,7 @@ async def unfban_cmd(_, m):
             await bot.unban_chat_member(cid, uid)
         except Exception:
             pass
-    await rich_send(bot, m.chat.id, _hdr(pe("check","✅") + " " + sc("unfbanned"),3) + rich_kv_table([(pe("hex","⬢") + " " + sc("user"), "<code>" + str(uid) + "</code>")]) + "<p>" + rich_button(pe("ban","⛔️") + " " + sc("fban again"), callback_data="fed:fban:" + fid + ":" + str(uid)) + "</p>")
+    await rich_send(bot, m.chat.id, _hdr(pe("check","✅") + " " + sc("unfbanned"),3) + rich_kv_table([(pe("hex","") + " " + sc("user"), "<code>" + str(uid) + "</code>")]) + "<p>" + rich_button(pe("ban","⛔️") + " " + sc("fban again"), callback_data="fed:fban:" + fid + ":" + str(uid)) + "</p>")
 
 @bot.on_message(filters.command(["fedinfo","fedstat"]) & group_allowed & user_allowed)
 async def fedinfo_cmd(_, m):
@@ -181,19 +181,19 @@ async def fedinfo_cmd(_, m):
     chats = len(get_fed_chats(fid))
     bans = len(list_fbans(fid))
     admins = len(fed_list_admins(fid))
-    body = _hero() + _hdr(sb("Federation") + " ⬪ " + rich_esc(fed["name"]),2) + rich_kv_table([(pe("hex","⬢") + " " + sc("id"), "<code>" + rich_esc(fid) + "</code>"), (pe("target","◎") + " " + sc("owner"), "<code>" + str(fed["owner"]) + "</code>"), (pe("circle","⦿") + " " + sc("chats"), "<code>" + str(chats) + "</code>"), (pe("ban","⛔️") + " " + sc("bans"), "<code>" + str(bans) + "</code>"), (pe("diamond","⬪") + " " + sc("admins"), "<code>" + str(admins) + "</code>")], headers=[pe("spark","𖦹") + " " + sc("federation info"), ""])
+    body = _hero() + _hdr(sb("Federation") + "  " + rich_esc(fed["name"]),2) + rich_kv_table([(pe("hex","") + " " + sc("id"), "<code>" + rich_esc(fid) + "</code>"), (pe("target","") + " " + sc("owner"), "<code>" + str(fed["owner"]) + "</code>"), (pe("circle","") + " " + sc("chats"), "<code>" + str(chats) + "</code>"), (pe("ban","⛔️") + " " + sc("bans"), "<code>" + str(bans) + "</code>"), (pe("diamond","") + " " + sc("admins"), "<code>" + str(admins) + "</code>")], headers=[pe("spark","") + " " + sc("federation info"), ""])
     body += rich_details(pe("info","ℹ️") + " " + sc("chats in fed"), rich_note(sc("use") + " <code>/fedchats " + rich_esc(fid) + "</code>")) + _fed_pills(fid)
-    kb = InlineKeyboardMarkup([[InlineKeyboardButton(pe("circle","⦿") + " " + sc("chats") + " (" + str(chats) + ")", callback_data="fed:chats:" + fid), InlineKeyboardButton(pe("ban","⛔️") + " " + sc("bans") + " (" + str(bans) + ")", callback_data="fed:bans:" + fid)],[InlineKeyboardButton(pe("hex","⬢") + " " + sc("add this chat"), callback_data="fed:join:" + fid), InlineKeyboardButton(pe("cross","❌") + " " + sc("leave fed"), callback_data="fed:leave:" + fid)]])
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton(pe("circle","") + " " + sc("chats") + " (" + str(chats) + ")", callback_data="fed:chats:" + fid), InlineKeyboardButton(pe("ban","⛔️") + " " + sc("bans") + " (" + str(bans) + ")", callback_data="fed:bans:" + fid)],[InlineKeyboardButton(pe("hex","") + " " + sc("add this chat"), callback_data="fed:join:" + fid), InlineKeyboardButton(pe("cross","❌") + " " + sc("leave fed"), callback_data="fed:leave:" + fid)]])
     await rich_send(bot, m.chat.id, body, reply_markup=kb)
 
 @bot.on_message(filters.command("myfeds") & group_allowed)
 async def myfeds_cmd(_, m):
     feds = [f for f in list_feds() if f["owner"] == m.from_user.id or is_fed_admin(f["_id"], m.from_user.id)]
     if not feds:
-        return await rich_send(bot, m.chat.id, _hdr(pe("circle","⦿") + " " + sc("no feds"),3) + rich_note(pe("diamond","⬪") + " <code>/newfed VidelElite</code> " + sc("to create one")))
-    rows = [("<code>" + rich_esc(f["_id"]) + "</code>", rich_esc(f["name"]), rich_button(pe("hex","⬢") + " " + sc("info"), callback_data="fed:info:" + f["_id"])) for f in feds[:24]]
-    body = _hero() + _hdr(sb("Your Federations") + " • " + str(len(feds)),2) + rich_table([pe("hex","⬢") + " " + sc("id"), pe("target","◎") + " " + sc("name"), pe("diamond","⬪") + " " + sc("action")], rows)
-    kb = InlineKeyboardMarkup([[InlineKeyboardButton(pe("hex","⬢") + " " + rich_esc(f["_id"]), callback_data="fed:info:" + f["_id"]) for f in feds[:3]]])
+        return await rich_send(bot, m.chat.id, _hdr(pe("circle","") + " " + sc("no feds"),3) + rich_note(pe("diamond","") + " <code>/newfed VidelElite</code> " + sc("to create one")))
+    rows = [("<code>" + rich_esc(f["_id"]) + "</code>", rich_esc(f["name"]), rich_button(pe("hex","") + " " + sc("info"), callback_data="fed:info:" + f["_id"])) for f in feds[:24]]
+    body = _hero() + _hdr(sb("Your Federations") + " • " + str(len(feds)),2) + rich_table([pe("hex","") + " " + sc("id"), pe("target","") + " " + sc("name"), pe("diamond","") + " " + sc("action")], rows)
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton(pe("hex","") + " " + rich_esc(f["_id"]), callback_data="fed:info:" + f["_id"]) for f in feds[:3]]])
     await rich_send(bot, m.chat.id, body, reply_markup=kb)
 
 @bot.on_message(filters.command("fedchats") & group_allowed & user_allowed)
@@ -205,12 +205,12 @@ async def fedchats_cmd(_, m):
         return await rich_send(bot, m.chat.id, _hdr(pe("warn","⚠️") + " " + sc("no fed"),3))
     chats = get_fed_chats(fid)
     if not chats:
-        return await rich_send(bot, m.chat.id, _hdr(pe("circle","⦿") + " " + sc("no chats"),3) + rich_note("<code>/joinfed " + rich_esc(fid) + "</code>"))
+        return await rich_send(bot, m.chat.id, _hdr(pe("circle","") + " " + sc("no chats"),3) + rich_note("<code>/joinfed " + rich_esc(fid) + "</code>"))
     rows = [("<code>" + str(c) + "</code>",) for c in chats[:24]]
-    body = _hdr(pe("circle","⦿") + " " + sc("fed chats") + " • " + str(len(chats)),3) + rich_table([pe("hex","⬢") + " " + sc("chat id")], rows)
+    body = _hdr(pe("circle","") + " " + sc("fed chats") + " • " + str(len(chats)),3) + rich_table([pe("hex","") + " " + sc("chat id")], rows)
     if len(chats) > 24:
         body += "<p>" + sc("and") + " " + str(len(chats)-24) + " " + sc("more") + "…</p>"
-    body += "<p>" + rich_button(pe("hex","⬢") + " " + sc("info"), callback_data="fed:info:" + fid) + "</p>"
+    body += "<p>" + rich_button(pe("hex","") + " " + sc("info"), callback_data="fed:info:" + fid) + "</p>"
     await rich_send(bot, m.chat.id, body)
 
 @bot.on_message(filters.command("fedbanlist") & group_allowed & user_allowed)
@@ -222,11 +222,11 @@ async def fedbanlist_cmd(_, m):
         return await rich_send(bot, m.chat.id, _hdr(pe("warn","⚠️") + " " + sc("no fed"),3))
     bans = list_fbans(fid)
     if not bans:
-        return await rich_send(bot, m.chat.id, _hdr(pe("check","✅") + " " + sc("no fbans"),3) + rich_note(pe("spark","𖦹") + " " + sc("clean federation")))
+        return await rich_send(bot, m.chat.id, _hdr(pe("check","✅") + " " + sc("no fbans"),3) + rich_note(pe("spark","") + " " + sc("clean federation")))
     rows = [("<code>" + str(b["user"]) + "</code>", rich_esc(b.get("reason","")[:32]), rich_button(pe("check","✅") + " " + sc("unfban"), callback_data="fed:unfban:" + fid + ":" + str(b["user"]), style="danger")) for b in bans[:20]]
-    body = _hdr(pe("ban","⛔️") + " " + sc("fed bans") + " • " + str(len(bans)),2) + rich_table([pe("hex","⬢") + " " + sc("user"), pe("diamond","⬪") + " " + sc("reason"), pe("target","◎") + " " + sc("action")], rows)
+    body = _hdr(pe("ban","⛔️") + " " + sc("fed bans") + " • " + str(len(bans)),2) + rich_table([pe("hex","") + " " + sc("user"), pe("diamond","") + " " + sc("reason"), pe("target","") + " " + sc("action")], rows)
     if len(bans) > 20:
-        body += "<p>" + sc("and") + " " + str(len(bans)-20) + " " + sc("more") + "… " + pe("line","⫶") + "</p>"
+        body += "<p>" + sc("and") + " " + str(len(bans)-20) + " " + sc("more") + "… " + pe("line","") + "</p>"
     await rich_send(bot, m.chat.id, body)
 
 @bot.on_message(filters.command(["fpromote","faddadmin"]) & group_allowed & user_allowed)
@@ -240,7 +240,7 @@ async def fpromote_cmd(_, m):
     if not fed or fed["owner"] != m.from_user.id:
         return await rich_send(bot, m.chat.id, _hdr(pe("lock","🔒") + " " + sc("owner only"),3))
     fed_add_admin(fid, m.reply_to_message.from_user.id)
-    await rich_send(bot, m.chat.id, _hdr(pe("check","✅") + " " + sc("fed admin added"),3) + rich_kv_table([(pe("target","◎") + " " + sc("user"), "<code>" + str(m.reply_to_message.from_user.id) + "</code>")]) + "<p>" + rich_button(pe("cross","❌") + " " + sc("demote"), callback_data="fed:demote:" + fid + ":" + str(m.reply_to_message.from_user.id), style="danger") + "</p>")
+    await rich_send(bot, m.chat.id, _hdr(pe("check","✅") + " " + sc("fed admin added"),3) + rich_kv_table([(pe("target","") + " " + sc("user"), "<code>" + str(m.reply_to_message.from_user.id) + "</code>")]) + "<p>" + rich_button(pe("cross","❌") + " " + sc("demote"), callback_data="fed:demote:" + fid + ":" + str(m.reply_to_message.from_user.id), style="danger") + "</p>")
 
 @bot.on_message(filters.command(["fdemote","fremadmin"]) & group_allowed & user_allowed)
 async def fdemote_cmd(_, m):
@@ -267,7 +267,7 @@ async def fed_cbs(_, q):
         if not feds:
             return await q.answer(sc("no feds"), show_alert=True)
         rows = [("<code>" + rich_esc(f["_id"]) + "</code>", rich_esc(f["name"])) for f in feds[:12]]
-        body = _hdr(sc("your feds") + " • " + str(len(feds)),3) + rich_table([pe("hex","⬢") + " " + sc("id"), pe("target","◎") + " " + sc("name")], rows)
+        body = _hdr(sc("your feds") + " • " + str(len(feds)),3) + rich_table([pe("hex","") + " " + sc("id"), pe("target","") + " " + sc("name")], rows)
         try:
             await rich_edit(q.message, body)
         except Exception:
@@ -280,7 +280,7 @@ async def fed_cbs(_, q):
         await q.answer()
         chats = len(get_fed_chats(fid))
         bans = len(list_fbans(fid))
-        body = _hdr(sb("Federation") + " — " + rich_esc(fed["name"]),3) + rich_kv_table([(pe("hex","⬢") + " " + sc("id"), "<code>" + rich_esc(fid) + "</code>"), (pe("circle","⦿") + " " + sc("chats"), "<code>" + str(chats) + "</code>"), (pe("ban","⛔️") + " " + sc("bans"), "<code>" + str(bans) + "</code>")])
+        body = _hdr(sb("Federation") + " — " + rich_esc(fed["name"]),3) + rich_kv_table([(pe("hex","") + " " + sc("id"), "<code>" + rich_esc(fid) + "</code>"), (pe("circle","") + " " + sc("chats"), "<code>" + str(chats) + "</code>"), (pe("ban","⛔️") + " " + sc("bans"), "<code>" + str(bans) + "</code>")])
         try:
             await rich_edit(q.message, body)
         except Exception:
@@ -292,7 +292,7 @@ async def fed_cbs(_, q):
         set_chat_fed(chat_id, fid)
         await q.answer(pe("check","✅") + " " + sc("joined") + " " + fid)
         try:
-            await rich_edit(q.message, _hdr(pe("check","✅") + " " + sc("joined federation"),3) + rich_kv_table([(pe("hex","⬢") + " " + sc("fed"), "<code>" + rich_esc(fid) + "</code>")]))
+            await rich_edit(q.message, _hdr(pe("check","✅") + " " + sc("joined federation"),3) + rich_kv_table([(pe("hex","") + " " + sc("fed"), "<code>" + rich_esc(fid) + "</code>")]))
         except Exception:
             pass
         return
@@ -328,6 +328,6 @@ async def fed_enforce(_, m):
         if get_fban(fed, u.id):
             try:
                 await bot.ban_chat_member(m.chat.id, u.id)
-                await rich_send(bot, m.chat.id, _hdr(pe("ban","⛔️") + " " + sc("fbanned user joined"),3) + rich_note("<code>" + str(u.id) + "</code> • " + pe("diamond","⬪") + " " + rich_esc(u.first_name or "")))
+                await rich_send(bot, m.chat.id, _hdr(pe("ban","⛔️") + " " + sc("fbanned user joined"),3) + rich_note("<code>" + str(u.id) + "</code> • " + pe("diamond","") + " " + rich_esc(u.first_name or "")))
             except Exception:
                 pass

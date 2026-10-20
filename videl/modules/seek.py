@@ -50,7 +50,7 @@ async def _seek_to(chat_id: int, target_sec: int, message: Message) -> None:
 
     song = peek_current(chat_id)
     if not song:
-        await rich_send(bot, chat_id, rich_heading("❍ ɴᴏᴛʜɪɴɢ ɪs ᴘʟᴀʏɪɴɢ ʀɪɢʜᴛ ɴᴏᴡ", level=3))
+        await rich_send(bot, chat_id, rich_heading("❍ nothing is playing right now", level=3))
         return
 
     total_sec  = parse_dur(song.get("duration", "0:00"))
@@ -58,8 +58,8 @@ async def _seek_to(chat_id: int, target_sec: int, message: Message) -> None:
 
     pm = await rich_send(
         bot, chat_id,
-        rich_heading("⏩ sᴇᴇᴋɪɴɢ...", level=3)
-        + rich_kv_table([("ᴛᴏ", f"<code>{fmt_time(target_sec)}</code>")]),
+        rich_heading("⏩ seeking...", level=3)
+        + rich_kv_table([("to", f"<code>{fmt_time(target_sec)}</code>")]),
     )
 
     try:
@@ -67,7 +67,7 @@ async def _seek_to(chat_id: int, target_sec: int, message: Message) -> None:
     except Exception as e:
         await rich_edit(
             pm,
-            rich_heading("❍ sᴇᴇᴋ ғᴀɪʟᴇᴅ — ᴄᴏᴜʟᴅ ɴᴏᴛ ʀᴇsᴏʟᴠᴇ sᴛʀᴇᴀᴍ", level=3)
+            rich_heading("❍ seek failed — could not resolve stream", level=3)
             + rich_note(f"<code>{rich_esc(e)}</code>"),
         )
         return
@@ -96,7 +96,7 @@ async def _seek_to(chat_id: int, target_sec: int, message: Message) -> None:
         except Exception as e2:
             await rich_edit(
                 pm,
-                rich_heading("❍ sᴇᴇᴋ ғᴀɪʟᴇᴅ", level=3)
+                rich_heading("❍ seek failed", level=3)
                 + rich_note(f"<code>{rich_esc(e2)}</code>"),
             )
             return
@@ -106,13 +106,13 @@ async def _seek_to(chat_id: int, target_sec: int, message: Message) -> None:
     # True rich card — same pattern as the now-playing message in player.py
     # (embedded thumbnail via rich_img, real heading + table), not a caption.
     content = (
-        rich_heading("◍ Now Playing", level=3)
+        rich_heading(" Now Playing", level=3)
         + (rich_img(song["thumbnail"]) if song.get("thumbnail") else "")
         + rich_kv_table([
-            ("ᴛɪᴛʟᴇ", rich_esc(short(song["title"]))),
-            ("ᴅᴜʀᴀᴛɪᴏɴ", rich_esc(song.get("duration", "?"))),
-            ("ʙʏ", rich_esc(song["requester"])),
-            ("sᴇᴇᴋᴇᴅ ᴛᴏ", f"<code>{fmt_time(target_sec)}</code>"),
+            ("title", rich_esc(short(song["title"]))),
+            ("duration", rich_esc(song.get("duration", "?"))),
+            ("by", rich_esc(song["requester"])),
+            ("seeked to", f"<code>{fmt_time(target_sec)}</code>"),
         ])
     )
     btns = [
@@ -146,15 +146,15 @@ async def seek_cmd(_, message: Message) -> None:
     song    = peek_current(chat_id)
 
     if not song:
-        await rich_send(bot, chat_id, rich_heading("❍ ɴᴏ sᴏɴɢ ɪs ᴄᴜʀʀᴇɴᴛʟʏ ᴘʟᴀʏɪɴɢ", level=3))
+        await rich_send(bot, chat_id, rich_heading("❍ no song is currently playing", level=3))
         return
 
     sec = int(message.matches[0].group("sec"))
     if sec < 1:
         await rich_send(
             bot, chat_id,
-            rich_heading("❍ ᴘʟᴇᴀsᴇ ᴘʀᴏᴠɪᴅᴇ ᴀ ɴᴜᴍʙᴇʀ ᴏғ sᴇᴄᴏɴᴅs ɢʀᴇᴀᴛᴇʀ ᴛʜᴀɴ 0", level=3)
-            + rich_kv_table([("ᴜsᴀɢᴇ", "<code>/seek 30</code>")]),
+            rich_heading("❍ please provide a number of seconds greater than 0", level=3)
+            + rich_kv_table([("usage", "<code>/seek 30</code>")]),
         )
         return
 
@@ -163,16 +163,16 @@ async def seek_cmd(_, message: Message) -> None:
     total_sec   = parse_dur(song.get("duration", "0:00"))
 
     if current_pos >= total_sec - 1:
-        await rich_send(bot, chat_id, rich_heading("❍ sᴏɴɢ ɪs ᴀʟᴍᴏsᴛ ғɪɴɪsʜᴇᴅ, ᴄᴀɴɴᴏᴛ sᴇᴇᴋ ғᴏʀᴡᴀʀᴅ", level=3))
+        await rich_send(bot, chat_id, rich_heading("❍ song is almost finished, cannot seek forward", level=3))
         return
 
     if target >= total_sec:
         await rich_send(
             bot, chat_id,
-            rich_heading("❍ ᴄᴀɴɴᴏᴛ sᴇᴇᴋ ᴛʜᴀᴛ ғᴀʀ ғᴏʀᴡᴀʀᴅ", level=3)
+            rich_heading("❍ cannot seek that far forward", level=3)
             + rich_kv_table([
-                ("ᴄᴜʀʀᴇɴᴛ ᴘᴏsɪᴛɪᴏɴ", f"<code>{fmt_time(current_pos)}</code>"),
-                ("sᴏɴɢ ᴅᴜʀᴀᴛɪᴏɴ", f"<code>{fmt_time(total_sec)}</code>"),
+                ("current position", f"<code>{fmt_time(current_pos)}</code>"),
+                ("song duration", f"<code>{fmt_time(total_sec)}</code>"),
             ]),
         )
         return
@@ -198,15 +198,15 @@ async def seekback_cmd(_, message: Message) -> None:
     song    = peek_current(chat_id)
 
     if not song:
-        await rich_send(bot, chat_id, rich_heading("❍ ɴᴏ sᴏɴɢ ɪs ᴄᴜʀʀᴇɴᴛʟʏ ᴘʟᴀʏɪɴɢ", level=3))
+        await rich_send(bot, chat_id, rich_heading("❍ no song is currently playing", level=3))
         return
 
     sec = int(message.matches[0].group("sec"))
     if sec < 1:
         await rich_send(
             bot, chat_id,
-            rich_heading("❍ ᴘʟᴇᴀsᴇ ᴘʀᴏᴠɪᴅᴇ ᴀ ɴᴜᴍʙᴇʀ ᴏғ sᴇᴄᴏɴᴅs ɢʀᴇᴀᴛᴇʀ ᴛʜᴀɴ 0", level=3)
-            + rich_kv_table([("ᴜsᴀɢᴇ", "<code>/seekback 30</code>")]),
+            rich_heading("❍ please provide a number of seconds greater than 0", level=3)
+            + rich_kv_table([("usage", "<code>/seekback 30</code>")]),
         )
         return
 
@@ -233,8 +233,8 @@ async def seek_usage(_, message: Message) -> None:
     song    = peek_current(chat_id)
 
     usage_rows = [
-        ("/seek 30", "ғᴏʀᴡᴀʀᴅ 30 sᴇᴄᴏɴᴅs"),
-        ("/seekback 30", "ʙᴀᴄᴋᴡᴀʀᴅ 30 sᴇᴄᴏɴᴅs"),
+        ("/seek 30", "forward 30 seconds"),
+        ("/seekback 30", "backward 30 seconds"),
     ]
 
     if song:
@@ -242,15 +242,15 @@ async def seek_usage(_, message: Message) -> None:
         total_sec = parse_dur(song.get("duration", "0:00"))
         await rich_send(
             bot, chat_id,
-            rich_heading("❍ sᴇᴇᴋ ᴜsᴀɢᴇ", level=3)
-            + rich_kv_table([("ᴄᴜʀʀᴇɴᴛ ᴘᴏsɪᴛɪᴏɴ",
+            rich_heading("❍ seek usage", level=3)
+            + rich_kv_table([("current position",
                               f"<code>{fmt_time(pos)}</code> / <code>{fmt_time(total_sec)}</code>")])
-            + rich_kv_table(usage_rows, headers=["ᴄᴏᴍᴍᴀɴᴅ", "ᴅᴇsᴄʀɪᴘᴛɪᴏɴ"]),
+            + rich_kv_table(usage_rows, headers=["command", "description"]),
         )
     else:
         await rich_send(
             bot, chat_id,
-            rich_heading("❍ sᴇᴇᴋ ᴜsᴀɢᴇ", level=3)
-            + rich_kv_table(usage_rows, headers=["ᴄᴏᴍᴍᴀɴᴅ", "ᴅᴇsᴄʀɪᴘᴛɪᴏɴ"]),
+            rich_heading("❍ seek usage", level=3)
+            + rich_kv_table(usage_rows, headers=["command", "description"]),
         )
 

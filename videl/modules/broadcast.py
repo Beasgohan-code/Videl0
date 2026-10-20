@@ -113,8 +113,8 @@ async def broadcast_cmd(_, message: Message) -> None:
         if _IS_BROADCASTING:
             await rich_send(
                 bot, message.chat.id,
-                rich_heading("❍ ᴀ ʙʀᴏᴀᴅᴄᴀsᴛ ɪs ᴀʟʀᴇᴀᴅʏ ʀᴜɴɴɪɴɢ", level=3)
-                + rich_note("ᴘʟᴇᴀsᴇ ᴡᴀɪᴛ ғᴏʀ ɪᴛ ᴛᴏ ғɪɴɪsʜ."),
+                rich_heading("❍ a broadcast is already running", level=3)
+                + rich_note("please wait for it to finish."),
             )
             return
         _IS_BROADCASTING = True
@@ -147,13 +147,13 @@ async def _run_broadcast(message: Message) -> None:
     else:
         await rich_send(
             bot, message.chat.id,
-            rich_heading("❍ ʀᴇᴘʟʏ ᴛᴏ ᴀ ᴍᴇssᴀɢᴇ ᴏʀ ᴘʀᴏᴠɪᴅᴇ ᴛᴇxᴛ", level=3)
+            rich_heading("❍ reply to a message or provide text", level=3)
             + rich_kv_table([
-                ("-pin", "ᴘɪɴ sɪʟᴇɴᴛʟʏ ɪɴ ɢʀᴏᴜᴘs"),
-                ("-pinloud", "ᴘɪɴ ᴡɪᴛʜ ɴᴏᴛɪғɪᴄᴀᴛɪᴏɴ"),
-                ("-nogroup", "sᴋɪᴘ ɢʀᴏᴜᴘs"),
-                ("-user", "ᴀʟsᴏ sᴇɴᴅ ᴛᴏ ᴘʀɪᴠᴀᴛᴇ ᴜsᴇʀs"),
-            ], headers=["ғʟᴀɢ", "ᴇғғᴇᴄᴛ"]),
+                ("-pin", "pin silently in groups"),
+                ("-pinloud", "pin with notification"),
+                ("-nogroup", "skip groups"),
+                ("-user", "also send to private users"),
+            ], headers=["flag", "effect"]),
         )
         return
 
@@ -166,7 +166,7 @@ async def _run_broadcast(message: Message) -> None:
     targets = (0 if flag_nogroup else len(groups)) + (len(private) if flag_user else 0)
 
     if targets == 0:
-        await rich_send(bot, message.chat.id, rich_heading("❍ ɴᴏ ᴛᴀʀɢᴇᴛs ғᴏᴜɴᴅ ɪɴ ʙʀᴏᴀᴅᴄᴀsᴛ ʟɪsᴛ", level=3))
+        await rich_send(bot, message.chat.id, rich_heading("❍ no targets found in broadcast list", level=3))
         return
 
     # Active flags text
@@ -179,13 +179,13 @@ async def _run_broadcast(message: Message) -> None:
 
     pm = await rich_send(
         bot, message.chat.id,
-        rich_heading("❍ ʙʀᴏᴀᴅᴄᴀsᴛ sᴛᴀʀᴛᴇᴅ", level=3)
+        rich_heading("❍ broadcast started", level=3)
         + rich_kv_table([
-            ("ᴛᴏᴛᴀʟ", f"<code>{counts['total']}</code>"),
-            ("ɢʀᴏᴜᴘs", f"<code>{len(groups)}</code>"),
-            ("ᴜsᴇʀs", f"<code>{len(private)}</code>"),
-            ("ᴛᴀʀɢᴇᴛs", f"<code>{targets}</code>"),
-            ("ғʟᴀɢs", f"<code>{active_flags}</code>"),
+            ("total", f"<code>{counts['total']}</code>"),
+            ("groups", f"<code>{len(groups)}</code>"),
+            ("users", f"<code>{len(private)}</code>"),
+            ("targets", f"<code>{targets}</code>"),
+            ("flags", f"<code>{active_flags}</code>"),
         ]),
     )
 
@@ -266,12 +266,12 @@ async def _run_broadcast(message: Message) -> None:
     # ── Done ──────────────────────────────────────────────────────────────────
     await rich_edit(
         pm,
-        rich_heading("◍ ʙʀᴏᴀᴅᴄᴀsᴛ ᴄᴏᴍᴘʟᴇᴛᴇᴅ ◍", level=3)
+        rich_heading(" broadcast completed ", level=3)
         + rich_kv_table([
-            ("ɢʀᴏᴜᴘs", f"<code>{success_g}</code>"),
-            ("ᴜsᴇʀs", f"<code>{success_u}</code>"),
-            ("ᴘɪɴɴᴇᴅ", f"<code>{pinned}</code>"),
-            ("ғᴀɪʟᴇᴅ", f"<code>{failed}</code>"),
+            ("groups", f"<code>{success_g}</code>"),
+            ("users", f"<code>{success_u}</code>"),
+            ("pinned", f"<code>{pinned}</code>"),
+            ("failed", f"<code>{failed}</code>"),
         ]),
     )
     

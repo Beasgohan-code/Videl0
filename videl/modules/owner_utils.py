@@ -46,7 +46,7 @@ from videl.utils.rich_ui import (
 try:
     from videl.utils.premium_emojis import pe
 except Exception:
-    def pe(k, fb="◍"):
+    def pe(k, fb=""):
         return fb
 
 try:
@@ -65,12 +65,12 @@ def _is_owner(uid: int) -> bool:
 def _owner_only(func):
     async def wrapper(_, m: Message):
         if not m.from_user or not _is_owner(m.from_user.id):
-            return await rich_send(bot, m.chat.id, rich_heading(pe("warn","⚠️") + " " + sc("owner only"), level=3) + rich_note(pe("line","⫶") + " " + sc("this command is restricted to bot owners") + "<br>" + pe("small","⬩") + " " + sc("contact") + f" <a href=\"tg://user?id={config.OWNER_ID}\">{sc('owner')}</a>"))
+            return await rich_send(bot, m.chat.id, rich_heading(pe("warn","⚠️") + " " + sc("owner only"), level=3) + rich_note(pe("line","") + " " + sc("this command is restricted to bot owners") + "<br>" + pe("small","") + " " + sc("contact") + f" <a href=\"tg://user?id={config.OWNER_ID}\">{sc('owner')}</a>"))
         return await func(_, m)
     return wrapper
 
 def _hdr(t: str, lvl: int = 3):
-    return rich_heading(pe("orb","◍") + " " + t + " " + pe("spark","𖦹"), level=lvl)
+    return rich_heading(pe("orb","") + " " + t + " " + pe("spark",""), level=lvl)
 
 def _log_to_channel(text: str):
     ch = getattr(config, "LOG_CHANNEL_ID", None)
@@ -93,7 +93,7 @@ async def sysinfo_handler(_, m: Message):
     up = time.time() - START_TIME
     hrs, rem = divmod(int(up), 3600)
     mins, secs = divmod(rem, 60)
-    up_str = f"{hrs}ʜ {mins}ᴍ {secs}s"
+    up_str = f"{hrs}h {mins}m {secs}s"
 
     cpu = mem = disk = "—"
     if _HAS_PSUTIL:
@@ -108,17 +108,17 @@ async def sysinfo_handler(_, m: Message):
 
     py_ver = platform.python_version()
     plat = platform.platform()
-    body = _hdr(pe("hex","⬢") + " " + sc("system info") + " • " + pe("circle","⦿") + " " + sc("live"), 2)
+    body = _hdr(pe("hex","") + " " + sc("system info") + " • " + pe("circle","") + " " + sc("live"), 2)
     body += rich_kv_table([
-        (pe("diamond","⬪") + " " + sc("uptime"), f"<code>{up_str}</code>"),
-        (pe("hex","⬢") + " " + sc("python"), f"<code>{py_ver}</code>"),
-        (pe("circle","⦿") + " " + sc("platform"), f"<code>{rich_esc(plat[:60])}</code>"),
-        (pe("orb","◍") + " " + sc("cpu"), f"<code>{cpu}</code>"),
-        (pe("small","⬩") + " " + sc("memory"), f"<code>{mem}</code>"),
+        (pe("diamond","") + " " + sc("uptime"), f"<code>{up_str}</code>"),
+        (pe("hex","") + " " + sc("python"), f"<code>{py_ver}</code>"),
+        (pe("circle","") + " " + sc("platform"), f"<code>{rich_esc(plat[:60])}</code>"),
+        (pe("orb","") + " " + sc("cpu"), f"<code>{cpu}</code>"),
+        (pe("small","") + " " + sc("memory"), f"<code>{mem}</code>"),
         (pe("pin","📌") + " " + sc("disk"), f"<code>{disk}</code>"),
-        (pe("spark","𖦹") + " " + sc("bot"), f"<code>{sb('videl perfect')} • @Videl0Bot</code>"),
+        (pe("spark","") + " " + sc("bot"), f"<code>{sb('videl perfect')} • @Videl0Bot</code>"),
     ], headers=[pe("check","✅") + " " + sc("host"), sc("value")])
-    body += "<p>" + rich_button(pe("target","◎") + " " + sc("logs"), callback_data="owner:logs") + " " + rich_button(pe("fire","🔥") + " " + sc("restart"), callback_data="owner:restart") + "</p>"
+    body += "<p>" + rich_button(pe("target","") + " " + sc("logs"), callback_data="owner:logs") + " " + rich_button(pe("fire","🔥") + " " + sc("restart"), callback_data="owner:restart") + "</p>"
     await rich_send(bot, m.chat.id, body)
     _log_to_channel(f"ℹ️ /sysinfo by {m.from_user.id} in {m.chat.id}")
 
@@ -126,16 +126,16 @@ async def sysinfo_handler(_, m: Message):
 @bot.on_message(filters.command(["ping", "alive"]) & ~filters.forwarded)
 async def ping_handler(_, m: Message):
     t0 = time.time()
-    msg = await rich_send(bot, m.chat.id, _hdr(pe("circle","⦿") + " " + sc("pinging"),3))
+    msg = await rich_send(bot, m.chat.id, _hdr(pe("circle","") + " " + sc("pinging"),3))
     ping_ms = (time.time() - t0) * 1000
     up = time.time() - START_TIME
     hrs, rem = divmod(int(up), 3600)
     mins, secs = divmod(rem, 60)
     body = _hdr(pe("check","✅") + " " + sc("alive") + f" • {ping_ms:.0f} ms", 2)
     body += rich_kv_table([
-        (pe("diamond","⬪") + " " + sc("ping"), f"<code>{ping_ms:.0f} ms</code>"),
-        (pe("hex","⬢") + " " + sc("uptime"), f"<code>{hrs}ʜ {mins}ᴍ {secs}s</code>"),
-        (pe("orb","◍") + " " + sc("bot"), "<code>@Videl0Bot • kurigram + pytgcalls</code>"),
+        (pe("diamond","") + " " + sc("ping"), f"<code>{ping_ms:.0f} ms</code>"),
+        (pe("hex","") + " " + sc("uptime"), f"<code>{hrs}h {mins}m {secs}s</code>"),
+        (pe("orb","") + " " + sc("bot"), "<code>@Videl0Bot • kurigram + pytgcalls</code>"),
     ])
     await rich_edit(msg, body)
 
@@ -153,7 +153,7 @@ async def logs_handler(_, m: Message):
         size_kb = log_file.stat().st_size / 1024
         if size_kb > 300:
             # Send as document
-            caption = _hdr(pe("target","◎") + " " + sc("logs") + f" • {size_kb:.0f} KB", 2) + rich_note(pe("line","⫶") + f" <code>{rich_esc(str(log_file))}</code> • {size_kb:.1f} KB<br>" + pe("small","⬩") + " " + sc("full log attached as document"))
+            caption = _hdr(pe("target","") + " " + sc("logs") + f" • {size_kb:.0f} KB", 2) + rich_note(pe("line","") + f" <code>{rich_esc(str(log_file))}</code> • {size_kb:.1f} KB<br>" + pe("small","") + " " + sc("full log attached as document"))
             await bot.send_document(m.chat.id, document=str(log_file), caption=caption, parse_mode=ParseMode.HTML, reply_to_message_id=m.id)
         else:
             content = await asyncio.to_thread(log_file.read_text, encoding="utf-8", errors="ignore")
@@ -175,7 +175,7 @@ async def shell_handler(_, m: Message):
     if not cmd and m.reply_to_message and m.reply_to_message.text:
         cmd = m.reply_to_message.text.strip()
     if not cmd:
-        return await rich_send(bot, m.chat.id, _hdr(pe("hex","⬢") + " " + sc("shell") + " • " + pe("circle","⦿") + " " + sc("owner only"),3) + rich_note("<code>/shell &lt;command&gt;</code><br>" + pe("small","⬩") + " <code>/shell ps aux | head</code><br>" + pe("small","⬩") + " <code>/shell df -h</code><br>" + pe("warn","⚠️") + " " + sc("timeout 15s, logged to channel")))
+        return await rich_send(bot, m.chat.id, _hdr(pe("hex","") + " " + sc("shell") + " • " + pe("circle","") + " " + sc("owner only"),3) + rich_note("<code>/shell &lt;command&gt;</code><br>" + pe("small","") + " <code>/shell ps aux | head</code><br>" + pe("small","") + " <code>/shell df -h</code><br>" + pe("warn","⚠️") + " " + sc("timeout 15s, logged to channel")))
 
     # Security: block destructive commands
     dangerous = ["rm -rf /", ":(){:|:&};:", "mkfs", "dd if=", "shutdown", "reboot", "chmod 777 /"]
@@ -183,7 +183,7 @@ async def shell_handler(_, m: Message):
         _log_to_channel(f"🚨 Blocked dangerous shell by {m.from_user.id}: <code>{cmd[:100]}</code>")
         return await rich_send(bot, m.chat.id, _hdr(pe("warn","⚠️") + " " + sc("blocked dangerous command"),3))
 
-    status = await rich_send(bot, m.chat.id, _hdr(pe("circle","⦿") + " " + sc("executing") + f" • <code>{rich_esc(cmd[:40])}</code>",3) + rich_note(pe("diamond","⬪") + " " + sc("timeout") + ": 15s…"))
+    status = await rich_send(bot, m.chat.id, _hdr(pe("circle","") + " " + sc("executing") + f" • <code>{rich_esc(cmd[:40])}</code>",3) + rich_note(pe("diamond","") + " " + sc("timeout") + ": 15s…"))
 
     try:
         proc = await asyncio.create_subprocess_shell(cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
@@ -221,7 +221,7 @@ async def eval_handler(_, m: Message):
     if not code and m.reply_to_message:
         code = m.reply_to_message.text or m.reply_to_message.caption or ""
     if not code:
-        return await rich_send(bot, m.chat.id, _hdr(pe("hex","⬢") + " " + sc("python eval"),3) + rich_note("<code>/eval &lt;code&gt;</code><br>" + pe("small","⬩") + " <code>/eval await bot.get_me()</code><br>" + pe("small","⬩") + " <code>/eval 2**10</code>"))
+        return await rich_send(bot, m.chat.id, _hdr(pe("hex","") + " " + sc("python eval"),3) + rich_note("<code>/eval &lt;code&gt;</code><br>" + pe("small","") + " <code>/eval await bot.get_me()</code><br>" + pe("small","") + " <code>/eval 2**10</code>"))
 
     if code.startswith("```"):
         code = "\n".join(code.split("\n")[1:-1]) if "```" in code else code.strip("`")
@@ -242,7 +242,7 @@ async def eval_handler(_, m: Message):
             res = await asyncio.wait_for(ctx["__fn"](), timeout=10)
             out = str(res) if res is not None else ""
         stdout = buf.getvalue()
-        text = (stdout + "\n" + out).strip() or "◍ Done — no output"
+        text = (stdout + "\n" + out).strip() or " Done — no output"
         if len(text) > 3500:
             bio = io.BytesIO(text.encode())
             bio.name = "eval_output.txt"
@@ -272,10 +272,10 @@ async def active_handler(_, m: Message):
                 cur = q[0] if q else {}
                 active.append((cid, len(q), cur.get("title", "?")[:30]))
         if not active:
-            return await rich_send(bot, m.chat.id, _hdr(pe("circle","⦿") + " " + sc("no active chats"),3) + rich_note(sc("no voice chats playing right now")))
-        body = _hdr(pe("diamond","⬪") + f" {sc('active chats')} • {len(active)}", 2)
+            return await rich_send(bot, m.chat.id, _hdr(pe("circle","") + " " + sc("no active chats"),3) + rich_note(sc("no voice chats playing right now")))
+        body = _hdr(pe("diamond","") + f" {sc('active chats')} • {len(active)}", 2)
         body += rich_table([sc("chat id"), sc("queue"), sc("now playing")], [(f"<code>{cid}</code>", str(n), rich_esc(t)) for cid, n, t in active[:20]])
-        body += rich_note(pe("small","⬩") + f" {len(active)} " + sc("active voice chats") + " " + pe("hex","⬢"))
+        body += rich_note(pe("small","") + f" {len(active)} " + sc("active voice chats") + " " + pe("hex",""))
         await rich_send(bot, m.chat.id, body)
     except Exception as e:
         LOGGER.error(f"active fail: {e}", exc_info=True)
@@ -287,7 +287,7 @@ async def active_handler(_, m: Message):
 @bot.on_message(filters.command(["restart", "reboot"]) & ~filters.forwarded)
 @_owner_only
 async def restart_handler(_, m: Message):
-    msg = await rich_send(bot, m.chat.id, _hdr(pe("fire","🔥") + " " + sc("restarting") + "…",3) + rich_note(pe("diamond","⬪") + " " + sc("bot will restart in 3 seconds") + "<br>" + pe("small","⬩") + " " + sc("Docker will auto-restart if HEALTHCHECK fails")))
+    msg = await rich_send(bot, m.chat.id, _hdr(pe("fire","🔥") + " " + sc("restarting") + "…",3) + rich_note(pe("diamond","") + " " + sc("bot will restart in 3 seconds") + "<br>" + pe("small","") + " " + sc("Docker will auto-restart if HEALTHCHECK fails")))
     _log_to_channel(f"🔄 /restart by {m.from_user.id} in {m.chat.id}")
     await asyncio.sleep(2)
     try:
@@ -303,14 +303,14 @@ async def restart_handler(_, m: Message):
 @bot.on_message(filters.command(["update", "gitpull"]) & ~filters.forwarded)
 @_owner_only
 async def update_handler(_, m: Message):
-    status = await rich_send(bot, m.chat.id, _hdr(pe("circle","⦿") + " " + sc("updating"),3) + rich_note(sc("git pull + pip install — please wait…")))
+    status = await rich_send(bot, m.chat.id, _hdr(pe("circle","") + " " + sc("updating"),3) + rich_note(sc("git pull + pip install — please wait…")))
     try:
         proc = await asyncio.create_subprocess_shell("git pull --ff-only && pip install -q -r requirements.txt", stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
         stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=60)
         out = (stdout.decode() + stderr.decode()).strip()[-2000:] or "No output"
         body = _hdr(pe("check","✅") + " " + sc("updated") + f" • exit {proc.returncode}",2)
         body += rich_pre(out[-1500:], "bash")
-        body += rich_note(pe("small","⬩") + " " + sc("restarting to apply…"))
+        body += rich_note(pe("small","") + " " + sc("restarting to apply…"))
         await rich_edit(status, body)
         await asyncio.sleep(2)
         os._exit(0)
@@ -328,7 +328,7 @@ async def broadcast_pro_handler(_, m: Message):
     if not text and m.reply_to_message:
         text = m.reply_to_message.text or m.reply_to_message.caption or ""
     if not text:
-        return await rich_send(bot, m.chat.id, _hdr(sc("broadcast"),3) + rich_note("<code>/broadcast_pro &lt;text&gt;</code> — reply to message to broadcast that<br>" + pe("small","⬩") + " " + sc("sends to all known chats via MongoDB")))
+        return await rich_send(bot, m.chat.id, _hdr(sc("broadcast"),3) + rich_note("<code>/broadcast_pro &lt;text&gt;</code> — reply to message to broadcast that<br>" + pe("small","") + " " + sc("sends to all known chats via MongoDB")))
     from videl.utils.db import get_served_chats
     try:
         chats = await asyncio.to_thread(get_served_chats)
@@ -340,7 +340,7 @@ async def broadcast_pro_handler(_, m: Message):
         return await rich_send(bot, m.chat.id, _hdr(pe("warn","⚠️") + " " + sc("no chats found"),3))
     sent = 0
     failed = 0
-    prog = await rich_send(bot, m.chat.id, _hdr(pe("diamond","⬪") + f" {sc('broadcasting')} → {len(chats)} " + sc("chats") + "…",3))
+    prog = await rich_send(bot, m.chat.id, _hdr(pe("diamond","") + f" {sc('broadcasting')} → {len(chats)} " + sc("chats") + "…",3))
     for cid in chats:
         try:
             await bot.send_message(int(cid), text, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
@@ -350,13 +350,13 @@ async def broadcast_pro_handler(_, m: Message):
         await asyncio.sleep(0.04)
         if sent % 25 == 0:
             try:
-                await rich_edit(prog, _hdr(pe("diamond","⬪") + f" {sent}/{len(chats)}…",3))
+                await rich_edit(prog, _hdr(pe("diamond","") + f" {sent}/{len(chats)}…",3))
             except Exception:
                 pass
     body = _hdr(pe("check","✅") + " " + sc("broadcast done"),2)
-    body += rich_kv_table([(pe("check","✅") + " " + sc("sent"), f"<code>{sent}</code>"), (pe("cross","❌") + " " + sc("failed"), f"<code>{failed}</code>"), (pe("orb","◍") + " " + sc("total"), f"<code>{len(chats)}</code>")])
+    body += rich_kv_table([(pe("check","✅") + " " + sc("sent"), f"<code>{sent}</code>"), (pe("cross","❌") + " " + sc("failed"), f"<code>{failed}</code>"), (pe("orb","") + " " + sc("total"), f"<code>{len(chats)}</code>")])
     await rich_edit(prog, body)
     _log_to_channel(f"📢 /broadcast_pro by {m.from_user.id}: sent {sent}/{len(chats)} — {text[:80]}")
 
 
-LOGGER.info("⬪ ᴏᴡɴᴇʀ ᴜᴛɪʟs — ᴘᴇʀғᴇᴄᴛ ◍")
+LOGGER.info(" owner utils — perfect ")

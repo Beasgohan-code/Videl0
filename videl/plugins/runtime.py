@@ -275,7 +275,7 @@ async def run_plugin(slug: str, message: Message):
             if not arg: return await _send(message,"Media download",f"Usage: <code>/{message.command[0]} https://...</code>")
             await _validate_public_url(arg)
             from videl.utils.youtube import download_video
-            status=await message.reply_text("◍ Downloading media…")
+            status=await message.reply_text(" Downloading media…")
             path=await download_video(arg)
             if not path or not os.path.isfile(path): return await status.edit_text("Download failed: the source may be private, unsupported, or blocked by its provider.")
             try: await bot.send_video(chat_id, path, caption=f"Downloaded by Videl · requested by {_esc(message.from_user.first_name if message.from_user else 'user')}")
