@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
+  CalendarClock,
   Check,
   HeartPulse,
   Loader2,
@@ -12,23 +13,29 @@ import {
   Timer,
 } from "lucide-react";
 import {
+  DEFAULT_PROTECTION,
   ESCALATION_CHOICES,
+  WINDOW_LOCKS,
   displayTitle,
   errorHint,
   escalationSummary,
   hhmmToMinutes,
   memberLabel,
+  protectionNow,
   quietNow,
   quietSummary,
+  windowSummary,
   zoneLabel,
   type Automation,
   type EscalationAction,
   type Group,
+  type ProtectionWindow,
 } from "@/lib/group-admin";
 
 const DEFAULT_AUTOMATION: Automation = {
   quiet_hours: { enabled: false, start: "22:00", end: "07:00", tz_offset: 0 },
   escalation: { enabled: true, action: "ban", mute_hours: 6 },
+  protection: DEFAULT_PROTECTION,
 };
 
 /** Offsets offered in the picker; the device zone is added when it differs. */
@@ -38,7 +45,17 @@ function automationOf(group: Group | null): Automation {
   if (!group?.automation) return DEFAULT_AUTOMATION;
   const quiet = group.automation.quiet_hours ?? DEFAULT_AUTOMATION.quiet_hours;
   const escalation = group.automation.escalation ?? DEFAULT_AUTOMATION.escalation;
-  return { quiet_hours: { ...DEFAULT_AUTOMATION.quiet_hours, ...quiet }, escalation: { ...DEFAULT_AUTOMATION.escalation, ...escalation } };
+  const protection = group.automation.protection ?? DEFAULT_PROTECTION;
+  return {
+    quiet_hours: { ...DEFAULT_AUTOMATION.quiet_hours, ...quiet },
+    escalation: { ...DEFAULT_AUTOMATION.escalation, ...escalation },
+    protection: {
+      ...DEFAULT_PROTECTION,
+      ...protection,
+      locks: Array.isArray(protection.locks) ? [...protection.locks] : [],
+      state: { ...DEFAULT_PROTECTION.state, ...(protection.state ?? {}) },
+    },
+  };
 }
 
 export default function AutomationScreen() {
@@ -104,10 +121,15 @@ export default function AutomationScreen() {
     return [...new Set(values)].sort((a, b) => a - b);
   }, [deviceOffset]);
 
-  function patch(next: { quiet?: Partial<Automation["quiet_hours"]>; escalation?: Partial<Automation["escalation"]> }) {
+  function patch(next: {
+    quiet?: Partial<Automation["quiet_hours"]>;
+    escalation?: Partial<Automation["escalation"]>;
+    protection?: Partial<ProtectionWindow>;
+  }) {
     setDraft((current) => ({
       quiet_hours: { ...current.quiet_hours, ...(next.quiet ?? {}) },
       escalation: { ...current.escalation, ...(next.escalation ?? {}) },
+      protection: { ...current.protection, ...(next.protection ?? {}) },
     }));
   }
 
@@ -120,10 +142,25 @@ export default function AutomationScreen() {
         ? "The window cannot start and end at the same minute."
         : "";
 
-  async function save(block: "quiet" | "escalation") {
+  const protectionStart = hhmmToMinutes(draft.protection.start);
+  const protectionEnd = hhmmToMinutes(draft.protection.end);
+  const protectionProblem =
+    draft.protection.enabled && !draft.protection.locks.length
+      ? "Pick at least one lock for the window to apply."
+      : draft.protection.enabled && (protectionStart === null || protectionEnd === null)
+        ? "Use a valid 24-hour time for both ends of the window."
+        : draft.protection.enabled && protectionStart === protectionEnd
+          ? "The window cannot start and end at the same minute."
+          : "";
+
+  async function save(block: "quiet" | "escalation" | "protection") {
     if (!active || saving) return;
     if (block === "quiet" && windowProblem) {
       setError(windowProblem);
+      return;
+    }
+    if (block === "protection" && protectionProblem) {
+      setError(protectionProblem);
       return;
     }
     setSaving(block);
@@ -133,7 +170,17 @@ export default function AutomationScreen() {
       const body =
         block === "quiet"
           ? { action: "automation", quiet_hours: draft.quiet_hours }
-          : { action: "automation", escalation: draft.escalation };
+          : block === "escalation"
+            ? { action: "automation", escalation: draft.escalation }
+            : {
+                action: "automation",
+                protection: {
+                  enabled: draft.protection.enabled,
+                  start: draft.protection.start,
+                  end: draft.protection.end,
+                  locks: draft.protection.locks,
+                },
+              };
       const response = await fetch(`/api/groups/${active.id}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -150,7 +197,9 @@ export default function AutomationScreen() {
       const automation = (data.automation ?? draft) as Automation;
       setGroups((all) => all.map((group) => (group.id === active.id ? { ...group, automation } : group)));
       setDraft(automationOf({ ...active, automation }));
-      setNotice(block === "quiet" ? "Quiet hours saved." : "Warning ladder saved.");
+      setNotice(
+        block === "quiet" ? "Quiet hours saved." : block === "escalation" ? "Warning ladder saved." : "Protection window saved.",
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : "Automation was not saved");
     } finally {
@@ -248,6 +297,11 @@ export default function AutomationScreen() {
                       {quietNow(automation.quiet_hours) ? "quiet now" : automation.quiet_hours.enabled ? "scheduled" : "quiet off"}
                     </span>
                     <span className="ios-pill text-[10px]">{escalationSummary(automation.escalation)}</span>
+                    <span className="ios-pill text-[10px]">
+                      {automation.protection.enabled
+                        ? `${automation.protection.locks.length} window locks`
+                        : "window off"}
+                    </span>
                   </span>
                 </button>
               );
@@ -348,6 +402,106 @@ export default function AutomationScreen() {
                     className="ios-btn ios-btn-primary text-xs disabled:opacity-40"
                   >
                     {saving === "quiet" ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} Save quiet hours
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-3 rounded-xl bg-white/[0.03] p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h3 className="flex items-center gap-2 text-sm font-semibold"><CalendarClock size={15} /> Scheduled protection</h3>
+                    <p className="ios-caption mt-1">
+                      Locks turn themselves on inside the window and off when it closes. Only the locks this window
+                      switched on are released — a lock you set by hand is left alone.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={draft.protection.enabled}
+                    aria-label={`${draft.protection.enabled ? "Disable" : "Enable"} the protection window`}
+                    disabled={saving !== null}
+                    onClick={() => patch({ protection: { enabled: !draft.protection.enabled } })}
+                    className={`relative h-7 w-12 shrink-0 rounded-full transition disabled:opacity-40 ${
+                      draft.protection.enabled ? "bg-[#30D158]" : "bg-white/15"
+                    }`}
+                  >
+                    <span className={`absolute top-1 h-5 w-5 rounded-full bg-white transition ${draft.protection.enabled ? "translate-x-6" : "translate-x-1"}`} />
+                  </button>
+                </div>
+
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <label className="text-xs">
+                    Starts
+                    <input
+                      type="time"
+                      aria-label="Protection window start"
+                      value={draft.protection.start}
+                      disabled={saving !== null}
+                      onChange={(event) => patch({ protection: { start: event.target.value } })}
+                      className="ios-input mt-1 text-sm"
+                    />
+                  </label>
+                  <label className="text-xs">
+                    Ends
+                    <input
+                      type="time"
+                      aria-label="Protection window end"
+                      value={draft.protection.end}
+                      disabled={saving !== null}
+                      onChange={(event) => patch({ protection: { end: event.target.value } })}
+                      className="ios-input mt-1 text-sm"
+                    />
+                  </label>
+                </div>
+                <p className="ios-caption mt-2">
+                  Runs in the group timezone set above ({zoneLabel(draft.quiet_hours.tz_offset)}).
+                </p>
+
+                <div role="group" aria-label="Locks the window applies" className="mt-3 flex flex-wrap gap-1.5">
+                  {WINDOW_LOCKS.map((lock) => {
+                    const on = draft.protection.locks.includes(lock.key);
+                    return (
+                      <button
+                        key={lock.key}
+                        type="button"
+                        aria-pressed={on}
+                        disabled={saving !== null}
+                        onClick={() =>
+                          patch({
+                            protection: {
+                              locks: on
+                                ? draft.protection.locks.filter((key) => key !== lock.key)
+                                : [...draft.protection.locks, lock.key],
+                            },
+                          })
+                        }
+                        className={`ios-chip text-xs ${on ? "border-white/25 bg-white/[0.12] text-white" : ""}`}
+                      >
+                        {lock.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <span className="ios-pill text-[10px]">
+                    {protectionNow(draft.protection, draft.quiet_hours.tz_offset) ? "inside the window now" : "outside the window"}
+                  </span>
+                  <span className="ios-pill text-[10px]">
+                    {draft.protection.state.active
+                      ? `bot applied ${draft.protection.state.applied.length || 0}`
+                      : "nothing applied"}
+                  </span>
+                </div>
+                <p className="ios-caption mt-2">{windowSummary(draft.protection, draft.quiet_hours.tz_offset)}</p>
+                {protectionProblem && <p className="mt-1 text-xs text-amber-200">{protectionProblem}</p>}
+                <div className="mt-2 flex justify-end">
+                  <button
+                    onClick={() => void save("protection")}
+                    disabled={saving !== null || Boolean(protectionProblem)}
+                    className="ios-btn ios-btn-primary text-xs disabled:opacity-40"
+                  >
+                    {saving === "protection" ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} Save window
                   </button>
                 </div>
               </div>

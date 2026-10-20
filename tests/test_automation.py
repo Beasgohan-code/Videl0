@@ -13,6 +13,7 @@ import mongomock
 
 from videl.utils import audit, automation, group_health
 from videl.utils import group_view as view
+from videl.modules import protection_windows
 
 CID = -1001234567
 UTC = timezone.utc
@@ -183,6 +184,23 @@ class GroupAutomationTests(unittest.TestCase):
         self.assertEqual(payload["automation"]["escalation"]["action"], "mute")
         self.assertEqual(payload["automation"]["escalation"]["mute_hours"], 12)
 
+    def test_protection_window_is_saved_normalised_and_audited(self):
+        payload = self.act(action="automation", protection={
+            "enabled": True, "start": "23:00", "end": "06:00", "locks": ["lock_links", "lock_media"]})
+        protection = payload["automation"]["protection"]
+        self.assertTrue(protection["enabled"])
+        self.assertEqual(protection["locks"], ["lock_links", "lock_media"])
+        self.assertEqual(protection["start"], "23:00")
+        stored = self.db["mgmt_chat_settings"].find_one({"chat_id": CID})["automation"]["protection"]
+        self.assertEqual(stored["end"], "06:00")
+        self.assertIn("protection", self.service.describe(CID)["automation"])
+
+    def test_protection_window_rejects_unsafe_settings(self):
+        for body in ({"locks": ["lock_evil"]}, {"enabled": True, "locks": []},
+                     {"start": "22:00", "end": "22:00"}, {"enabled": "yes"}, {"locks": "lock_links"}):
+            with self.assertRaises(view.ViewError):
+                self.act(action="automation", protection=body)
+
     def test_automation_requires_a_body(self):
         with self.assertRaises(view.ViewError):
             self.act(action="automation")
@@ -241,6 +259,105 @@ class GroupAutomationTests(unittest.TestCase):
         history = self.service.events(CID)
         self.assertEqual(history["events"][0]["kind"], "preset")
         self.assertIn("settings", history["kinds"])
+
+
+class ProtectionWindowTests(unittest.TestCase):
+    """A window may only turn off the locks it turned on itself."""
+
+    def setUp(self):
+        self.db = mongomock.MongoClient().videl
+        self.db["served_chats"].insert_one({"_id": CID})
+        self.db["mgmt_chat_settings"].insert_one({
+            "chat_id": CID,
+            "lock_media": True,
+            "automation": {
+                "quiet_hours": {"tz_offset": 0},
+                "protection": {"enabled": True, "start": "22:00", "end": "07:00",
+                               "locks": ["lock_links", "lock_media"]},
+            },
+        })
+        self.patch_db = patch("videl.utils.db.get_db", return_value=self.db)
+        self.patch_db.start()
+        self.patch_global = patch("videl.utils.db._db", self.db)
+        self.patch_global.start()
+        self.document = self.db["mgmt_chat_settings"].find_one({"chat_id": CID})
+        self.inside = datetime(2026, 5, 1, 23, tzinfo=UTC)
+        self.outside = datetime(2026, 5, 1, 12, tzinfo=UTC)
+
+    def tearDown(self):
+        self.patch_global.stop()
+        self.patch_db.stop()
+
+    def test_normalisation_keeps_only_real_locks(self):
+        config = automation.normalize_protection({"enabled": True, "locks": ["lock_links", "lock_links", "lock_nope", 7]})
+        self.assertEqual(config["locks"], ["lock_links"])
+        self.assertFalse(config["state"]["active"])
+
+    def test_plan_turns_on_missing_locks_and_leaves_manual_ones_alone(self):
+        changes, state = protection_windows.plan(
+            self.document["automation"]["protection"], self.document, now=self.inside)
+        self.assertEqual(changes, {"lock_links": True}, "media was already on, so only links is applied")
+        self.assertTrue(state["active"])
+        self.assertEqual(state["applied"], ["lock_links"], "only the lock the window set is recorded")
+
+    def test_plan_releases_only_recorded_locks_at_the_end(self):
+        _, state = protection_windows.plan(
+            self.document["automation"]["protection"], self.document, now=self.inside)
+        document = {**self.document, "lock_links": True}
+        changes, closed = protection_windows.plan(
+            {**self.document["automation"]["protection"], "state": state},
+            document,
+            now=self.outside,
+        )
+        self.assertEqual(changes, {"lock_links": False})
+        self.assertFalse(closed["active"])
+        self.assertEqual(closed["applied"], [])
+
+    def test_removing_a_lock_mid_window_releases_it(self):
+        state = {"active": True, "applied": ["lock_links", "lock_media"], "since": "2026-05-01T23:00:00+00:00"}
+        protection = {"enabled": True, "start": "22:00", "end": "07:00",
+                      "locks": ["lock_links"], "state": state}
+        changes, new_state = protection_windows.plan(
+            protection, {"lock_links": True, "lock_media": True}, now=self.inside)
+        self.assertEqual(changes, {"lock_media": False})
+        self.assertEqual(new_state["applied"], ["lock_links"])
+
+    def test_disabled_window_releases_its_locks_but_keeps_manual_ones(self):
+        protection = {"enabled": False, "start": "22:00", "end": "07:00", "locks": ["lock_links"],
+                      "state": {"active": True, "applied": ["lock_links"], "since": None}}
+        changes, state = protection_windows.plan(protection,
+                                                 {"lock_links": True, "lock_media": True}, now=self.inside)
+        self.assertEqual(changes, {"lock_links": False})
+        self.assertFalse(state["active"])
+
+    def test_run_once_applies_and_audits_then_is_idempotent(self):
+        first = protection_windows.run_once(self.db, now=self.inside)
+        self.assertEqual(first["applied"], 1)
+        stored = self.db["mgmt_chat_settings"].find_one({"chat_id": CID})
+        self.assertIs(stored["lock_links"], True)
+        events = audit.recent(self.db, CID, kind="automation")
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["action"], "protection_window")
+        self.assertEqual(events[0]["source"], "system")
+        again = protection_windows.run_once(self.db, now=self.inside)
+        self.assertEqual(again["applied"], 0)
+        self.assertEqual(len(audit.recent(self.db, CID, kind="automation")), 1, "a tick with no change writes no row")
+
+    def test_run_once_releases_after_the_window_and_keeps_a_manual_lock(self):
+        protection_windows.run_once(self.db, now=self.inside)
+        self.db["mgmt_chat_settings"].update_one({"chat_id": CID}, {"$set": {"lock_stickers": True}})
+        outcome = protection_windows.run_once(self.db, now=self.outside)
+        self.assertEqual(outcome["released"], 1)
+        stored = self.db["mgmt_chat_settings"].find_one({"chat_id": CID})
+        self.assertIs(stored["lock_links"], False)
+        self.assertIs(stored["lock_media"], True, "media was on before the window and must stay on")
+        self.assertIs(stored["lock_stickers"], True, "a lock set by hand during the window stays on")
+
+    def test_run_once_reports_a_missing_database_without_raising(self):
+        with patch("videl.utils.db.get_db", return_value=None):
+            outcome = protection_windows.run_once(now=self.inside)
+        self.assertFalse(outcome["ok"])
+        self.assertEqual(outcome["error"], "MongoDB is not connected")
 
 
 class EscalationTests(unittest.TestCase):

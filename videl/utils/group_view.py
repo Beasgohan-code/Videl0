@@ -14,7 +14,7 @@ from pymongo.errors import DuplicateKeyError
 
 from videl.utils import audit as audit_log
 from videl.utils.automation import (ESCALATION_ACTIONS, MUTE_RANGE, normalize, normalize_escalation,
-                                    normalize_quiet, parse_hhmm)
+                                    normalize_protection, normalize_quiet, parse_hhmm)
 from videl.utils.moderation import LOCK_TYPES
 
 OWNER_ID=6265999542
@@ -759,9 +759,9 @@ class GroupView:
 
     def _automation(self,cid,body):
         from videl.utils.db import get_automation,set_automation
-        quiet=body.get('quiet_hours');escalation=body.get('escalation')
-        if quiet is None and escalation is None:
-            raise ViewError('Send quiet_hours or escalation settings.')
+        quiet=body.get('quiet_hours');escalation=body.get('escalation');protection=body.get('protection')
+        if quiet is None and escalation is None and protection is None:
+            raise ViewError('Send quiet_hours, escalation or protection settings.')
         if quiet is not None:
             if not isinstance(quiet,dict):raise ViewError('Quiet hours must be an object.')
             if 'enabled' in quiet and type(quiet['enabled']) is not bool:
@@ -787,8 +787,26 @@ class GroupView:
             if 'enabled' in escalation and type(escalation['enabled']) is not bool:
                 raise ViewError('Escalation enabled must be true or false.')
             escalation=normalize_escalation({**get_automation(cid)['escalation'],**escalation})
-        config=set_automation(cid,quiet_hours=quiet,escalation=escalation)
-        self.log(cid,'automation',{'quiet':quiet,'escalation':escalation})
+        if protection is not None:
+            if not isinstance(protection,dict):raise ViewError('The protection window must be an object.')
+            if 'enabled' in protection and type(protection['enabled']) is not bool:
+                raise ViewError('The protection window switch must be true or false.')
+            for key in ('start','end'):
+                if key in protection and parse_hhmm(protection[key]) is None:
+                    raise ViewError('Choose a valid 24-hour start and end time for the window.')
+            if 'locks' in protection:
+                locks=protection['locks']
+                if not isinstance(locks,list):raise ViewError('Locks must be a list.')
+                allowed=set(LOCK_KEYS)
+                if any(not isinstance(item,str) or item not in allowed for item in locks):
+                    raise ViewError('Pick locks the bot actually enforces.')
+            protection=normalize_protection({**get_automation(cid)['protection'],**protection})
+            if protection['enabled'] and not protection['locks']:
+                raise ViewError('Pick at least one lock for the window to apply.')
+            if parse_hhmm(protection['start'])==parse_hhmm(protection['end']):
+                raise ViewError('A protection window cannot start and end at the same minute.')
+        config=set_automation(cid,quiet_hours=quiet,escalation=escalation,protection=protection)
+        self.log(cid,'automation',{'quiet':quiet,'escalation':escalation,'protection':protection})
         return {'ok':True,'automation':config}
 
     def admin(self,cid,actor,body,source='web'):

@@ -20,7 +20,8 @@ The owner panel manages the served fleet from one screen, and every control maps
 to code that actually runs:
 
 - **Group Manager** — per-group drill-down with health (derived from stored
-  settings and the last Telegram read), a "needs attention" queue, protection
+  settings and the last Telegram read), an aggregate "needs attention" queue
+  ranked worst-first with the recorded reasons, protection
   presets, greetings, rules, captcha, warnings, notes, filters, blacklist,
   approvals, join-request triage, report triage and a per-group audit trail
   (filterable, CSV export, 180-day retention).
@@ -29,8 +30,11 @@ to code that actually runs:
   so this also covers commands that never pass through the declarative router.
   Group admins and the bot owner stay exempt.
 - **Automation** — quiet hours delete member messages inside a stored window
-  (per-group UTC offset, admins and approved members exempt) and the warning
-  ladder chooses ban, temporary mute, kick or nothing at the warning limit.
+  (per-group UTC offset, admins and approved members exempt), scheduled
+  protection windows turn chosen locks on and release only the locks they
+  turned on themselves, and the warning ladder chooses ban, temporary mute,
+  kick or nothing at the warning limit. The watchdog applies windows every
+  minute and writes a `protection_window` audit row per change.
 - **Federations** — read-only overview of federations, member groups, admins and
   bans, with ban lifting. Creating federations and issuing bans stays on the bot
   commands, where the caller is verified against Telegram.

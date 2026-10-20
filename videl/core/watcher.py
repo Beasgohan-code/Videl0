@@ -136,6 +136,16 @@ async def _run_check(name, operation):
         return False
 
 
+async def _apply_protection_windows():
+    from videl.modules.protection_windows import run_once
+
+    outcome = await asyncio.to_thread(run_once)
+    if not outcome.get("ok", False):
+        raise RuntimeError(outcome.get("error", "protection window store unavailable"))
+    if outcome.get("failed"):
+        LOGGER.warning("[protection] %s group windows failed this tick", outcome["failed"])
+
+
 async def watchdog():
     last_cleanup = 0
     while True:
@@ -143,7 +153,7 @@ async def watchdog():
         await asyncio.gather(*(_run_check(name, job) for name, job in (
             ("database", _check_database), ("telegram", _check_bot),
             ("captcha", _check_captcha), ("idle_calls", _auto_leave_idle_vcs),
-            ("scheduled_posts", _dispatch_scheduled))))
+            ("scheduled_posts", _dispatch_scheduled), ("protection_windows", _apply_protection_windows))))
         if time.monotonic()-last_cleanup >= CLEANUP_INTERVAL or not last_cleanup:
             await _run_check("downloads", _cleanup_downloads)
             if await _run_check("retention", _cleanup_database):

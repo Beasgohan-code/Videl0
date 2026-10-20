@@ -1,4 +1,4 @@
-"""Quiet hours and warning escalation — the two automations the bot enforces.
+"""Quiet hours, scheduled protection windows and the warning escalation.
 
 Both settings are stored inside the same document the rest of the group
 manager writes (``mgmt_chat_settings``) under an ``automation`` key, so there is
@@ -14,6 +14,8 @@ from datetime import datetime, timezone
 
 QUIET_DEFAULT = {"enabled": False, "start": "22:00", "end": "07:00", "tz_offset": 0}
 ESCALATION_DEFAULT = {"enabled": True, "action": "ban", "mute_hours": 6}
+PROTECTION_DEFAULT = {"enabled": False, "start": "22:00", "end": "07:00", "locks": []}
+MAX_WINDOW_LOCKS = 24
 ESCALATION_ACTIONS = ("ban", "mute", "kick", "none")
 OFFSET_RANGE = (-840, 840)  # UTC-14:00 … UTC+14:00
 MUTE_RANGE = (1, 168)
@@ -78,11 +80,70 @@ def normalize_escalation(raw) -> dict:
     }
 
 
+def protection_lock_keys() -> tuple[str, ...]:
+    """Every lock the enforcement pass understands, as stored keys.
+
+    Imported lazily: moderation owns the canonical list and automation is
+    imported by modules that must not pull message handling in at import time.
+    """
+    from videl.utils.moderation import LOCK_TYPES
+
+    return tuple("lock_forwards" if kind == "forward" else f"lock_{kind}" for kind in LOCK_TYPES)
+
+
+def normalize_protection(raw) -> dict:
+    """Scheduled window that turns locks on, then releases only its own locks.
+
+    ``state`` records what the last run applied. Keeping it inside the same
+    document means a restart cannot lose the list of locks to release, and a
+    lock the owner set by hand is never turned off by the window ending.
+    """
+    source = raw if isinstance(raw, dict) else {}
+    start = parse_hhmm(source.get("start"))
+    end = parse_hhmm(source.get("end"))
+    if start is None:
+        start = parse_hhmm(PROTECTION_DEFAULT["start"])
+    if end is None:
+        end = parse_hhmm(PROTECTION_DEFAULT["end"])
+    allowed = set(protection_lock_keys())
+    locks: list[str] = []
+    raw_locks = source.get("locks")
+    if isinstance(raw_locks, list):
+        for item in raw_locks[:MAX_WINDOW_LOCKS]:
+            if isinstance(item, str) and item in allowed and item not in locks:
+                locks.append(item)
+    return {
+        "enabled": source.get("enabled") is True,
+        "start": format_hhmm(start),
+        "end": format_hhmm(end),
+        "locks": locks,
+        "state": normalize_protection_state(source.get("state")),
+    }
+
+
+def normalize_protection_state(raw) -> dict:
+    source = raw if isinstance(raw, dict) else {}
+    applied: list[str] = []
+    allowed = set(protection_lock_keys())
+    raw_applied = source.get("applied")
+    if isinstance(raw_applied, list):
+        for item in raw_applied[:MAX_WINDOW_LOCKS]:
+            if isinstance(item, str) and item in allowed and item not in applied:
+                applied.append(item)
+    since = source.get("since")
+    return {
+        "active": source.get("active") is True,
+        "applied": applied,
+        "since": since if isinstance(since, str) and len(since) <= 40 else None,
+    }
+
+
 def normalize(raw) -> dict:
     source = raw if isinstance(raw, dict) else {}
     return {
         "quiet_hours": normalize_quiet(source.get("quiet_hours")),
         "escalation": normalize_escalation(source.get("escalation")),
+        "protection": normalize_protection(source.get("protection")),
     }
 
 
@@ -119,10 +180,28 @@ def in_quiet_hours(quiet, now: datetime | None = None) -> bool:
     end = parse_hhmm(config["end"])
     if start is None or end is None or start == end:
         return False
-    current = local_minutes(config, now)
+    return inside_window(start, end, local_minutes(config, now))
+
+
+def inside_window(start: int, end: int, current: int) -> bool:
+    """Half-open minute-of-day comparison; equal ends mean "never"."""
+    if start == end:
+        return False
     if start < end:
         return start <= current < end
     return current >= start or current < end  # wraps midnight
+
+
+def in_protection_window(protection, tz_offset: int = 0, now: datetime | None = None) -> bool:
+    """True when the scheduled lock window is enabled and currently open."""
+    config = normalize_protection(protection)
+    if not config["enabled"]:
+        return False
+    start = parse_hhmm(config["start"])
+    end = parse_hhmm(config["end"])
+    if start is None or end is None or start == end:
+        return False
+    return inside_window(start, end, local_minutes({"tz_offset": tz_offset}, now))
 
 
 def describe_quiet(quiet) -> str:
@@ -134,3 +213,17 @@ def describe_quiet(quiet) -> str:
     sign = "+" if offset >= 0 else "-"
     zone = f"UTC{sign}{abs(offset) // 60:02d}:{abs(offset) % 60:02d}"
     return f"Members' messages are removed from {config['start']} to {config['end']} ({zone})."
+
+
+def describe_protection(protection, tz_offset: int = 0) -> str:
+    """A sentence the panel can show without inventing its own wording."""
+    config = normalize_protection(protection)
+    if not config["locks"]:
+        return "No locks are picked, so the window has nothing to apply."
+    names = ", ".join(key.removeprefix("lock_").replace("_", " ") for key in config["locks"])
+    if not config["enabled"]:
+        return f"Off. When on, it applies {len(config['locks'])} locks {config['start']}–{config['end']}."
+    offset = int(tz_offset or 0)
+    sign = "+" if offset >= 0 else "-"
+    zone = f"UTC{sign}{abs(offset) // 60:02d}:{abs(offset) % 60:02d}"
+    return f"{config['start']}–{config['end']} ({zone}) applies {names}."

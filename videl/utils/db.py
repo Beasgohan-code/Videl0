@@ -1386,8 +1386,8 @@ def get_automation(chat_id: int) -> dict:
     return normalize(document.get("automation"))
 
 
-def set_automation(chat_id: int, *, quiet_hours=None, escalation=None) -> dict:
-    """Merge one or both blocks and return the complete normalised config."""
+def set_automation(chat_id: int, *, quiet_hours=None, escalation=None, protection=None) -> dict:
+    """Merge one or more blocks and return the complete normalised config."""
     from videl.utils.automation import normalize
     col = _col(SETTINGS_COLLECTION)
     current = get_automation(chat_id)
@@ -1395,6 +1395,8 @@ def set_automation(chat_id: int, *, quiet_hours=None, escalation=None) -> dict:
         current["quiet_hours"] = {**current["quiet_hours"], **(quiet_hours or {})}
     if escalation is not None:
         current["escalation"] = {**current["escalation"], **(escalation or {})}
+    if protection is not None:
+        current["protection"] = {**current.get("protection", {}), **(protection or {})}
     current = normalize(current)
     if col is not None:
         try:
@@ -1402,6 +1404,22 @@ def set_automation(chat_id: int, *, quiet_hours=None, escalation=None) -> dict:
         except Exception as e:
             logger.error(f"[automation] set: {e}")
     return current
+
+
+def set_protection_state(chat_id: int, state: dict) -> None:
+    """Write only the run state, so a slow tick cannot overwrite fresh settings."""
+    from videl.utils.automation import normalize_protection_state
+    col = _col(SETTINGS_COLLECTION)
+    if col is None:
+        return
+    try:
+        col.update_one(
+            {"chat_id": chat_id},
+            {"$set": {"automation.protection.state": normalize_protection_state(state)}},
+            upsert=True,
+        )
+    except Exception as e:
+        logger.error(f"[automation] protection state: {e}")
 
 
 def get_escalation(chat_id: int) -> dict:

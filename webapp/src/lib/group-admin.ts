@@ -22,7 +22,20 @@ export type GroupHealth = { score: number; issues: HealthIssue[]; attention: boo
 export type QuietHours = { enabled: boolean; start: string; end: string; tz_offset: number };
 export type Escalation = { enabled: boolean; action: EscalationAction; mute_hours: number };
 export type EscalationAction = "ban" | "mute" | "kick" | "none";
-export type Automation = { quiet_hours: QuietHours; escalation: Escalation };
+/** What the bot last applied on its own; ``applied`` is what it will release. */
+export type ProtectionState = { active: boolean; applied: string[]; since: string | null };
+export type ProtectionWindow = {
+  enabled: boolean;
+  start: string;
+  end: string;
+  locks: string[];
+  state: ProtectionState;
+};
+export type Automation = {
+  quiet_hours: QuietHours;
+  escalation: Escalation;
+  protection: ProtectionWindow;
+};
 
 export type ReportRow = {
   id: string;
@@ -197,6 +210,21 @@ export const PROTECTION_GROUPS: SettingsGroup[] = [
 
 /** Keys the UI may write, derived from the groups above. */
 export const SETTING_KEYS = PROTECTION_GROUPS.flatMap((group) => group.controls.map((control) => control.key));
+
+/** Locks a scheduled window may apply — the real lock keys, never antispam. */
+export const WINDOW_LOCKS = PROTECTION_GROUPS.flatMap((group) =>
+  group.controls
+    .filter((control) => control.key.startsWith("lock_"))
+    .map((control) => ({ key: control.key, label: control.label })),
+);
+
+export const DEFAULT_PROTECTION: ProtectionWindow = {
+  enabled: false,
+  start: "22:00",
+  end: "07:00",
+  locks: [],
+  state: { active: false, applied: [], since: null },
+};
 
 /** The bot greets new members unless the value is explicitly false. */
 export const SETTING_DEFAULTS: Record<string, boolean> = { welcome_enabled: true };
@@ -406,15 +434,39 @@ export function zoneLabel(offsetMinutes: number): string {
   return `UTC${sign}${String(Math.floor(absolute / 60)).padStart(2, "0")}:${String(absolute % 60).padStart(2, "0")}`;
 }
 
-/** Is "now" inside the window, evaluated in the panel's own clock? */
+/** Shared minute-of-day test: half-open, wraps midnight, equal ends mean never. */
+export function insideWindow(start: string, end: string, tzOffset: number, now = new Date()): boolean {
+  const from = hhmmToMinutes(start);
+  const to = hhmmToMinutes(end);
+  if (from === null || to === null || from === to) return false;
+  const shifted = new Date(now.getTime() + tzOffset * 60_000);
+  const current = shifted.getUTCHours() * 60 + shifted.getUTCMinutes();
+  return from < to ? current >= from && current < to : current >= from || current < to;
+}
+
+/** Is "now" inside the quiet window, evaluated in the panel's own clock? */
 export function quietNow(quiet: QuietHours, now = new Date()): boolean {
   if (!quiet.enabled) return false;
-  const start = hhmmToMinutes(quiet.start);
-  const end = hhmmToMinutes(quiet.end);
-  if (start === null || end === null || start === end) return false;
-  const shifted = new Date(now.getTime() + quiet.tz_offset * 60_000);
-  const current = shifted.getUTCHours() * 60 + shifted.getUTCMinutes();
-  return start < end ? current >= start && current < end : current >= start || current < end;
+  return insideWindow(quiet.start, quiet.end, quiet.tz_offset, now);
+}
+
+export function protectionNow(window: ProtectionWindow, tzOffset: number, now = new Date()): boolean {
+  if (!window.enabled) return false;
+  return insideWindow(window.start, window.end, tzOffset, now);
+}
+
+export function windowSummary(window: ProtectionWindow, tzOffset: number): string {
+  if (!window.locks.length) return "No locks picked yet.";
+  if (!window.enabled) return `Off · ${window.locks.length} locks ready for ${window.start}–${window.end}.`;
+  return `Lock ${window.locks.length} · ${window.start}–${window.end} (${zoneLabel(tzOffset)})`;
+}
+
+/** Worst health first, only groups the backend flagged. */
+export function attentionQueue(groups: Group[], limit = 6): Group[] {
+  return groups
+    .filter((group) => group.health?.attention === true)
+    .sort((a, b) => (a.health?.score ?? 100) - (b.health?.score ?? 100) || a.title.localeCompare(b.title))
+    .slice(0, limit);
 }
 
 export function quietSummary(quiet: QuietHours): string {

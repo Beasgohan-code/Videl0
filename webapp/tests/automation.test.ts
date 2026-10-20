@@ -1,18 +1,23 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  WINDOW_LOCKS,
+  attentionQueue,
   auditLabel,
   escalationSummary,
   explicitSettings,
   filterGroup,
   healthTone,
+  protectionNow,
   protectionSummary,
   quietNow,
   quietSummary,
   sortGroups,
   visibleGroups,
+  windowSummary,
   zoneLabel,
   type Group,
+  type ProtectionWindow,
 } from "../src/lib/group-admin";
 import {
   backendRevision,
@@ -200,4 +205,50 @@ test("audit export quotes cells and neutralises spreadsheet formulas", async () 
   assert.match(output, /^\uFEFF"When","Change"/);
   assert.match(output, /"'=SUM\(A1\)"/);
   assert.match(output, /"say ""hi"""/);
+});
+
+// ── scheduled protection windows ───────────────────────────────────────────
+
+const protection = (overrides: Partial<ProtectionWindow> = {}): ProtectionWindow => ({
+  enabled: true,
+  start: "22:00",
+  end: "07:00",
+  locks: ["lock_links", "lock_media"],
+  state: { active: false, applied: [], since: null },
+  ...overrides,
+});
+
+test("a protection window uses the same wrapping and offset rules as quiet hours", () => {
+  assert.equal(protectionNow(protection(), 0, new Date("2026-05-01T23:30:00Z")), true);
+  assert.equal(protectionNow(protection(), 0, new Date("2026-05-01T12:00:00Z")), false);
+  assert.equal(protectionNow(protection({ enabled: false }), 0, new Date("2026-05-01T23:30:00Z")), false);
+  assert.equal(protectionNow(protection({ start: "22:00", end: "22:00" }), 0, new Date("2026-05-01T23:30:00Z")), false);
+  // 17:00 UTC is 22:30 in IST.
+  assert.equal(protectionNow(protection(), 330, new Date("2026-05-01T17:00:00Z")), true);
+});
+
+test("protection summaries never imply locks that were not picked", () => {
+  assert.equal(windowSummary(protection({ locks: [] }), 0), "No locks picked yet.");
+  assert.match(windowSummary(protection({ enabled: false }), 0), /2 locks ready/);
+  const on = windowSummary(protection(), 330);
+  assert.match(on, /22:00–07:00/);
+  assert.match(on, /UTC\+05:30/);
+});
+
+test("only real lock keys are offered to a window", () => {
+  assert.ok(WINDOW_LOCKS.length >= 15);
+  assert.ok(WINDOW_LOCKS.every((lock) => lock.key.startsWith("lock_")));
+  assert.ok(WINDOW_LOCKS.some((lock) => lock.key === "lock_links"));
+  assert.ok(!WINDOW_LOCKS.some((lock) => lock.key === "antispam"));
+});
+
+test("the attention queue ranks the worst groups and stays short", () => {
+  const rows = [
+    group({ id: -1, title: "Fine", health: { score: 100, issues: [], attention: false } }),
+    group({ id: -2, title: "Worse", health: { score: 40, issues: [{ code: "a", message: "Bot removed" }], attention: true } }),
+    group({ id: -3, title: "Bad", health: { score: 60, issues: [{ code: "b", message: "No locks" }], attention: true } }),
+  ];
+  assert.deepEqual(attentionQueue(rows).map((row) => row.title), ["Worse", "Bad"]);
+  assert.deepEqual(attentionQueue(rows, 1).map((row) => row.title), ["Worse"]);
+  assert.deepEqual(attentionQueue([]), []);
 });

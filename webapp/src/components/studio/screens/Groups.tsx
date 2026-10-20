@@ -35,6 +35,7 @@ import {
   PROTECTION_GROUPS,
   SORTS,
   applySettings,
+  attentionQueue,
   applySettingsToChats,
   auditLabel,
   escalationSummary,
@@ -463,6 +464,49 @@ export default function GroupsPage() {
         ))}
       </div>
 
+      {attentionQueue(groups).length > 0 && (
+        <section className="mt-4 rounded-2xl border border-amber-300/20 bg-amber-300/[0.04] p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="flex items-center gap-2 text-sm font-semibold">
+              <HeartPulse size={16} /> Needs attention · {summary.attention}
+            </h2>
+            <button
+              onClick={() => {
+                setFilter("attention");
+                document.getElementById("served-groups")?.scrollIntoView({ behavior: "smooth", block: "start" });
+              }}
+              className="ios-chip text-xs"
+            >
+              Review all
+            </button>
+          </div>
+          <ul className="mt-3 space-y-2">
+            {attentionQueue(groups).map((group) => (
+              <li key={group.id}>
+                <button
+                  onClick={() => {
+                    setFilter("all");
+                    setSelected(group.id);
+                  }}
+                  className="flex w-full items-start gap-3 rounded-xl border border-white/[0.07] bg-white/[0.025] p-3 text-left transition hover:bg-white/[0.05]"
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium">
+                      {displayTitle(group)} · {group.health?.score ?? 100}/100
+                    </span>
+                    <span className="mt-0.5 block truncate text-xs text-amber-100/80">
+                      {(group.health?.issues ?? []).slice(0, 2).map((issue) => issue.message).join(" ") ||
+                        "No reason was recorded."}
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-xs underline">Open</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       {error && (
         <div role="status" className="mt-4 flex items-start gap-2 rounded-2xl border border-amber-300/20 bg-amber-300/5 p-4 text-sm text-amber-100">
           <AlertCircle size={18} className="mt-0.5 shrink-0" />
@@ -519,7 +563,7 @@ export default function GroupsPage() {
       )}
 
       <div className="mt-6 grid gap-4 lg:grid-cols-[0.85fr_1.15fr]">
-        <section className="ios-card p-4 sm:p-5">
+        <section id="served-groups" className="ios-card p-4 sm:p-5">
           <div className="flex items-center justify-between">
             <h2 className="font-semibold">Served groups</h2>
             <span className="ios-pill">{visible.length} shown</span>
