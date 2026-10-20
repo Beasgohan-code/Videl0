@@ -20,6 +20,7 @@ from videl.app.router import Command, CommandError, Screen
 from videl.plugins import base
 from videl.plugins.base import body, escape, heading, table
 from videl.utils.bot_ui import button
+from videl.utils.automation import in_quiet_hours
 from videl.utils.db import is_approved
 from videl.utils.moderation import LOCK_TYPES, locked_message_reason
 from videl.utils.rich_ui import rich_reply
@@ -32,6 +33,32 @@ _FLOOD_WINDOWS: "OrderedDict[tuple[int, int], deque]" = OrderedDict()
 _URL_RE = re.compile(r"https?://\S+|www\.\S+", re.IGNORECASE)
 FLOOD_LIMIT = 7
 FLOOD_WINDOW = 8
+
+
+# Quiet-hours windows are read per chat. A one-minute cache keeps a busy group
+# from issuing one Mongo read per message while still reacting to an edit in
+# the panel almost immediately.
+_QUIET_CACHE: "OrderedDict[int, tuple[float, dict]]" = OrderedDict()
+_QUIET_TTL = 60.0
+
+
+def _quiet_window(chat_id: int) -> dict:
+    import time as _time
+    from videl.utils.db import get_quiet_hours
+
+    entry = _QUIET_CACHE.get(chat_id)
+    moment = _time.monotonic()
+    if entry and moment - entry[0] < _QUIET_TTL:
+        _QUIET_CACHE.move_to_end(chat_id)
+        return entry[1]
+    try:
+        config = get_quiet_hours(chat_id)
+    except Exception:
+        config = {"enabled": False}
+    _QUIET_CACHE[chat_id] = (moment, config)
+    while len(_QUIET_CACHE) > 5000:
+        _QUIET_CACHE.popitem(last=False)
+    return config
 
 
 def _locked(chat_id: int, kind: str) -> bool:
@@ -50,6 +77,15 @@ async def mgmt_content_checker(_, message) -> None:
     if message.from_user and await base.is_admin(bot, message.chat.id, message.from_user.id):
         return
     if message.from_user and is_approved(message.chat.id, message.from_user.id):
+        return
+    # Quiet hours: remove member messages inside the owner's window. Admins and
+    # approved members were exempted above, so this never silences staff.
+    if in_quiet_hours(_quiet_window(message.chat.id)):
+        try:
+            await message.delete()
+            logger.info("Quiet hours removed a message in %s", message.chat.id)
+        except Exception:
+            logger.debug("Quiet-hours deletion failed", exc_info=True)
         return
     if base.get_setting(message.chat.id, "antispam", False) and message.from_user:
         key = (message.chat.id, message.from_user.id)

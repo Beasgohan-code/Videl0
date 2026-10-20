@@ -1234,17 +1234,38 @@ def disable_cmd(chat_id: int, cmd: str) -> None:
     if col is None: return
     try: col.update_one({"chat": chat_id, "cmd": cmd.lower()}, {"$set": {"chat": chat_id, "cmd": cmd.lower()}}, upsert=True)
     except: pass
+    _DISABLED_CACHE.pop(chat_id, None)
 
 def enable_cmd(chat_id: int, cmd: str) -> bool:
     col = _col("disabled_cmds")
+    _DISABLED_CACHE.pop(chat_id, None)
     if col is None: return False
     try: r=col.delete_one({"chat": chat_id, "cmd": cmd.lower()}); return r.deleted_count>0
     except: return False
 
+# Every group command asks whether it is switched off. A short cache keeps that
+# from becoming one Mongo read per command message; the writes below invalidate
+# it immediately so the panel's toggle is visible on the next message.
+_DISABLED_CACHE = {}
+_DISABLED_TTL = 30.0
+
+
+def _disabled_set(chat_id: int):
+    import time as _time
+    entry = _DISABLED_CACHE.get(chat_id)
+    moment = _time.monotonic()
+    if entry and moment - entry[0] < _DISABLED_TTL:
+        return entry[1]
+    names = {str(name).lower() for name in list_disabled(chat_id)}
+    _DISABLED_CACHE[chat_id] = (moment, names)
+    while len(_DISABLED_CACHE) > 5000:
+        _DISABLED_CACHE.pop(next(iter(_DISABLED_CACHE)))
+    return names
+
+
 def is_disabled(chat_id: int, cmd: str) -> bool:
-    col = _col("disabled_cmds")
-    if col is None: return False
-    try: return col.find_one({"chat": chat_id, "cmd": cmd.lower()}) is not None
+    if _col("disabled_cmds") is None: return False
+    try: return str(cmd).lower() in _disabled_set(chat_id)
     except: return False
 
 def list_disabled(chat_id: int) -> list:
@@ -1348,6 +1369,48 @@ def get_nightmode(chat_id: int) -> dict:
         doc=col.find_one({"_id": chat_id})
         return doc.get("nightmode", {"enabled": False, "start": "00:00", "end": "06:00"}) if doc else {"enabled": False, "start": "00:00", "end": "06:00"}
     except: return {"enabled": False, "start": "00:00", "end": "06:00"}
+
+# ── Automation (quiet hours + warning escalation) ─────────────────────────────
+# Stored in the same document the group manager writes, so there is one source
+# of truth. Normalisation lives in videl.utils.automation.
+
+def get_automation(chat_id: int) -> dict:
+    from videl.utils.automation import normalize
+    col = _col(SETTINGS_COLLECTION)
+    if col is None:
+        return normalize({})
+    try:
+        document = col.find_one({"chat_id": chat_id}) or {}
+    except Exception:
+        return normalize({})
+    return normalize(document.get("automation"))
+
+
+def set_automation(chat_id: int, *, quiet_hours=None, escalation=None) -> dict:
+    """Merge one or both blocks and return the complete normalised config."""
+    from videl.utils.automation import normalize
+    col = _col(SETTINGS_COLLECTION)
+    current = get_automation(chat_id)
+    if quiet_hours is not None:
+        current["quiet_hours"] = {**current["quiet_hours"], **(quiet_hours or {})}
+    if escalation is not None:
+        current["escalation"] = {**current["escalation"], **(escalation or {})}
+    current = normalize(current)
+    if col is not None:
+        try:
+            col.update_one({"chat_id": chat_id}, {"$set": {"automation": current}}, upsert=True)
+        except Exception as e:
+            logger.error(f"[automation] set: {e}")
+    return current
+
+
+def get_escalation(chat_id: int) -> dict:
+    return get_automation(chat_id)["escalation"]
+
+
+def get_quiet_hours(chat_id: int) -> dict:
+    return get_automation(chat_id)["quiet_hours"]
+
 
 def save_backup(chat_id: int, data: dict) -> str:
     col = _col("backups")

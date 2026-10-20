@@ -6,6 +6,7 @@ import {
   X,
   Home,
   MessageCircle,
+  Network,
   Palette,
   Users,
   ShieldCheck,
@@ -57,13 +58,19 @@ const tools: Tool[] = [
   {
     tab: "groups",
     title: "Group Manager",
-    description: "Find groups and edit protections",
+    description: "Protections, audit history and reports",
     icon: Users,
+  },
+  {
+    tab: "federations",
+    title: "Federations",
+    description: "Shared ban lists and member groups",
+    icon: Network,
   },
   {
     tab: "automation",
     title: "Automation",
-    description: "Welcome messages and moderation rules",
+    description: "Quiet hours and the warning ladder",
     icon: ShieldCheck,
   },
   {

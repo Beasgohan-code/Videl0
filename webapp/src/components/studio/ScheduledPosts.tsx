@@ -1,7 +1,20 @@
 "use client";
 import {useEffect,useRef,useState} from "react";
 import type {ButtonRow} from "@/lib/post-buttons";
-type Job={id:string;status:string;chat_id:string;scheduled_at:string;text:string;message_id?:number};
+type Job={id:string;status:string;chat_id:string;scheduled_at:string;text:string;message_id?:number;error?:string|null;finished_at?:string|null};
+const STATUS_COPY:Record<string,string>={
+ pending:"Queued",sending:"Sending now",sent:"Delivered",failed:"Rejected by Telegram",
+ unconfirmed:"Outcome unknown",missed:"Missed (over a day late)",cancelled:"Cancelled",
+};
+const STATUS_HELP:Record<string,string>={
+ pending:"Waiting for its scheduled time.",
+ sending:"The bot has claimed this job and is calling the Bot API.",
+ sent:"Telegram accepted the message.",
+ failed:"Telegram refused it. Nothing was delivered, so a retry is safe.",
+ unconfirmed:"The bot could not confirm delivery. Check Telegram before resending anything.",
+ missed:"The bot was offline for more than a day past the due time; it is never sent late.",
+ cancelled:"Cancelled before it was due.",
+};
 export function ScheduledPosts({chatId,text,mediaUrl,buttons,hasLocalImage,reviewed,disabled}:{chatId:string;text:string;mediaUrl:string;buttons:ButtonRow[];hasLocalImage:boolean;reviewed:boolean;disabled:boolean}){
  const [zone,setZone]=useState("device local time");
  useEffect(()=>setZone(Intl.DateTimeFormat().resolvedOptions().timeZone),[]);
@@ -9,6 +22,15 @@ export function ScheduledPosts({chatId,text,mediaUrl,buttons,hasLocalImage,revie
  const [date,setDate]=useState(""),[jobs,setJobs]=useState<Job[]>([]),[notice,setNotice]=useState(""),[busy,setBusy]=useState(false);
  async function refresh(){const r=await fetch("/api/schedules",{cache:"no-store"});const data=await r.json();if(!r.ok||!data.ok)throw new Error(data.error||"Queue unavailable");setJobs(data.jobs)}
  async function run(action:()=>Promise<void>){if(busy)return;setBusy(true);setNotice("");try{await action()}catch(e){setNotice((e as Error).message)}finally{setBusy(false)}}
+ const counts=jobs.reduce<Record<string,number>>((total,job)=>{total[job.status]=(total[job.status]??0)+1;return total},{});
+ const ordered=[...jobs].sort((a,b)=>{
+  const rank=(job:Job)=>job.status==="pending"?0:job.status==="sending"?1:2;
+  const difference=rank(a)-rank(b);
+  if(difference)return difference;
+  if(rank(a)===0)return Date.parse(a.scheduled_at)-Date.parse(b.scheduled_at);
+  return Date.parse(b.scheduled_at)-Date.parse(a.scheduled_at);
+ });
+ function late(job:Job){return job.status==="pending"&&Date.parse(job.scheduled_at)<Date.now()}
  return <section className="ios-card space-y-3 p-4"><h2 className="font-semibold">Scheduled publishing</h2><p className="ios-caption">Times use your device timezone ({zone}) and are saved in UTC. Mongo-backed; due posts dispatch approximately once a minute while the bot is running. Jobs over 24 hours late are marked missed.</p>
  <label className="block text-xs">Scheduled time<input aria-label="Scheduled time" type="datetime-local" className="ios-input mt-2" value={date} disabled={busy||disabled} onChange={e=>setDate(e.target.value)}/></label>
  {hasLocalImage&&<p className="ios-caption">Use a persistent HTTPS image URL for scheduling; local image uploads cannot be scheduled.</p>}
@@ -23,6 +45,17 @@ export function ScheduledPosts({chatId,text,mediaUrl,buttons,hasLocalImage,revie
    setNotice(`Schedule ${data.status}: ${data.job_id}`);await refresh();
  })}>Schedule reviewed post</button><button disabled={busy||disabled} className="ios-btn ios-btn-glass text-xs" onClick={()=>void run(refresh)}>Refresh scheduled posts</button></div>
  <p className="ios-caption">Sending/unconfirmed posts cannot be cancelled or automatically retried. Check Telegram before scheduling another copy. Editing the studio does not change an already scheduled snapshot.</p>
+ {jobs.length>0&&<div className="flex flex-wrap gap-1.5">{Object.entries(counts).map(([status,value])=><span key={status} className="ios-pill text-[10px]">{STATUS_COPY[status]??status} · {value}</span>)}</div>}
  {notice&&<p role="status" className="text-xs">{notice}</p>}
- {jobs.map(job=><div key={job.id} className="space-y-2 rounded-xl bg-white/[0.035] p-3"><p className="text-sm">{job.status} · {job.chat_id}</p><p className="ios-caption">{new Date(job.scheduled_at).toLocaleString()} · {job.id}</p><p className="truncate text-xs">{job.text.replace(/<[^>]+>/g,"")}</p>{job.status==="pending"&&<button className="ios-pill" disabled={busy||disabled} onClick={()=>void run(async()=>{if(!window.confirm("Cancel this scheduled post?"))return;const response=await fetch("/api/schedules",{method:"DELETE",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:job.id})});const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error||"Cancellation unconfirmed; refresh.");await refresh()})}>Cancel scheduled post</button>}</div>)}</section>
+ {ordered.map(job=><div key={job.id} className="space-y-2 rounded-xl bg-white/[0.035] p-3">
+   <div className="flex flex-wrap items-base justify-between gap-2"><p className="text-sm">{STATUS_COPY[job.status]??job.status} · {job.chat_id}</p>{late(job)&&<span className="ios-pill text-[10px] text-amber-200">due now</span>}</div>
+   <p className="ios-caption">{new Date(job.scheduled_at).toLocaleString()} · {job.id}{job.finished_at?` · finished ${new Date(job.finished_at).toLocaleString()}`:""}</p>
+   {job.error&&<p role="status" className="text-xs text-amber-200">{job.error}</p>}
+   {STATUS_HELP[job.status]&&<p className="ios-caption">{STATUS_HELP[job.status]}</p>}
+   <p className="truncate text-xs">{job.text.replace(/<[^>]+>/g,"")}</p>
+   <div className="flex flex-wrap gap-2">
+   {job.status==="pending"&&<button className="ios-pill" disabled={busy||disabled} onClick={()=>void run(async()=>{if(!window.confirm("Cancel this scheduled post?"))return;const response=await fetch("/api/schedules",{method:"DELETE",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:job.id})});const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error||"Cancellation unconfirmed; refresh.");await refresh()})}>Cancel scheduled post</button>}
+   {job.status==="failed"&&<button className="ios-pill" disabled={busy||disabled} onClick={()=>void run(async()=>{if(!window.confirm("Requeue this rejected post? Telegram refused it, so nothing was delivered."))return;const response=await fetch("/api/schedules/retry",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:job.id})});const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error||"Requeue unconfirmed; refresh.");setNotice(`Requeued for ${new Date(data.scheduled_at).toLocaleString()}.`);await refresh()})}>Retry rejected post</button>}
+   </div>
+ </div>)}</section>
 }

@@ -10,6 +10,7 @@ test("public, loading and non-owner sessions never unlock private sections", () 
     for (const section of [
       "chat",
       "groups",
+      "federations",
       "automation",
       "analytics",
       "broadcast",

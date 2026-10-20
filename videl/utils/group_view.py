@@ -12,6 +12,9 @@ import re
 import uuid
 from pymongo.errors import DuplicateKeyError
 
+from videl.utils import audit as audit_log
+from videl.utils.automation import (ESCALATION_ACTIONS, MUTE_RANGE, normalize, normalize_escalation,
+                                    normalize_quiet, parse_hhmm)
 from videl.utils.moderation import LOCK_TYPES
 
 OWNER_ID=6265999542
@@ -53,6 +56,30 @@ _PARSE_ERROR=re.compile(r'parse|entit|tag|nest',re.I)
 def parse_error(status,description):
     return status==400 and bool(_PARSE_ERROR.search(str(description or '')))
 log=logging.getLogger(__name__)
+
+_AUDIT_TEXT_FIELDS={'welcome','goodbye','rules','text'}
+
+
+def audit_detail(action,body):
+    """A short human summary of a change, without dumping message bodies."""
+    body=body if isinstance(body,dict) else {}
+    parts=[]
+    if action=='settings' and isinstance(body.get('settings'),dict):
+        on=[key for key,value in body['settings'].items() if value is True]
+        off=[key for key,value in body['settings'].items() if value is False]
+        if on:parts.append('on: '+', '.join(sorted(on)))
+        if off:parts.append('off: '+', '.join(sorted(off)))
+    for key in ('preset','mode','limit','trigger','command','name','keyword','user_id','status','decision'):
+        value=body.get(key)
+        if value not in (None,''):parts.append(f'{key}: {value}')
+    for key in _AUDIT_TEXT_FIELDS:
+        if isinstance(body.get(key),str):parts.append(f'{key}: {len(body[key])} characters')
+    if isinstance(body.get('settings'),dict) and action=='automation':
+        parts.append('automation updated')
+    if isinstance(body.get('quiet_hours'),dict):parts.append('quiet hours updated')
+    if isinstance(body.get('escalation'),dict):parts.append('escalation updated')
+    return '; '.join(parts)
+
 
 
 class ViewError(ValueError):
@@ -622,10 +649,14 @@ class GroupView:
         except Exception:approved=[]
         try:disabled=[str(item.get('cmd','')) for item in self.db['disabled_cmds'].find({'chat':cid},{'_id':0,'cmd':1}).limit(80)]
         except Exception:disabled=[]
-        from videl.utils.db import list_warns,get_warn_limit
+        from videl.utils.db import get_automation,list_warns,get_warn_limit
         try:warns=list_warns(cid,100)
         except Exception:warns=[]
+        try:automation=get_automation(cid)
+        except Exception:automation=normalize({})
         return {'ok':True,'chat':info,'settings':self.snapshot(cid),'presets':PRESETS,
+                'automation':automation,
+                'inbox':self.inbox(cid),
                 'community':{
                     'warns':warns,'warn_limit':get_warn_limit(cid),
                     'notes':[{'name':str(item.get('name','')),'type':str(item.get('type','text'))} for item in notes],
@@ -635,8 +666,150 @@ class GroupView:
                 },
                 'problems':problems}
 
-    def admin(self,cid,actor,body):
+    # ── audit trail ──────────────────────────────────────────────────────────
+    AUDIT_KINDS={'settings':'settings','protect':'settings','preset':'preset','warn_limit':'warn_limit',
+        'welcome':'welcome','goodbye':'goodbye','rules':'rules','blacklist_add':'blacklist',
+        'blacklist_remove':'blacklist','blacklist_mode':'blacklist_mode','note_delete':'note',
+        'filter_delete':'filter','approved_remove':'approval','warn_reset':'warn_reset',
+        'automation':'automation','command_disable':'commands','command_enable':'commands',
+        'join_request':'join_request','report_update':'report','recording':'recording','purge_history':'purge'}
+
+    def log(self,cid,action,body=None,source='web'):
+        """Record a successful change. Never raises: the change already happened."""
+        body=body if isinstance(body,dict) else {}
+        try:detail=audit_detail(action,body)
+        except Exception:detail=''
+        try:audit_log.record(self.db,cid,self.AUDIT_KINDS.get(action,'settings'),action=action,
+            detail=detail,actor=OWNER_ID,source=source)
+        except Exception:log.debug('audit record failed',exc_info=True)
+
+    def events(self,chat_id,*,limit=40,kind=None,before=None):
+        # History lives in MongoDB, so it stays readable even when Telegram no
+        # longer answers for the chat — that is exactly when it is needed.
+        cid=integer(chat_id)
+        if cid>0:raise ViewError('Audit history is group-only.',403)
+        if self.db['served_chats'].find_one({'_id':cid}) is None:
+            raise ViewError('Choose a group already served by this bot.',404)
+        return {'ok':True,'kind':kind or 'all','kinds':list(audit_log.KINDS),
+                'events':audit_log.recent(self.db,cid,limit=limit,kind=kind,before=before)}
+
+    # ── owner inbox: reports and join requests ───────────────────────────────
+    def inbox(self,cid):
+        reports,requests=[],[]
+        try:
+            for row in self.db['mgmt_reports'].find({'chat_id':cid,'status':'open'}).sort('ts',-1).limit(30):
+                reports.append({'id':str(row.get('_id')),'reporter':row.get('reporter'),
+                    'target':row.get('target'),'message_id':row.get('message_id'),
+                    'text':str(row.get('text') or '')[:180],
+                    'at':aware(row.get('ts')).isoformat() if row.get('ts') else None})
+        except Exception:reports=[]
+        try:
+            for row in self.db['mgmt_join_requests'].find({'chat_id':cid,'status':'pending'}).sort('ts',-1).limit(30):
+                requests.append({'user_id':int(row.get('user') or 0),'name':str(row.get('name') or '')[:80],
+                    'username':str(row.get('username') or '')[:64] or None,
+                    'at':aware(row.get('ts')).isoformat() if row.get('ts') else None})
+        except Exception:requests=[]
+        return {'reports':reports,'join_requests':requests}
+
+    def _join_request(self,cid,body):
+        decision=str(body.get('decision') or '')
+        if decision not in {'approve','decline'}:raise ViewError('Choose approve or decline.')
+        user=integer(body.get('user_id'),positive=True)
+        row=self.db['mgmt_join_requests'].find_one({'chat_id':cid,'user':user,'status':'pending'})
+        if row is None:raise ViewError('This join request is no longer pending.',404)
+        method='approveChatJoinRequest' if decision=='approve' else 'declineChatJoinRequest'
+        _,actor=self.access(cid)
+        self.rights(cid,actor,['can_invite_users'])
+        try:self.call(method,{'chat_id':cid,'user_id':user})
+        except TelegramError as error:
+            # Telegram answers 400 when the request expired; mark it rather than
+            # leaving a row the panel would offer forever.
+            if error.api_status==400:
+                self.db['mgmt_join_requests'].update_one({'_id':row['_id']},{'$set':{'status':'expired'}})
+            raise
+        self.db['mgmt_join_requests'].update_one({'_id':row['_id']},{'$set':{'status':decision+'d','resolved':now()}})
+        self.log(cid,'join_request',{'user_id':user,'decision':decision})
+        return {'ok':True,'user_id':user,'status':decision+'d','inbox':self.inbox(cid)}
+
+    def _report_update(self,cid,body):
+        from bson import ObjectId
+        raw=str(body.get('id') or '')
+        try:identifier=ObjectId(raw)
+        except Exception:raise ViewError('A valid report ID is required.') from None
+        status=str(body.get('status') or 'resolved')
+        if status not in {'resolved','dismissed'}:raise ViewError('Choose resolved or dismissed.')
+        row=self.db['mgmt_reports'].find_one({'_id':identifier,'chat_id':cid})
+        if row is None:raise ViewError('This report was not found.',404)
+        self.db['mgmt_reports'].update_one({'_id':identifier},{'$set':{'status':status,'resolved':now()}})
+        self.log(cid,'report_update',{'id':raw,'status':status})
+        return {'ok':True,'id':raw,'status':status,'inbox':self.inbox(cid)}
+
+    def _commands(self,cid,body):
+        from videl.utils.command_catalog import commands as catalog_commands
+        name=str(body.get('command') or '').strip().casefold()
+        allowed={item['name'] for item in catalog_commands()}
+        if name not in allowed:raise ViewError('Choose a command the bot registers.')
+        from videl.utils.db import disable_cmd,enable_cmd,list_disabled
+        enable=body.get('action')=='command_enable'
+        if enable:enable_cmd(cid,name)
+        else:disable_cmd(cid,name)
+        disabled=sorted({str(item) for item in list_disabled(cid)})[:80]
+        self.log(cid,body.get('action'),{'command':name})
+        return {'ok':True,'command':name,'enabled':enable,'disabled_commands':disabled}
+
+    def _automation(self,cid,body):
+        from videl.utils.db import get_automation,set_automation
+        quiet=body.get('quiet_hours');escalation=body.get('escalation')
+        if quiet is None and escalation is None:
+            raise ViewError('Send quiet_hours or escalation settings.')
+        if quiet is not None:
+            if not isinstance(quiet,dict):raise ViewError('Quiet hours must be an object.')
+            if 'enabled' in quiet and type(quiet['enabled']) is not bool:
+                raise ViewError('Quiet hours enabled must be true or false.')
+            for key in ('start','end'):
+                if key in quiet and parse_hhmm(quiet[key]) is None:
+                    raise ViewError('Choose a valid 24-hour start and end time.')
+            if 'tz_offset' in quiet:
+                offset=quiet['tz_offset']
+                if isinstance(offset,bool) or not isinstance(offset,int) or not -840<=offset<=840:
+                    raise ViewError('The timezone offset must be minutes between -840 and 840.')
+            if quiet.get('start') and quiet.get('end') and parse_hhmm(quiet['start'])==parse_hhmm(quiet['end']):
+                raise ViewError('Quiet hours cannot start and end at the same minute.')
+            quiet=normalize_quiet({**get_automation(cid)['quiet_hours'],**quiet})
+        if escalation is not None:
+            if not isinstance(escalation,dict):raise ViewError('Escalation must be an object.')
+            if 'action' in escalation and escalation['action'] not in ESCALATION_ACTIONS:
+                raise ViewError('Choose ban, mute, kick or none as the escalation action.')
+            if 'mute_hours' in escalation:
+                hours=escalation['mute_hours']
+                if isinstance(hours,bool) or not isinstance(hours,int) or not MUTE_RANGE[0]<=hours<=MUTE_RANGE[1]:
+                    raise ViewError(f'The mute length must be {MUTE_RANGE[0]}–{MUTE_RANGE[1]} hours.')
+            if 'enabled' in escalation and type(escalation['enabled']) is not bool:
+                raise ViewError('Escalation enabled must be true or false.')
+            escalation=normalize_escalation({**get_automation(cid)['escalation'],**escalation})
+        config=set_automation(cid,quiet_hours=quiet,escalation=escalation)
+        self.log(cid,'automation',{'quiet':quiet,'escalation':escalation})
+        return {'ok':True,'automation':config}
+
+    def admin(self,cid,actor,body,source='web'):
         """Typed admin actions. Every write re-reads the document afterwards."""
+        action=body.get('action')
+        if action in {'automation','command_disable','command_enable','join_request','report_update'}:
+            return self._service(cid,body)
+        result=self._admin(cid,actor,body)
+        # ``protect`` is written by settings(), which records its own event.
+        if action!='protect':self.log(cid,action,body,source)
+        return result
+
+    def _service(self,cid,body):
+        action=body.get('action')
+        if action=='automation':return self._automation(cid,body)
+        if action in {'command_disable','command_enable'}:return self._commands(cid,body)
+        if action=='join_request':return self._join_request(cid,body)
+        if action=='report_update':return self._report_update(cid,body)
+        raise ViewError('Unsupported group management action.')
+
+    def _admin(self,cid,actor,body):
         action=body.get('action')
         if cid>0:raise ViewError('Group management is group-only.',403)
         if action in {'protect','preset'}:
@@ -722,10 +895,12 @@ class GroupView:
             self.db['group_view_settings'].update_one({'_id':cid},{'$set':{'enabled':enabled,'retention_days':days,
                 'enabled_at':enabled_at,'epoch':str(uuid.uuid4())}},upsert=True)
             self.db['group_view_messages'].update_many({'chat_id':cid},[{'$set':{'expires_at':{'$add':['$date',days*86400000]}}}])
+            self.log(cid,'recording',{'enabled':enabled,'days':days})
             return {'ok':True,'recording':enabled,'retention_days':days}
         if action=='purge_history':
             self.db['group_view_settings'].update_one({'_id':cid},{'$set':{'enabled':False,'epoch':str(uuid.uuid4())}},upsert=True)
             count=self.db['group_view_messages'].delete_many({'chat_id':cid}).deleted_count
+            self.log(cid,'purge_history',{'count':count})
             return {'ok':True,'deleted_count':count,'recording':False}
         if action=='protect':
             if cid>0:raise ViewError('Protection controls are group-only.',403)
@@ -734,15 +909,16 @@ class GroupView:
                 raise ViewError('Only supported boolean group protection settings are accepted.')
             self.rights(cid,actor,['can_delete_messages'])
             self.db['mgmt_chat_settings'].update_one({'chat_id':cid},{'$set':settings},upsert=True)
+            self.log(cid,'protect',{'settings':settings})
             return {'ok':True,'settings':settings}
         raise ViewError('Unknown setting action.')
 
-    def act(self,body):
+    def act(self,body,source='web'):
         cid,actor=self.access(body.get('chat_id'))
         action=body.get('action')
         if action in {'recording','purge_history','protect'}:return self.settings(cid,actor,body)
-        if action in {'settings','preset','warn_limit','welcome','goodbye','rules','blacklist_add','blacklist_remove','blacklist_mode','note_delete','filter_delete','approved_remove','warn_reset'}:
-            return self.admin(cid,actor,body)
+        if action in {'settings','preset','warn_limit','welcome','goodbye','rules','blacklist_add','blacklist_remove','blacklist_mode','note_delete','filter_delete','approved_remove','warn_reset','automation','command_disable','command_enable','join_request','report_update'}:
+            return self.admin(cid,actor,body,source)
         if cid>0 and action not in {'send','reply','delete','react','poll','forward'}:raise ViewError('This action is group-only.',403)
         if action not in {'send','reply','delete','react','poll','forward','mute','unmute','ban','pin','unpin'}:raise ViewError('Unsupported group action.')
         mid=None if action in {'send','poll'} else integer(body.get('message_id'),positive=True)

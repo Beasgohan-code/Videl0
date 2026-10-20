@@ -181,6 +181,23 @@ def _internal_scheduled_posts():
         return jsonify({"ok":False,"error":"Schedule queue unavailable"}),503
 
 
+@_flask.route("/internal/scheduled-posts/retry", methods=["POST"])
+def _internal_scheduled_retry():
+    if not _internal_authorized():
+        return jsonify({"ok": False, "error": "unauthorized"}), 403
+    from videl.utils.scheduled_posts import retry_job
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or not body.get("id"):
+        return jsonify({"ok": False, "error": "A job ID is required"}), 400
+    try:
+        return jsonify(retry_job(body.get("id"), body.get("schedule_at"))), 200
+    except (ValueError, TypeError, AttributeError) as error:
+        return jsonify({"ok": False, "error": str(error)}), 409
+    except Exception:
+        LOGGER.exception("scheduled retry failed")
+        return jsonify({"ok": False, "error": "The schedule could not be requeued"}), 503
+
+
 @_flask.route("/internal/channel-post", methods=["POST"])
 def _internal_channel_post():
     if not _internal_authorized():
@@ -359,6 +376,8 @@ def _internal_chats():
         return jsonify({"ok": False, "error": "unauthorized"}), 403
     try:
         from videl.utils.db import get_db
+        from videl.utils.automation import normalize as normalize_automation
+        from videl.utils.group_health import evaluate as evaluate_health, summarize as summarize_health
         from videl.utils.group_view import BOOL_SETTINGS, INT_SETTINGS, INT_DEFAULTS, ENUM_SETTINGS, SETTING_DEFAULTS
         db = get_db()
         if db is None:
@@ -397,6 +416,11 @@ def _internal_chats():
             return values
 
         from concurrent.futures import ThreadPoolExecutor
+        bot_id = None
+        if getattr(config, "BOT_TOKEN", ""):
+            _, identity = _bot_api("getMe", {})
+            if identity and identity.get("ok"):
+                bot_id = (identity.get("result") or {}).get("id")
         def enrich(chat_id):
             known = cached.get(chat_id) or {}
             row = {
@@ -406,6 +430,7 @@ def _internal_chats():
                 "type": known.get("type", "unknown"),
                 "members": known.get("members"),
                 "available": bool(known.get("available", False)),
+                "bot_admin": known.get("bot_admin"),
             }
             if not getattr(config, "BOT_TOKEN", ""):
                 return row
@@ -413,9 +438,17 @@ def _internal_chats():
             valid_chat = bool(chat and chat.get("ok"))
             result = chat.get("result", {}) if valid_chat else {}
             members = known.get("members")
+            bot_admin = known.get("bot_admin")
             if valid_chat:
                 _, count = _bot_api("getChatMemberCount", {"chat_id": chat_id})
                 members = count.get("result") if count and count.get("ok") else members
+                # The bot's own administrator status decides whether any lock can
+                # be enforced, so it is read once and cached with the profile.
+                if bot_id:
+                    _, member = _bot_api("getChatMember", {"chat_id": chat_id, "user_id": bot_id})
+                    if member and member.get("ok"):
+                        status = str((member.get("result") or {}).get("status") or "")
+                        bot_admin = status in {"creator", "administrator"}
             updated = {
                 "_id": chat_id,
                 "title": result.get("title") or result.get("username") or row["title"],
@@ -423,12 +456,13 @@ def _internal_chats():
                 "type": result.get("type", row["type"]),
                 "members": members,
                 "available": valid_chat,
+                "bot_admin": bot_admin,
             }
             try:
                 db["mgmt_chat_info"].update_one({"_id": chat_id}, {"$set": updated}, upsert=True)
             except Exception:
                 LOGGER.debug("chat info cache write failed", exc_info=True)
-            row.update({key: updated[key] for key in ("title", "username", "type", "members", "available")})
+            row.update({key: updated[key] for key in ("title", "username", "type", "members", "available", "bot_admin")})
             return row
 
         enrichable = [chat_id for chat_id in int_ids if not (cached.get(chat_id) or {}).get("available")][:25]
@@ -445,6 +479,7 @@ def _internal_chats():
                 "type": (cached.get(chat_id) or {}).get("type", "unknown"),
                 "members": (cached.get(chat_id) or {}).get("members"),
                 "available": bool((cached.get(chat_id) or {}).get("available", False)),
+                "bot_admin": (cached.get(chat_id) or {}).get("bot_admin"),
             }
             row = dict(row)
             row["settings"] = settings_for(chat_id)
@@ -455,8 +490,12 @@ def _internal_chats():
                 "approved": approved_by_chat.get(chat_id, 0),
             }
             row["warn_limit"] = row["settings"]["warn_threshold"]
+            row["explicit"] = {key: value for key, value in (documents.get(chat_id) or {}).items()
+                               if key in BOOL_SETTINGS and type(value) is bool}
+            row["automation"] = normalize_automation((documents.get(chat_id) or {}).get("automation"))
+            row["health"] = evaluate_health(row)
             rows.append(row)
-        return jsonify({"ok": True, "chats": rows, "truncated": len(ids) >= limit})
+        return jsonify({"ok": True, "chats": rows, "summary": summarize_health(rows), "truncated": len(ids) >= limit})
     except Exception:
         LOGGER.exception("internal group list query failed")
         return jsonify({"ok": False, "error": "group query failed"}), 503
@@ -488,6 +527,80 @@ def _internal_chat_detail(chat_id):
         return jsonify({"ok": False, "error": "group detail request failed"}), 503
 
 
+@_flask.route("/internal/chat/<int(signed=True):chat_id>/audit")
+def _internal_chat_audit(chat_id):
+    """Paginated change history for one group."""
+    if not _internal_authorized():
+        return jsonify({"ok": False, "error": "unauthorized"}), 403
+    try:
+        from videl.utils.db import get_db
+        from videl.utils.group_view import GroupView, ViewError
+        db = get_db()
+        if db is None:
+            return jsonify({"ok": False, "error": "MongoDB is not connected"}), 503
+        kind = request.args.get("kind")
+        raw_limit = request.args.get("limit", "40")
+        before = None
+        stamp = request.args.get("before")
+        if stamp:
+            from datetime import datetime
+            try:
+                before = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+            except ValueError:
+                return jsonify({"ok": False, "error": "before must be an ISO timestamp"}), 400
+        try:
+            limit = max(1, min(int(raw_limit), 100))
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "limit must be a number"}), 400
+        return jsonify(GroupView(db, _bot_api).events(chat_id, limit=limit, kind=kind, before=before))
+    except ViewError as error:
+        return jsonify({"ok": False, "error": str(error)}), error.status
+    except Exception:
+        LOGGER.exception("internal audit query failed")
+        return jsonify({"ok": False, "error": "audit query failed"}), 503
+
+
+@_flask.route("/internal/federation", methods=["GET"])
+def _internal_federation_list():
+    if not _internal_authorized():
+        return jsonify({"ok": False, "error": "unauthorized"}), 403
+    from videl.utils.db import get_db
+    from videl.utils.federation_view import overview
+    db = get_db()
+    if db is None:
+        return jsonify({"ok": False, "error": "MongoDB is not connected"}), 503
+    return jsonify(overview(db))
+
+
+@_flask.route("/internal/federation/<fed_id>", methods=["GET", "POST"])
+def _internal_federation_detail(fed_id):
+    if not _internal_authorized():
+        return jsonify({"ok": False, "error": "unauthorized"}), 403
+    import re
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,32}", str(fed_id)):
+        return jsonify({"ok": False, "error": "Invalid federation ID"}), 400
+    from videl.utils.db import get_db
+    from videl.utils.federation_view import detail, unban
+    db = get_db()
+    if db is None:
+        return jsonify({"ok": False, "error": "MongoDB is not connected"}), 503
+    if request.method == "GET":
+        try:
+            return jsonify(detail(db, fed_id))
+        except LookupError as error:
+            return jsonify({"ok": False, "error": str(error)}), 404
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or body.get("action") != "unban":
+        return jsonify({"ok": False, "error": "The only federation write here is action=unban"}), 400
+    try:
+        user_id = int(body.get("user_id"))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "A numeric user_id is required"}), 400
+    outcome = unban(db, fed_id, user_id)
+    LOGGER.info("federation %s: owner lifted the ban on %s", fed_id, user_id)
+    return jsonify(outcome)
+
+
 @_flask.route("/internal/chats/bulk", methods=["POST"])
 def _internal_chats_bulk():
     if not _internal_authorized():
@@ -517,7 +630,7 @@ def _internal_chats_bulk():
                 continue
             payload = {"chat_id": chat_id, "action": action, "preset": body.get("preset"), "settings": body.get("settings")}
             try:
-                outcome = view.act(payload)
+                outcome = view.act(payload, source="bulk")
                 results.append({"chat_id": chat_id, "ok": True, "applied": outcome.get("preset") or "settings"})
             except ViewError as error:
                 results.append({"chat_id": chat_id, "ok": False, "error": str(error)})

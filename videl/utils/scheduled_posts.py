@@ -52,12 +52,56 @@ def enqueue(method, payload, scheduled_at, request_id):
     return {'ok':True,'job_id':identifier,'status':'pending','scheduled_at':due.isoformat()}
 
 
+def _stamp(value):
+    if isinstance(value, datetime):
+        return (value if value.tzinfo else value.replace(tzinfo=timezone.utc)).astimezone(timezone.utc).isoformat()
+    return None
+
+
 def list_jobs():
     docs = _collection().find({'owner_id':OWNER_ID}).sort('created_at',-1).limit(50)
     return [{'id':doc['_id'],'status':doc['status'],'chat_id':doc['payload']['chat_id'],
              'scheduled_at':doc['due_at'].replace(tzinfo=timezone.utc).isoformat(),
              'text':str(doc['payload'].get('text',doc['payload'].get('caption','')))[:200],
-             'message_id':doc.get('message_id')} for doc in docs]
+             'message_id':doc.get('message_id'),
+             # Why a job stopped, when the dispatcher recorded a reason.
+             'error':str(doc.get('error') or '')[:160] or None,
+             'finished_at':_stamp(doc.get('finished_at'))} for doc in docs]
+
+
+def retry_job(identifier, when=None):
+    """Requeue a job Telegram explicitly rejected.
+
+    Only ``failed`` qualifies: the dispatcher sets that state on a 4xx, which
+    means nothing was delivered. ``sent``, ``sending``, ``unconfirmed`` and
+    ``missed`` are never resent, because a duplicate post is worse than a
+    missing one.
+    """
+    identifier = str(uuid.UUID(str(identifier)))
+    col = _collection()
+    now = datetime.now(timezone.utc)
+    doc = col.find_one({'_id': identifier, 'owner_id': OWNER_ID})
+    if not doc:
+        raise ValueError('This scheduled post no longer exists')
+    if doc.get('status') != 'failed':
+        raise ValueError('Only a post Telegram rejected can be retried; sent and unconfirmed posts are never resent')
+    due = now + timedelta(minutes=1)
+    if when is not None:
+        try:
+            due = datetime.fromisoformat(str(when).replace('Z','+00:00'))
+        except (TypeError, ValueError):
+            raise ValueError('Use an ISO date with a timezone') from None
+        if due.tzinfo is None:
+            raise ValueError('Scheduling requires an explicit timezone')
+        due = due.astimezone(timezone.utc)
+        if not now + timedelta(seconds=60) <= due <= now + timedelta(days=90):
+            raise ValueError('Choose a time from 1 minute to 90 days ahead')
+    updated = col.update_one({'_id': identifier, 'owner_id': OWNER_ID, 'status': 'failed'},
+                             {'$set': {'status': 'pending', 'due_at': due, 'finished_at': None,
+                                       'error': None, 'claimed_at': None}})
+    if not updated.modified_count:
+        raise ValueError('This schedule changed while retrying; refresh its status')
+    return {'ok': True, 'job_id': identifier, 'status': 'pending', 'scheduled_at': due.isoformat()}
 
 
 def cancel_job(identifier):
@@ -85,6 +129,10 @@ def dispatch_one():
         update = {'status':state,'finished_at':datetime.now(timezone.utc)}
         if accepted:
             update['message_id'] = result['result']['message_id']
+        else:
+            # Store why, so the monitor can explain instead of showing a bare state.
+            description = str(result.get('description') or '').strip()[:160]
+            update['error'] = description or f'Telegram returned HTTP {status or "no response"}' 
         col.update_one({'_id':doc['_id'],'status':'sending'}, {'$set':update})
     except Exception:
         # Includes DB failure after Telegram accepted. A stale sending record will

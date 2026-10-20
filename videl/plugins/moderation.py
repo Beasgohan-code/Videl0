@@ -111,6 +111,30 @@ def _audit(chat_id: int, user_id: int, reason: str, remove: bool = False) -> boo
 # ── Warnings ─────────────────────────────────────────────────────────────────
 
 
+def _escalation(chat_id: int) -> dict:
+    """The group's configured warning ladder; defaults match historic behaviour."""
+    try:
+        from videl.utils.db import get_escalation
+        return get_escalation(chat_id)
+    except Exception:
+        return {"enabled": True, "action": "ban", "mute_hours": 6}
+
+
+async def _escalate(ctx, chat_id: int, user_id: int, action: str, escalation: dict) -> str:
+    """Apply the configured action and return a phrase for the confirmation text."""
+    if action == "mute":
+        hours = int(escalation.get("mute_hours") or 6)
+        until = datetime.now(timezone.utc) + timedelta(hours=hours)
+        await ctx.client.ban_chat_member(chat_id, user_id, until_date=until)
+        return f"the member was muted for {hours} hour{'s' if hours != 1 else ''}"
+    if action == "kick":
+        await ctx.client.ban_chat_member(chat_id, user_id)
+        await ctx.client.unban_chat_member(chat_id, user_id)
+        return "the member was removed and may rejoin"
+    await ctx.client.ban_chat_member(chat_id, user_id)
+    return "the member was banned"
+
+
 async def warn(ctx) -> Screen:
     chat_id, _ = _names(ctx.message)
     user, tokens = await _target(ctx)
@@ -140,13 +164,18 @@ async def warn(ctx) -> Screen:
                 LOGGER.debug("dwarn could not delete the replied message", exc_info=True)
     notes = ""
     if count >= limit:
-        try:
-            await _require(ctx, ("can_restrict_members",))
-            await ctx.client.ban_chat_member(chat_id, user.id)
-            await asyncio.to_thread(_audit, chat_id, user.id, f"{limit} warnings")
-            notes = f"Reached the limit of {limit}; the member was banned."
-        except Exception as exc:
-            notes = f"Reached the limit of {limit}, but the ban was not confirmed ({type(exc).__name__})."
+        escalation = _escalation(chat_id)
+        action = escalation["action"] if escalation.get("enabled") else "none"
+        if action == "none":
+            notes = f"Reached the limit of {limit}; escalation is switched off for this group."
+        else:
+            try:
+                await _require(ctx, ("can_restrict_members",))
+                note = await _escalate(ctx, chat_id, user.id, action, escalation)
+                await asyncio.to_thread(_audit, chat_id, user.id, f"{limit} warnings")
+                notes = f"Reached the limit of {limit}; {note}."
+            except Exception as exc:
+                notes = f"Reached the limit of {limit}, but the {action} was not confirmed ({type(exc).__name__})."
     return Screen(
         heading("Warning added", 3)
         + table([

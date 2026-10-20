@@ -16,6 +16,39 @@ export type GroupCounts = {
   approved: number;
 };
 
+export type HealthIssue = { code: string; message: string; advisory?: boolean };
+export type GroupHealth = { score: number; issues: HealthIssue[]; attention: boolean };
+
+export type QuietHours = { enabled: boolean; start: string; end: string; tz_offset: number };
+export type Escalation = { enabled: boolean; action: EscalationAction; mute_hours: number };
+export type EscalationAction = "ban" | "mute" | "kick" | "none";
+export type Automation = { quiet_hours: QuietHours; escalation: Escalation };
+
+export type ReportRow = {
+  id: string;
+  reporter: number | null;
+  target: number | null;
+  message_id: number | null;
+  text: string;
+  at: string | null;
+};
+export type JoinRequest = {
+  user_id: number;
+  name: string;
+  username: string | null;
+  at: string | null;
+};
+export type GroupInbox = { reports: ReportRow[]; join_requests: JoinRequest[] };
+
+export type AuditEvent = {
+  kind: string;
+  action: string;
+  detail: string;
+  actor: number | null;
+  source: string;
+  at: string | null;
+};
+
 export type Group = {
   id: number;
   title: string;
@@ -24,8 +57,21 @@ export type Group = {
   members: number | null;
   available: boolean;
   settings: GroupSettings;
+  /** Only the switches actually stored for this group; absent keys are unset. */
+  explicit?: GroupSettings;
   counts?: GroupCounts;
   warn_limit?: number;
+  bot_admin?: boolean | null;
+  automation?: Automation;
+  health?: GroupHealth;
+};
+
+export type GroupsSummary = {
+  total: number;
+  attention: number;
+  unreachable: number;
+  protected: number;
+  average: number;
 };
 
 export type WarnRow = { user_id: number; count: number; reasons: string[] };
@@ -44,6 +90,8 @@ export type GroupCommunity = {
 };
 
 export type GroupDetail = {
+  automation?: Automation;
+  inbox?: GroupInbox;
   chat: {
     id: number;
     title: string;
@@ -173,8 +221,8 @@ export const PRESET_COPY: Record<PresetId, { label: string; description: string 
   lockdown: { label: "Lockdown", description: "Every lock on, greetings paused." },
 };
 
-export type GroupFilter = "all" | "protected" | "open" | "warns" | "unavailable";
-export type GroupSort = "name" | "members" | "warns" | "type";
+export type GroupFilter = "all" | "protected" | "open" | "warns" | "unavailable" | "attention";
+export type GroupSort = "name" | "members" | "warns" | "type" | "health";
 
 export const FILTERS: { id: GroupFilter; label: string }[] = [
   { id: "all", label: "All" },
@@ -182,6 +230,7 @@ export const FILTERS: { id: GroupFilter; label: string }[] = [
   { id: "open", label: "No locks" },
   { id: "warns", label: "Has warnings" },
   { id: "unavailable", label: "Unreachable" },
+  { id: "attention", label: "Needs attention" },
 ];
 
 export const SORTS: { id: GroupSort; label: string }[] = [
@@ -189,6 +238,7 @@ export const SORTS: { id: GroupSort; label: string }[] = [
   { id: "members", label: "Members" },
   { id: "warns", label: "Warnings" },
   { id: "type", label: "Type" },
+  { id: "health", label: "Health" },
 ];
 
 /** Treat stored values as on/off without trusting their JSON type. */
@@ -221,9 +271,21 @@ export function isExplicitlyOn(settings: GroupSettings | undefined, key: string)
  * Guards configured for this group. Defaults are not counted: a freshly added
  * group must not look protected just because welcomes default to on.
  */
-export function protectionSummary(settings: GroupSettings | undefined): { active: number; total: number } {
-  const active = SETTING_KEYS.filter((key) => isExplicitlyOn(settings, key)).length;
+export function protectionSummary(
+  settings: GroupSettings | undefined,
+  explicit?: GroupSettings,
+): { active: number; total: number } {
+  // Stored values win. The API fills defaults for every key, so counting the
+  // filled view would call a brand-new group "protected" because welcomes
+  // default to on.
+  const source = explicit ?? settings;
+  const active = SETTING_KEYS.filter((key) => isExplicitlyOn(source, key)).length;
   return { active, total: SETTING_KEYS.length };
+}
+
+/** Effective stored values, falling back to the filled settings for older payloads. */
+export function explicitSettings(group: Pick<Group, "settings" | "explicit">): GroupSettings {
+  return group.explicit ?? group.settings;
 }
 
 /** Effective switch positions, including the bot's defaults (used by the panel). */
@@ -240,13 +302,15 @@ export function matchesQuery(group: Group, query: string): boolean {
 export function filterGroup(group: Group, filter: GroupFilter): boolean {
   switch (filter) {
     case "protected":
-      return protectionSummary(group.settings).active > 0;
+      return protectionSummary(group.settings, explicitSettings(group)).active > 0;
     case "open":
-      return protectionSummary(group.settings).active === 0;
+      return protectionSummary(group.settings, explicitSettings(group)).active === 0;
     case "warns":
       return (group.counts?.warns ?? 0) > 0;
     case "unavailable":
       return !group.available;
+    case "attention":
+      return group.health?.attention === true;
     default:
       return true;
   }
@@ -262,6 +326,8 @@ export function sortGroups(groups: Group[], sort: GroupSort): Group[] {
         return (b.counts?.warns ?? 0) - (a.counts?.warns ?? 0) || a.title.localeCompare(b.title);
       case "type":
         return a.type.localeCompare(b.type) || a.title.localeCompare(b.title);
+      case "health":
+        return (a.health?.score ?? 100) - (b.health?.score ?? 100) || a.title.localeCompare(b.title);
       default:
         return a.title.localeCompare(b.title);
     }
@@ -319,4 +385,84 @@ export function errorHint(message: string, status?: number): string {
   if (message.includes("administrator")) return "Your Telegram account must be an admin in this group to change it.";
   if (message.includes("permission")) return "The bot is missing a group permission this action needs.";
   return message;
+}
+
+export const ESCALATION_CHOICES: { id: EscalationAction; label: string; description: string }[] = [
+  { id: "none", label: "Nothing", description: "Warnings are recorded but no member is restricted." },
+  { id: "mute", label: "Mute temporarily", description: "Restrict the member for the chosen number of hours." },
+  { id: "kick", label: "Remove", description: "Kick the member; they may rejoin unless banned." },
+  { id: "ban", label: "Ban", description: "Ban the member from the group." },
+];
+
+/** Local mm:ss helpers shared by the editor and its preview. */
+export function hhmmToMinutes(value: string): number | null {
+  const match = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(value.trim());
+  return match ? Number(match[1]) * 60 + Number(match[2]) : null;
+}
+
+export function zoneLabel(offsetMinutes: number): string {
+  const sign = offsetMinutes < 0 ? "-" : "+";
+  const absolute = Math.abs(offsetMinutes);
+  return `UTC${sign}${String(Math.floor(absolute / 60)).padStart(2, "0")}:${String(absolute % 60).padStart(2, "0")}`;
+}
+
+/** Is "now" inside the window, evaluated in the panel's own clock? */
+export function quietNow(quiet: QuietHours, now = new Date()): boolean {
+  if (!quiet.enabled) return false;
+  const start = hhmmToMinutes(quiet.start);
+  const end = hhmmToMinutes(quiet.end);
+  if (start === null || end === null || start === end) return false;
+  const shifted = new Date(now.getTime() + quiet.tz_offset * 60_000);
+  const current = shifted.getUTCHours() * 60 + shifted.getUTCMinutes();
+  return start < end ? current >= start && current < end : current >= start || current < end;
+}
+
+export function quietSummary(quiet: QuietHours): string {
+  if (!quiet.enabled) return "Quiet hours are off.";
+  return `Silent ${quiet.start}–${quiet.end} (${zoneLabel(quiet.tz_offset)})`;
+}
+
+export function escalationSummary(escalation: Escalation): string {
+  if (!escalation.enabled || escalation.action === "none") return "No automatic restriction.";
+  if (escalation.action === "mute") return `Mute for ${escalation.mute_hours}h at the warning limit.`;
+  return `${escalation.action === "kick" ? "Remove" : "Ban"} at the warning limit.`;
+}
+
+export function healthTone(score: number): "good" | "watch" | "poor" {
+  if (score >= 85) return "good";
+  if (score >= 70) return "watch";
+  return "poor";
+}
+
+/** Human wording for an audit row; the fallback keeps unknown kinds readable. */
+export function auditLabel(event: AuditEvent): string {
+  const labels: Record<string, string> = {
+    settings: "Protection changed",
+    protect: "Protection changed",
+    preset: "Preset applied",
+    warn_limit: "Warning limit changed",
+    welcome: "Welcome updated",
+    goodbye: "Goodbye updated",
+    rules: "Rules updated",
+    blacklist: "Blacklist changed",
+    blacklist_mode: "Blacklist mode changed",
+    note: "Note removed",
+    filter: "Filter removed",
+    approval: "Approval removed",
+    warn_reset: "Warnings cleared",
+    automation: "Automation updated",
+    commands: "Command switch changed",
+    recording: "Recording changed",
+    purge: "History purged",
+    join_request: "Join request reviewed",
+    report: "Report reviewed",
+  };
+  return labels[event.kind] ?? event.kind.replace(/_/g, " ");
+}
+
+export function whenLabel(iso: string | null): string {
+  if (!iso) return "time unknown";
+  const date = new Date(iso);
+  if (!Number.isFinite(date.getTime())) return "time unknown";
+  return date.toLocaleString();
 }

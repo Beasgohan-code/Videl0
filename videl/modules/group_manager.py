@@ -4,7 +4,7 @@ import time
 from pyrogram import filters
 from pyrogram.enums import ChatMembersFilter
 from pyrogram.types import InlineKeyboardMarkup
-from videl import bot
+from videl import LOGGER, bot
 from videl.plugins.base import is_admin, get_setting as get_chat_setting, set_settings as set_chat_settings, collection as _collection
 from videl.utils.bot_ui import button
 from videl.utils.rich_ui import rich_heading, rich_note, rich_kv_table, rich_esc
@@ -80,6 +80,24 @@ async def report_command(_, message):
     _REPORTS.move_to_end(key)
     while len(_REPORTS) > 4096:
         _REPORTS.popitem(last=False)
+    # Persist the report so the owner panel can triage it later; the in-memory
+    # map above only rate-limits repeat submissions.
+    try:
+        from datetime import datetime, timezone
+        from videl.utils.db import get_db
+        db = get_db()
+        if db is not None:
+            db["mgmt_reports"].insert_one({
+                "chat_id": message.chat.id,
+                "reporter": message.from_user.id,
+                "target": getattr(target.from_user, "id", None),
+                "message_id": target.id,
+                "text": str(target.text or target.caption or "")[:280],
+                "status": "open",
+                "ts": datetime.now(timezone.utc),
+            })
+    except Exception:
+        LOGGER.debug("report persistence failed", exc_info=True)
     await rich_reply(message, rich_heading("Admin review requested", level=3) + rich_note(f"Reported message: <code>{target.id}</code>\n{mentions}\nReports do not automatically punish anyone."))
 
 
@@ -97,3 +115,33 @@ async def permission_command(_, message):
     await rich_reply(message, rich_heading("Bot permission diagnostics", level=2)
         + rich_kv_table(rows)
         + rich_note("A group owner can change these in Telegram → Group → Administrators → Videl. Rights alone do not guarantee assistant access, media availability or playback."))
+
+@bot.on_chat_join_request()
+async def join_request_seen(_, request):
+    """Record a pending join request for the owner panel.
+
+    Telegram keeps the request itself; this row only tells the panel that a
+    person is waiting, so approving still happens through the Bot API.
+    """
+    try:
+        from datetime import datetime, timezone
+        from videl.utils.db import get_db
+        chat = request.chat
+        user = request.from_user
+        db = get_db()
+        if db is None or not chat or not user:
+            return
+        db["mgmt_join_requests"].update_one(
+            {"chat_id": chat.id, "user": user.id},
+            {"$set": {
+                "chat_id": chat.id,
+                "user": user.id,
+                "name": str(user.first_name or "")[:80],
+                "username": str(user.username or "")[:64],
+                "status": "pending",
+                "ts": datetime.now(timezone.utc),
+            }},
+            upsert=True,
+        )
+    except Exception:
+        LOGGER.debug("join request could not be recorded", exc_info=True)

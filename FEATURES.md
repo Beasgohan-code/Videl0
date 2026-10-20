@@ -14,6 +14,36 @@
 
 Only Telegram account **6265999542** can authenticate. Bot-backed publication, chat sending, group rules, analytics, broadcasts and settings remain server-protected. Public users cannot publish through the owner's bot. The sign-in page explains signed Mini App and Login Widget flows; expiring HttpOnly cookies and sign-out are supported.
 
+## Group operations
+
+The owner panel manages the served fleet from one screen, and every control maps
+to code that actually runs:
+
+- **Group Manager** — per-group drill-down with health (derived from stored
+  settings and the last Telegram read), a "needs attention" queue, protection
+  presets, greetings, rules, captcha, warnings, notes, filters, blacklist,
+  approvals, join-request triage, report triage and a per-group audit trail
+  (filterable, CSV export, 180-day retention).
+- **Command switches** — any of the 155 registered commands can be turned off
+  for one group. A handler at group −1 refuses it before every other handler,
+  so this also covers commands that never pass through the declarative router.
+  Group admins and the bot owner stay exempt.
+- **Automation** — quiet hours delete member messages inside a stored window
+  (per-group UTC offset, admins and approved members exempt) and the warning
+  ladder chooses ban, temporary mute, kick or nothing at the warning limit.
+- **Federations** — read-only overview of federations, member groups, admins and
+  bans, with ban lifting. Creating federations and issuing bans stays on the bot
+  commands, where the caller is verified against Telegram.
+- **Release check** — Settings compares the Vercel commit with the backend's
+  `revision` and reports drift instead of guessing.
+- **Scheduled publishing** — status counts, failure reasons and a retry that is
+  only allowed for posts Telegram explicitly rejected; accepted or unconfirmed
+  posts are never resent.
+
+Boundaries: quiet hours only see messages delivered to the bot while it runs,
+join requests are recorded from that point onward, and audit rows describe
+owner-driven panel changes plus bot-side report and recording events.
+
 ## Bot
 
 Smart Chat sends bot messages with Telegram HTML formatting (bold, italic,

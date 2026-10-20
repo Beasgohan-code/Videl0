@@ -5,6 +5,8 @@ import {
   AlertCircle,
   Check,
   ExternalLink,
+  HeartPulse,
+  Inbox as InboxIcon,
   Layers,
   Loader2,
   Lock,
@@ -12,13 +14,17 @@ import {
   Minus,
   Plus,
   RefreshCw,
+  ScrollText,
   Search,
   Shield,
   ShieldCheck,
+  TerminalSquare,
   Trash2,
   UserX,
   Users,
 } from "lucide-react";
+import { BOT_COMMANDS } from "@/lib/commands";
+import { downloadCsv } from "@/lib/csv";
 import {
   BLACKLIST_MODES,
   BULK_LIMIT,
@@ -30,6 +36,12 @@ import {
   SORTS,
   applySettings,
   applySettingsToChats,
+  auditLabel,
+  escalationSummary,
+  explicitSettings,
+  healthTone,
+  quietSummary,
+  whenLabel,
   bulkSelection,
   displayTitle,
   errorHint,
@@ -41,22 +53,33 @@ import {
   textValue,
   toggleSelected,
   visibleGroups,
+  type AuditEvent,
   type Group,
   type GroupDetail,
+  type GroupsSummary,
   type GroupFilter,
   type GroupSettings,
   type GroupSort,
   type PresetId,
 } from "@/lib/group-admin";
 
-type Tab = "protection" | "community" | "moderation" | "members";
+type Tab = "protection" | "community" | "moderation" | "members" | "commands" | "inbox" | "audit";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "protection", label: "Protection" },
   { id: "community", label: "Community" },
   { id: "moderation", label: "Moderation" },
   { id: "members", label: "Members" },
+  { id: "commands", label: "Commands" },
+  { id: "inbox", label: "Inbox" },
+  { id: "audit", label: "History" },
 ];
+
+const COMMAND_CATEGORIES = [
+  { id: "manage", label: "Moderation & management" },
+  { id: "music", label: "Music" },
+  { id: "tools", label: "Utilities" },
+] as const;
 
 function Toggle({
   label,
@@ -103,7 +126,7 @@ function PanelNotice({ children }: { children: React.ReactNode }) {
   );
 }
 
-export default function GroupsPage({ automation = false }: { automation?: boolean } = {}) {
+export default function GroupsPage() {
   const { open, selectGroup } = useStudio();
   const savingRef = useRef(false);
   const detailRequest = useRef(0);
@@ -129,6 +152,15 @@ export default function GroupsPage({ automation = false }: { automation?: boolea
   const [rulesDraft, setRulesDraft] = useState("");
   const [blacklistWord, setBlacklistWord] = useState("");
   const [warnLimitDraft, setWarnLimitDraft] = useState(3);
+  const [groupsSummary, setGroupsSummary] = useState<GroupsSummary | null>(null);
+  const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
+  const [auditState, setAuditState] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [auditMessage, setAuditMessage] = useState("");
+  const [auditKind, setAuditKind] = useState("all");
+  const [auditKinds, setAuditKinds] = useState<string[]>([
+    "settings", "preset", "automation", "commands", "blacklist", "join_request", "report",
+  ]);
+  const [commandQuery, setCommandQuery] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -139,6 +171,7 @@ export default function GroupsPage({ automation = false }: { automation?: boolea
       if (!response.ok || !data.ok) throw new Error(data.error || "Group data could not be loaded");
       const chats: Group[] = Array.isArray(data.chats) ? data.chats : [];
       setGroups(chats);
+      setGroupsSummary(data.summary && typeof data.summary === "object" ? (data.summary as GroupsSummary) : null);
       setSelected((current) => (chats.some((group) => group.id === current) ? current : (chats[0]?.id ?? null)));
       if (data.truncated) setNotice("The bot serves more groups than this page lists. Refresh after the backend prunes inactive chats.");
     } catch (e) {
@@ -201,6 +234,49 @@ export default function GroupsPage({ automation = false }: { automation?: boolea
     void loadDetail(selected);
   }, [selected, loadDetail]);
 
+  const loadAudit = useCallback(async (id: number, kind = "all") => {
+    setAuditState("loading");
+    setAuditMessage("");
+    try {
+      const query = new URLSearchParams({ limit: "60" });
+      if (kind !== "all") query.set("kind", kind);
+      const response = await fetch(`/api/groups/${id}/audit?${query.toString()}`, { cache: "no-store" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.ok) {
+        setAuditEvents([]);
+        setAuditState("error");
+        setAuditMessage(
+          response.status === 501
+            ? "Change history needs the updated bot backend. Redeploy the Render service, then retry."
+            : errorHint(String(data.error || "History could not be loaded"), response.status),
+        );
+        return;
+      }
+      const kinds = Array.isArray(data.kinds) ? data.kinds.filter((item: unknown) => typeof item === "string") : [];
+      setAuditEvents(
+        Array.isArray(data.events)
+          ? data.events.filter((event: AuditEvent) => event && typeof event.kind === "string")
+          : [],
+      );
+      if (kinds.length) setAuditKinds(kinds);
+      setAuditState("ready");
+    } catch (e) {
+      setAuditEvents([]);
+      setAuditState("error");
+      setAuditMessage(e instanceof Error ? e.message : "History could not be loaded");
+    }
+  }, []);
+
+  useEffect(() => {
+    // A different group must never show the previous group's history.
+    setAuditEvents([]);
+    setAuditState("idle");
+  }, [selected]);
+
+  useEffect(() => {
+    if (tab === "audit" && selected !== null) void loadAudit(selected, auditKind);
+  }, [tab, selected, auditKind, loadAudit]);
+
   useEffect(() => {
     if (!detail) return;
     setWelcomeDraft(textValue(detail.settings, "welcome_message"));
@@ -260,7 +336,27 @@ export default function GroupsPage({ automation = false }: { automation?: boolea
         throw new Error(hint);
       }
       if (data.settings && typeof data.settings === "object") mergeSettings(data.settings as GroupSettings);
+      if (Array.isArray(data.disabled_commands)) {
+        setDetail((current) =>
+          current
+            ? {
+                ...current,
+                community: current.community
+                  ? { ...current.community, disabled_commands: data.disabled_commands as string[] }
+                  : current.community,
+              }
+            : current,
+        );
+      }
+      if (data.inbox && typeof data.inbox === "object") {
+        setDetail((current) => (current ? { ...current, inbox: data.inbox } : current));
+      }
+      if (data.automation && typeof data.automation === "object") {
+        setDetail((current) => (current ? { ...current, automation: data.automation } : current));
+      }
       setNotice(options.success || "Saved to MongoDB.");
+      // Keep the visible history current when the panel is open on that tab.
+      if (tab === "audit") void loadAudit(active.id, auditKind);
       if (options.refreshDetail) void loadDetail(active.id, { silent: true });
       return true;
     } catch (e) {
@@ -303,11 +399,21 @@ export default function GroupsPage({ automation = false }: { automation?: boolea
   const summary = useMemo(
     () => ({
       total: groups.length,
-      protected: groups.filter((group) => protectionSummary(group.settings).active > 0).length,
+      protected: groups.filter((group) => protectionSummary(group.settings, explicitSettings(group)).active > 0).length,
       warns: groups.reduce((total, group) => total + (group.counts?.warns ?? 0), 0),
       unreachable: groups.filter((group) => !group.available).length,
+      attention: groupsSummary?.attention ?? groups.filter((group) => group.health?.attention).length,
     }),
-    [groups],
+    [groups, groupsSummary],
+  );
+
+  const groupCommands = useMemo(
+    () => BOT_COMMANDS.filter((command) => !command.owner && command.context !== "private"),
+    [],
+  );
+  const disabledCommands = useMemo(
+    () => new Set(detail?.community?.disabled_commands ?? []),
+    [detail],
   );
 
   const activeSettings = detail?.settings ?? active?.settings ?? {};
@@ -320,7 +426,7 @@ export default function GroupsPage({ automation = false }: { automation?: boolea
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="ios-caps text-[11px]">Videl · Community</p>
-          <h1 className="mt-2 ios-title">{automation ? "Automation" : "Group Manager"}</h1>
+          <h1 className="mt-2 ios-title">Group Manager</h1>
           <p className="mt-1 ios-subheadline">
             Locks, greetings, warnings and blacklists — read from MongoDB, written through the bot.
           </p>
@@ -347,7 +453,7 @@ export default function GroupsPage({ automation = false }: { automation?: boolea
         {[
           { label: "Served groups", value: summary.total },
           { label: "With locks on", value: summary.protected },
-          { label: "Members warned", value: summary.warns },
+          { label: "Needs attention", value: summary.attention },
           { label: "Unreachable", value: summary.unreachable },
         ].map((stat) => (
           <div key={stat.label} className="ios-card p-3">
@@ -469,7 +575,8 @@ export default function GroupsPage({ automation = false }: { automation?: boolea
               <p className="p-3 text-sm text-white/50">No groups match this search and filter.</p>
             )}
             {visible.map((group) => {
-              const state = protectionSummary(group.settings);
+              const state = protectionSummary(group.settings, explicitSettings(group));
+              const tone = healthTone(group.health?.score ?? 100);
               const isActive = selected === group.id;
               return (
                 <div key={group.id} className="flex items-start gap-2">
@@ -505,6 +612,13 @@ export default function GroupsPage({ automation = false }: { automation?: boolea
                         </span>
                         <span className="mt-1 flex flex-wrap gap-1">
                           <span className="ios-pill text-[10px]">{state.active} locks</span>
+                          <span
+                            className={`ios-pill text-[10px] ${
+                              tone === "poor" ? "text-rose-200" : tone === "watch" ? "text-amber-200" : "text-emerald-200"
+                            }`}
+                          >
+                            <HeartPulse size={10} /> {group.health?.score ?? 100}
+                          </span>
                           {(group.counts?.warns ?? 0) > 0 && (
                             <span className="ios-pill text-[10px]">{group.counts?.warns} warned</span>
                           )}
@@ -591,6 +705,24 @@ export default function GroupsPage({ automation = false }: { automation?: boolea
 
               {tab === "protection" && (
                 <div className="mt-3">
+                  {active.health && active.health.issues.length > 0 && (
+                    <div className="mb-3 rounded-xl border border-amber-300/20 bg-amber-300/5 p-3">
+                      <h3 className="flex items-center gap-2 text-sm font-semibold text-amber-100">
+                        <HeartPulse size={15} /> Needs attention · {active.health.score}/100
+                      </h3>
+                      <ul className="mt-1 space-y-1 text-xs text-amber-100/90">
+                        {active.health.issues.map((issue) => (
+                          <li key={issue.code} className="flex gap-1.5">
+                            <span aria-hidden>·</span>
+                            <span>{issue.message}</span>
+                          </li>
+                        ))}
+                      </ul>
+                      <p className="ios-caption mt-1">
+                        Derived from stored settings and the last Telegram read — not a guess.
+                      </p>
+                    </div>
+                  )}
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <p className="ios-caption">
                       {guardsOn} of {SETTING_KEYS.length} guards on
@@ -998,6 +1130,270 @@ export default function GroupsPage({ automation = false }: { automation?: boolea
                       )}
                     </>
                   )}
+                </div>
+              )}
+
+              {tab === "commands" && (
+                <div className="mt-3 space-y-3">
+                  <div className="rounded-xl bg-white/[0.03] p-3">
+                    <h3 className="flex items-center gap-2 text-sm font-semibold">
+                      <TerminalSquare size={15} /> Command switches
+                      <span className="ios-pill text-[10px]">{disabledCommands.size} off</span>
+                    </h3>
+                    <p className="ios-caption mt-1">
+                      Turning a command off blocks it in this group only. The bot refuses it with a short notice
+                      before any action runs. Owners keep access everywhere.
+                    </p>
+                    <label className="sr-only" htmlFor="command-search">Filter commands</label>
+                    <input
+                      id="command-search"
+                      aria-label="Filter commands"
+                      placeholder="Filter by name or purpose…"
+                      value={commandQuery}
+                      onChange={(event) => setCommandQuery(event.target.value)}
+                      className="ios-input mt-2 text-sm"
+                    />
+                  </div>
+                  {COMMAND_CATEGORIES.map((category) => {
+                    const rows = groupCommands.filter(
+                      (command) =>
+                        command.category === category.id &&
+                        (!commandQuery.trim() ||
+                          `${command.name} ${command.summary}`.toLowerCase().includes(commandQuery.trim().toLowerCase())),
+                    );
+                    if (!rows.length) return null;
+                    return (
+                      <div key={category.id} className="rounded-xl bg-white/[0.03] p-3">
+                        <div className="flex items-baseline justify-between">
+                          <h4 className="text-sm font-semibold">{category.label}</h4>
+                          <span className="ios-caption">{rows.length}</span>
+                        </div>
+                        <div className="mt-1 divide-y divide-white/[0.06]">
+                          {rows.map((command) => {
+                            const enabled = !disabledCommands.has(command.name);
+                            return (
+                              <Toggle
+                                key={command.name}
+                                label={`/${command.name}`}
+                                description={command.summary}
+                                checked={enabled}
+                                disabled={saving !== null}
+                                onChange={(next) =>
+                                  void runAction(
+                                    { action: next ? "command_enable" : "command_disable", command: command.name },
+                                    { success: next ? `/${command.name} is available again.` : `/${command.name} is turned off here.` },
+                                  )
+                                }
+                              />
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {!groupCommands.length && <p className="ios-caption">The command catalog has not been generated yet.</p>}
+                </div>
+              )}
+
+              {tab === "inbox" && (
+                <div className="mt-3 space-y-3">
+                  <div className="rounded-xl bg-white/[0.03] p-3">
+                    <h3 className="flex items-center gap-2 text-sm font-semibold">
+                      <InboxIcon size={15} /> Join requests
+                      <span className="ios-pill text-[10px]">{detail?.inbox?.join_requests?.length ?? 0}</span>
+                    </h3>
+                    <p className="ios-caption mt-1">
+                      Requests are recorded while the bot runs and while this group uses a join-request link. Telegram
+                      keeps the request itself; approving here calls the Bot API immediately.
+                    </p>
+                    {!detail ? (
+                      <p className="ios-caption mt-2">Open the group to load pending requests.</p>
+                    ) : (detail.inbox?.join_requests?.length ?? 0) === 0 ? (
+                      <p className="ios-caption mt-2">No pending join requests were recorded.</p>
+                    ) : (
+                      <ul className="mt-2 divide-y divide-white/[0.06]">
+                        {detail.inbox?.join_requests?.map((request) => (
+                          <li key={request.user_id} className="flex flex-wrap items-center justify-between gap-2 py-2 text-xs">
+                            <div className="min-w-0">
+                              <div className="truncate font-medium">
+                                {request.name || "Unnamed user"} <code className="text-[var(--ios-label-tertiary)]">{request.user_id}</code>
+                              </div>
+                              <div className="ios-caption">
+                                {request.username ? `@${request.username} · ` : ""}
+                                {whenLabel(request.at)}
+                              </div>
+                            </div>
+                            <div className="flex shrink-0 gap-1.5">
+                              <button
+                                disabled={saving !== null}
+                                onClick={() =>
+                                  void runAction(
+                                    { action: "join_request", user_id: request.user_id, decision: "approve" },
+                                    { success: `${request.name || request.user_id} approved.` },
+                                  )
+                                }
+                                className="ios-btn ios-btn-primary text-[11px]"
+                              >
+                                Approve
+                              </button>
+                              <button
+                                disabled={saving !== null}
+                                onClick={() =>
+                                  void runAction(
+                                    { action: "join_request", user_id: request.user_id, decision: "decline" },
+                                    { success: `${request.name || request.user_id} declined.` },
+                                  )
+                                }
+                                className="ios-btn ios-btn-glass text-[11px]"
+                              >
+                                Decline
+                              </button>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+
+                  <div className="rounded-xl bg-white/[0.03] p-3">
+                    <h3 className="flex items-center gap-2 text-sm font-semibold">
+                      <MessageSquare size={15} /> Member reports
+                      <span className="ios-pill text-[10px]">{detail?.inbox?.reports?.length ?? 0}</span>
+                    </h3>
+                    <p className="ios-caption mt-1">
+                      Filed with <code>/report</code>. Resolving removes the row from this queue; it never punishes
+                      anyone by itself.
+                    </p>
+                    {!detail || (detail.inbox?.reports?.length ?? 0) === 0 ? (
+                      <p className="ios-caption mt-2">No open reports.</p>
+                    ) : (
+                      <ul className="mt-2 divide-y divide-white/[0.06]">
+                        {detail.inbox?.reports?.map((report) => (
+                          <li key={report.id} className="space-y-1 py-2 text-xs">
+                            <div className="font-medium">
+                              Message <code>{report.message_id ?? "?"}</code>
+                              {report.target ? <span className="ios-caption"> · target {report.target}</span> : null}
+                            </div>
+                            <p className="text-[var(--ios-label-secondary)]">{report.text || "No text was captured."}</p>
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <span className="ios-caption">
+                                reporter {report.reporter ?? "?"} · {whenLabel(report.at)}
+                              </span>
+                              <div className="flex gap-1.5">
+                                <button
+                                  disabled={saving !== null}
+                                  onClick={() =>
+                                    void runAction(
+                                      { action: "report_update", id: report.id, status: "resolved" },
+                                      { success: "Report marked resolved." },
+                                    )
+                                  }
+                                  className="ios-btn ios-btn-glass text-[11px]"
+                                >
+                                  Resolve
+                                </button>
+                                <button
+                                  disabled={saving !== null}
+                                  onClick={() =>
+                                    void runAction(
+                                      { action: "report_update", id: report.id, status: "dismissed" },
+                                      { success: "Report dismissed." },
+                                    )
+                                  }
+                                  className="ios-btn ios-btn-glass text-[11px]"
+                                >
+                                  Dismiss
+                                </button>
+                              </div>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {tab === "audit" && (
+                <div className="mt-3 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex flex-wrap gap-1.5">
+                      <button
+                        onClick={() => setAuditKind("all")}
+                        aria-pressed={auditKind === "all"}
+                        className="ios-chip text-xs"
+                      >
+                        All changes
+                      </button>
+                      {auditKinds.slice(0, 6).map((kind) => (
+                        <button
+                          key={kind}
+                          onClick={() => setAuditKind(kind)}
+                          aria-pressed={auditKind === kind}
+                          className="ios-chip text-xs"
+                        >
+                          {kind.replace(/_/g, " ")}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() =>
+                          downloadCsv(`videl-audit-${active.id}.csv`, [
+                            ["When", "Change", "Detail", "Kind", "Source", "Actor"],
+                            ...auditEvents.map((event) => [
+                              event.at ?? "",
+                              auditLabel(event),
+                              event.detail,
+                              event.kind,
+                              event.source,
+                              event.actor ?? "",
+                            ]),
+                          ])
+                        }
+                        disabled={!auditEvents.length}
+                        className="ios-btn ios-btn-glass text-xs disabled:opacity-40"
+                      >
+                        Export CSV
+                      </button>
+                      <button
+                        onClick={() => selected !== null && void loadAudit(selected, auditKind)}
+                        disabled={auditState === "loading" || selected === null}
+                        className="ios-btn ios-btn-glass text-xs"
+                      >
+                        <RefreshCw size={14} className={auditState === "loading" ? "animate-spin" : ""} /> Refresh
+                      </button>
+                    </div>
+                  </div>
+                  <p className="ios-caption">
+                    Every saved change, newest first, with the source that made it. Rows are retained for 180 days.
+                  </p>
+                  {auditState === "error" && <PanelNotice>{auditMessage}</PanelNotice>}
+                  {auditState === "loading" && auditEvents.length === 0 && (
+                    <p className="ios-caption flex items-center gap-2"><Loader2 size={14} className="animate-spin" /> Loading history…</p>
+                  )}
+                  {auditState === "ready" && auditEvents.length === 0 && (
+                    <div className="rounded-xl bg-white/[0.03] p-3 text-sm text-[var(--ios-label-secondary)]">
+                      No recorded changes yet. Switch a lock or apply a preset and it will appear here.
+                    </div>
+                  )}
+                  <ul className="divide-y divide-white/[0.06]">
+                    {auditEvents.map((event, index) => (
+                      <li key={`${event.at ?? "t"}-${index}`} className="flex items-start gap-2 py-2 text-xs">
+                        <ScrollText size={14} className="mt-0.5 shrink-0 text-[var(--ios-label-tertiary)]" />
+                        <div className="min-w-0 flex-1">
+                          <div className="font-medium">
+                            {auditLabel(event)}
+                            {event.detail ? <span className="ios-caption"> · {event.detail}</span> : null}
+                          </div>
+                          <div className="ios-caption">
+                            {whenLabel(event.at)} · {event.source}
+                            {event.actor ? ` · ${event.actor}` : ""}
+                          </div>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               )}
             </>

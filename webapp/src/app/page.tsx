@@ -23,6 +23,9 @@ const screens = {
   groups: dynamic(() => import("@/components/studio/screens/Groups"), {
     loading,
   }),
+  federations: dynamic(() => import("@/components/studio/screens/Federations"), {
+    loading,
+  }),
   automation: dynamic(() => import("@/components/studio/screens/Automation"), {
     loading,
   }),
@@ -60,6 +63,7 @@ export default function Studio() {
               {[
                 "chat",
                 "groups",
+                "federations",
                 "automation",
                 "analytics",
                 "broadcast",
