@@ -8,6 +8,7 @@ export type GroupMessage = {
 export type GroupSnapshot = {
   chat_id: number; items: GroupMessage[]; has_more: boolean; next_before: number | null;
   is_private?: boolean; recording: boolean; retention_days: number; capture_dropped: number;
+  rich_text?: boolean;
   visibility_note: string; settings: Record<string, boolean>;
 };
 export const protections = [

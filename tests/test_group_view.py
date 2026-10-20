@@ -122,6 +122,11 @@ class GroupViewerTests(unittest.TestCase):
         older=self.service.read(CID,before=result['next_before'])
         self.assertLess(max(item['message_id'] for item in older['items']),min(ids))
 
+    def test_read_advertises_rich_text_support(self):
+        result=self.service.read(CID)
+        self.assertIs(result['rich_text'],True)
+        self.assertIn('rich_text',result)
+
     def test_admin_and_bot_specific_rights_both_required(self):
         self.actor['can_delete_messages']=False
         with self.assertRaises(view.ViewError):self.action('delete')

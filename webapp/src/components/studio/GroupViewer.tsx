@@ -124,23 +124,28 @@ export default function GroupViewer() {
     mutation.current=true;setBusy(true);setError('');setNotice('');setConfirm(null);
     try {
       let response:Response;
+      // Rich HTML is only sent when the deployed backend advertises support,
+      // so an outdated backend can never receive literal <b> tags.
+      const rich=!!data?.rich_text;
+      const outbound=(['send','reply'].includes(action.action)||action.file)?(rich?text:plainPostText(text)):text;
       if(action.file){
         const form=new FormData();form.set('chat_id',String(cid));form.set('kind',action.kind!);form.set('file',action.file);
-        form.set('text',text);form.set('request_id',crypto.randomUUID());if(action.message_id)form.set('message_id',String(action.message_id));
+        form.set('text',outbound);form.set('request_id',crypto.randomUUID());if(action.message_id)form.set('message_id',String(action.message_id));
         response=await fetch('/api/inbox-media',{method:'POST',body:form,signal:AbortSignal.timeout(65000)});
       }else{
         response=await fetch('/api/group-view',{method:'POST',headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({chat_id:cid,...action,...(['send','reply'].includes(action.action)?{text}:{}),request_id:crypto.randomUUID()}),signal:AbortSignal.timeout(60000)});
+          body:JSON.stringify({chat_id:cid,...action,...(['send','reply'].includes(action.action)?{text:outbound}:{}),request_id:crypto.randomUUID()}),signal:AbortSignal.timeout(60000)});
       }
       const body=await response.json();
       if(!response.ok || !body.ok)throw new Error(body.error || 'Action not confirmed. Check Telegram before retrying.');
       if(activeId.current===cid){
-        setNotice(body.warning || (['send','reply','attachment'].includes(action.action)?'':action.action==='purge_history'?'Saved history cleared and recording paused. Telegram messages were not deleted.':'Group action confirmed.'));
+        const unsupported=!!data && data.rich_text===false && ['send','reply','attachment'].includes(action.action) && outbound!==text;
+        setNotice(body.warning || (unsupported?'Sent as plain text: the backend is still updating. Rich formatting turns on automatically when it reports support.':['send','reply','attachment'].includes(action.action)?'':action.action==='purge_history'?'Saved history cleared and recording paused. Telegram messages were not deleted.':'Group action confirmed.'));
         if(['send','reply','attachment'].includes(action.action)){
           stickToBottom.current=true;setShowJump(false);
           if(body.message_id){
             const url=action.file?URL.createObjectURL(action.file):undefined;if(url)localUrls.current.add(url);
-            setReceipts(current=>[...current,{chat_id:cid,message_id:body.message_id,text,sender_id:null,
+            setReceipts(current=>[...current,{chat_id:cid,message_id:body.message_id,text:outbound,sender_id:null,
               sender_is_user:true,sender_name:'Your bot',sender_username:'',is_bot:true,date:new Date().toISOString(),
               edited:false,deleted:false,reply_to_id:action.message_id||null,thread_id:replying?.thread_id||null,
               media:action.file?{kind:action.kind!,name:action.file.name}:null,local_preview:url,ephemeral:true}].slice(-50));
@@ -216,12 +221,12 @@ export default function GroupViewer() {
               {message.media&&<div className="mt-2 rounded-lg bg-white/5 p-2 text-[11px] text-indigo-100/60"><p>{message.media.kind.replace('_',' ')}{message.media.name?` · ${message.media.name}`:''}</p>{message.media.kind==='photo'?<img loading="lazy" src={message.local_preview||`/api/inbox-media?chat_id=${message.chat_id}&message_id=${message.message_id}`} alt="Bot-visible photo" className="mt-2 max-h-64 rounded-lg object-contain"/>:['voice','audio'].includes(message.media.kind)?<audio controls preload="none" src={message.local_preview||`/api/inbox-media?chat_id=${message.chat_id}&message_id=${message.message_id}`} className="mt-2 max-w-full"/>:['video','animation'].includes(message.media.kind)?<video controls preload="none" src={message.local_preview||`/api/inbox-media?chat_id=${message.chat_id}&message_id=${message.message_id}`} className="mt-2 max-h-64 rounded-lg"/>:null}<p className="mt-1 text-[9px] text-indigo-100/35">Preview up to 8 MB. If unavailable, open the original in Telegram.</p></div>}
               {message.deleted ? (
                 <p className="mt-2 text-[13px] italic text-indigo-100/30">Deleted through Videl</p>
-              ) : !message.text ? null : message.is_bot ? (
+              ) : !message.text ? null : message.is_bot&&data.rich_text ? (
                 <div className="telegram-rich mt-2 break-words text-[13px] leading-6 text-indigo-50/90" dangerouslySetInnerHTML={{__html: chatPreviewHtml(message.text)}} />
               ) : (
                 <p className="mt-2 whitespace-pre-wrap break-words text-[13px] leading-6 text-indigo-50/85">{message.text}</p>
               )}
-              <div className="mt-2 flex items-center justify-end gap-2 text-[9px] text-indigo-100/35"><span>{message.thread_id?`Topic ${message.thread_id}`:''}</span><span>{message.edited?'edited · ':''}{clock(message.date)}</span>{message.is_bot&&message.text?.includes('<tg-emoji')&&<span title="Premium emoji" className="rounded-full bg-gradient-to-r from-violet-500/20 to-indigo-500/20 px-1.5 py-0.5 text-[8px] font-bold tracking-widest text-violet-200">PREMIUM</span>}{message.ephemeral&&<span title="Telegram confirmed delivery; not a read receipt" aria-label="Delivery confirmed"><Check size={13}/></span>}{!message.deleted&&<button aria-label={`Reply to message ${message.message_id}`} disabled={message.ephemeral} title={message.ephemeral?"Saved message actions become available after recording captures it":"Reply"} onClick={()=>{setReply(message);setSelected(message);}}><Reply size={13}/></button>}</div>
+              <div className="mt-2 flex items-center justify-end gap-2 text-[9px] text-indigo-100/35"><span>{message.thread_id?`Topic ${message.thread_id}`:''}</span><span>{message.edited?'edited · ':''}{clock(message.date)}</span>{message.is_bot&&data.rich_text&&message.text?.includes('<tg-emoji')&&<span title="Premium emoji" className="rounded-full bg-gradient-to-r from-violet-500/20 to-indigo-500/20 px-1.5 py-0.5 text-[8px] font-bold tracking-widest text-violet-200">PREMIUM</span>}{message.ephemeral&&<span title="Telegram confirmed delivery; not a read receipt" aria-label="Delivery confirmed"><Check size={13}/></span>}{!message.deleted&&<button aria-label={`Reply to message ${message.message_id}`} disabled={message.ephemeral} title={message.ephemeral?"Saved message actions become available after recording captures it":"Reply"} onClick={()=>{setReply(message);setSelected(message);}}><Reply size={13}/></button>}</div>
             </div></article></div>)}
           </>}
         </div>

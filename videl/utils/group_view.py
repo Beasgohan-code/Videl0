@@ -231,7 +231,7 @@ class GroupView:
         return {'ok':True,'chat_id':cid,'items':list(reversed(docs)),'has_more':has_more,
             'next_before':docs[-1]['message_id'] if docs else None,
             'is_private':cid>0,'recording':bool(settings.get('enabled')),'retention_days':days,
-            'capture_dropped':_dropped,'settings':{key:bool(protections.get(key,False)) for key in PROTECTION},
+            'capture_dropped':_dropped,'rich_text':True,'settings':{key:bool(protections.get(key,False)) for key in PROTECTION},
             'visibility_note':'Only messages delivered to this bot after recording was enabled. No Telegram history import; privacy mode can limit visibility. Small photos, videos and voice messages can be viewed through the owner-only media proxy. Unobserved deletions are not synchronized.'}
 
     def settings(self,cid,actor,body):
