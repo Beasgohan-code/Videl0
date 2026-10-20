@@ -67,6 +67,10 @@ def _telegram_path(api, emoji_id: str) -> str:
     file_id = (thumbnail or {}).get("file_id") or sticker.get("file_id")
     if not file_id:
         raise EmojiError("Telegram did not return artwork for this premium emoji.", 502)
+    return _file_path(api, file_id)
+
+
+def _file_path(api, file_id: str) -> str:
     status, body = api("getFile", {"file_id": file_id})
     result = body.get("result") if isinstance(body, dict) and body.get("ok") else None
     path = (result or {}).get("file_path") if isinstance(result, dict) else None
@@ -118,6 +122,49 @@ def fetch_emoji(api, emoji_id: str) -> tuple[str, bytes]:
         _remember(emoji_id, None, "image/webp", "Premium emoji artwork could not be loaded.")
         raise EmojiError("Premium emoji artwork could not be loaded.", 502) from None
     _remember(emoji_id, payload, mime, None)
+    return mime, payload
+
+
+def fetch_file(api, file_id: str) -> tuple[str, bytes]:
+    """Download one small Bot API file (chat photo, sticker, …) with caching."""
+    file_id = str(file_id or "").strip()
+    if not file_id or len(file_id) > 512 or not re.fullmatch(r"[A-Za-z0-9_\-]+", file_id):
+        raise EmojiError("A valid Telegram file ID is required.", 400)
+    key = f"file:{file_id}"
+    hit = _cached(key)
+    if hit is not None:
+        payload, mime, error = hit
+        if payload is None:
+            raise EmojiError(error or "Telegram file is unavailable.", 404)
+        return mime, payload
+    token = getattr(config, "BOT_TOKEN", "") or ""
+    if not token:
+        raise EmojiError("The bot token is not configured on the backend.", 503)
+    try:
+        path = _file_path(api, file_id)
+        with requests.get(f"https://api.telegram.org/file/bot{token}/{quote(path, safe='/')}", stream=True, timeout=(5, 15)) as upstream:
+            if upstream.status_code != 200:
+                raise EmojiError("Telegram file is unavailable.", 502)
+            mime = (upstream.headers.get("Content-Type") or "image/jpeg").split(";")[0].strip().lower()
+            chunks = []
+            size = 0
+            for chunk in upstream.iter_content(32768):
+                size += len(chunk)
+                if size > _MAX_BYTES:
+                    raise EmojiError("Telegram file is larger than the viewer limit.", 413)
+                chunks.append(chunk)
+        payload = b"".join(chunks)
+        if not payload:
+            raise EmojiError("Telegram returned an empty file.", 502)
+        if mime not in _ALLOWED_MIME:
+            mime = "image/jpeg"
+    except EmojiError as error:
+        _remember(key, None, "image/jpeg", str(error))
+        raise
+    except Exception:
+        _remember(key, None, "image/jpeg", "Telegram file could not be loaded.")
+        raise EmojiError("Telegram file could not be loaded.", 502) from None
+    _remember(key, payload, mime, None)
     return mime, payload
 
 

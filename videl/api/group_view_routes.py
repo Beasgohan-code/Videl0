@@ -37,6 +37,20 @@ def register_group_view_routes(app,authorized,api):
             return jsonify({'ok':False,'error':str(error)}),error.status,{'Cache-Control':'no-store'}
         return Response(payload,mimetype=mime,headers={'Cache-Control':'private, max-age=86400','X-Content-Type-Options':'nosniff'})
 
+    @app.route('/internal/chat-photo',methods=['GET'])
+    def chat_photo():
+        if not authorized():return jsonify({'ok':False,'error':'unauthorized'}),403
+        from flask import Response
+        from videl.utils.db import get_db
+        try:
+            service=GroupView(get_db(),api)
+            mime,payload=service.photo(request.args.get('chat_id'))
+            return Response(payload,mimetype=mime,headers={'Cache-Control':'private, max-age=21600','X-Content-Type-Options':'nosniff'})
+        except ViewError as error:
+            return jsonify({'ok':False,'error':str(error)}),error.status,{'Cache-Control':'no-store'}
+        except Exception:
+            return jsonify({'ok':False,'error':'Chat photo unavailable.'}),503,{'Cache-Control':'no-store'}
+
     @app.route('/internal/bot-conversations',methods=['GET'])
     def bot_conversations():
         if not authorized():return jsonify({'ok':False,'error':'unauthorized'}),403

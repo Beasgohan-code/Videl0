@@ -22,8 +22,11 @@ underline, strike, mono, quote, spoiler, links) and premium custom emoji via
 a Fragment username or a Premium owner (Bot API 9.4+) to send custom emoji.
 
 Bot Inbox is a messenger-style client: chat folders, drafts, search, media
-sending, replies, reactions, polls and a chat-info panel (profile, member count,
-description, permissions, pinned message, invite link, bot admin status).
+sending, replies, reactions, polls, forwarding and a chat-info panel (profile,
+member count, description, permissions, pinned message, invite link, bot admin
+status). Chat avatars use the real Telegram profile photo, resolved through an
+owner-only proxy with gradient initials as the fallback, and consecutive
+messages from one sender are grouped the way Telegram renders them.
 Formatting captured from Telegram message entities is stored as safe HTML, so
 incoming bold, code, spoilers and premium emoji render in the viewer instead of
 being flattened. Premium emoji artwork is resolved server-side through

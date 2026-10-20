@@ -541,6 +541,17 @@ class GroupView:
         return {'message_id':raw.get('message_id'),'text':str(text)[:280],
             'date':aware(raw.get('date')).isoformat() if raw.get('date') else None}
 
+    def photo(self,chat_id):
+        """Profile photo of a chat the bot can read, streamed by the owner proxy."""
+        cid,_=self.access(chat_id)
+        chat=self.call('getChat',{'chat_id':cid}) or {}
+        picture=chat.get('photo') if isinstance(chat,dict) and isinstance(chat.get('photo'),dict) else {}
+        file_id=picture.get('small_file_id') or picture.get('big_file_id')
+        if not file_id:raise ViewError('This chat has no profile photo.',404)
+        from videl.utils.premium_emoji import EmojiError,fetch_file
+        try:return fetch_file(self.api,file_id)
+        except EmojiError as error:raise ViewError(str(error),error.status) from None
+
     def settings(self,cid,actor,body):
         action=body.get('action')
         if action=='recording':
@@ -574,8 +585,8 @@ class GroupView:
         cid,actor=self.access(body.get('chat_id'))
         action=body.get('action')
         if action in {'recording','purge_history','protect'}:return self.settings(cid,actor,body)
-        if cid>0 and action not in {'send','reply','delete','react','poll'}:raise ViewError('This action is group-only.',403)
-        if action not in {'send','reply','delete','react','poll','mute','unmute','ban','pin','unpin'}:raise ViewError('Unsupported group action.')
+        if cid>0 and action not in {'send','reply','delete','react','poll','forward'}:raise ViewError('This action is group-only.',403)
+        if action not in {'send','reply','delete','react','poll','forward','mute','unmute','ban','pin','unpin'}:raise ViewError('Unsupported group action.')
         mid=None if action in {'send','poll'} else integer(body.get('message_id'),positive=True)
         policy=self.db['group_view_settings'].find_one({'_id':cid}) or {}
         days=policy.get('retention_days',7)
@@ -619,6 +630,11 @@ class GroupView:
                 is_anonymous=body.get('anonymous') is not False,
                 allows_multiple_answers=bool(body.get('multiple')))
             if message and message.get('thread_id'):payload['message_thread_id']=message['thread_id']
+        elif action=='forward':
+            destination=self.access(body.get('to_chat_id'))[0]
+            if destination==cid:raise ViewError('Choose a different chat to forward this message to.')
+            method='forwardMessage'
+            payload={'chat_id':destination,'from_chat_id':cid,'message_id':mid}
         elif action=='delete':method='deleteMessage';payload['message_id']=mid
         elif action in {'pin','unpin'}:
             method='pinChatMessage' if action=='pin' else 'unpinChatMessage';payload['message_id']=mid
@@ -674,6 +690,13 @@ class GroupView:
                         'sender_id':me['id'],'sender_is_user':True,'sender_name':me.get('first_name','Videl'),
                         'sender_username':me.get('username',''),'is_bot':True,'reply_to_id':mid,
                         'thread_id':message.get('thread_id') if message else None,'date':now(),'edited':False,'deleted':False})
+                if action=='forward' and isinstance(result,dict):
+                    target_settings=self.db['group_view_settings'].find_one({'_id':payload['chat_id']}) or {}
+                    if target_settings.get('enabled'):
+                        store(self.db,{'chat_id':payload['chat_id'],'message_id':result.get('message_id'),'text':str(result.get('text') or message.get('text') or ''),
+                            'media':None,'sender_id':me['id'],'sender_is_user':True,'sender_name':me.get('first_name','Videl'),
+                            'sender_username':me.get('username',''),'is_bot':True,'reply_to_id':None,'thread_id':None,
+                            'date':now(),'edited':False,'deleted':False})
                 if action=='poll' and isinstance(result,dict):
                     store(self.db,{'chat_id':cid,'message_id':result['message_id'],'text':payload['question'],
                         'media':{'kind':'poll','name':payload['question'][:160]},

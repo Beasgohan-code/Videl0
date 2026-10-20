@@ -194,6 +194,29 @@ class GroupViewerTests(unittest.TestCase):
         self.assertEqual(sent[0]['parse_mode'],'HTML')
         self.assertNotIn('parse_mode',sent[-1]);self.assertEqual(sent[-1]['text'],'hu h'.replace(' ',''))
 
+    def test_forward_requires_a_second_known_chat(self):
+        self.db['served_chats'].insert_one({'_id':-100123457})
+        self.db['group_view_settings'].insert_one({'_id':CID,'enabled':True,'epoch':'e','enabled_at':view.now()-timedelta(minutes=5),'retention_days':7})
+        result=self.service.act({'chat_id':CID,'message_id':25,'action':'forward','to_chat_id':-100123457,'request_id':str(uuid.uuid4())})
+        self.assertTrue(result['ok'])
+        sent=next(call.args[1] for call in self.api.call_args_list if call.args[0]=='forwardMessage')
+        self.assertEqual(sent,{'chat_id':-100123457,'from_chat_id':CID,'message_id':25})
+        with self.assertRaises(view.ViewError):self.service.act({'chat_id':CID,'message_id':25,'action':'forward','to_chat_id':CID,'request_id':str(uuid.uuid4())})
+        with self.assertRaises(view.ViewError):self.service.act({'chat_id':CID,'message_id':25,'action':'forward','to_chat_id':-100999999,'request_id':str(uuid.uuid4())})
+
+    def test_chat_photo_is_resolved_through_telegram(self):
+        original=self.telegram
+        def telegram(method,payload):
+            if method=='getChat':return 200,{'ok':True,'result':{'photo':{'small_file_id':'photo-file-id'}}}
+            if method=='getFile':return 200,{'ok':True,'result':{'file_path':'photos/file_1.jpg'}}
+            return original(method,payload)
+        self.api.side_effect=telegram
+        # photo() imports the cached downloader lazily from premium_emoji.
+        with patch('videl.utils.premium_emoji.fetch_file',return_value=('image/jpeg',b'jpeg')) as fetch:
+            mime,payload=self.service.photo(CID)
+        self.assertEqual((mime,payload),('image/jpeg',b'jpeg'))
+        fetch.assert_called_once_with(self.api,'photo-file-id')
+
     def test_reaction_action_is_scoped_to_a_recorded_message(self):
         result=self.action('react',emoji='🔥')
         self.assertTrue(result['ok']);self.assertEqual(result['reaction'],'🔥')
