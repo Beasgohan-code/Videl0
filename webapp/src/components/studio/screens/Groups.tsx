@@ -1197,6 +1197,12 @@ export default function GroupsPage() {
 
               {tab === "inbox" && (
                 <div className="mt-3 space-y-3">
+                  {detail && !detail.inbox && (
+                    <PanelNotice>
+                      This backend does not report reports or join requests yet. Redeploy the Render service, then
+                      reopen this tab — nothing is being hidden.
+                    </PanelNotice>
+                  )}
                   <div className="rounded-xl bg-white/[0.03] p-3">
                     <h3 className="flex items-center gap-2 text-sm font-semibold">
                       <InboxIcon size={15} /> Join requests

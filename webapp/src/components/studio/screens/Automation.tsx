@@ -263,6 +263,12 @@ export default function AutomationScreen() {
           ) : (
             <>
               <h2 className="truncate font-semibold">{displayTitle(active)}</h2>
+              {!active.automation && (
+                <div className="mt-2 rounded-xl border border-amber-300/20 bg-amber-300/5 p-3 text-xs text-amber-100">
+                  This backend does not report automation settings yet. Defaults are shown for reference; saving needs
+                  the updated Render deploy.
+                </div>
+              )}
               <p className="ios-caption mt-1">
                 {active.id} · {memberLabel(active.members)} · {quietNow(draft.quiet_hours) ? "inside the quiet window now" : "outside the quiet window"}
               </p>
