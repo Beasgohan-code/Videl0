@@ -17,6 +17,7 @@ from videl import LOGGER
 from videl.app.router import Command, CommandError, Screen
 from videl.plugins import base
 from videl.plugins.base import body, escape, heading, table, target_link
+from videl.utils.audit import record_bot
 from videl.utils.bot_ui import button
 from videl.utils.command_ui import usage
 
@@ -162,10 +163,11 @@ async def warn(ctx) -> Screen:
                 await reply.delete()
             except Exception:
                 LOGGER.debug("dwarn could not delete the replied message", exc_info=True)
-    from videl.utils.audit import record_bot
-    record_bot(chat_id, "warn", action="warn",
-               detail=f"member {user.id}: {reason}"[:240],
-               actor=getattr(getattr(ctx.message, "from_user", None), "id", None))
+    await asyncio.to_thread(
+        record_bot, chat_id, "warn", action="warn",
+        detail=f"member {user.id}: {reason}"[:240],
+        actor=getattr(getattr(ctx.message, "from_user", None), "id", None),
+    )
     notes = ""
     if count >= limit:
         escalation = _escalation(chat_id)

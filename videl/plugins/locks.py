@@ -7,6 +7,7 @@ lock someone out of the group.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import time
@@ -19,6 +20,7 @@ from videl import LOGGER, bot
 from videl.app.router import Command, CommandError, Screen
 from videl.plugins import base
 from videl.plugins.base import body, escape, heading, table
+from videl.utils.audit import record_bot
 from videl.utils.bot_ui import button
 from videl.utils.automation import in_quiet_hours
 from videl.utils.db import is_approved
@@ -112,10 +114,12 @@ async def mgmt_content_checker(_, message) -> None:
             logger.debug("Lock deletion failed", exc_info=True)
 
 
-def _record(chat_id: int, action: str, detail: str, user) -> None:
-    from videl.utils.audit import record_bot
-    record_bot(chat_id, "settings", action=action, detail=detail,
-               actor=getattr(user, "id", None))
+async def _record(chat_id: int, action: str, detail: str, user) -> None:
+    """Offload the write: a slow Mongo round-trip must not stall the bot."""
+    await asyncio.to_thread(
+        record_bot, chat_id, "settings", action=action, detail=detail,
+        actor=getattr(user, "id", None),
+    )
 
 
 async def change_lock(ctx, enabled: bool) -> Screen:
@@ -131,9 +135,11 @@ async def change_lock(ctx, enabled: bool) -> Screen:
         updates["lock_forwards"] = enabled
     if not base.set_settings(ctx.message.chat.id, updates):
         raise CommandError("MongoDB is not connected, so nothing changed.")
-    _record(ctx.message.chat.id, "lock" if enabled else "unlock",
-            f"{'on' if enabled else 'off'}: {', '.join(sorted(updates))}",
-            getattr(ctx.message, "from_user", None))
+    await _record(
+        ctx.message.chat.id, "lock" if enabled else "unlock",
+        f"{'on' if enabled else 'off'}: {', '.join(sorted(updates))}",
+        getattr(ctx.message, "from_user", None),
+    )
     return Screen(
         heading("Locks updated", 3)
         + table([("Type", escape(selected)), ("State", "locked" if enabled else "open")])
@@ -169,8 +175,10 @@ async def antispam(ctx) -> Screen:
         return Screen(heading("Anti-flood", 3) + body("Usage: <code>/antispam on</code> or <code>/antispam off</code>."))
     if not base.set_setting(chat_id, "antispam", argument == "on"):
         raise CommandError("MongoDB is not connected, so nothing changed.")
-    _record(chat_id, "settings", f"antispam: {argument}",
-            getattr(ctx.message, "from_user", None))
+    await _record(
+        chat_id, "settings", f"antispam: {argument}",
+        getattr(ctx.message, "from_user", None),
+    )
     return Screen(heading("Anti-flood", 3) + body(f"Anti-flood is now <b>{argument}</b>."))
 
 

@@ -3,6 +3,7 @@
 #  FallenRobot blacklist.py + blacklist_stickers — Richgram UI
 # --------------------------------------------------------------------------------
 
+import asyncio
 import re
 from pyrogram import filters
 from pyrogram.enums import ChatMemberStatus
@@ -43,9 +44,11 @@ async def addbl_cmd(_, m):
     for t in triggers:
         add_blacklist(m.chat.id, t)
         added.append(t)
-    record_bot(m.chat.id, "blacklist", action="blacklist_add",
-               detail="added: " + ", ".join(added[:12])[:200],
-               actor=getattr(m.from_user, "id", None))
+    await asyncio.to_thread(
+        record_bot, m.chat.id, "blacklist", action="blacklist_add",
+        detail="added: " + ", ".join(added[:12])[:200],
+        actor=getattr(m.from_user, "id", None),
+    )
     rows = []
     for x in added[:20]:
         rows.append(("<code>" + rich_esc(x) + "</code>", rich_button(pe("cross","❌") + " " + sc("remove"), callback_data="bl:rm:" + rich_esc(x), style="danger")))
@@ -62,8 +65,10 @@ async def delbl_cmd(_, m):
         return await rich_send(bot, m.chat.id, _hdr(sc("remove from blacklist"),3) + rich_note("<code>/delblacklist &lt;word&gt;</code>"))
     trig = m.text.split(maxsplit=1)[1].lower()
     if remove_blacklist(m.chat.id, trig):
-        record_bot(m.chat.id, "blacklist", action="blacklist_remove",
-                   detail=f"removed: {trig}"[:200], actor=getattr(m.from_user, "id", None))
+        await asyncio.to_thread(
+            record_bot, m.chat.id, "blacklist", action="blacklist_remove",
+            detail=f"removed: {trig}"[:200], actor=getattr(m.from_user, "id", None),
+        )
         body = _hdr(pe("cross","❌") + " " + sc("removed"),3) + rich_kv_table([(pe("hex","") + " " + sc("word"), "<code>" + rich_esc(trig) + "</code>")])
         body += "<p>" + rich_button(pe("eyes","👀") + " " + sc("view list"), callback_data="bl:view") + "</p>"
         kb = InlineKeyboardMarkup([[InlineKeyboardButton(pe("eyes","👀") + " " + sc("view list"), callback_data="bl:view")]])
@@ -116,8 +121,10 @@ async def blmode_cmd(_, m):
     elif mode not in VALID_MODES and not mode.startswith("tban_"):
         return await rich_send(bot, m.chat.id, _hdr(pe("warn","⚠️") + " " + sc("invalid mode"),3) + rich_note("✓ " + sc("valid") + ": <code>off/del/warn/mute/ban/kick/tban</code>"))
     set_blacklist_mode(m.chat.id, mode)
-    record_bot(m.chat.id, "blacklist_mode", action="blacklist_mode",
-               detail=f"mode: {mode}"[:40], actor=getattr(m.from_user, "id", None))
+    await asyncio.to_thread(
+        record_bot, m.chat.id, "blacklist_mode", action="blacklist_mode",
+        detail=f"mode: {mode}"[:40], actor=getattr(m.from_user, "id", None),
+    )
     await rich_send(bot, m.chat.id, _hdr(pe("check","✅") + " " + sc("mode updated"),3) + rich_kv_table([(pe("target","") + " " + sc("mode"), "<code>" + rich_esc(mode) + "</code>")]) + "<p>" + rich_button(pe("eyes","👀") + " " + sc("view list"), callback_data="bl:view") + "</p>")
 
 @bot.on_message(filters.command('addblsticker') & filters.group & group_allowed & user_allowed)

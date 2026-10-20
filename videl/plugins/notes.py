@@ -16,10 +16,10 @@ from videl import LOGGER, bot
 from videl.app.router import Command, CommandError, Screen
 from videl.plugins import base
 from videl.plugins.base import body, escape, heading, table
+from videl.utils.audit import record_bot
 from videl.utils.bot_ui import button
 from videl.utils.command_ui import usage
 from videl.utils.rich_ui import rich_reply, rich_send
-from videl.utils.audit import record_bot
 
 NOTES = "mgmt_notes"
 FILTERS = "mgmt_filters"
@@ -158,9 +158,11 @@ async def add_filter(ctx) -> Screen:
         {"$set": {"reply": reply}},
         upsert=True,
     )
-    record_bot(ctx.message.chat.id, "filter", action="filter_add",
-               detail=f"keyword: {keyword}"[:80],
-               actor=getattr(getattr(ctx.message, "from_user", None), "id", None))
+    await asyncio.to_thread(
+        record_bot, ctx.message.chat.id, "filter", action="filter_add",
+        detail=f"keyword: {keyword}"[:80],
+        actor=getattr(getattr(ctx.message, "from_user", None), "id", None),
+    )
     return Screen(heading("Filter saved", 3) + body(f"<code>{escape(keyword)}</code> → {escape(reply[:120])}"))
 
 
@@ -177,9 +179,11 @@ async def remove_filter(ctx) -> Screen:
     )
     if not result.deleted_count:
         return Screen(heading("Filter not found", 3) + body(f"No filter named <code>{escape(keyword)}</code>."))
-    record_bot(ctx.message.chat.id, "filter", action="filter_delete",
-               detail=f"keyword: {keyword}"[:80],
-               actor=getattr(getattr(ctx.message, "from_user", None), "id", None))
+    await asyncio.to_thread(
+        record_bot, ctx.message.chat.id, "filter", action="filter_delete",
+        detail=f"keyword: {keyword}"[:80],
+        actor=getattr(getattr(ctx.message, "from_user", None), "id", None),
+    )
     return Screen(heading("Filter removed", 3) + body(f"<code>{escape(keyword)}</code> is silent again."))
 
 
