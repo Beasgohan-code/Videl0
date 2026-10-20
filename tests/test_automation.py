@@ -117,6 +117,16 @@ class AuditTests(unittest.TestCase):
     def setUp(self):
         self.db = mongomock.MongoClient().videl
 
+    def test_bot_writes_are_attributed_to_the_bot_surface(self):
+        with patch("videl.utils.db.get_db", return_value=self.db):
+            self.assertTrue(audit.record_bot(CID, "warn", action="warn",
+                                            detail="member 5: spam", actor=9))
+            self.assertFalse(audit.record_bot(CID, "not_a_kind", detail="x"))
+        row = self.db["mgmt_audit"].find_one({"kind": "warn"})
+        self.assertEqual(row["source"], "bot")
+        self.assertEqual(row["actor"], 9)
+        self.assertEqual(row["detail"], "member 5: spam")
+
     def test_record_and_read_newest_first(self):
         audit.record(self.db, CID, "settings", action="settings", detail="on: lock_links", actor=1)
         audit.record(self.db, CID, "preset", action="preset", detail="preset: strict", actor=1)

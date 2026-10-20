@@ -162,6 +162,10 @@ async def warn(ctx) -> Screen:
                 await reply.delete()
             except Exception:
                 LOGGER.debug("dwarn could not delete the replied message", exc_info=True)
+    from videl.utils.audit import record_bot
+    record_bot(chat_id, "warn", action="warn",
+               detail=f"member {user.id}: {reason}"[:240],
+               actor=getattr(getattr(ctx.message, "from_user", None), "id", None))
     notes = ""
     if count >= limit:
         escalation = _escalation(chat_id)

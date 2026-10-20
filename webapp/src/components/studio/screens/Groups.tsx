@@ -159,7 +159,7 @@ export default function GroupsPage() {
   const [auditMessage, setAuditMessage] = useState("");
   const [auditKind, setAuditKind] = useState("all");
   const [auditKinds, setAuditKinds] = useState<string[]>([
-    "settings", "preset", "automation", "commands", "blacklist", "join_request", "report",
+    "settings", "preset", "automation", "commands", "blacklist", "warn", "join_request", "report",
   ]);
   const [commandQuery, setCommandQuery] = useState("");
 

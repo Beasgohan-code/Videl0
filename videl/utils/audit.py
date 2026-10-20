@@ -34,6 +34,7 @@ KINDS = (
     "note",
     "filter",
     "approval",
+    "warn",
     "warn_reset",
     "automation",
     "commands",
@@ -90,6 +91,22 @@ def record(db, chat_id: int, kind: str, *, action: str = "", detail: str = "",
         return True
     except Exception:
         log.debug("audit write failed", exc_info=True)
+        return False
+
+
+def record_bot(chat_id: int, kind: str, *, action: str = "", detail: str = "", actor=None) -> bool:
+    """Best-effort audit row for a change made through the bot.
+
+    The caller already changed something Telegram confirmed; an audit failure
+    must never turn that into an error, so this swallows its own exceptions.
+    """
+    try:
+        from videl.utils.db import get_db
+
+        return record(get_db(), chat_id, kind, action=action, detail=detail,
+                      actor=actor if isinstance(actor, int) else None, source="bot")
+    except Exception:
+        log.debug("bot audit write failed", exc_info=True)
         return False
 
 

@@ -50,8 +50,9 @@ to code that actually runs:
   posts are never resent.
 
 Boundaries: quiet hours only see messages delivered to the bot while it runs,
-join requests are recorded from that point onward, and audit rows describe
-owner-driven panel changes plus bot-side report and recording events.
+join requests are recorded from that point onward, and audit rows cover panel
+changes plus bot-side lock, antispam, warning, filter, blacklist, join-request,
+report and recording events.
 
 ## Bot
 

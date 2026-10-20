@@ -503,6 +503,7 @@ export function auditLabel(event: AuditEvent): string {
     note: "Note removed",
     filter: "Filter removed",
     approval: "Approval removed",
+    warn: "Warning issued",
     warn_reset: "Warnings cleared",
     automation: "Automation updated",
     commands: "Command switch changed",
