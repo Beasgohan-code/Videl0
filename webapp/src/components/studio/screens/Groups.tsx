@@ -1185,8 +1185,8 @@ export default function GroupsPage() {
                       <span className="ios-pill text-[10px]">{disabledCommands.size} off</span>
                     </h3>
                     <p className="ios-caption mt-1">
-                      Turning a command off blocks it in this group only. The bot refuses it with a short notice
-                      before any action runs. Owners keep access everywhere.
+                      Turning a command off blocks it for members in this group only. Group admins and the bot owner
+                      keep access, and the bot refuses everyone else before any action runs.
                     </p>
                     <label className="sr-only" htmlFor="command-search">Filter commands</label>
                     <input
