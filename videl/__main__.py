@@ -457,17 +457,22 @@ def _internal_bot_settings():
     if not _internal_authorized():
         return jsonify({"ok": False, "error": "unauthorized"}), 403
     if request.method == "GET":
-        _, me_res = _bot_api("getMe", {})
-        _, cmd_res = _bot_api("getMyCommands", {})
-        _, menu_res = _bot_api("getChatMenuButton", {})
+        me_status, me_res = _bot_api("getMe", {})
+        if not me_status or not me_res.get("ok"):
+            return jsonify({"ok": False, "error": "Telegram bot settings could not be verified. Check the backend connection and bot configuration."}), 502
+        cmd_status, cmd_res = _bot_api("getMyCommands", {})
+        menu_status, menu_res = _bot_api("getChatMenuButton", {})
+        warnings = []
+        if not cmd_status or not cmd_res.get("ok"):
+            warnings.append("Telegram command list is unavailable")
+        if not menu_status or not menu_res.get("ok"):
+            warnings.append("Telegram menu button is unavailable")
         return jsonify({
             "ok": True,
-            "bot": me_res.get("result") if me_res and me_res.get("ok") else {
-                "username": getattr(config, "BOT_USERNAME", "Videl0Bot"),
-                "first_name": getattr(config, "BOT_NAME", "Videl Studio"),
-            },
-            "commands": cmd_res.get("result", []) if cmd_res and cmd_res.get("ok") else [],
-            "menu_button": menu_res.get("result", {}) if menu_res and menu_res.get("ok") else {},
+            "bot": me_res.get("result"),
+            "commands": cmd_res.get("result", []) if cmd_status and cmd_res.get("ok") else None,
+            "menu_button": menu_res.get("result", {}) if menu_status and menu_res.get("ok") else None,
+            "warnings": warnings,
             "webapp_url": getattr(config, "WEBAPP_URL", ""),
         })
     body = request.get_json(silent=True)
