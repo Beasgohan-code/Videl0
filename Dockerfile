@@ -18,10 +18,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY requirements.txt ./
+COPY requirements.txt scripts/check_voice_dependencies.py ./
 RUN pip install --upgrade pip setuptools wheel && \
     pip install --no-cache-dir -r requirements.txt && \
-    python -c "import pyrogram, flask, pymongo; print('Videl backend dependencies OK')"
+    python -c "import pyrogram, flask, pymongo; print('Videl backend dependencies OK')" && \
+    python check_voice_dependencies.py
 
 COPY vendor ./vendor
 COPY videl ./videl

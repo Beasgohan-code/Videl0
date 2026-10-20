@@ -2,7 +2,9 @@
 # The web control panel is a separate Next.js/Vercel app.
 
 # Telegram bot and voice chats
-pyrogram==2.0.106
+# Kurigram provides the pyrogram namespace and current Telegram RPC errors.
+# Do not install archived pyrogram alongside it (both write the same package).
+kurigram==2.2.26
 tgcrypto==1.2.5
 py-tgcalls==2.2.11
 ntgcalls==2.2.5

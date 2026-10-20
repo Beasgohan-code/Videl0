@@ -6,15 +6,10 @@
 import logging
 import time
 
-# Telegram client: pyrogram stable, kurigram fallback (both installed via deps)
-try:
-    from pyrogram import Client
-    from pyrogram.enums import ParseMode
-    _TG_IMPL = "pyrogram"
-except ImportError:
-    from kurigram import Client
-    from kurigram.enums import ParseMode
-    _TG_IMPL = "kurigram"
+# Kurigram is the maintained client, imported through its pyrogram namespace.
+from pyrogram import Client
+from pyrogram.enums import ParseMode
+_TG_IMPL = "kurigram"
 
 # PyTgCalls: optional — if ntgcalls missing, bot still runs (VC disabled)
 try:

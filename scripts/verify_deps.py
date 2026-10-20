@@ -7,6 +7,7 @@ import subprocess, sys
 
 checks = [
     ("pyrogram import", "import pyrogram; print(pyrogram.__version__)"),
+    ("voice client constructor", "import runpy; runpy.run_path('scripts/check_voice_dependencies.py', run_name='__main__')"),
     ("tgcrypto import", "import tgcrypto; print('tgcrypto ok')"),
     ("flask import", "import flask; print(flask.__version__)"),
     ("pymongo import", "import pymongo; print(pymongo.version)"),
