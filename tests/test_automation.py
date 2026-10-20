@@ -258,6 +258,34 @@ class GroupAutomationTests(unittest.TestCase):
         self.assertEqual(payload["status"], "resolved")
         self.assertEqual(self.service.describe(CID)["inbox"]["reports"], [])
 
+    def test_report_warn_adds_a_warning_and_closes_the_row(self):
+        insert = self.db["mgmt_reports"].insert_one({"chat_id": CID, "reporter": 5, "target": 77,
+                                                    "message_id": 9, "text": "spam", "status": "open"})
+        payload = self.act(action="report_update", id=str(insert.inserted_id), decision="warn")
+        self.assertEqual(payload["status"], "resolved")
+        self.assertIn("1/3", payload["note"])
+        self.assertEqual(self.db["mgmt_warnings"].find_one({"chat_id": CID, "user_id": 77})["count"], 1)
+        self.assertEqual(self.db["mgmt_reports"].find_one({"_id": insert.inserted_id})["decision"], "warn")
+        self.assertEqual(payload["inbox"]["reports"], [])
+        self.assertEqual(audit.recent(self.db, CID, kind="report")[0]["action"], "report_update")
+
+    def test_report_ban_calls_telegram_and_refuses_a_second_action(self):
+        insert = self.db["mgmt_reports"].insert_one({"chat_id": CID, "reporter": 5, "target": 78,
+                                                    "message_id": 9, "text": "spam", "status": "open"})
+        payload = self.act(action="report_update", id=str(insert.inserted_id), decision="ban")
+        self.assertEqual(payload["note"], "member banned")
+        methods = [call.args[0] for call in self.api.call_args_list]
+        self.assertIn("banChatMember", methods)
+        with self.assertRaises(view.ViewError) as error:
+            self.act(action="report_update", id=str(insert.inserted_id), decision="ban")
+        self.assertEqual(error.exception.status, 409)
+
+    def test_report_action_rejects_unknown_decisions(self):
+        insert = self.db["mgmt_reports"].insert_one({"chat_id": CID, "reporter": 5, "target": 79,
+                                                    "status": "open"})
+        with self.assertRaises(view.ViewError):
+            self.act(action="report_update", id=str(insert.inserted_id), decision="explode")
+
     def test_describe_carries_automation_and_inbox(self):
         payload = self.service.describe(CID)
         self.assertIn("quiet_hours", payload["automation"])

@@ -1311,8 +1311,8 @@ export default function GroupsPage() {
                       <span className="ios-pill text-[10px]">{detail?.inbox?.reports?.length ?? 0}</span>
                     </h3>
                     <p className="ios-caption mt-1">
-                      Filed with <code>/report</code>. Resolving removes the row from this queue; it never punishes
-                      anyone by itself.
+                      Filed with <code>/report</code>. Warn adds a warning and applies the warning ladder at the limit;
+                      Ban removes the member. Resolve only closes the row.
                     </p>
                     {!detail || (detail.inbox?.reports?.length ?? 0) === 0 ? (
                       <p className="ios-caption mt-2">No open reports.</p>
@@ -1329,7 +1329,33 @@ export default function GroupsPage() {
                               <span className="ios-caption">
                                 reporter {report.reporter ?? "?"} · {whenLabel(report.at)}
                               </span>
-                              <div className="flex gap-1.5">
+                              <div className="flex flex-wrap gap-1.5">
+                                <button
+                                  disabled={saving !== null || !report.target}
+                                  onClick={() => {
+                                    if (!window.confirm(`Add a warning to member ${report.target} and close this report?`)) return;
+                                    void runAction(
+                                      { action: "report_update", id: report.id, decision: "warn" },
+                                      { success: "Warning added; the report is resolved." },
+                                    );
+                                  }}
+                                  className="ios-btn ios-btn-glass text-[11px]"
+                                >
+                                  Warn
+                                </button>
+                                <button
+                                  disabled={saving !== null || !report.target}
+                                  onClick={() => {
+                                    if (!window.confirm(`Ban member ${report.target} and close this report?`)) return;
+                                    void runAction(
+                                      { action: "report_update", id: report.id, decision: "ban" },
+                                      { success: "Member banned; the report is resolved." },
+                                    );
+                                  }}
+                                  className="ios-btn ios-btn-glass text-[11px]"
+                                >
+                                  Ban
+                                </button>
                                 <button
                                   disabled={saving !== null}
                                   onClick={() =>

@@ -26,7 +26,8 @@ to code that actually runs:
   settings, waiting join requests and the last Telegram read), an aggregate
   "needs attention" queue ranked worst-first with the recorded reasons, protection
   presets, greetings, rules, captcha, warnings, notes, filters, blacklist,
-  approvals, join-request triage, report triage and a per-group audit trail
+  approvals, join-request triage (approve/decline), report triage (warn, ban,
+  resolve or dismiss) and a per-group audit trail
   (filterable, CSV export, 180-day retention).
 - **Command switches** — any of the 155 registered commands can be turned off
   for one group. A handler at group −1 refuses it before every other handler,

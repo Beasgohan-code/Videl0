@@ -9,6 +9,7 @@ from datetime import datetime,timedelta,timezone
 import html as _html
 import logging
 import re
+import time
 import uuid
 from pymongo.errors import DuplicateKeyError
 
@@ -736,6 +737,9 @@ class GroupView:
         raw=str(body.get('id') or '')
         try:identifier=ObjectId(raw)
         except Exception:raise ViewError('A valid report ID is required.') from None
+        decision=str(body.get('decision') or '')
+        if decision:
+            return self._report_action(cid,identifier,raw,decision,body)
         status=str(body.get('status') or 'resolved')
         if status not in {'resolved','dismissed'}:raise ViewError('Choose resolved or dismissed.')
         row=self.db['mgmt_reports'].find_one({'_id':identifier,'chat_id':cid})
@@ -743,6 +747,55 @@ class GroupView:
         self.db['mgmt_reports'].update_one({'_id':identifier},{'$set':{'status':status,'resolved':now()}})
         self.log(cid,'report_update',{'id':raw,'status':status})
         return {'ok':True,'id':raw,'status':status,'inbox':self.inbox(cid)}
+
+    def _report_action(self,cid,identifier,raw,decision,body):
+        """Warn or ban the reported member, then close the report.
+
+        This is the same escalation ladder ``/warn`` uses; the limit and the
+        action come from the group's stored settings rather than a constant.
+        """
+        if decision not in {'warn','ban'}:raise ViewError('Choose warn, ban, resolved or dismissed.')
+        row=self.db['mgmt_reports'].find_one({'_id':identifier,'chat_id':cid})
+        if row is None:raise ViewError('This report was not found.',404)
+        if str(row.get('status') or 'open')!='open':
+            raise ViewError('This report was already handled.',409)
+        try:target=int(row.get('target') or 0)
+        except (TypeError,ValueError):target=0
+        if target<=0:raise ViewError('This report does not name the member to act on.',409)
+        _,actor=self.access(cid)
+        self.rights(cid,actor,['can_restrict_members'])
+        note=''
+        if decision=='ban':
+            self.call('banChatMember',{'chat_id':cid,'user_id':target})
+            note='member banned'
+        else:
+            from videl.utils.db import add_warn,get_escalation,get_warn_limit
+            count=add_warn(cid,target,'report')
+            limit=get_warn_limit(cid)
+            if count>=limit:
+                escalation=get_escalation(cid)
+                action=escalation['action'] if escalation.get('enabled') else 'none'
+                if action=='ban':
+                    self.call('banChatMember',{'chat_id':cid,'user_id':target})
+                    note=f'{count}/{limit} warnings; member banned'
+                elif action=='kick':
+                    self.call('banChatMember',{'chat_id':cid,'user_id':target})
+                    self.call('unbanChatMember',{'chat_id':cid,'user_id':target})
+                    note=f'{count}/{limit} warnings; member removed'
+                elif action=='mute':
+                    hours=max(1,min(int(escalation.get('mute_hours') or 6),168))
+                    self.call('banChatMember',{'chat_id':cid,'user_id':target,
+                        'until_date':int(time.time())+hours*3600})
+                    note=f'{count}/{limit} warnings; muted {hours}h'
+                else:
+                    note=f'{count}/{limit} warnings; escalation is off'
+            else:
+                note=f'{count}/{limit} warnings'
+        self.db['mgmt_reports'].update_one({'_id':identifier},{'$set':{
+            'status':'resolved','resolved':now(),'decision':decision}})
+        self.log(cid,'report_update',{'id':raw,'decision':decision,'user_id':target})
+        return {'ok':True,'id':raw,'status':'resolved','decision':decision,
+                'note':note,'inbox':self.inbox(cid)}
 
     def _commands(self,cid,body):
         from videl.utils.command_catalog import commands as catalog_commands
