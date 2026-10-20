@@ -39,6 +39,9 @@ export default function AuthPage() {
         throw new Error(
           "Telegram verified you, but the session cookie was blocked. Allow site cookies or sign in from your regular browser.",
         );
+      try {
+        sessionStorage.removeItem("videl_signed_out");
+      } catch {}
       setStatus("Owner session confirmed. Opening Studio…");
       window.location.assign("/");
     } catch (error) {
@@ -77,8 +80,9 @@ export default function AuthPage() {
         ) : (
           <>
             <p className="mt-3 text-sm leading-6 text-[var(--ios-label-secondary)]">
-              Use the same Telegram account configured as the bot owner. No
-              tokens or passwords are needed here.
+              Only Telegram account 6265999542 can open private controls.
+              Everyone can use Post Studio and Creator Tools without signing in.
+              No tokens or passwords are needed here.
             </p>
             {telegram.available ? (
               <div className="mt-6 rounded-xl border border-indigo-300/20 p-4">

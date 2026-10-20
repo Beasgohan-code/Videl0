@@ -47,6 +47,7 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
   const alive = useRef(false);
   const inFlight = useRef(false);
   const rerun = useRef(false);
+  const signedOut = useRef(false);
   const retryAuth = useCallback(async (): Promise<void> => {
     if (inFlight.current) {
       rerun.current = true;
@@ -68,6 +69,20 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
         authError: "",
       }));
     try {
+      let optedOut = signedOut.current;
+      try {
+        optedOut ||= sessionStorage.getItem("videl_signed_out") === "1";
+      } catch {}
+      if (optedOut) {
+        if (alive.current)
+          setValue({
+            available,
+            user: null,
+            authenticated: false,
+            authError: "",
+          });
+        return;
+      }
       // Always restore the HttpOnly session first, including in a normal browser.
       const session = await fetch("/api/auth", {
         credentials: "same-origin",
@@ -156,6 +171,10 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
         credentials: "same-origin",
       });
       if (!response.ok) throw new Error("Sign out failed. Please retry.");
+      signedOut.current = true;
+      try {
+        sessionStorage.setItem("videl_signed_out", "1");
+      } catch {}
       setValue({
         available: false,
         user: null,
@@ -170,6 +189,13 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
       }));
     }
   }, []);
+  const manualRetryAuth = useCallback(async () => {
+    signedOut.current = false;
+    try {
+      sessionStorage.removeItem("videl_signed_out");
+    } catch {}
+    await retryAuth();
+  }, [retryAuth]);
   useEffect(() => {
     alive.current = true;
     let script: HTMLScriptElement | null = null;
@@ -206,7 +232,9 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
     };
   }, [retryAuth]);
   return (
-    <TelegramContext.Provider value={{ ...value, retryAuth, logout }}>
+    <TelegramContext.Provider
+      value={{ ...value, retryAuth: manualRetryAuth, logout }}
+    >
       {children}
     </TelegramContext.Provider>
   );

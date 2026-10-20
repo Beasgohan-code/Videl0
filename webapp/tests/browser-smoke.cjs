@@ -448,6 +448,30 @@ const assert = require("node:assert/strict");
       .count(),
     0,
   );
+  authMode = "browser";
+  sessionActive = true;
+  await page.goto(`${base}/?tab=auth`);
+  await page
+    .getByRole("heading", { name: "Owner access verified", exact: true })
+    .waitFor();
+  await page.getByRole("button", { name: "Sign out", exact: true }).click();
+  await page
+    .getByRole("heading", {
+      name: "Make something worth sharing.",
+      exact: true,
+    })
+    .waitFor();
+  await page.reload();
+  await page
+    .getByRole("heading", {
+      name: "Make something worth sharing.",
+      exact: true,
+    })
+    .waitFor();
+  assert.equal(
+    await page.getByRole("button", { name: "Sign out", exact: true }).count(),
+    0,
+  );
   assert.deepEqual(errors, []);
   console.log(
     "PASS: real Chromium PNG export, editable JSON export, keyboard movement, JSON import, mocked image publish, duplicate guard, caption limit, post recovery, design restore, 390px mobile layout, owner-session restoration, SDK-independent Mini App login, blocked-cookie diagnosis, private-tool gates, all private screens, group search/toggle, chat quick replies, CSV export, tool finder, editable recipe PNG export; no runtime errors.",
