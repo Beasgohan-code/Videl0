@@ -8,7 +8,7 @@ from .router import Screen,chat_kind
 
 
 async def inspect_setup(client,message):
-    keyboard=InlineKeyboardMarkup([[button('Music guide',callback_data='v2:section:music',style='primary'),
+    keyboard=InlineKeyboardMarkup([[button('Music commands',callback_data='v2:section:music',style='primary'),
                                    button('Back',callback_data='help:home')]])
     if chat_kind(message) not in {'group','supergroup'}:
         return Screen(result('Set up your group',body='Add the bot to your group, make it an admin, then open this check in that group. For music, the bot and assistant need access to its voice chat. No settings were changed.'),keyboard)

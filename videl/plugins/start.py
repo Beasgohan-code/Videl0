@@ -34,13 +34,7 @@ SECTIONS = {
 
 
 def studio_url() -> str:
-    from urllib.parse import urlsplit
-
-    value = (getattr(config, "WEBAPP_URL", "") or "https://videl-studio.vercel.app").rstrip("/")
-    parsed = urlsplit(value)
-    if parsed.scheme == "https" and parsed.netloc and not parsed.username and not parsed.password:
-        return value
-    return "https://videl-studio.vercel.app"
+    return base.studio_url()
 
 
 def private_keyboard(owner: bool, username: str = "") -> InlineKeyboardMarkup:
@@ -52,7 +46,7 @@ def private_keyboard(owner: bool, username: str = "") -> InlineKeyboardMarkup:
     rows.append(first)
     rows.append([button("Help center", callback_data="help:home"), button("All commands", callback_data="cmds:all:0")])
     rows.append([button("Group setup", callback_data="v2:setup"), button("Source & credits", callback_data="help:about")])
-    rows.append([button("Command guide on the web", url=root + "/?tab=guide")])
+    rows.append([button("Full command list", url=root + "/?tab=guide")])
     rows.append([button("Open Post Studio", web_app=WebAppInfo(url=root), style="primary")])
     if owner:
         rows.insert(0, [button("Owner workspace", web_app=WebAppInfo(url=root + "/?tab=settings"), style="primary"),
@@ -87,11 +81,23 @@ def member_caption(name: str, private: bool) -> str:
     steps = [
         ("Music", "<code>/play</code> a song or link inside a voice chat"),
         ("Protection", "<code>/setup</code> then <code>/lock links</code>"),
+        ("Community", "<code>/welcome on</code>, <code>/rules</code>, <code>/save name text</code>"),
         ("Commands", "<code>/help</code> or <code>/commands keyword</code>"),
     ]
     private_note = body("Music plays in your group voice chat, not in this private chat.") if private else body(
         "Start a voice chat, then send <code>/play</code> with a song name or link.")
     return heading("Videl Studio", 2) + body(intro) + private_note + table(steps)
+
+
+async def render_start(user, *, private: bool, owner: bool, username: str = "") -> Screen:
+    """Build the start card for a user without needing a full command context."""
+    if private and owner:
+        caption = await asyncio.to_thread(owner_caption, getattr(user, "first_name", "owner"))
+        return Screen(caption, private_keyboard(True))
+    name = getattr(user, "first_name", "there")
+    if not private:
+        return Screen(member_caption(name, private=False), group_keyboard())
+    return Screen(member_caption(name, private=True), private_keyboard(False, username))
 
 
 async def start(ctx) -> Screen:
@@ -103,13 +109,8 @@ async def start(ctx) -> Screen:
         text, keyboard = render_section(SECTIONS[arguments], owner=ctx.owner)
         return Screen(text, keyboard)
     private = base.is_private(ctx.message)
-    if private and ctx.owner:
-        caption = await asyncio.to_thread(owner_caption, getattr(user, "first_name", "owner"))
-        return Screen(caption, private_keyboard(True))
-    name = getattr(user, "first_name", "there")
-    if not private:
-        return Screen(member_caption(name, private=False), group_keyboard())
-    return Screen(member_caption(name, private=True), private_keyboard(False, getattr(getattr(ctx.client, "me", None), "username", "")))
+    username = getattr(getattr(ctx.client, "me", None), "username", "")
+    return await render_start(user, private=private, owner=ctx.owner, username=username)
 
 
 async def about(ctx) -> Screen:

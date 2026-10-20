@@ -1,8 +1,8 @@
 #  Videl © 2026 | Beasgohan-code
 """``/help`` and ``/commands`` — a help center built from the live registry.
 
-The old "workflow guide" is gone. Every row here is generated from the commands
-that are actually registered, so help can never drift away from the bot.
+Every row is generated from the commands that are actually registered and
+installed, so the help center cannot drift away from the running bot.
 """
 from __future__ import annotations
 
@@ -53,6 +53,7 @@ def render_section(section: str = "home", page: int = 0, *, owner: bool = False)
         )
         keyboard = InlineKeyboardMarkup([
             [button("Open repository", url="https://github.com/Beasgohan-code/Videl0", style="primary")],
+            [button("Full command list", url=base.guide_url())],
             [button("Back", callback_data="help:home")],
         ])
         return text, keyboard
@@ -62,7 +63,7 @@ def render_section(section: str = "home", page: int = 0, *, owner: bool = False)
         rows, page, pages, total = _command_rows(section, owner, page)
         text = heading(label, 2) + body(description)
         text += table(rows) if rows else body("No commands in this section yet.")
-        text += body(f"{total} commands · page {page + 1}/{pages}")
+        text += body(f"{total} commands · page {page + 1} of {pages}")
         text += body("Administrative commands check live Telegram permissions when you run them.")
         navigation = []
         if page:
@@ -77,20 +78,30 @@ def render_section(section: str = "home", page: int = 0, *, owner: bool = False)
         return text, InlineKeyboardMarkup(rows_keyboard)
 
     # Home
+    counts = {name: len(visible_commands(owner=owner, category=meta[2])) for name, meta in SECTION_META.items()}
     text = (
         heading("Help center", 2)
-        + body("Pick a section. Every command below is installed and checks permissions when used.")
+        + body("Everything Videl can do, generated from the live command registry. "
+               "Pick a section or search by keyword.")
         + table([
-            ("Music", "Play, queue, skip and playlists"),
-            ("Groups", "Bans, warnings, locks, notes and welcomes"),
-            ("Tools", "Polls, ids, reminders and the AFK status"),
-            ("Owner", "Private diagnostics" if owner else "Owner only"),
+            ("Start here", "<code>/start</code> · <code>/help</code> · <code>/commands</code>"),
+            ("Play music", "<code>/play</code> a song or link inside a voice chat"),
+            ("Protect a group", "<code>/lock links</code> · <code>/antispam</code> · <code>/welcome on</code>"),
+            ("Stay organised", "<code>/save name text</code> · <code>/remind 10m call</code>"),
         ])
-        + body("Search with <code>/commands keyword</code>, or open <code>/commands</code> for the full directory.")
+        + table([
+            ("Music", f"{counts['music']} commands · playback, queues, playlists"),
+            ("Groups", f"{counts['manage']} commands · moderation, locks, notes, welcomes"),
+            ("Tools", f"{counts['tools']} commands · polls, ids, reminders, AFK"),
+            ("Owner", (f"{counts['owner']} commands · diagnostics" if owner else "Hidden until you sign in as owner")),
+        ])
+        + body("Search with <code>/commands keyword</code>. Permissions are checked when a command runs; "
+               "this page never grants access.")
     )
     keyboard = [
         [button("Music", callback_data="help:music", style="primary"), button("Groups", callback_data="help:manage")],
         [button("Tools", callback_data="help:tools"), button("All commands", callback_data="cmds:all:0")],
+        [button("Full command list", url=base.guide_url())],
         [button("Source & credits", callback_data="help:about")],
     ]
     if owner:

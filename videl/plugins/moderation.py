@@ -127,7 +127,7 @@ async def warn(ctx) -> Screen:
         {"chat_id": chat_id, "user_id": user.id},
         {
             "$push": {"reasons": {"reason": reason, "ts": datetime.now(timezone.utc).isoformat()}},
-            "$set": {"count": count},
+            "$set": {"count": count, "updated": datetime.now(timezone.utc)},
         },
         upsert=True,
     )
@@ -175,7 +175,7 @@ async def unwarn(ctx) -> Screen:
     await asyncio.to_thread(
         store.update_one,
         {"chat_id": chat_id, "user_id": user.id},
-        {"$set": {"count": count, "reasons": reasons}},
+        {"$set": {"count": count, "reasons": reasons, "updated": datetime.now(timezone.utc)}},
     )
     return Screen(heading("Warning removed", 3) + table([("Member", target_link(user)), ("Warnings", f"{count}/{warn_limit(chat_id)}")]))
 

@@ -4,7 +4,7 @@
 - `npm run build`: production compilation and TypeScript checks.
 - From the repository root, `.venv/bin/python -m unittest discover -s tests -q`: offline bot API/database checks. Telegram requests are mocked.
 
-## Real-browser workflow
+## Real-browser checks
 
 Start a **production build** on port 3001:
 

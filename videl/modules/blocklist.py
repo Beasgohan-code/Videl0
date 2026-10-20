@@ -293,7 +293,7 @@ async def blacklist_watcher(_, m):
         c = add_warn(m.chat.id, m.from_user.id, "blacklist: " + hit["trigger"])
         lim = get_warn_limit(m.chat.id)
         body = _hdr(pe("warn","⚠️") + " " + sc("warned — blacklist"),3) + rich_kv_table([(pe("circle","") + " " + sc("user"), m.from_user.mention), (pe("hex","") + " " + sc("word"), "<code>" + rich_esc(hit["trigger"]) + "</code>"), (pe("target","") + " " + sc("warns"), "<code>" + str(c) + "/" + str(lim) + "</code>")])
-        body += "<p>" + rich_button(pe("eyes","👀") + " " + sc("warns"), callback_data="warns_view") + "</p>"
+        body += "<p>" + rich_button(pe("eyes","👀") + " " + sc("warns"), callback_data=f"warns:{m.from_user.id}") + "</p>"
         await rich_send(bot, m.chat.id, body)
         if c >= lim:
             try:

@@ -27,7 +27,7 @@ def panel(chat_id, title):
     items = list(RULES.items())
     for index in range(0, len(items), 2):
         rows.append([button(f"{'On' if states[key] else 'Off'} · {label}", callback_data=f"groupcfg:{chat_id}:{key}:{int(not states[key])}", style="success" if states[key] else "default", icon="shield") for key, label in items[index:index+2]])
-    rows.append([button("Command guide", callback_data="help:manage"), button("Refresh", callback_data=f"groupcfg:{chat_id}:refresh:0")])
+    rows.append([button("Commands", callback_data="help:manage"), button("Refresh", callback_data=f"groupcfg:{chat_id}:refresh:0")])
     text = rich_heading("Group workspace", level=2) + rich_kv_table([("Group", rich_esc(title)), ("Chat ID", f"<code>{chat_id}</code>")]) + rich_note("Explicit On/Off actions are saved in MongoDB. Only current group admins can change them. The bot needs Delete messages and Restrict members permissions for protection and join verification.")
     return text, InlineKeyboardMarkup(rows)
 

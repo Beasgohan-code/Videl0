@@ -28,11 +28,28 @@ async def navigate(client,query):
             section=parts[1]
         if len(parts)>2 and parts[2].isdigit():
             page=int(parts[2])
+        if section=='start':
+            from videl.plugins.start import render_start
+            from videl.plugins import base
+            await query.answer()
+            screen=await render_start(query.from_user,private=base.is_private(query.message),
+                                      owner=owner,username=getattr(getattr(client,'me',None),'username',''))
+            return await rich_edit(query,screen.html,reply_markup=screen.keyboard,client=client)
         if section=='owner' and not owner:
             return await query.answer('Owner pages are private.',show_alert=True)
         text,keyboard=render_section(section,page,owner=owner)
+    elif data.startswith('v2:section:'):
+        from videl.plugins.help import render_section
+        section=data.split(':',2)[2]
+        section={'protect':'manage'}.get(section,section)
+        if section not in {'home','about','music','manage','tools','owner'}:
+            section='home'
+        if section=='owner' and not owner:
+            return await query.answer('Owner pages are private.',show_alert=True)
+        text,keyboard=render_section(section,owner=owner)
     else:
+        from videl.plugins.help import render_section
         section={'pro_music_help':'music','pro_group_help':'manage'}.get(data,'home')
-        text,keyboard=__import__('videl.plugins.help',fromlist=['render_section']).render_section(section,owner=owner)
+        text,keyboard=render_section(section,owner=owner)
     await query.answer()
     await rich_edit(query,text,reply_markup=keyboard,client=client)

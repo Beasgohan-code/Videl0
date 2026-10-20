@@ -36,7 +36,7 @@ class StyleTests(unittest.TestCase):
         for value in ("", "10", "10s", "0m", "99999999w", "1.5h", "-5m"):
             self.assertIsNone(base.parse_duration(value))
 
-    def test_no_workflow_guide_survives_in_commands(self):
+    def test_no_standalone_guide_command_survives(self):
         for command in COMMANDS:
             self.assertIsInstance(command, Command)
         self.assertNotIn("guide", {command.name for command in COMMANDS})

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {parseBrandKits,postChecks} from "../src/lib/studio-workflows";
+import {parseBrandKits,postChecks} from "../src/lib/studio-drafts";
 test("brand kits allow only safe colors and supported fonts",()=>{
  const kit={id:"one",name:"Editorial",background:"#eeeeee",accent:"#123456",color:"#000000",font:"Georgia"};
  assert.deepEqual(parseBrandKits([kit]),[kit]);

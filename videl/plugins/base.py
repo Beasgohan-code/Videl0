@@ -57,6 +57,21 @@ def escape(value) -> str:
     return html.escape(str(value if value is not None else ""), quote=True)
 
 
+def studio_url() -> str:
+    """The public studio origin, validated before it is put in a button."""
+    from urllib.parse import urlsplit
+
+    value = (getattr(config, "WEBAPP_URL", "") or "https://videl-studio.vercel.app").rstrip("/")
+    parsed = urlsplit(value)
+    if parsed.scheme == "https" and parsed.netloc and not parsed.username and not parsed.password:
+        return value
+    return "https://videl-studio.vercel.app"
+
+
+def guide_url() -> str:
+    return studio_url() + "/?tab=guide"
+
+
 def table(rows: Iterable[tuple]) -> str:
     return rich_kv_table(list(rows))
 

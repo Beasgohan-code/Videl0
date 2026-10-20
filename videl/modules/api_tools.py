@@ -287,7 +287,7 @@ def topic_keyboard(chat_id, topic_id):
     return InlineKeyboardMarkup([
         [button("Close topic", callback_data=f"topicctl:close:{chat_id}:{topic_id}", style="danger"),
          button("Reopen topic", callback_data=f"topicctl:open:{chat_id}:{topic_id}", style="success")],
-        [button("Forum command guide", callback_data="cmds:tools:0", style="primary")],
+        [button("Forum commands", callback_data="cmds:tools:0", style="primary")],
     ])
 
 

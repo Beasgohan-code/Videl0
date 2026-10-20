@@ -54,6 +54,7 @@ def _status_json():
         "webapp": getattr(config, "WEBAPP_URL", ""),
         "health": "/health",
         "api_index": "/api",
+        "revision": __import__("videl").build_revision,
     }), 200
 
 @_flask.route("/health")
@@ -66,7 +67,8 @@ def _health():
         database = "connected" if is_connected() else "disconnected"
     except Exception:
         database = "unknown"
-    return jsonify({"status": "ok", "service": "videl-render-backend", "bot_status": _BOT_STATUS, "database": database, "uptime": max(0, int(time.time() - bot_start_time)), "watchdog": {key: maintenance[key] for key in ("running", "healthy", "last_tick")}}), 200
+    from videl import build_revision
+    return jsonify({"status": "ok", "service": "videl-render-backend", "revision": build_revision, "bot_status": _BOT_STATUS, "database": database, "uptime": max(0, int(time.time() - bot_start_time)), "watchdog": {key: maintenance[key] for key in ("running", "healthy", "last_tick")}}), 200
 
 @_flask.route("/internal/auth", methods=["POST"])
 def _internal_auth():
@@ -357,38 +359,173 @@ def _internal_chats():
         return jsonify({"ok": False, "error": "unauthorized"}), 403
     try:
         from videl.utils.db import get_db
+        from videl.utils.group_view import BOOL_SETTINGS, INT_SETTINGS, INT_DEFAULTS, ENUM_SETTINGS, SETTING_DEFAULTS
         db = get_db()
         if db is None:
             return jsonify({"ok": False, "error": "MongoDB is not connected"}), 503
-        ids = [doc.get("_id") for doc in db["served_chats"].find({}, {"_id": 1}).limit(100)]
-        setting_keys = ("lock_links", "lock_media", "lock_stickers", "antispam", "lock_forwards", "welcome_enabled")
-        settings = {int(doc["chat_id"]): {k: bool(doc.get(k, False)) for k in setting_keys}
-                    for doc in db["mgmt_chat_settings"].find({"chat_id": {"$in": ids}})}
+        limit = 200
+        ids = [doc.get("_id") for doc in db["served_chats"].find({}, {"_id": 1}).limit(limit)]
+        int_ids = []
+        for value in ids:
+            try:
+                int_ids.append(int(value))
+            except (TypeError, ValueError):
+                continue
+        documents = {int(doc["chat_id"]): doc for doc in db["mgmt_chat_settings"].find({"chat_id": {"$in": int_ids}})}
+        cached = {int(doc["_id"]): doc for doc in db["mgmt_chat_info"].find({"_id": {"$in": int_ids}})}
+        warns_by_chat, notes_by_chat, blacklist_by_chat, approved_by_chat = {}, {}, {}, {}
+        for name, target in (("mgmt_warnings", warns_by_chat), ("mgmt_notes", notes_by_chat), ("blacklist", blacklist_by_chat), ("approved", approved_by_chat)):
+            field = "chat" if name in {"blacklist", "approved"} else "chat_id"
+            try:
+                for row in db[name].aggregate([{"$match": {field: {"$in": int_ids}}}, {"$group": {"_id": f"${field}", "total": {"$sum": 1}}}]):
+                    target[int(row["_id"])] = int(row["total"])
+            except Exception:
+                LOGGER.debug("group summary aggregation failed for %s", name, exc_info=True)
+
+        def settings_for(chat_id):
+            document = documents.get(chat_id) or {}
+            values = {key: bool(document.get(key, SETTING_DEFAULTS.get(key, False))) for key in BOOL_SETTINGS}
+            for key, (low, high) in INT_SETTINGS.items():
+                try:
+                    value = int(document.get(key, INT_DEFAULTS.get(key, low)))
+                except (TypeError, ValueError):
+                    value = INT_DEFAULTS.get(key, low)
+                values[key] = max(low, min(value, high))
+            for key, allowed in ENUM_SETTINGS.items():
+                value = document.get(key)
+                values[key] = value if value in allowed else "del"
+            return values
+
         from concurrent.futures import ThreadPoolExecutor
         def enrich(chat_id):
+            known = cached.get(chat_id) or {}
+            row = {
+                "id": chat_id,
+                "title": known.get("title") or f"Telegram chat {chat_id}",
+                "username": known.get("username"),
+                "type": known.get("type", "unknown"),
+                "members": known.get("members"),
+                "available": bool(known.get("available", False)),
+            }
             if not getattr(config, "BOT_TOKEN", ""):
-                return {"id": chat_id, "title": f"Telegram chat {chat_id}", "type": "unknown", "members": None, "available": False}
+                return row
             _, chat = _bot_api("getChat", {"chat_id": chat_id})
-            _, members = _bot_api("getChatMemberCount", {"chat_id": chat_id})
             valid_chat = bool(chat and chat.get("ok"))
             result = chat.get("result", {}) if valid_chat else {}
-            return {
-                "id": chat_id,
-                "title": result.get("title") or result.get("username") or f"Telegram chat {chat_id}",
+            members = known.get("members")
+            if valid_chat:
+                _, count = _bot_api("getChatMemberCount", {"chat_id": chat_id})
+                members = count.get("result") if count and count.get("ok") else members
+            updated = {
+                "_id": chat_id,
+                "title": result.get("title") or result.get("username") or row["title"],
                 "username": result.get("username"),
-                "type": result.get("type", "unknown"),
-                "members": members.get("result") if members and members.get("ok") else None,
+                "type": result.get("type", row["type"]),
+                "members": members,
                 "available": valid_chat,
             }
-        with ThreadPoolExecutor(max_workers=8) as pool:
-            rows = list(pool.map(enrich, ids[:25]))
-        for row in rows:
-            try: row["settings"] = settings.get(int(row["id"]), {})
-            except (TypeError, ValueError): row["settings"] = {}
-        return jsonify({"ok": True, "chats": rows, "truncated": len(ids) > 25})
+            try:
+                db["mgmt_chat_info"].update_one({"_id": chat_id}, {"$set": updated}, upsert=True)
+            except Exception:
+                LOGGER.debug("chat info cache write failed", exc_info=True)
+            row.update({key: updated[key] for key in ("title", "username", "type", "members", "available")})
+            return row
+
+        enrichable = [chat_id for chat_id in int_ids if not (cached.get(chat_id) or {}).get("available")][:25]
+        fresh = {}
+        if enrichable:
+            with ThreadPoolExecutor(max_workers=8) as pool:
+                fresh = {row["id"]: row for row in pool.map(enrich, enrichable)}
+        rows = []
+        for chat_id in int_ids:
+            row = fresh.get(chat_id) or {
+                "id": chat_id,
+                "title": (cached.get(chat_id) or {}).get("title") or f"Telegram chat {chat_id}",
+                "username": (cached.get(chat_id) or {}).get("username"),
+                "type": (cached.get(chat_id) or {}).get("type", "unknown"),
+                "members": (cached.get(chat_id) or {}).get("members"),
+                "available": bool((cached.get(chat_id) or {}).get("available", False)),
+            }
+            row = dict(row)
+            row["settings"] = settings_for(chat_id)
+            row["counts"] = {
+                "warns": warns_by_chat.get(chat_id, 0),
+                "notes": notes_by_chat.get(chat_id, 0),
+                "blacklist": blacklist_by_chat.get(chat_id, 0),
+                "approved": approved_by_chat.get(chat_id, 0),
+            }
+            row["warn_limit"] = row["settings"]["warn_threshold"]
+            rows.append(row)
+        return jsonify({"ok": True, "chats": rows, "truncated": len(ids) >= limit})
     except Exception:
         LOGGER.exception("internal group list query failed")
         return jsonify({"ok": False, "error": "group query failed"}), 503
+
+
+@_flask.route("/internal/chat/<int(signed=True):chat_id>", methods=["GET", "POST"])
+def _internal_chat_detail(chat_id):
+    if not _internal_authorized():
+        return jsonify({"ok": False, "error": "unauthorized"}), 403
+    try:
+        from videl.utils.db import get_db
+        from videl.utils.group_view import GroupView, ViewError
+        db = get_db()
+        if db is None:
+            return jsonify({"ok": False, "error": "MongoDB is not connected"}), 503
+        view = GroupView(db, _bot_api)
+        if request.method == "GET":
+            return jsonify(view.describe(chat_id))
+        body = request.get_json(silent=True)
+        if not isinstance(body, dict):
+            return jsonify({"ok": False, "error": "A JSON object is required"}), 400
+        payload = dict(body)
+        payload["chat_id"] = chat_id
+        return jsonify(view.act(payload))
+    except ViewError as error:
+        return jsonify({"ok": False, "error": str(error)}), error.status
+    except Exception:
+        LOGGER.exception("internal group detail failed")
+        return jsonify({"ok": False, "error": "group detail request failed"}), 503
+
+
+@_flask.route("/internal/chats/bulk", methods=["POST"])
+def _internal_chats_bulk():
+    if not _internal_authorized():
+        return jsonify({"ok": False, "error": "unauthorized"}), 403
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify({"ok": False, "error": "A JSON object is required"}), 400
+    chat_ids = body.get("chat_ids")
+    if not isinstance(chat_ids, list) or not chat_ids or len(chat_ids) > 15:
+        return jsonify({"ok": False, "error": "Choose between 1 and 15 groups for a bulk change"}), 400
+    action = body.get("action")
+    if action not in {"preset", "settings"}:
+        return jsonify({"ok": False, "error": "Bulk changes support presets and protection settings"}), 400
+    try:
+        from videl.utils.db import get_db
+        from videl.utils.group_view import GroupView, ViewError
+        db = get_db()
+        if db is None:
+            return jsonify({"ok": False, "error": "MongoDB is not connected"}), 503
+        view = GroupView(db, _bot_api)
+        results = []
+        for raw in chat_ids:
+            try:
+                chat_id = int(raw)
+            except (TypeError, ValueError):
+                results.append({"chat_id": raw, "ok": False, "error": "chat_id must be an integer"})
+                continue
+            payload = {"chat_id": chat_id, "action": action, "preset": body.get("preset"), "settings": body.get("settings")}
+            try:
+                outcome = view.act(payload)
+                results.append({"chat_id": chat_id, "ok": True, "applied": outcome.get("preset") or "settings"})
+            except ViewError as error:
+                results.append({"chat_id": chat_id, "ok": False, "error": str(error)})
+        return jsonify({"ok": True, "results": results, "updated": sum(1 for item in results if item["ok"])})
+    except Exception:
+        LOGGER.exception("internal bulk group update failed")
+        return jsonify({"ok": False, "error": "bulk update failed"}), 503
+
 
 @_flask.route("/internal/analytics")
 def _internal_analytics():
@@ -461,9 +598,9 @@ def _internal_chat_settings():
     try:
         chat_id = int(body.get("chat_id"))
         settings = body.get("settings")
-        allowed = {"lock_links", "lock_media", "lock_stickers", "antispam", "lock_forwards", "welcome_enabled"}
-        if not isinstance(settings, dict) or not settings or set(settings) - allowed or any(not isinstance(v, bool) for v in settings.values()):
-            return jsonify({"ok": False, "error": "Only boolean protection and automation settings may be changed"}), 400
+        from videl.utils.group_view import PROTECTION
+        if not isinstance(settings, dict) or not settings or set(settings) - PROTECTION or any(type(value) is not bool for value in settings.values()):
+            return jsonify({"ok": False, "error": "Only supported boolean protection and automation settings may be changed"}), 400
         from videl.utils.db import get_db
         db = get_db()
         if db is None:

@@ -13,7 +13,7 @@ import {
 import {ScheduledPosts} from "@/components/studio/ScheduledPosts";
 import { ImageComposer } from "@/components/studio/ImageComposer";
 import { PostAssetLibrary } from "@/components/studio/PostAssetLibrary";
-import {postChecks,VERSION_KEY} from "@/lib/studio-workflows";
+import {postChecks,VERSION_KEY} from "@/lib/studio-drafts";
 import { visibleLength, plainPostText } from "@/lib/telegram-format";
 import { RichEditor } from "@/components/editor/RichEditor";
 import { ButtonBuilder, BtnRow } from "@/components/editor/ButtonBuilder";

@@ -12,9 +12,40 @@ import re
 import uuid
 from pymongo.errors import DuplicateKeyError
 
+from videl.utils.moderation import LOCK_TYPES
+
 OWNER_ID=6265999542
 RETENTION=(1,7,30)
-PROTECTION={'lock_links','lock_media','lock_stickers','lock_forwards','lock_polls','lock_mentions','antispam','welcome_enabled'}
+
+# Every lock the enforcement pass in videl.plugins.locks honours. The key is
+# what the watcher reads (``lock_<kind>``), with the historic plural used for
+# forwards so existing groups keep their setting.
+LOCK_KEYS=tuple('lock_forwards' if kind=='forward' else f'lock_{kind}' for kind in LOCK_TYPES)
+PROTECTION=set(LOCK_KEYS)|{'antispam','welcome_enabled','goodbye_enabled','captcha_enabled'}
+
+# Types the admin surface may write. Only keys the bot actually reads belong
+# here — a switch that saves a value nothing consumes is a lie in the UI.
+BOOL_SETTINGS=tuple(sorted(PROTECTION))
+INT_SETTINGS={'warn_threshold':(1,10)}
+INT_DEFAULTS={'warn_threshold':3}
+TEXT_SETTINGS={'welcome_message':1000,'goodbye_message':1000,'rules':2000}
+ENUM_SETTINGS={'blacklist_mode':{'off','del','warn','mute','ban','kick'}}
+SETTING_DEFAULTS={'welcome_enabled':True}
+
+PRESETS={
+ 'relaxed':{'label':'Relaxed','description':'Greetings stay on, every lock is released.','settings':{
+     'antispam':False,**{key:False for key in LOCK_KEYS},'welcome_enabled':True,'goodbye_enabled':False,'captcha_enabled':False}},
+ 'balanced':{'label':'Balanced','description':'Flood control, links and forwards only.','settings':{
+     'antispam':True,**{key:key in {'lock_links','lock_forwards'} for key in LOCK_KEYS},'welcome_enabled':True,'goodbye_enabled':False,'captcha_enabled':False}},
+ 'strict':{'label':'Strict','description':'Media, stickers, mentions, bots and polls blocked.','settings':{
+     'antispam':True,**{key:key in {'lock_links','lock_forwards','lock_media','lock_stickers','lock_mentions','lock_bots','lock_polls'} for key in LOCK_KEYS},'welcome_enabled':True,'goodbye_enabled':False,'captcha_enabled':True}},
+ 'lockdown':{'label':'Lockdown','description':'Every content lock on; greetings paused.','settings':{
+     'antispam':True,**{key:True for key in LOCK_KEYS},'welcome_enabled':False,'goodbye_enabled':False,'captcha_enabled':True}},
+}
+
+
+def coerce_bool(value):
+    return value if type(value) is bool else bool(value)
 REACTIONS=('👍','❤️','🔥','🎉','😁','🤔','👏','🙏','💯','⚡')
 _PARSE_ERROR=re.compile(r'parse|entit|tag|nest',re.I)
 
@@ -552,6 +583,125 @@ class GroupView:
         try:return fetch_file(self.api,file_id)
         except EmojiError as error:raise ViewError(str(error),error.status) from None
 
+    def snapshot(self,chat_id):
+        """Typed view of every setting the admin surface may change."""
+        document=self.db['mgmt_chat_settings'].find_one({'chat_id':chat_id}) or {}
+        snapshot={key:coerce_bool(document.get(key,SETTING_DEFAULTS.get(key,False))) for key in BOOL_SETTINGS}
+        for key,(low,high) in INT_SETTINGS.items():
+            try:value=int(document.get(key,INT_DEFAULTS.get(key,low)))
+            except (TypeError,ValueError):value=INT_DEFAULTS.get(key,low)
+            snapshot[key]=max(low,min(value,high))
+        for key in TEXT_SETTINGS:snapshot[key]=str(document.get(key) or '')
+        for key,allowed in ENUM_SETTINGS.items():
+            value=document.get(key)
+            snapshot[key]=value if value in allowed else 'del'
+        return snapshot
+
+    def describe(self,chat_id):
+        """Everything the group manager needs, in one permission-checked read."""
+        cid=integer(chat_id)
+        if cid>0:raise ViewError('Group management is group-only.',403)
+        if self.db['served_chats'].find_one({'_id':cid}) is None:
+            raise ViewError('Choose a group already served by this bot.',404)
+        problems=[]
+        try:info=self.info(cid)['info']
+        except ViewError as error:
+            problems.append(str(error))
+            info={'id':cid,'title':f'Telegram chat {cid}','type':'unknown','username':None,'member_count':None,
+                  'has_photo':False,'description':None,'is_forum':False,'slow_mode_delay':0,'permissions':{},
+                  'bot':{'is_admin':False,'status':None},'owner':{'status':None},'available':False}
+        info['available']=not problems
+        try:
+            notes=list(self.db['mgmt_notes'].find({'chat_id':cid},{'_id':0,'name':1,'type':1}).limit(60))
+            filters=list(self.db['mgmt_filters'].find({'chat_id':cid},{'_id':0,'keyword':1,'reply':1}).limit(60))
+        except Exception:
+            notes,filters=[],[]
+        try:blacklist=list(self.db['blacklist'].find({'chat':cid},{'_id':0,'trigger':1,'mode':1}).limit(120))
+        except Exception:blacklist=[]
+        try:approved=[int(item) for item in self.db['approved'].distinct('user',{'chat':cid})][:120]
+        except Exception:approved=[]
+        try:disabled=[str(item.get('cmd','')) for item in self.db['disabled_cmds'].find({'chat':cid},{'_id':0,'cmd':1}).limit(80)]
+        except Exception:disabled=[]
+        from videl.utils.db import list_warns,get_warn_limit
+        try:warns=list_warns(cid,100)
+        except Exception:warns=[]
+        return {'ok':True,'chat':info,'settings':self.snapshot(cid),'presets':PRESETS,
+                'community':{
+                    'warns':warns,'warn_limit':get_warn_limit(cid),
+                    'notes':[{'name':str(item.get('name','')),'type':str(item.get('type','text'))} for item in notes],
+                    'filters':[{'keyword':str(item.get('keyword','')),'reply':str(item.get('reply',''))[:160]} for item in filters],
+                    'blacklist':[{'trigger':str(item.get('trigger','')),'mode':str(item.get('mode','del'))} for item in blacklist],
+                    'approved':approved,'disabled_commands':disabled,
+                },
+                'problems':problems}
+
+    def admin(self,cid,actor,body):
+        """Typed admin actions. Every write re-reads the document afterwards."""
+        action=body.get('action')
+        if cid>0:raise ViewError('Group management is group-only.',403)
+        if action in {'protect','preset'}:
+            self.rights(cid,actor,['can_delete_messages'])
+        if action=='protect':
+            return self.settings(cid,actor,body)
+        if action=='preset':
+            name=body.get('preset')
+            if name not in PRESETS:raise ViewError('Choose one of the saved presets.')
+            values=PRESETS[name]['settings']
+            self.db['mgmt_chat_settings'].update_one({'chat_id':cid},{'$set':values},upsert=True)
+            return {'ok':True,'preset':name,'settings':self.snapshot(cid)}
+        if action=='warn_limit':
+            low,high=INT_SETTINGS['warn_threshold']
+            value=integer(body.get('limit'),positive=True)
+            if not low<=value<=high:raise ViewError(f'The warning limit must be {low}–{high}.')
+            self.db['mgmt_chat_settings'].update_one({'chat_id':cid},{'$set':{'warn_threshold':value}},upsert=True)
+            return {'ok':True,'settings':self.snapshot(cid)}
+        if action in {'welcome','goodbye'}:
+            text=body.get('text')
+            if not isinstance(text,str) or len(text)>TEXT_SETTINGS[f'{action}_message']:
+                raise ViewError(f'{action.title()} text must be 1–{TEXT_SETTINGS[f"{action}_message"]} characters.')
+            updates={f'{action}_message':text.strip()}
+            if type(body.get('enabled')) is bool:updates[f'{action}_enabled']=body['enabled']
+            self.db['mgmt_chat_settings'].update_one({'chat_id':cid},{'$set':updates},upsert=True)
+            return {'ok':True,'settings':self.snapshot(cid)}
+        if action=='rules':
+            text=body.get('text')
+            if text is not None and (not isinstance(text,str) or len(text)>TEXT_SETTINGS['rules']):
+                raise ViewError('Rules must be text up to 2000 characters, or empty to clear them.')
+            self.db['mgmt_chat_settings'].update_one({'chat_id':cid},{'$set':{'rules':(text or '').strip() or None}},upsert=True)
+            return {'ok':True,'settings':self.snapshot(cid)}
+        if action in {'blacklist_add','blacklist_remove'}:
+            trigger=str(body.get('trigger') or '').strip().casefold()
+            if not trigger or len(trigger)>64:raise ViewError('A blacklist word between 1 and 64 characters is required.')
+            if action=='blacklist_add':
+                self.db['blacklist'].update_one({'chat':cid,'trigger':trigger},{'$set':{'chat':cid,'trigger':trigger,'mode':str(body.get('mode') or 'del')}},upsert=True)
+            else:
+                self.db['blacklist'].delete_one({'chat':cid,'trigger':trigger})
+            return {'ok':True,'action':action,'trigger':trigger}
+        if action=='blacklist_mode':
+            mode=body.get('mode')
+            if mode not in ENUM_SETTINGS['blacklist_mode']:raise ViewError('Choose a supported blacklist mode.')
+            self.db['mgmt_chat_settings'].update_one({'chat_id':cid},{'$set':{'blacklist_mode':mode}},upsert=True)
+            return {'ok':True,'settings':self.snapshot(cid)}
+        if action=='note_delete':
+            name=str(body.get('name') or '').strip().casefold()
+            if not name:raise ViewError('A note name is required.')
+            self.db['mgmt_notes'].delete_one({'chat_id':cid,'name':name})
+            return {'ok':True,'deleted':name}
+        if action=='filter_delete':
+            keyword=str(body.get('keyword') or '').strip().casefold()
+            if not keyword:raise ViewError('A filter keyword is required.')
+            self.db['mgmt_filters'].delete_one({'chat_id':cid,'keyword':keyword})
+            return {'ok':True,'deleted':keyword}
+        if action=='approved_remove':
+            user=integer(body.get('user_id'),positive=True)
+            self.db['approved'].delete_one({'chat':cid,'user':user})
+            return {'ok':True,'user_id':user}
+        if action=='warn_reset':
+            user=integer(body.get('user_id'),positive=True)
+            self.db['mgmt_warnings'].delete_one({'chat_id':cid,'user_id':user})
+            return {'ok':True,'user_id':user}
+        raise ViewError('Unsupported group management action.')
+
     def settings(self,cid,actor,body):
         action=body.get('action')
         if action=='recording':
@@ -585,6 +735,8 @@ class GroupView:
         cid,actor=self.access(body.get('chat_id'))
         action=body.get('action')
         if action in {'recording','purge_history','protect'}:return self.settings(cid,actor,body)
+        if action in {'preset','warn_limit','welcome','goodbye','rules','blacklist_add','blacklist_remove','blacklist_mode','note_delete','filter_delete','approved_remove','warn_reset'}:
+            return self.admin(cid,actor,body)
         if cid>0 and action not in {'send','reply','delete','react','poll','forward'}:raise ViewError('This action is group-only.',403)
         if action not in {'send','reply','delete','react','poll','forward','mute','unmute','ban','pin','unpin'}:raise ViewError('Unsupported group action.')
         mid=None if action in {'send','poll'} else integer(body.get('message_id'),positive=True)

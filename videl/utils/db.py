@@ -5,6 +5,7 @@
 
 import logging
 import os
+from datetime import datetime, timezone
 from typing import Optional
 
 from pymongo import MongoClient
@@ -605,45 +606,85 @@ def get_nsfw_approved_users(chat_id: int) -> list:
 
 
 # ── Warns (per-chat) ───────────────────────────────────────────────────────────
+# ``mgmt_warnings`` is the collection /warn writes and
+# ``mgmt_chat_settings.warn_threshold`` is the limit it enforces. These helpers
+# used to read a parallel store (``warns`` / ``chat_settings``), so the webapp
+# could report a different limit from the one the bot applied.
+WARN_COLLECTION = "mgmt_warnings"
+SETTINGS_COLLECTION = "mgmt_chat_settings"
+
 
 def add_warn(chat_id: int, user_id: int, reason: str = "") -> int:
-    """Add a warn and return new total count for this user in the chat."""
-    col = _col("warns")
+    """Add a warn to the store /warn uses and return the new total."""
+    col = _col(WARN_COLLECTION)
     if col is None:
         return 0
     try:
+        document = col.find_one({"chat_id": chat_id, "user_id": user_id}) or {}
+        count = int(document.get("count", 0)) + 1
         col.update_one(
             {"chat_id": chat_id, "user_id": user_id},
             {
-                "$inc": {"count": 1},
-                "$push": {"reasons": reason or "No reason"},
+                "$set": {"count": count, "updated": datetime.now(timezone.utc)},
+                "$push": {"reasons": {"reason": reason or "No reason", "ts": datetime.now(timezone.utc).isoformat()}},
                 "$setOnInsert": {"chat_id": chat_id, "user_id": user_id},
             },
             upsert=True,
         )
-        doc = col.find_one({"chat_id": chat_id, "user_id": user_id})
-        return int(doc.get("count", 0)) if doc else 1
+        return count
     except Exception as e:
         logger.error(f"[DB] add_warn: {e}")
         return 0
 
 
+def warn_reason_text(item) -> str:
+    """Reasons are stored as {reason, ts} by /warn; older rows are plain text."""
+    if isinstance(item, dict):
+        return str(item.get("reason") or "")
+    return str(item or "")
+
+
 def get_warns(chat_id: int, user_id: int) -> dict:
-    col = _col("warns")
+    col = _col(WARN_COLLECTION)
     if col is None:
         return {"count": 0, "reasons": []}
     try:
         doc = col.find_one({"chat_id": chat_id, "user_id": user_id})
         if not doc:
             return {"count": 0, "reasons": []}
-        return {"count": int(doc.get("count", 0)), "reasons": list(doc.get("reasons", []))}
+        return {
+            "count": int(doc.get("count", 0)),
+            "reasons": [warn_reason_text(item) for item in doc.get("reasons", [])],
+        }
     except Exception as e:
         logger.error(f"[DB] get_warns: {e}")
         return {"count": 0, "reasons": []}
 
 
+def list_warns(chat_id: int, limit: int = 100) -> list:
+    """Every member with warnings in one chat, newest first."""
+    col = _col(WARN_COLLECTION)
+    if col is None:
+        return []
+    try:
+        documents = list(
+            col.find({"chat_id": chat_id, "count": {"$gte": 1}}).sort("updated", -1).limit(max(1, min(int(limit), 300)))
+        )
+    except Exception as e:
+        logger.error(f"[DB] list_warns: {e}")
+        return []
+    rows = []
+    for document in documents:
+        rows.append({
+            "user_id": int(document.get("user_id") or 0),
+            "count": int(document.get("count", 0)),
+            "reasons": [warn_reason_text(item) for item in (document.get("reasons") or [])][-10:],
+        })
+    return rows
+
+
 def reset_warns(chat_id: int, user_id: int) -> None:
-    col = _col("warns")
+    col = _col(WARN_COLLECTION)
     if col is None:
         return
     try:
@@ -653,24 +694,25 @@ def reset_warns(chat_id: int, user_id: int) -> None:
 
 
 def get_warn_limit(chat_id: int) -> int:
-    col = _col("chat_settings")
+    col = _col(SETTINGS_COLLECTION)
     if col is None:
         return 3
     try:
-        doc = col.find_one({"_id": chat_id})
-        return int(doc.get("warn_limit", 3)) if doc else 3
+        doc = col.find_one({"chat_id": chat_id})
+        value = int((doc or {}).get("warn_threshold", 3) or 3)
+        return value if 1 <= value <= 10 else 3
     except Exception:
         return 3
 
 
 def set_warn_limit(chat_id: int, limit: int) -> None:
-    col = _col("chat_settings")
+    col = _col(SETTINGS_COLLECTION)
     if col is None:
         return
     try:
         col.update_one(
-            {"_id": chat_id},
-            {"$set": {"warn_limit": max(1, min(limit, 20))}},
+            {"chat_id": chat_id},
+            {"$set": {"warn_threshold": max(1, min(int(limit), 10))}},
             upsert=True,
         )
     except Exception as e:
@@ -821,11 +863,11 @@ def delete_playlist(owner_id: int, name: str) -> bool:
 # ── Chat settings (skip votes, antiflood, locks) ───────────────────────────────
 
 def get_chat_setting(chat_id: int, key: str, default=None):
-    col = _col("chat_settings")
+    col = _col(SETTINGS_COLLECTION)
     if col is None:
         return default
     try:
-        doc = col.find_one({"_id": chat_id})
+        doc = col.find_one({"chat_id": chat_id})
         if not doc:
             return default
         return doc.get(key, default)
@@ -834,12 +876,12 @@ def get_chat_setting(chat_id: int, key: str, default=None):
 
 
 def set_chat_setting(chat_id: int, key: str, value) -> None:
-    col = _col("chat_settings")
+    col = _col(SETTINGS_COLLECTION)
     if col is None:
         return
     try:
         col.update_one(
-            {"_id": chat_id},
+            {"chat_id": chat_id},
             {"$set": {key: value}},
             upsert=True,
         )
@@ -1101,17 +1143,17 @@ def get_blacklist(chat_id: int) -> list:
     except: return []
 
 def get_blacklist_mode(chat_id: int) -> str:
-    col = _col("chat_settings")
+    col = _col(SETTINGS_COLLECTION)
     if col is None: return "del"
     try:
-        doc=col.find_one({"_id": chat_id})
-        return doc.get("blacklist_mode","del") if doc else "del"
+        doc=col.find_one({"chat_id": chat_id})
+        return (doc or {}).get("blacklist_mode","del")
     except: return "del"
 
 def set_blacklist_mode(chat_id: int, mode: str) -> None:
-    col = _col("chat_settings")
+    col = _col(SETTINGS_COLLECTION)
     if col is None: return
-    try: col.update_one({"_id": chat_id}, {"$set": {"blacklist_mode": mode}}, upsert=True)
+    try: col.update_one({"chat_id": chat_id}, {"$set": {"blacklist_mode": mode}}, upsert=True)
     except: pass
 
 def add_blacklist_sticker(chat_id: int, file_unique: str) -> None:

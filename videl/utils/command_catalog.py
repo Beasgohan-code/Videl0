@@ -85,14 +85,17 @@ def visible_commands(owner=False,category='all',query=''):
 def directory(category='all',page=0,*,owner=False,query=''):
     from pyrogram.types import InlineKeyboardMarkup
     from videl.utils.bot_ui import button
-    from videl.utils.rich_ui import rich_heading,rich_note,rich_esc
+    from videl.utils.rich_ui import rich_heading,rich_note,rich_esc,rich_kv_table
     if category not in LABELS or category=='owner' and not owner:category='all'
     entries=visible_commands(owner,category,query)
     size=10;pages=max(1,(len(entries)+size-1)//size);page=max(0,min(int(page),pages-1))
     text=rich_heading('Command directory',level=2)+rich_note(f'{LABELS[category]} · {len(entries)} commands · Page {page+1}/{pages}')
     if query:text+=rich_note(f'Search: <code>{rich_esc(query)}</code>')
-    for entry in entries[page*size:(page+1)*size]:
-        text+=f"<p><code>/{entry['name']}</code> · {entry['context']}<br>{rich_esc(entry['summary'])}</p>"
+    if entries:
+        text+=rich_kv_table([
+            (f"<code>/{entry['name']}</code>", f"{rich_esc(entry['summary'])} · {entry['context']}")
+            for entry in entries[page*size:(page+1)*size]
+        ])
     if not entries:text+=rich_note('No matching command. Try /commands music or /commands ban.')
     text+=rich_note('Search with /commands keyword. Permissions are checked when you run an action; this directory never grants access.')
     rows=[]

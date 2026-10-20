@@ -1,6 +1,6 @@
 "use client";
 import {useEffect,useState} from "react";
-import {BRAND_KEY,parseBrandKits,type BrandKit} from "@/lib/studio-workflows";
+import {BRAND_KEY,parseBrandKits,type BrandKit} from "@/lib/studio-drafts";
 import type {ImageDesign} from "@/lib/image-design";
 export function BrandKits({design,onApply,disabled=false}:{design:ImageDesign;onApply:(value:Partial<ImageDesign>)=>void;disabled?:boolean}){
  const [kits,setKits]=useState<BrandKit[]>([]),[name,setName]=useState(""),[notice,setNotice]=useState("");

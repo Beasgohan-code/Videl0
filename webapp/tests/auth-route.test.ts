@@ -8,6 +8,8 @@ import { GET as chat } from "../src/app/api/chat/route";
 import { GET as analytics } from "../src/app/api/analytics/route";
 import { GET as settings } from "../src/app/api/bot-settings/route";
 import { POST as publish } from "../src/app/api/channel/route";
+import { GET as groupDetail, POST as groupAction } from "../src/app/api/groups/[id]/route";
+import { POST as groupBulk } from "../src/app/api/groups/bulk/route";
 import { POST as broadcast } from "../src/app/api/broadcast/route";
 
 test("all private bot APIs deny guests without contacting the backend", async () => {
@@ -35,6 +37,26 @@ test("all private bot APIs deny guests without contacting the backend", async ()
         ).status,
         401,
       );
+    for (const handler of [groupDetail, groupAction])
+      assert.equal(
+        (
+          await handler(
+            new NextRequest("https://studio.example/api/groups/-100123"),
+            { params: Promise.resolve({ id: "-100123" }) },
+          )
+        ).status,
+        401,
+      );
+    assert.equal(
+      (
+        await groupBulk(
+          new NextRequest("https://studio.example/api/groups/bulk", {
+            method: "POST",
+          }),
+        )
+      ).status,
+      401,
+    );
     assert.equal(calls, 0);
   } finally {
     globalThis.fetch = original;
