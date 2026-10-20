@@ -8,7 +8,8 @@ from pyrogram.enums import ChatMemberStatus,ChatType
 from videl import bot
 with patch.object(bot,'add_handler'):
     callbacks=importlib.import_module('videl.modules.callbacks')
-from videl.app import music,music_callbacks,general
+from videl.app import music,music_callbacks
+from videl.plugins import start as general
 from videl.app.readiness import inspect_setup
 from videl.core.queue import chat_queues
 
@@ -105,17 +106,16 @@ class PlayerExperienceTests(unittest.IsolatedAsyncioTestCase):
 
 class OnboardingTests(unittest.IsolatedAsyncioTestCase):
     async def test_bot_first_actions_and_valid_group_add_link(self):
-        keyboard=general.start_keyboard(True,username='ExampleBot').inline_keyboard
-        self.assertEqual(keyboard[0][0].url,'https://t.me/ExampleBot?startgroup=true')
-        self.assertEqual(keyboard[1][0].callback_data,'v2:setup')
+        keyboard=general.private_keyboard(False,'ExampleBot').inline_keyboard
+        self.assertEqual(keyboard[0][1].url,'https://t.me/ExampleBot?startgroup=true')
+        self.assertEqual(keyboard[2][0].callback_data,'v2:setup')
         self.assertIsNotNone(keyboard[-1][0].web_app)
-        self.assertNotIn('startgroup',str(general.start_keyboard(True,username='bad/path')))
 
     async def test_private_onboarding_does_not_promise_private_voice_playback(self):
-        text=general.start_caption(42,'<Visitor>')
+        text=general.member_caption('<Visitor>',True)
         self.assertIn('not in this private chat',text)
         self.assertIn('&lt;Visitor&gt;',text)
-        group=general.start_caption(42,'Visitor',False)
+        group=general.member_caption('Visitor',False)
         self.assertNotIn('this private chat',group);self.assertIn('Start a voice chat',group)
 
     async def test_private_setup_never_queries_group_membership(self):

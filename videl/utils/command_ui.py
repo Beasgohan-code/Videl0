@@ -53,7 +53,7 @@ def present(html_text, *, navigation=True):
             text = framed
     if navigation and not re.search(r"<tg-button\b", text, re.I):
         text += rich_button_row(
-            rich_button("Workflow guide", callback_data="guide:home", style="primary"),
+            rich_button("Help center", callback_data="help:home", style="primary"),
             rich_button("Commands", callback_data="cmds:all:0"),
         )
     return text

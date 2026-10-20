@@ -218,7 +218,37 @@ body {
 .ios-subheadline { font-size: 15px; font-weight: 400; color: var(--ios-label-secondary); }
 .ios-caption { font-size: 12px; font-weight: 500; color: var(--ios-label-secondary); letter-spacing: -0.01em; }
 .ios-caption2 { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--ios-label-tertiary); }
+/* Small caps: true cap-height letters for labels, breadcrumbs and section heads.
+   Keeps title case in the markup (so screens stay readable to assistive tech). */
+.ios-caps {
+  font-variant-caps: all-small-caps;
+  font-feature-settings: "smcp" 1, "c2sc" 1;
+  letter-spacing: 0.09em;
+  font-weight: 600;
+}
 .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; font-variant-ligatures: none; }
+
+/* ── Chips ─────────────────────────────────────────────────────────────────── */
+.ios-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  border: 1px solid var(--ios-border);
+  background: rgba(255,255,255,0.025);
+  padding: 7px 13px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ios-label-secondary);
+  white-space: nowrap;
+  transition: all 160ms var(--ios-spring);
+}
+.ios-chip:hover { border-color: var(--ios-border-strong); color: var(--ios-label); }
+.ios-chip[aria-selected="true"], .ios-chip.ios-chip-active {
+  background: rgba(110,134,255,0.16);
+  border-color: rgba(141,162,255,0.4);
+  color: var(--ios-label);
+}
 
 /* ── Buttons ───────────────────────────────────────────────────────────────── */
 .ios-btn {

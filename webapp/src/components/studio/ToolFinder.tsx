@@ -13,6 +13,7 @@ import {
   Send,
   Settings,
   KeyRound,
+  BookOpen,
 } from "lucide-react";
 import { useTelegram } from "@/components/TelegramProvider";
 import { canOpenSection } from "@/lib/access";
@@ -70,6 +71,12 @@ const tools: {
     title: "Settings",
     description: "Telegram configuration and service health",
     icon: Settings,
+  },
+  {
+    tab: "guide",
+    title: "Command guide",
+    description: "Every bot command, searchable and copyable",
+    icon: BookOpen,
   },
   {
     tab: "tools",

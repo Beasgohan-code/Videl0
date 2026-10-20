@@ -33,7 +33,7 @@ No external bot code or emoji packs were blindly imported. Existing configured I
 
 `USE_PREMIUM_EMOJI=0` disables custom emoji text; `USE_PREMIUM_BUTTON_ICONS=0` disables custom icons while keeping native button styles. Telegram imposes Premium/Fragment and message-context restrictions. Possessing an ID is not permission to render it. Known visual rejections can fall back to readable text and icon-free keyboards without mutating shared keyboard instances.
 
-“All new API features” is not a single safe switch. These changes do **not** enable Stars spending, paid broadcasts, gifts, payments, business-account impersonation, webhook replacement, or automatic reactions. Drafts and other SDK capabilities are available but are not represented as user-facing workflows unless integrated. They require separate product decisions, credentials and permission testing.
+“All new API features” is not a single safe switch. These changes do **not** enable Stars spending, paid broadcasts, gifts, payments, business-account impersonation, webhook replacement, or automatic reactions. Drafts and other SDK capabilities are available but are not exposed as user-facing features unless integrated. They require separate product decisions, credentials and permission testing.
 
 PyTgCalls 3.x / NTgCalls 3.x are separate breaking voice-engine upgrades, not Bot API UI updates. Existing known-compatible versions remain pinned; dependency version numbers alone are not evidence of working playback.
 
@@ -55,8 +55,8 @@ and return values are preserved. Existing destructive/admin actions still run
 through their original permission guards. Saved user payloads stay native.
 
 `/start` now separates public creation/music from private owner metrics and owner
-navigation. The workflow guide uses readable rows and category navigation.
-Pause/resume use one acknowledged workflow: a failed player-card refresh no longer
+navigation. The help center uses readable rows and category navigation.
+Pause/resume use one acknowledged path: a failed player-card refresh no longer
 misreports a confirmed voice-engine state change as a failed pause/resume.
 
 Additional poll flags: `--silent`, `--protect`, `--seconds=60` (5–600 seconds).
@@ -67,7 +67,7 @@ admin privileges on every click. General-topic actions are refused. `/apiinfo`
 and `/emojiinfo` are exact-owner/private only.
 
 Removed demo commands remain removed; the retained command catalogue stays at
-148 names, including aliases. New features are added to useful existing workflows,
+155 names, including aliases. New features are added to useful existing commands,
 not reintroduced as showcase commands. The implementation does not claim support
 for every Bot API method or universal client support.
 

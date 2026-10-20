@@ -51,7 +51,7 @@ npm --prefix webapp run build
 
 ## Scope and limitations
 
-Real bot workflows include voice playback, moderation, notes/filters, advanced polls/quizzes, admin reactions and forum-topic actions. See [Telegram upgrade details](docs/TELEGRAM_API_UPGRADE.md). Custom emoji IDs still require Telegram eligibility; readable fallbacks are provided. No Stars spending or paid broadcasts are enabled.
+Real bot features include voice playback, moderation, notes/filters, advanced polls/quizzes, admin reactions and forum-topic actions. See [Telegram upgrade details](docs/TELEGRAM_API_UPGRADE.md). Custom emoji IDs still require Telegram eligibility; readable fallbacks are provided. No Stars spending or paid broadcasts are enabled.
 
 Chat is a sending workspace, not a synchronized inbox. Broadcasts are bounded synchronous operations, not a durable queue. Saved settings and schedule records should not be mistaken for new background services.
 

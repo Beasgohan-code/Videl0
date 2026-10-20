@@ -731,7 +731,7 @@ if __name__ == "__main__":
         start_watchdog()
 
         try:
-            from videl.plugins.runtime import restore_pending_reminders
+            from videl.plugins.reminder import restore_pending_reminders
             restored = await restore_pending_reminders()
             LOGGER.info("Restored %s pending MongoDB reminders", restored)
         except Exception:

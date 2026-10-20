@@ -55,6 +55,16 @@ COVERS = [
     ("gallery", "A space for makers.", "OPEN STUDIO", "#e6e0d6", "#3a3a35", "#a9a293"),
     ("open", "Built in the open.", "HOW WE WORK", "#22302b", "#eaf0e6", "#89a89a"),
     ("people", "People first.", "CULTURE, NOT DECOR", "#eee3d6", "#4c3b32", "#c09a7d"),
+    ("promo", "A little offer.", "FOR YOUR COMMUNITY", "#1b2430", "#f3efe4", "#c2a878"),
+    ("invite", "Bring someone.", "GROW THE ROOM", "#e6e2d6", "#2f4038", "#9fb2a0"),
+    ("choices", "You decide.", "ASK YOUR PEOPLE", "#2a3140", "#eff2f8", "#98a8d4"),
+    ("recap", "The week, wrapped.", "WHAT HAPPENED", "#e9dfd2", "#44382d", "#b99a76"),
+    ("manifesto", "Why we build.", "OUR POINT OF VIEW", "#20261f", "#eef0e6", "#9aa886"),
+    ("casefile", "How it worked.", "A SHORT CASE STUDY", "#dfe4e6", "#26353c", "#8fa7ae"),
+    ("letter", "Straight to you.", "THE MONTHLY LETTER", "#f0e8da", "#4a3d31", "#c0a67e"),
+    ("studio", "Inside the studio.", "HOW IT COMES TOGETHER", "#171c22", "#f1ece2", "#8da2a8"),
+    ("glow", "Turn the lights up.", "A NIGHT TO REMEMBER", "#241c33", "#f5efff", "#b6a2e4"),
+    ("quiet", "Say it simply.", "LESS, AND BETTER", "#ece8e0", "#383a36", "#b0aea4"),
 ]
 
 STORIES = [
@@ -64,6 +74,10 @@ STORIES = [
     ("story-join", "Join us", "Doors are open", "#1d3130", "#eef7f2", "#8fc4ac", "COMMUNITY"),
     ("story-week", "This week", "Three things worth your time", "#efe6d7", "#3f3a2f", "#b3a183", "EDIT"),
     ("story-ask", "Say hello", "We read everything", "#232a3d", "#eef2ff", "#9aabdf", "INBOX"),
+    ("story-poll", "Cast a vote", "One tap · two options", "#1e2a33", "#eef6f8", "#8fb6c0", "POLL"),
+    ("story-recap", "The week", "Three highlights, one minute", "#efe7d8", "#3f392e", "#b4a082", "RECAP"),
+    ("story-invite", "Bring a friend", "Doors open at six", "#222d3c", "#f0f4ff", "#9cabdd", "INVITE"),
+    ("story-quiet", "Quiet hours", "Take the evening off", "#26262c", "#f4f2ee", "#a9a8b4", "PAUSE"),
 ]
 
 QUOTES = [
@@ -73,6 +87,10 @@ QUOTES = [
     ("quote-human", "Keep it human.", "ON COMMUNITY", "#31252b", "#f6ece8", "#c39a9f"),
     ("quote-start", "Start before you're ready.", "ON BEGINNINGS", "#222f2a", "#eaf1e8", "#93ad9d"),
     ("quote-work", "Show your work.", "ON CRAFT", "#eae2d4", "#40372c", "#b59d7a"),
+    ("quote-focus", "Protect your focus.", "ON ATTENTION", "#1e2a2b", "#edf3f0", "#93b3aa"),
+    ("quote-patience", "Patience is a strategy.", "ON THE LONG GAME", "#e8e0d3", "#3c362d", "#b19875"),
+    ("quote-kind", "Be kind in public.", "ON MANNERS", "#2c2530", "#f7edf2", "#c29cad"),
+    ("quote-edit", "Cut the noise.", "ON EDITING", "#232a26", "#eef1ea", "#9bab9d"),
 ]
 
 
@@ -124,6 +142,10 @@ def artwork_cover(image: Image.Image, index: int, ink: str, accent: str) -> None
     ink_rgba = tuple(int(ink[i : i + 2], 16) for i in (1, 3, 5)) + (60,)
     accent_rgba = tuple(int(accent[i : i + 2], 16) for i in (1, 3, 5)) + (190,)
     kind = index % 5
+    if index >= 24:
+        # Compositions 5 and 6 belong to the second collection so the original
+        # twenty-four files stay byte-identical when the script is re-run.
+        kind = 5 + (index % 2)
     if kind == 0:
         for offset in range(7):
             draw.arc((760 - offset * 34, 60 + offset * 26, 1320 - offset * 34, 620 + offset * 26), 0, 360, fill=accent_rgba, width=2)
@@ -142,11 +164,22 @@ def artwork_cover(image: Image.Image, index: int, ink: str, accent: str) -> None
                 radius = 3 + ((row + column) % 4) * 2
                 draw.ellipse((820 + column * 46 - radius, 110 + row * 62 - radius, 820 + column * 46 + radius, 110 + row * 62 + radius), fill=accent_rgba)
         draw.line((820, 500, 1120, 500), fill=ink_rgba, width=2)
-    else:
+    elif kind == 4:
         for band in range(5):
             x0 = 810 + band * 54
             draw.polygon([(x0, 90), (x0 + 42, 90), (x0 + 130, 560), (x0 + 88, 560)], fill=accent_rgba if band % 2 else ink_rgba)
         draw.ellipse((965, 230, 1065, 330), fill=(255, 255, 255, 40))
+    elif kind == 5:
+        # Concentric arcs opening to the right.
+        for step in range(9):
+            draw.arc((700 - step * 24, 40 + step * 26, 1360 - step * 24, 700 + step * 26), 200, 340, fill=accent_rgba, width=2)
+        draw.rounded_rectangle((930, 300, 1080, 380), radius=40, fill=ink_rgba)
+    else:
+        # Offset squares with one solid anchor.
+        for step in range(7):
+            origin = 790 + step * 34
+            draw.rectangle((origin, 70 + step * 18, origin + 150, 220 + step * 18), outline=accent_rgba, width=2)
+        draw.rectangle((990, 330, 1130, 470), fill=ink_rgba)
 
 
 def build_covers():
@@ -235,6 +268,9 @@ def write_manifest():
         "announcement": "Announcements", "launch": "Announcements", "milestone": "Announcements",
         "event": "Events", "workshop": "Events",
         "weekly": "Editorial", "ocean": "Editorial", "minimal": "Editorial",
+        "promo": "Promotions", "glow": "Promotions", "invite": "Community", "choices": "Community",
+        "recap": "Editorial", "manifesto": "Studio", "casefile": "Studio",
+        "letter": "Studio", "studio": "Studio", "quiet": "Editorial",
     }
     for entry in entries:
         entry["category"] = legacy.get(entry["id"], entry["category"])

@@ -11,7 +11,7 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parents[2]
 CATEGORIES={
     'music':{'play','cplay','autoplay','smartqueue','playlist','effects','seek','music_controls','pause','resume','skip','stop','lyrics','downloader'},
-    'manage':{'management_core','federation','blocklist','approve','group_manager'},
+    'manage':{'federation','blocklist','approve','group_manager','moderation','locks','notes','welcome'},
     'owner':{'owner_utils','broadcast'},
 }
 LABELS={'music':'Music & playlists','manage':'Groups & protection','tools':'Telegram tools','owner':'Owner operations','all':'All commands'}
@@ -20,8 +20,7 @@ OWNER_NAMES={'apiinfo','emojiinfo','watchdog','dbcleanup','sysinfo','active'}
 
 def source_paths():
     from videl.modules import ALL_MODULES
-    return [ROOT/'videl'/'modules'/f'{name}.py' for name in ALL_MODULES]+[
-        ROOT/'videl'/'plugins'/'afk.py',ROOT/'videl'/'plugins'/'reminder.py']
+    return [ROOT/'videl'/'modules'/f'{name}.py' for name in ALL_MODULES]
 
 
 @lru_cache(maxsize=1)
@@ -109,6 +108,6 @@ def directory(category='all',page=0,*,owner=False,query=''):
         if len(entries)>size:text+=rich_note('Other matches: '+ ' · '.join('/'+entry['name'] for entry in entries[size:size+20]))
         if len(entries)>size+20:text+=rich_note('Refine the search or browse a category for additional matches.')
     rows.extend([[button('Music',callback_data='cmds:music:0'),button('Groups',callback_data='cmds:manage:0')],
-                 [button('Telegram tools',callback_data='cmds:tools:0'),button('Workflow guide',callback_data='guide:home')]])
+                 [button('Telegram tools',callback_data='cmds:tools:0'),button('Help center',callback_data='help:home')]])
     if owner:rows.append([button('Owner operations',callback_data='cmds:owner:0',style='primary')])
     return text,InlineKeyboardMarkup(rows)

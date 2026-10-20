@@ -65,7 +65,7 @@ passing mocked test is not proof that an external service works in production.
    transitions. Unify player commands, buttons and stream-end callbacks under
    shared lifecycle coordination before removing the existing playback engine.
 2. Migrate remaining moderation/protection: warnings, settings, notes, filters,
-   locks, approvals, blocklists, federation and join/CAPTCHA workflows, preserving
+   locks, approvals, blocklists, federation and join/CAPTCHA flows, preserving
    the existing Mongo document contracts.
 3. Migrate playlists, AutoPlay, effects, seek/skip/replay/stop, downloads/lyrics,
    useful Telegram API commands, reminder/AFK plugins and owner operations.

@@ -13,6 +13,7 @@ import {
   BarChart3,
   Send,
   Settings2,
+  BookOpen,
   ChevronRight,
   LogOut,
 } from "lucide-react";
@@ -20,6 +21,7 @@ const tabs: { tab: Section; label: string; icon: typeof Home }[] = [
   { tab: "home", label: "Home", icon: Home },
   { tab: "post", label: "Post Studio", icon: Palette },
   { tab: "tools", label: "Creator Tools", icon: Wand2 },
+  { tab: "guide", label: "Command Guide", icon: BookOpen },
   { tab: "chat", label: "Bot Inbox", icon: MessageCircle },
   { tab: "groups", label: "Group Manager", icon: Users },
   { tab: "automation", label: "Automation", icon: Zap },
@@ -39,7 +41,7 @@ export function IOSNav() {
         <Link href="/" className="px-3 text-2xl font-bold">
           Videl <span className="text-indigo-300">Studio</span>
         </Link>
-        <p className="mb-3 mt-10 px-3 text-[10px] uppercase tracking-[.2em] text-white/30">
+        <p className="ios-caps mb-3 mt-10 px-3 text-[11px] text-white/30">
           {telegram.authenticated ? "Owner workspace" : "Create & share"}
         </p>
         <nav aria-label="Main navigation" className="space-y-2">
@@ -48,7 +50,7 @@ export function IOSNav() {
               key={item.tab}
               href={item.tab === "home" ? "/" : `/?tab=${item.tab}`}
               aria-current={tab === item.tab ? "page" : undefined}
-              className={`flex items-center gap-3 rounded-xl px-4 py-3 text-sm ${tab === item.tab ? "bg-indigo-500/20 text-white" : "text-indigo-100/50 hover:bg-white/5"}`}
+              className={`ios-caps flex items-center gap-3 rounded-xl px-4 py-3 text-[13px] ${tab === item.tab ? "bg-indigo-500/20 text-white" : "text-indigo-100/50 hover:bg-white/5"}`}
             >
               <item.icon size={18} />
               {item.label}
@@ -68,7 +70,7 @@ export function IOSNav() {
             Videl Studio
           </Link>
           <ChevronRight size={12} />
-          <span className="text-indigo-100/45">
+          <span className="ios-caps text-indigo-100/45">
             {visible.find((item) => item.tab === tab)?.label || "Owner access"}
           </span>
         </div>
@@ -113,7 +115,7 @@ export function IOSTabBar() {
             className={`flex flex-1 flex-col items-center gap-1 rounded-xl px-4 py-2 ${tab === item.tab ? "bg-white/5 text-indigo-100" : "text-white/40"}`}
           >
             <item.icon size={19} />
-            <span className="whitespace-nowrap text-[10px]">{item.label}</span>
+            <span className="ios-caps whitespace-nowrap text-[10px]">{item.label}</span>
           </button>
         ))}
       </div>

@@ -5,8 +5,10 @@ from unittest.mock import AsyncMock,Mock,patch
 from pyrogram.enums import ChatMemberStatus,ChatType
 from videl.app.router import Context,Parsed,CommandError,authorize
 from videl.app.routes import COMMANDS
-from videl.app import moderation,music
+from videl.plugins import moderation
+from videl.app import music
 from videl.core.queue import chat_queues
+from videl.plugins.base import plain as plain_caps
 
 
 def context(name='ban',args='reason'):
@@ -31,11 +33,12 @@ class ModerationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_ban_confirmed_even_when_audit_write_fails(self):
         ctx=context()
-        with patch.object(moderation,'record_ban',Mock(side_effect=RuntimeError('mongo'))):screen=await moderation.moderate(ctx)
+        with patch.object(moderation,'_audit',Mock(side_effect=RuntimeError('mongo'))):screen=await moderation.moderate(ctx)
         ctx.client.ban_chat_member.assert_awaited_once()
-        self.assertIn('Member banned',screen.html)
-        self.assertIn('could not be saved',screen.html)
-        self.assertIn('&lt;Target&gt;',screen.html)
+        html=plain_caps(screen.html)
+        self.assertIn('Member banned',html)
+        self.assertIn('could not be saved',html)
+        self.assertIn('&lt;Target&gt;',html)
 
     async def test_temporary_action_requires_duration_before_any_telegram_mutation(self):
         ctx=context('tban','not-a-duration')
@@ -43,7 +46,7 @@ class ModerationTests(unittest.IsolatedAsyncioTestCase):
         ctx.client.ban_chat_member.assert_not_awaited()
         ctx=context('tmute','10m reason')
         screen=await moderation.moderate(ctx)
-        self.assertIn('Member muted',screen.html)
+        self.assertIn('Member muted',plain_caps(screen.html))
         self.assertIsNotNone(ctx.client.restrict_chat_member.call_args.kwargs['until_date'])
 
     async def test_both_target_admins_and_bot_owner_are_protected(self):
@@ -73,16 +76,18 @@ class ModerationTests(unittest.IsolatedAsyncioTestCase):
     async def test_kick_partial_release_is_reported_without_retry(self):
         ctx=context('kick');ctx.client.unban_chat_member.side_effect=TimeoutError()
         screen=await moderation.moderate(ctx)
-        self.assertIn('partly confirmed',screen.html)
-        self.assertIn('one minute',screen.html)
+        html=plain_caps(screen.html).lower()
+        self.assertIn('partly confirmed',html)
+        self.assertIn('about a minute',html)
         ctx.client.ban_chat_member.assert_awaited_once();ctx.client.unban_chat_member.assert_awaited_once()
         self.assertIsNotNone(ctx.client.ban_chat_member.call_args.kwargs['until_date'])
 
     async def test_delete_failure_does_not_misreport_confirmed_ban(self):
         ctx=context('dban');ctx.client.delete_messages.side_effect=TimeoutError()
-        with patch.object(moderation,'record_ban',Mock(return_value=True)):screen=await moderation.moderate(ctx)
-        self.assertIn('Member banned',screen.html)
-        self.assertIn('message deletion was not confirmed',screen.html)
+        with patch.object(moderation,'_audit',Mock(return_value=True)):screen=await moderation.moderate(ctx)
+        html=plain_caps(screen.html)
+        self.assertIn('Member banned',html)
+        self.assertIn('message deletion is not',html)
         ctx.client.ban_chat_member.assert_awaited_once()
 
     async def test_unmute_restores_exact_group_defaults(self):
@@ -95,7 +100,7 @@ class ModerationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_unknown_membership_fails_closed(self):
         ctx=context();ctx.client.get_chat_member.side_effect=TimeoutError()
-        with self.assertRaises(TimeoutError):await moderation.moderate(ctx)
+        with self.assertRaises(CommandError):await moderation.moderate(ctx)
         ctx.client.ban_chat_member.assert_not_awaited()
 
     async def test_explicit_target_is_resolved_without_stealing_reply_reason(self):

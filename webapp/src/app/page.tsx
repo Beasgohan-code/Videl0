@@ -17,6 +17,7 @@ const loading = () => (
 const screens = {
   home: Home,
   tools: dynamic(() => import("@/components/studio/screens/Tools"), { loading }),
+  guide: dynamic(() => import("@/components/studio/screens/Guide"), { loading }),
   chat: dynamic(() => import("@/components/studio/screens/Chat"), { loading }),
   post: dynamic(() => import("@/components/studio/screens/Post"), { loading }),
   groups: dynamic(() => import("@/components/studio/screens/Groups"), {

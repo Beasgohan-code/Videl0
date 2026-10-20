@@ -5,7 +5,7 @@ import { campaignLink, textInsights } from "../src/lib/creator-tools";
 test("public, loading and non-owner sessions never unlock private sections", () => {
   assert.equal(OWNER_ID, "6265999542");
   for (const owner of [false, null]) {
-    for (const section of ["home", "post", "tools", "auth"])
+    for (const section of ["home", "post", "tools", "guide", "auth"])
       assert.equal(canOpenSection(section, owner), true);
     for (const section of [
       "chat",

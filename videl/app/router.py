@@ -79,7 +79,7 @@ class Command:
         if self.policy not in {'public','group','admin','owner'}:raise ValueError('Invalid command policy')
         if self.category not in {'tools','music','manage','owner'}:raise ValueError('Invalid command category')
         if self.block_policy not in {'none','user','chat'}:raise ValueError('Invalid block policy')
-        if self.rights and (self.policy!='admin' or any(right not in {'can_restrict_members','can_delete_messages','can_manage_topics','can_pin_messages','can_promote_members'} for right in self.rights)):
+        if self.rights and (self.policy!='admin' or any(right not in {'can_restrict_members','can_delete_messages','can_manage_topics','can_pin_messages','can_promote_members','can_invite_users'} for right in self.rights)):
             raise ValueError('Invalid command administrator rights')
 
 

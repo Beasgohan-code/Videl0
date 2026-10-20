@@ -1,6 +1,5 @@
 """Read-only navigation. Callback text never grants owner permissions."""
 from videl.utils.command_ui import rich_edit
-from videl.utils.help_catalog import guide
 from .router import private_owner
 
 
@@ -20,9 +19,20 @@ async def navigate(client,query):
             return await query.answer('Owner commands are private.',show_alert=True)
         from videl.utils.command_catalog import directory
         text,keyboard=directory(category,int(page),owner=owner)
+    elif data.startswith('help:'):
+        from videl.plugins.help import render_section
+        section='home'
+        page=0
+        parts=data.split(':')
+        if len(parts)>1 and parts[1]:
+            section=parts[1]
+        if len(parts)>2 and parts[2].isdigit():
+            page=int(parts[2])
+        if section=='owner' and not owner:
+            return await query.answer('Owner pages are private.',show_alert=True)
+        text,keyboard=render_section(section,page,owner=owner)
     else:
-        section=data.split(':')[-1] if data.startswith(('v2:section:','guide:')) else {'pro_music_help':'music','pro_group_help':'manage'}.get(data,'home')
-        if section not in {'home','music','manage','protect','tools'}:section='home'
-        text,keyboard=guide(section)
+        section={'pro_music_help':'music','pro_group_help':'manage'}.get(data,'home')
+        text,keyboard=__import__('videl.plugins.help',fromlist=['render_section']).render_section(section,owner=owner)
     await query.answer()
     await rich_edit(query,text,reply_markup=keyboard,client=client)

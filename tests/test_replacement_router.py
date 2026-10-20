@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock,Mock,patch
 from pyrogram.enums import ChatMemberStatus,ChatType
 from videl.app.router import Router,Command,Context,Parsed,Screen,CommandError,parse,authorize
 from videl.app.routes import COMMANDS
-from videl.app import general
+from videl.plugins import start as general, tools
 
 
 def message(text='/start',uid=42,kind=ChatType.PRIVATE,mid=5):
@@ -114,7 +114,7 @@ class RouterTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_identifiers_dont_use_fake_user_links_for_groups(self):
         msg=message('/id',kind=ChatType.SUPERGROUP)
-        screen=await general.identifiers(Context(SimpleNamespace(),msg,Parsed('id','')))
+        screen=await tools.identifiers(Context(SimpleNamespace(),msg,Parsed('id','')))
         self.assertIn('Chat ID',screen.html)
         self.assertNotIn('tg://user?id=123',screen.html)
 

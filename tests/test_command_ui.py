@@ -15,7 +15,7 @@ from vendor.richgram.richgram.rich_ui import rich_to_plain
 with patch.object(bot,'add_handler'):
     api=importlib.import_module('videl.modules.api_tools')
     professional=importlib.import_module('videl.app.navigation')
-    ping=importlib.import_module('videl.app.general')
+    ping=importlib.import_module('videl.plugins.tools')
 
 
 def message(command,*,forum=False):
@@ -112,7 +112,7 @@ class ModernCommandsTests(unittest.IsolatedAsyncioTestCase):
         ctx=Context(client,message(['ping']),Parsed('ping',''))
         screen=await ping.ping(ctx)
         client.get_me.assert_awaited_once()
-        self.assertIn('Connection status',screen.html)
+        self.assertIn('Connection',__import__('videl.plugins.base',fromlist=['plain']).plain(screen.html))
 
     def test_public_modern_help_omits_private_operations(self):
         self.assertNotIn('/apiinfo',api.public_help(message(['modernhelp'])))
@@ -123,11 +123,11 @@ class StyledFallbackTests(unittest.IsolatedAsyncioTestCase):
         from pyrogram.enums import ButtonStyle
         from videl.utils.bot_ui import button,visual_call
         from pyrogram.types import InlineKeyboardMarkup
-        keyboard=InlineKeyboardMarkup([[button('Music',callback_data='guide:music',style='primary')]])
+        keyboard=InlineKeyboardMarkup([[button('Music',callback_data='help:music',style='primary')]])
         action=AsyncMock(side_effect=[BadRequest('STYLE_INVALID'),object()])
         await visual_call(action,text='Controls',reply_markup=keyboard)
         fallback=action.call_args.kwargs['reply_markup'].inline_keyboard[0][0]
-        self.assertEqual(fallback.callback_data,'guide:music')
+        self.assertEqual(fallback.callback_data,'help:music')
         self.assertEqual(fallback.style,ButtonStyle.DEFAULT)
         self.assertEqual(keyboard.inline_keyboard[0][0].style,ButtonStyle.PRIMARY)
 

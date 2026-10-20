@@ -61,8 +61,8 @@ async def on_callback(client, cbq: CallbackQuery) -> None:
 
 
     elif data in ("show_help", "go_back") or data.startswith("help_"):
-        from videl.utils.help_catalog import guide
+        from videl.plugins.help import render_section
         await cbq.answer()
         section = {"help_play":"music", "help_speed":"music", "help_admin":"manage"}.get(data,"home")
-        text, markup = guide(section)
+        text, markup = render_section(section, owner=False)
         await rich_edit(cbq.message, text, reply_markup=markup)
