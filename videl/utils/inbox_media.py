@@ -9,7 +9,7 @@ import uuid
 from datetime import timedelta
 from pymongo.errors import DuplicateKeyError
 from PIL import Image,UnidentifiedImageError
-from videl.utils.group_view import ViewError,integer,now,store,RETENTION
+from videl.utils.group_view import ViewError,integer,now,rich_text,store,RETENTION
 
 UPLOAD_LIMIT=4*1024*1024
 DOWNLOAD_LIMIT=8*1024*1024
@@ -62,10 +62,16 @@ def send_attachment(service,body,data):
     cid,actor=service.access(body.get('chat_id'))
     me=service.rights(cid,actor,[])
     kind=body.get('kind');caption=body.get('text','')
-    if not isinstance(caption,str) or len(caption.encode('utf-16-le'))//2>1024:raise ViewError('Attachment captions are limited to 1024 Telegram text units.')
+    if not isinstance(caption,str):
+        raise ViewError('Attachment captions are limited to 1024 Telegram text units.')
+    is_html=False
+    if caption.strip():
+        caption,is_html=rich_text(caption,1024)
     reply_id=integer(body['message_id'],positive=True) if body.get('message_id') else None
     payload={'chat_id':cid}
-    if caption:payload['caption']=caption
+    if caption:
+        payload['caption']=caption
+        if is_html: payload['parse_mode']='HTML'
     if reply_id:
         doc=service.db['group_view_messages'].find_one({'chat_id':cid,'message_id':reply_id,'expires_at':{'$gt':now()},'deleted':False})
         if doc is None:raise ViewError('The replied message is expired, deleted or unavailable.',404)

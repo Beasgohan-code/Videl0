@@ -1,10 +1,12 @@
 """Opt-in bot-visible group messages and permission-checked owner operations.
 
 No user account, history scraping, media downloads or getUpdates consumer.
-Plain-text snapshots only; Mongo TTL is supplemented by read-time expiration.
+Snapshots keep the raw text/caption (which may include Telegram HTML); Mongo TTL
+is supplemented by read-time expiration, and outbound text is sanitized.
 """
 import asyncio
 from datetime import datetime,timedelta,timezone
+import html as _html
 import logging
 import re
 import uuid
@@ -60,6 +62,55 @@ def snapshot(message):
         'reply_to_id':getattr(reply,'id',None),'thread_id':getattr(message,'message_thread_id',None),
         'date':aware(getattr(message,'date',None)),'edited':bool(getattr(message,'edit_date',None)),
         'deleted':False}
+
+
+_ALLOWED_RICH={'b','strong','i','em','u','ins','s','strike','del','code','pre','blockquote','a','tg-spoiler','tg-emoji','span'}
+_RICH_TAG=re.compile(r'</?\s*([a-zA-Z][a-zA-Z0-9-]*)([^>]*)>')
+
+
+def rich_text(text,limit=4096):
+    """Validate Telegram HTML, strip unsafe tags/attributes and premium emoji IDs.
+
+    Returns (text,is_html). Plain text is returned untouched. Only formatting
+    that Telegram documents is allowed; unknown tags are shown as literal text.
+    """
+    if not isinstance(text,str) or not text.strip():
+        raise ViewError(f'Enter a message of 1–{limit} Telegram text units.')
+    has=bool(re.search(r'<\s*/?\s*(?:b|i|u|s|code|pre|blockquote|a|tg-spoiler|tg-emoji|span)\b',text,re.I))
+    if not has:
+        if len(text.encode('utf-16-le'))//2>limit:
+            raise ViewError(f'Enter a message of 1–{limit} Telegram text units.')
+        return text,False
+    if re.search(r'<tg-emoji',text,re.I):
+        for _tag in re.findall(r'<tg-emoji[^>]*>',text,re.I):
+            if not re.fullmatch(r"""<tg-emoji\s+emoji-id\s*=\s*["']?[0-9]{1,20}["']?\s*>""",_tag,re.I):
+                raise ViewError('Premium emoji ID must be 1–20 digits. Copy it from @emoji or Telegram.')
+    def replace(match):
+        raw=match.group(0);name=match.group(1).lower()
+        if name not in _ALLOWED_RICH:
+            return _html.escape(raw)
+        raw=re.sub(r"""\s+on\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)""",'',raw,flags=re.I)
+        if raw.startswith('</'):
+            return f'</{name}>'
+        if name=='tg-emoji':
+            found=re.fullmatch(r"""<tg-emoji\s+emoji-id\s*=\s*["']?([0-9]{1,20})["']?\s*>""",raw,re.I)
+            return f'<tg-emoji emoji-id="{found.group(1)}">' if found else _html.escape(raw)
+        if name=='a':
+            href=re.search(r"""href\s*=\s*(["'])(.*?)\1""",raw,re.I|re.S)
+            if href and re.match(r'^(?:https?://|tg://)',href.group(2),re.I):
+                return f'<a href="{_html.escape(href.group(2),quote=True)}">'
+            return '<a>'
+        return f'<{name}>'
+    text=_RICH_TAG.sub(replace,text)
+    text=re.sub(r'<(?!/?(?:b|strong|i|em|u|ins|s|strike|del|code|pre|blockquote|a|tg-spoiler|tg-emoji|span)(?:\s|>))','&lt;',text)
+    plain=_html.unescape(re.sub(r'<[^>]+>','',text))
+    if not plain.strip():
+        raise ViewError('Formatted messages need visible text outside the tags.')
+    if len(plain.encode('utf-16-le'))//2>limit:
+        raise ViewError(f'Formatted messages are limited to {limit} Telegram text units. Shorten the visible text.')
+    if len(text)>min(20000,limit*8):
+        raise ViewError('Formatted message is too large.')
+    return text,True
 
 
 def indexes(db):
@@ -236,9 +287,11 @@ class GroupView:
         payload={'chat_id':cid}
         if action in {'send','reply'}:
             text=body.get('text')
-            if not isinstance(text,str) or not text.strip() or len(text.encode('utf-16-le'))//2>4096:
+            if not isinstance(text,str) or not text.strip():
                 raise ViewError('Enter a reply of 1–4096 Telegram text units.')
+            text,is_html=rich_text(text,4096)
             method='sendMessage';payload.update(text=text)
+            if is_html:payload['parse_mode']='HTML'
             if mid:payload['reply_parameters']={'message_id':mid,'allow_sending_without_reply':False}
             if message and message.get('thread_id'):payload['message_thread_id']=message['thread_id']
         elif action=='delete':method='deleteMessage';payload['message_id']=mid

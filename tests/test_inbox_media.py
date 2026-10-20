@@ -89,6 +89,19 @@ class BotInboxTests(unittest.TestCase):
         with self.assertRaises(ViewError):prepare('video',b'not MP4')
         with self.assertRaises(ViewError):send_attachment(self.service,{'chat_id':123,'kind':'photo','text':'😀'*513},b'photo')
 
+    def test_rich_premium_caption_is_sent_as_html(self):
+        data=io.BytesIO();Image.new('RGB',(8,8)).save(data,format='PNG')
+        body={'chat_id':123,'kind':'photo','request_id':str(uuid.uuid4()),
+              'text':'<tg-emoji emoji-id="5368324170671202286">🔥</tg-emoji> <b>New drop</b> <a href="https://example.com">open</a>'}
+        result=send_attachment(self.service,body,data.getvalue())
+        self.assertTrue(result['ok'])
+        sent=next(call.args[1] for call in self.api.call_args_list if call.args[0]=='sendPhoto')
+        self.assertEqual(sent['parse_mode'],'HTML')
+        self.assertIn('<tg-emoji emoji-id="5368324170671202286">',sent['caption'])
+        self.assertIn('<b>New drop</b>',sent['caption'])
+        with self.assertRaises(ViewError):
+            send_attachment(self.service,{'chat_id':123,'kind':'photo','request_id':str(uuid.uuid4()),'text':'<tg-emoji emoji-id="abc">🔥</tg-emoji>'},data.getvalue())
+
     @unittest.skipUnless(shutil.which('ffmpeg') and shutil.which('ffprobe'),'ffmpeg required for real voice conversion')
     def test_webm_microphone_recording_becomes_telegram_ogg_opus(self):
         with tempfile.TemporaryDirectory() as folder:

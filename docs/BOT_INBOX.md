@@ -172,3 +172,39 @@ suites exercise mobile chat/back navigation, sending/media, workspace access,
 initial bottom position, no polling scroll hijack, older-history anchoring and
 composer placement. These are offline fixtures, not live Telegram/Mongo proof.
 The previously documented matching backend deployment is still required.
+
+## Rich formatting, premium emoji and cover assets — 2026-10-20
+
+Smart Chat now sends and renders Telegram's documented HTML formatting. The
+composer has a formatting bar for **bold, italic, underline, strikethrough,
+monospace, spoiler, quote and links**, plus `Ctrl/⌘ + B / I / U / D`
+shortcuts and a live Telegram preview toggle. Formatting wraps the current
+selection, so no HTML knowledge is required. Messages already stored with HTML
+render formatted in bubbles; the chat-list preview and reply snippets are
+plain-text, not raw tags.
+
+Premium (custom) emoji use `<tg-emoji emoji-id="…">` inside the same HTML
+message. The composer's **Premium Emoji Studio** offers a starter set of real
+custom-emoji IDs plus an ID + character field for any ID copied from Telegram;
+only 1–20 digit IDs are accepted. Telegram Premium subscribers see them as
+animated custom emoji; other viewers see the fallback character. This is a
+Telegram rendering rule, not a Videl guarantee.
+
+Both `POST /internal/group-view` (text and replies) and
+`POST /internal/inbox-media` (captions) now accept sanitized Telegram HTML. The
+server whitelists `b,strong,i,em,u,ins,s,strike,del,code,pre,blockquote,a,
+tg-spoiler,tg-emoji,span`, strips `on*` handlers, only allows `https/http/tg`
+links, validates emoji IDs, and enforces the 4096/1024 visible UTF-16 limits.
+Unrecognised tags are shown literally instead of being sent. Invalid HTML is
+rejected before any Telegram call.
+
+Post Studio's **Cover Library** now has two tabs: the 12 original Videl covers
+and **Your Assets** — up to 10 PNG/JPEG/WebP uploads (1.5 MB each) stored in
+localStorage in that browser, reusable as post covers, downloadable or
+deletable. `videl_image_design_v1` remains the editable layout document; custom
+covers are images, not design documents, and are not synced to other devices.
+
+Frontend unit tests now include premium-emoji sanitisation, chat HTML
+rendering and selection-wrapping checks; Python tests cover rich replies,
+sanitisation and premium-caption handling. No live Telegram/Mongo message was
+sent during verification.

@@ -458,3 +458,40 @@ button:focus-visible,a:focus-visible { outline: 2px solid #a5b4fc; outline-offse
 .tg-attachment-menu summary { display:grid; place-items:center; width:32px; height:44px; cursor:pointer; color:#93a9bd; list-style:none; }
 .tg-attachment-menu summary::-webkit-details-marker { display:none; }
 .tg-attachment-options { position:absolute; z-index:25; bottom:52px; left:0; padding:10px; gap:8px; display:flex; background:#233546; border:1px solid #ffffff15; border-radius:14px; box-shadow:0 6px 20px #0006; }
+
+/* ── Amazing Premium Upgrade — Beautiful messenger + rich formatting ───────── */
+.tg-premium-emoji { display:inline-block; padding:0 1px; font-size:1.08em; line-height:1; filter:drop-shadow(0 0 5px rgba(139,92,246,.5)); animation:popIn .3s var(--ios-spring); }
+.tg-composer-premium { box-shadow:0 -10px 40px #0004; }
+.tg-composer-premium .tg-attachment-menu summary { width:44px; height:44px; border-radius:50%; background:#0e1621; }
+.telegram-rich { word-break:break-word; }
+.telegram-rich b, .telegram-rich strong { font-weight:800; color:#fff; }
+.telegram-rich i, .telegram-rich em { font-style:italic; color:#cbd5e1; }
+.telegram-rich u { text-decoration:underline; text-underline-offset:3px; }
+.telegram-rich s, .telegram-rich del { text-decoration:line-through; opacity:.6; }
+.telegram-rich code { font-family:'JetBrains Mono',monospace; background:#ffffff12; padding:2px 6px; border-radius:6px; font-size:12px; }
+.telegram-rich pre { background:#0b1220; border:1px solid #ffffff10; padding:12px; border-radius:12px; overflow:auto; white-space:pre-wrap; font-family:monospace; font-size:12px; }
+.telegram-rich blockquote { border-left:3px solid #6366f1; padding:8px 12px; margin:8px 0; background:#6366f115; border-radius:0 12px 12px 0; }
+.telegram-rich a { color:#60a5fa; text-decoration:underline; text-underline-offset:3px; }
+.telegram-rich .post-spoiler { background: #1e293b; border-radius:6px; padding:2px 6px; filter:blur(4px); transition:filter .2s; cursor:pointer; }
+.telegram-rich .post-spoiler:hover { filter:none; }
+.tg-bubble { transition:transform .15s ease, box-shadow .2s ease; }
+.tg-bubble:hover { transform:translateY(-1px); box-shadow:0 4px 16px #0004; }
+.tg-incoming { background:linear-gradient(145deg,#182533,#1a2d3d); border:1px solid #ffffff08; }
+.tg-outgoing { background:linear-gradient(145deg,#2b5278,#3571a5); border:1px solid #ffffff12; }
+.tg-layout { box-shadow:0 20px 60px #0006, inset 0 1px 0 #ffffff08; }
+@keyframes popIn { from{transform:scale(.9);opacity:0} to{transform:scale(1);opacity:1} }
+
+/* Premium messenger polish: luminous header, selected-row accent, softer details. */
+.tg-conversation-header { background:linear-gradient(180deg,rgba(23,33,43,.98),rgba(20,29,38,.94)); backdrop-filter:blur(18px); box-shadow:0 1px 0 #ffffff0d; }
+.tg-chat-list { background:linear-gradient(180deg,#141d27,#111923); }
+.tg-chat-list > div:first-child { background:linear-gradient(180deg,#1a2532,#141d27); }
+.tg-chat-row.bg-indigo-500\/20 { background:linear-gradient(90deg,#264a6e,#20374f); box-shadow:inset 3px 0 0 #60a5fa; }
+.tg-chat-row { border-radius:10px; margin:1px 6px; transition:background .15s ease; }
+.tg-chat-rows { padding:4px 0 8px; }
+.tg-date span { backdrop-filter:blur(8px); font-weight:600; letter-spacing:.02em; }
+.tg-details { background:linear-gradient(180deg,#182432,#141d27); border-left:1px solid #ffffff14; }
+.tg-details .ios-card { background:linear-gradient(145deg,#1d2b39,#17222e); border:1px solid #ffffff0d; }
+.tg-inbox .ios-pill { background:#ffffff0f; color:#b9c7d4; }
+.tg-messages { background-image: radial-gradient(circle at 1px 1px,rgba(99,102,241,.08) 1px,transparent 0),radial-gradient(ellipse at 20% 0%,rgba(56,189,248,.07),transparent 55%),radial-gradient(ellipse at 100% 100%,rgba(168,85,247,.06),transparent 50%); background-size:24px 24px,100% 100%,100% 100%; }
+.tg-details h2 { letter-spacing:-.01em; }
+@media (max-width:767px){ .tg-chat-row { margin:1px 0; border-radius:0; } }

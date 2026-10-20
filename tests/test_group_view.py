@@ -136,13 +136,35 @@ class GroupViewerTests(unittest.TestCase):
         with self.assertRaises(view.ViewError):self.action('mute')
         self.assertFalse(any(call.args[0] in {'restrictChatMember','banChatMember'} for call in self.api.call_args_list))
 
-    def test_reply_has_real_reply_and_forum_context_without_parse_mode(self):
+    def test_reply_has_real_reply_and_forum_context_with_rich_html(self):
         result=self.action('reply',text='<b>Plain text</b>')
         self.assertEqual(result['status'],'confirmed')
         sent=next(call.args[1] for call in self.api.call_args_list if call.args[0]=='sendMessage')
         self.assertEqual(sent['reply_parameters'],{'message_id':25,'allow_sending_without_reply':False})
-        self.assertEqual(sent['message_thread_id'],7);self.assertNotIn('parse_mode',sent)
+        self.assertEqual(sent['message_thread_id'],7);self.assertEqual(sent['parse_mode'],'HTML')
         self.assertNotIn('as_user',sent)
+
+    def test_plain_reply_keeps_no_parse_mode(self):
+        self.action('reply',text='Plain < 2 and > 1')
+        sent=next(call.args[1] for call in self.api.call_args_list if call.args[0]=='sendMessage')
+        self.assertNotIn('parse_mode',sent);self.assertEqual(sent['text'],'Plain < 2 and > 1')
+
+    def test_premium_emoji_and_formatting_are_sanitized(self):
+        rich=self.action('reply',text='<tg-emoji emoji-id="5368324170671202286">🔥</tg-emoji> <b onclick="steal()">Launch</b> <a href="javascript:alert(1)">bad</a>')
+        self.assertEqual(rich['status'],'confirmed')
+        sent=next(call.args[1] for call in self.api.call_args_list if call.args[0]=='sendMessage')
+        self.assertEqual(sent['parse_mode'],'HTML')
+        self.assertIn('<tg-emoji emoji-id="5368324170671202286">🔥</tg-emoji>',sent['text'])
+        self.assertIn('<b>Launch</b>',sent['text'])
+        self.assertNotIn('onclick',sent['text']);self.assertNotIn('javascript:',sent['text'])
+        self.assertIn('&lt;script&gt;',view.rich_text('&lt;script&gt; <i>safe</i>',100)[0])
+
+    def test_invalid_premium_emoji_id_is_rejected(self):
+        for bad in ['<tg-emoji emoji-id="abc">🔥</tg-emoji>','<tg-emoji>🔥</tg-emoji>']:
+            with self.assertRaises(view.ViewError):view.rich_text(bad,100)
+        self.assertEqual(view.rich_text('plain &amp; simple',100),('plain &amp; simple',False))
+        with self.assertRaises(view.ViewError):view.rich_text('<b> </b>',100)
+        with self.assertRaises(view.ViewError):view.rich_text('<b>'+'😀'*60+'</b>',100)
 
     def test_utf16_text_limit(self):
         with self.assertRaises(view.ViewError):self.action('reply',text='😀'*2049)

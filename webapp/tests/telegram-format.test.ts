@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { telegramHtml, cleanTelegramHtml, previewHtml, editorHtml, safeLink, visibleLength } from "../src/lib/telegram-format";
+import { telegramHtml, cleanTelegramHtml, previewHtml, editorHtml, safeLink, visibleLength, chatPreviewHtml, wrapWithTag } from "../src/lib/telegram-format";
 test("selected text marks become Telegram formatting without exposing tags",()=>{
  assert.equal(telegramHtml({type:"text",text:"Hello & <friends>",marks:[{type:"bold"},{type:"italic"}]}),"<i><b>Hello &amp; &lt;friends&gt;</b></i>");
 });
@@ -50,4 +50,28 @@ test("real editor selection formats words and undo restores them",async()=>{
  editor.commands.setLink({href:"https://example.com"});
  assert.equal(telegramHtml(editor.getJSON()),'Hello <u><a href="https://example.com/">world</a></u>');
  editor.destroy();dom.window.close();
+});
+
+test("premium emoji tags survive sanitization and render as chat badges",()=>{
+ const html='<tg-emoji emoji-id="5368324170671202286">🔥</tg-emoji> <b>launch</b>';
+ const cleaned=cleanTelegramHtml(html);
+ assert.match(cleaned,/tg-emoji/);
+ assert.match(cleaned,/emoji-id="5368324170671202286"/);
+ const chat=chatPreviewHtml(html);
+ assert.match(chat,/tg-premium-emoji/);
+ assert.match(chat,/<b>launch<\/b>/);
+ assert.doesNotMatch(chat,/script|onerror/i);
+ assert.equal(chatPreviewHtml('<script>alert(1)<\/script><b onclick="x()">hi</b>'),"<b>hi</b>");
+});
+test("format helpers wrap the current selection and keep the caret inside",()=>{
+ const result=wrapWithTag("Hello brave world",6,11,"<b>","</b>");
+ assert.equal(result.text,"Hello <b>brave</b> world");
+ assert.deepEqual(result.selection,[9,14]);
+ const empty=wrapWithTag("abc",1,1,"<i>","</i>");
+ assert.equal(empty.text,"a<i></i>bc");
+ assert.deepEqual(empty.selection,[4,4]);
+});
+test("rich chat text strips unknown tags but keeps standard Telegram formatting",()=>{
+ assert.equal(chatPreviewHtml("<b>Bold</b> <i>it</i> <u>u</u> <s>s</s> <code>c</code>"),"<b>Bold</b> <i>it</i> <u>u</u> <s>s</s> <code>c</code>");
+ assert.equal(chatPreviewHtml("<div>plain</div><img src=x onerror=alert(1)>"),"plain");
 });

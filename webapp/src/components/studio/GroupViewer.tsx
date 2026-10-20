@@ -8,7 +8,9 @@ import {orderConversations,loadedNewMessages} from "@/lib/inbox-workspace";
 import InboxComposer from "./InboxComposer";
 import {useStudio} from "./StudioProvider";
 import {GroupMessage, GroupSnapshot, protections, telegramMessageLink, textUnits, conversationId} from "@/lib/group-view";
+import {chatPreviewHtml, plainPostText} from "@/lib/telegram-format";
 
+const DRAFT_KEY="videl_chat_drafts_v1";
 type Group = {type?:string;id:number; title:string; members:number|null; available:boolean};
 type Action = {action:string;text?:string;file?:File;kind?:'photo'|'video'|'voice'; message_id?:number; enabled?:boolean; retention_days?:number; settings?:Record<string,boolean>};
 export default function GroupViewer() {
@@ -18,6 +20,9 @@ export default function GroupViewer() {
   const messageList=useRef<HTMLDivElement>(null),stickToBottom=useRef(true),scrollChat=useRef<number|null>(null);
   const restoreScroll=useRef<{height:number;top:number}|null>(null);
   const [recent,setRecent]=useState<Record<number,{text:string;date:string}>>({});
+  const [drafts,setDrafts]=useState<Record<string,string>>({});
+  const draftChat=useRef<number|null>(null);
+  useEffect(()=>{try{const saved=JSON.parse(localStorage.getItem(DRAFT_KEY)||"{}");if(saved&&typeof saved==="object"&&!Array.isArray(saved))setDrafts(saved);}catch{}},[]);
   useEffect(()=>{const query=window.matchMedia('(max-width: 767px)');const update=()=>setIsMobile(query.matches);update();query.addEventListener('change',update);return()=>query.removeEventListener('change',update);},[]);
   useEffect(()=>{if(selectedGroup)setMobileChat(true);setDetailsOpen(false);setSearchOpen(false);stickToBottom.current=true;scrollChat.current=null;restoreScroll.current=null;setShowJump(false);},[selectedGroup]);
   const [receipts,setReceipts]=useState<GroupMessage[]>([]);
@@ -55,8 +60,27 @@ export default function GroupViewer() {
   useEffect(()=>()=>{localUrls.current.forEach(url=>URL.revokeObjectURL(url));localUrls.current.clear();},[]);
   useEffect(()=>{
     setReceipts([]);localUrls.current.forEach(url=>URL.revokeObjectURL(url));localUrls.current.clear();
-    setSelected(null);setReply(null);setText('');setSearch('');setSender(null);setOlder(false);setNotice('');setError('');setConfirm(null);
+    setSelected(null);setReply(null);setSearch('');setSender(null);setOlder(false);setNotice('');setError('');setConfirm(null);
+    draftChat.current=selectedGroup??null;
+    let saved='';
+    try{const all=JSON.parse(localStorage.getItem(DRAFT_KEY)||'{}');saved=typeof all[String(selectedGroup)]==='string'?all[String(selectedGroup)]:'';}catch{}
+    setText(saved);
   },[selectedGroup]);
+  useEffect(()=>{
+    if(!selectedGroup||draftChat.current!==selectedGroup)return;
+    const cid=String(selectedGroup);
+    const timer=setTimeout(()=>{
+      setDrafts(current=>{
+        const next={...current};
+        if(text.trim())next[cid]=text;else delete next[cid];
+        const entries=Object.entries(next).slice(-40);
+        const bounded=Object.fromEntries(entries);
+        try{localStorage.setItem(DRAFT_KEY,JSON.stringify(bounded));}catch{}
+        return bounded;
+      });
+    },350);
+    return ()=>clearTimeout(timer);
+  },[text,selectedGroup]);
   useEffect(()=>{
     if(!selectedGroup || tab!=='chat')return;
     const controller=new AbortController();let timer:ReturnType<typeof setTimeout>;
@@ -143,11 +167,12 @@ export default function GroupViewer() {
     if(!data||older||search||sender)return;
     const last=[...data.items,...receipts.filter(row=>row.chat_id===data.chat_id)].sort((a,b)=>a.message_id-b.message_id).at(-1);
     if(!last)return;
-    const preview={text:last.deleted?'Message deleted':last.text||last.media?.kind||'Message',date:last.date};
+    const preview={text:last.deleted?'Message deleted':plainPostText(last.text||'')||last.media?.kind||'Message',date:last.date};
     setRecent(previous=>previous[data.chat_id]?.text===preview.text&&previous[data.chat_id]?.date===preview.date?previous:{...previous,[data.chat_id]:preview});
   },[data,receipts,older,search,sender]);
   const contextLink=chosen?telegramMessageLink(chosen.chat_id,chosen.message_id):null;
   const outgoing=(message:GroupMessage)=>sentByThisBot(message,process.env.NEXT_PUBLIC_BOT_USERNAME||'Videl0Bot');
+  const avatarPalette=['linear-gradient(135deg,#6366f1,#22d3ee)','linear-gradient(135deg,#f472b6,#8b5cf6)','linear-gradient(135deg,#f59e0b,#ef4444)','linear-gradient(135deg,#10b981,#3b82f6)','linear-gradient(135deg,#06b6d4,#6366f1)','linear-gradient(135deg,#a855f7,#ec4899)','linear-gradient(135deg,#14b8a6,#84cc16)','linear-gradient(135deg,#fb7185,#fbbf24)'];
   const clock=(value:string)=>new Date(value).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
   const day=(value:string)=>new Date(value).toLocaleDateString([], {month:'long',day:'numeric',year:'numeric'});
   const visibleGroups=orderConversations(groups.filter(item=>{
@@ -165,8 +190,8 @@ export default function GroupViewer() {
           <label className="mt-3 flex items-center gap-2 rounded-xl bg-white/5 px-3"><Search size={14}/><input aria-label="Search group list" value={groupSearch} onChange={e=>setGroupSearch(e.target.value)} className="min-w-0 bg-transparent py-3 text-xs outline-none" placeholder="Names, IDs or tags…"/></label>
           <div className="mt-3 flex flex-wrap gap-1" aria-label="Conversation folders">{(['all','private','groups','pinned'] as const).map(value=><button key={value} aria-pressed={folder===value} onClick={()=>setFolder(value)} className={`rounded-lg px-2 py-1.5 text-[10px] capitalize ${folder===value?'bg-indigo-400/20 text-indigo-100':'text-indigo-100/45 hover:bg-white/5'}`}>{value==='private'?'DMs':value}</button>)}</div></div>
         <div className="tg-chat-rows">{visibleGroups.map(item=><button key={item.id} disabled={busy} onClick={()=>{selectGroup(item.id);setMobileChat(true);}} className={`tg-chat-row flex w-full items-center gap-3 p-3 text-left transition disabled:opacity-40 ${selectedGroup===item.id?'bg-indigo-500/20 ring-1 ring-indigo-300/20':'hover:bg-white/5'}`}>
-          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-gradient-to-br from-indigo-500/35 to-teal-400/15 text-xs font-semibold">{item.title.slice(0,2).toUpperCase()}</span>
-          <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{workspace.conversations.find(row=>row.chat_id===item.id)?.pinned?'★ ':''}{item.title}</span><span className="mt-1 block truncate text-xs text-slate-400">{recent[item.id]?.text||(item.type==='private'?'Bot direct message':'Group conversation')}</span></span>{recent[item.id]&&<time className="self-start pt-1 text-[10px] text-slate-400">{clock(recent[item.id].date)}</time>}</button>)}
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-xs font-bold text-white/90 ring-1 ring-white/10" style={{backgroundImage:avatarPalette[Math.abs(item.id)%avatarPalette.length]}}>{item.title.slice(0,2).toUpperCase()}</span>
+          <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{workspace.conversations.find(row=>row.chat_id===item.id)?.pinned?'★ ':''}{item.title}</span><span className={`mt-1 block truncate text-xs ${drafts[item.id]?'text-emerald-300/80':'text-slate-400'}`}>{drafts[item.id]?`Draft: ${plainPostText(drafts[item.id]).slice(0,80)}`:recent[item.id]?.text||(item.type==='private'?'Bot direct message':'Group conversation')}</span></span>{recent[item.id]&&<time className="self-start pt-1 text-[10px] text-slate-400">{clock(recent[item.id].date)}</time>}</button>)}
           {groupsLoading&&<div role="status" className="space-y-4 p-4" aria-label="Loading conversations">{[1,2,3,4].map(n=><div key={n} className="flex gap-3 animate-pulse"><span className="h-11 w-11 rounded-full bg-white/10"/><span className="flex-1 space-y-2 py-1"><span className="block h-3 w-2/3 rounded bg-white/10"/><span className="block h-3 w-4/5 rounded bg-white/5"/></span></div>)}</div>}
           {!groupsLoading&&!visibleGroups.length&&<p className="p-4 text-xs text-indigo-100/40">No conversations yet. Ask someone to message your bot, or add it to a group. Only bot-visible chats appear here.</p>}</div>
         {groupsError&&<p className="px-4 pb-3 text-[11px] text-amber-200/70">{groupsError}</p>}
@@ -187,10 +212,16 @@ export default function GroupViewer() {
             {displayMessages.length===0&&<div className="mx-auto max-w-sm py-16 text-center"><Eye size={30} className="mx-auto text-indigo-300/40"/><h3 className="mt-4 text-sm font-medium">{search||sender?'No matching messages':data.recording?'Waiting for new bot-visible messages':'No messages yet'}</h3><p className="mt-3 text-xs leading-6 text-indigo-100/45">{data.recording?'Send a new message in Telegram after enabling recording. Bot privacy mode may limit what appears.':'Ask someone to send a message after enabling above. You can also disable anytime via Chat info → Chat settings.'}</p>{!data.recording&&!search&&!sender&&<button disabled={busy} onClick={()=>setDetailsOpen(true)} className="mt-4 text-xs text-indigo-200 underline">Open chat settings</button>}</div>}
             {displayMessages.map((message,index)=><div key={message.message_id}>{(index===0||day(displayMessages[index-1].date)!==day(message.date))&&<div className="tg-date"><span>{day(message.date)}</span></div>}<article key={message.message_id} className={`flex ${outgoing(message)?'justify-end':'justify-start'}`}><div className={`tg-bubble max-w-[88%] min-w-[100px] rounded-2xl px-3 py-2 sm:max-w-[75%] ${outgoing(message)?'tg-outgoing rounded-br-sm':'tg-incoming rounded-bl-sm'} ${chosen?.message_id===message.message_id?'ring-1 ring-indigo-300/50':''}`}>
               <div className="flex items-center justify-between gap-3"><button className="truncate text-left text-[11px] font-semibold text-indigo-200" onClick={()=>{setSelected(message);setDetailsOpen(true);}}>{message.sender_name}{message.is_bot?' · bot':''}</button><button aria-label={`Message ${message.message_id} actions`} onClick={()=>{setSelected(message);setDetailsOpen(true);}}><MoreHorizontal size={15} className="text-indigo-100/45"/></button></div>
-              {message.reply_to_id&&<div className="mt-2 border-l-2 border-indigo-300/50 pl-2 text-[10px] text-indigo-100/45">Reply to #{message.reply_to_id}{data.items.find(item=>item.message_id===message.reply_to_id)?.text?` · ${data.items.find(item=>item.message_id===message.reply_to_id)!.text.slice(0,80)}`:''}</div>}
+              {message.reply_to_id&&<div className="mt-2 border-l-2 border-indigo-300/50 pl-2 text-[10px] text-indigo-100/45">Reply to #{message.reply_to_id}{data.items.find(item=>item.message_id===message.reply_to_id)?.text?` · ${plainPostText(data.items.find(item=>item.message_id===message.reply_to_id)!.text).slice(0,80)}`:''}</div>}
               {message.media&&<div className="mt-2 rounded-lg bg-white/5 p-2 text-[11px] text-indigo-100/60"><p>{message.media.kind.replace('_',' ')}{message.media.name?` · ${message.media.name}`:''}</p>{message.media.kind==='photo'?<img loading="lazy" src={message.local_preview||`/api/inbox-media?chat_id=${message.chat_id}&message_id=${message.message_id}`} alt="Bot-visible photo" className="mt-2 max-h-64 rounded-lg object-contain"/>:['voice','audio'].includes(message.media.kind)?<audio controls preload="none" src={message.local_preview||`/api/inbox-media?chat_id=${message.chat_id}&message_id=${message.message_id}`} className="mt-2 max-w-full"/>:['video','animation'].includes(message.media.kind)?<video controls preload="none" src={message.local_preview||`/api/inbox-media?chat_id=${message.chat_id}&message_id=${message.message_id}`} className="mt-2 max-h-64 rounded-lg"/>:null}<p className="mt-1 text-[9px] text-indigo-100/35">Preview up to 8 MB. If unavailable, open the original in Telegram.</p></div>}
-              <p className={`mt-2 whitespace-pre-wrap break-words text-[13px] leading-6 ${message.deleted?'italic text-indigo-100/30':'text-indigo-50/85'}`}>{message.deleted?'Deleted through Videl':message.text}</p>
-              <div className="mt-2 flex items-center justify-end gap-2 text-[9px] text-indigo-100/35"><span>{message.thread_id?`Topic ${message.thread_id}`:''}</span><span>{message.edited?'edited · ':''}{clock(message.date)}</span>{message.ephemeral&&<span title="Telegram confirmed delivery; not a read receipt" aria-label="Delivery confirmed"><Check size={13}/></span>}{!message.deleted&&<button aria-label={`Reply to message ${message.message_id}`} disabled={message.ephemeral} title={message.ephemeral?"Saved message actions become available after recording captures it":"Reply"} onClick={()=>{setReply(message);setSelected(message);}}><Reply size={13}/></button>}</div>
+              {message.deleted ? (
+                <p className="mt-2 text-[13px] italic text-indigo-100/30">Deleted through Videl</p>
+              ) : !message.text ? null : message.is_bot ? (
+                <div className="telegram-rich mt-2 break-words text-[13px] leading-6 text-indigo-50/90" dangerouslySetInnerHTML={{__html: chatPreviewHtml(message.text)}} />
+              ) : (
+                <p className="mt-2 whitespace-pre-wrap break-words text-[13px] leading-6 text-indigo-50/85">{message.text}</p>
+              )}
+              <div className="mt-2 flex items-center justify-end gap-2 text-[9px] text-indigo-100/35"><span>{message.thread_id?`Topic ${message.thread_id}`:''}</span><span>{message.edited?'edited · ':''}{clock(message.date)}</span>{message.is_bot&&message.text?.includes('<tg-emoji')&&<span title="Premium emoji" className="rounded-full bg-gradient-to-r from-violet-500/20 to-indigo-500/20 px-1.5 py-0.5 text-[8px] font-bold tracking-widest text-violet-200">PREMIUM</span>}{message.ephemeral&&<span title="Telegram confirmed delivery; not a read receipt" aria-label="Delivery confirmed"><Check size={13}/></span>}{!message.deleted&&<button aria-label={`Reply to message ${message.message_id}`} disabled={message.ephemeral} title={message.ephemeral?"Saved message actions become available after recording captures it":"Reply"} onClick={()=>{setReply(message);setSelected(message);}}><Reply size={13}/></button>}</div>
             </div></article></div>)}
           </>}
         </div>

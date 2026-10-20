@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import {ScheduledPosts} from "@/components/studio/ScheduledPosts";
 import { ImageComposer } from "@/components/studio/ImageComposer";
+import { PostAssetLibrary } from "@/components/studio/PostAssetLibrary";
 import {postChecks,VERSION_KEY} from "@/lib/studio-workflows";
 import { visibleLength, plainPostText } from "@/lib/telegram-format";
 import { RichEditor } from "@/components/editor/RichEditor";
@@ -49,6 +50,7 @@ export default function ChannelStudio() {
   const { authenticated } = useTelegram();
   const isOwner = authenticated === true;
   const [showAssets, setShowAssets] = useState(false);
+  const [showCovers, setShowCovers] = useState(false);
   const [localImage, setLocalImage] = useState<File | null>(null);
   useEffect(() => {
     if (!localImage) return;
@@ -393,14 +395,15 @@ export default function ChannelStudio() {
           {autoStatus}
         </p>
       )}
-      <div className="mt-5 flex gap-2">
+      <div className="mt-5 flex flex-wrap gap-2">
         <button
-          aria-pressed={!showTemplates && !showAssets}
+          aria-pressed={!showTemplates && !showAssets && !showCovers}
           onClick={() => {
             setShowTemplates(false);
             setShowAssets(false);
+            setShowCovers(false);
           }}
-          className={`ios-btn text-xs ${!showTemplates && !showAssets ? "ios-btn-primary" : "ios-btn-glass"}`}
+          className={`ios-btn text-xs ${!showTemplates && !showAssets && !showCovers ? "ios-btn-primary" : "ios-btn-glass"}`}
         >
           Create Post
         </button>
@@ -409,23 +412,36 @@ export default function ChannelStudio() {
           onClick={() => {
             setShowTemplates(true);
             setShowAssets(false);
+            setShowCovers(false);
           }}
           className={`ios-btn text-xs ${showTemplates ? "ios-btn-primary" : "ios-btn-glass"}`}
         >
           Text Templates
         </button>
         <button
+          aria-pressed={showCovers}
+          onClick={() => {
+            setShowCovers(true);
+            setShowTemplates(false);
+            setShowAssets(false);
+          }}
+          className={`ios-btn text-xs ${showCovers ? "ios-btn-primary" : "ios-btn-glass"}`}
+        >
+          Cover Library ✨
+        </button>
+        <button
           aria-pressed={showAssets}
           onClick={() => {
             setShowAssets(true);
             setShowTemplates(false);
+            setShowCovers(false);
           }}
           className={`ios-btn text-xs ${showAssets ? "ios-btn-primary" : "ios-btn-glass"}`}
         >
           Design Image
         </button>
       </div>
-      {!showTemplates && !showAssets && (
+      {!showTemplates && !showAssets && !showCovers && (
         <section className="post-editorial-banner mt-5 flex items-center justify-between gap-5 overflow-hidden rounded-2xl border border-white/10 p-5 sm:p-7">
           <div className="max-w-md">
             <p className="post-eyebrow">THE PUBLISHING DESK</p>
@@ -468,6 +484,41 @@ export default function ChannelStudio() {
           }}
         />
       </div>
+      {showCovers && (
+        <PostAssetLibrary
+          selected={mediaUrl}
+          disabled={busy}
+          onSelect={async (path) => {
+            try {
+              setResult(null);
+              const response = await fetch(path);
+              if (!response.ok) throw new Error("Could not open this cover.");
+              const blob = await response.blob();
+              if (blob.size > 4 * 1024 * 1024)
+                throw new Error("This cover is larger than 4 MB.");
+              const name = path.startsWith("data:")
+                ? "your-cover.png"
+                : path.split("/").pop() || "cover.png";
+              setMediaUrl("");
+              setLocalImage(new File([blob], name, { type: blob.type || "image/png" }));
+              setShowCovers(false);
+              setResult({
+                ok: true,
+                message:
+                  "Cover attached to your post. Add a caption, review the preview, then publish.",
+              });
+            } catch (error) {
+              setResult({
+                ok: false,
+                message:
+                  error instanceof Error
+                    ? error.message
+                    : "That cover could not be attached.",
+              });
+            }
+          }}
+        />
+      )}
       {showTemplates && (
         <section className="mt-4 grid gap-3 sm:grid-cols-3">
           {templates.map((template) => (
@@ -567,6 +618,17 @@ export default function ChannelStudio() {
                 className="ios-btn ios-btn-glass text-xs"
               >
                 Design custom image
+              </button>
+              <button
+                onClick={() => {
+                  setShowCovers(true);
+                  setShowAssets(false);
+                  setShowTemplates(false);
+                  window.scrollTo({ top: 0, behavior: "smooth" });
+                }}
+                className="ios-btn ios-btn-glass text-xs"
+              >
+                Browse cover library
               </button>
               {mediaUrl && (
                 <button

@@ -3,6 +3,7 @@
 ## Public creative workspace
 
 - Post Studio with visual formatting, live preview and link-button design.
+- Cover Library with 12 original covers plus up to 20 personal PNG/JPEG/WebP uploads, stored in that browser.
 - 20 customizable image layouts, layer editing, JSON design import/export and PNG download.
 - Local draft/recovery storage; downloadable plain text and native text sharing.
 - Creator Tools: Unicode-aware caption counts, Telegram UTF-16 limit checks, unique hashtags and campaign URL builder.
@@ -13,6 +14,11 @@
 Only Telegram account **6265999542** can authenticate. Bot-backed publication, chat sending, group rules, analytics, broadcasts and settings remain server-protected. Public users cannot publish through the owner's bot. The sign-in page explains signed Mini App and Login Widget flows; expiring HttpOnly cookies and sign-out are supported.
 
 ## Bot
+
+Smart Chat sends bot messages with Telegram HTML formatting (bold, italic,
+underline, strike, mono, quote, spoiler, links) and premium custom emoji via
+`<tg-emoji emoji-id="…">`; viewers fall back to the supplied character. Bots need
+a Fragment username or a Premium owner (Bot API 9.4+) to send custom emoji.
 
 Music playback/queue controls, group moderation and MongoDB-backed rules are retained. New Telegram tools include advanced polls/quizzes, permission-checked reactions and forum-topic actions. See [API details](docs/TELEGRAM_API_UPGRADE.md) for exact commands and eligibility caveats.
 
