@@ -209,6 +209,16 @@ class InternalRoutesTests(unittest.TestCase):
         self.assertTrue(all(item["ok"] for item in payload["results"]))
         self.assertTrue(self.db["mgmt_chat_settings"].find_one({"chat_id": -100999})["lock_links"])
 
+    def test_bulk_settings_patch_is_validated(self):
+        ok = self.client.post("/internal/chats/bulk", headers=self.headers(),
+                              json={"chat_ids": [CID], "action": "settings", "settings": {"lock_media": True}})
+        self.assertEqual(ok.status_code, 200)
+        self.assertTrue(self.db["mgmt_chat_settings"].find_one({"chat_id": CID})["lock_media"])
+        bad = self.client.post("/internal/chats/bulk", headers=self.headers(),
+                               json={"chat_ids": [CID], "action": "settings", "settings": {"made_up": True}})
+        self.assertEqual(bad.status_code, 200)
+        self.assertFalse(bad.get_json()["results"][0]["ok"])
+
     def test_bulk_rejects_empty_or_oversized_selection(self):
         for body in ({"chat_ids": [], "action": "preset", "preset": "balanced"},
                      {"chat_ids": list(range(16)), "action": "preset", "preset": "balanced"},

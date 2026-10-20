@@ -643,6 +643,12 @@ class GroupView:
             self.rights(cid,actor,['can_delete_messages'])
         if action=='protect':
             return self.settings(cid,actor,body)
+        if action=='settings':
+            settings=body.get('settings')
+            if not isinstance(settings,dict) or not settings or set(settings)-set(BOOL_SETTINGS) or any(type(value) is not bool for value in settings.values()):
+                raise ViewError('Only supported boolean protection settings are accepted.')
+            self.db['mgmt_chat_settings'].update_one({'chat_id':cid},{'$set':settings},upsert=True)
+            return {'ok':True,'settings':self.snapshot(cid)}
         if action=='preset':
             name=body.get('preset')
             if name not in PRESETS:raise ViewError('Choose one of the saved presets.')
@@ -735,7 +741,7 @@ class GroupView:
         cid,actor=self.access(body.get('chat_id'))
         action=body.get('action')
         if action in {'recording','purge_history','protect'}:return self.settings(cid,actor,body)
-        if action in {'preset','warn_limit','welcome','goodbye','rules','blacklist_add','blacklist_remove','blacklist_mode','note_delete','filter_delete','approved_remove','warn_reset'}:
+        if action in {'settings','preset','warn_limit','welcome','goodbye','rules','blacklist_add','blacklist_remove','blacklist_mode','note_delete','filter_delete','approved_remove','warn_reset'}:
             return self.admin(cid,actor,body)
         if cid>0 and action not in {'send','reply','delete','react','poll','forward'}:raise ViewError('This action is group-only.',403)
         if action not in {'send','reply','delete','react','poll','forward','mute','unmute','ban','pin','unpin'}:raise ViewError('Unsupported group action.')
