@@ -533,7 +533,7 @@ export default function GroupsPage({ automation = false }: { automation?: boolea
                 <div className="min-w-0">
                   <h2 className="truncate font-semibold">{displayTitle(active)}</h2>
                   <p className="ios-caption mt-1">
-                    {active.id} · {active.type} · {memberLabel(detail?.chat.member_count ?? active.members)}
+                    {active.id} · {active.type} · {memberLabel(detail?.chat?.member_count ?? active.members)}
                   </p>
                 </div>
                 <div className="flex shrink-0 gap-2">
@@ -573,7 +573,7 @@ export default function GroupsPage({ automation = false }: { automation?: boolea
                   <button onClick={() => void loadDetail(active.id)} className="underline">Retry</button>
                 </div>
               )}
-              {detail && detail.problems.length > 0 && <PanelNotice>{detail.problems.join(" ")}</PanelNotice>}
+              {detail && (detail.problems ?? []).length > 0 && <PanelNotice>{(detail.problems ?? []).join(" ")}</PanelNotice>}
 
               <div role="group" aria-label="Group settings panels" className="mt-4 flex flex-wrap gap-1.5">
                 {TABS.map((item) => (
