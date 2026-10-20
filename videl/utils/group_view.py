@@ -14,8 +14,9 @@ import uuid
 from pymongo.errors import DuplicateKeyError
 
 from videl.utils import audit as audit_log
-from videl.utils.automation import (ESCALATION_ACTIONS, MUTE_RANGE, normalize, normalize_escalation,
-                                    normalize_protection, normalize_quiet, parse_hhmm)
+from videl.utils.automation import (DECAY_RANGE, ESCALATION_ACTIONS, ESCALATION_LADDER, MUTE_RANGE,
+                                    normalize, normalize_escalation, normalize_protection,
+                                    normalize_quiet, parse_hhmm)
 from videl.utils.moderation import LOCK_TYPES
 
 OWNER_ID=6265999542
@@ -657,7 +658,8 @@ class GroupView:
         try:disabled=[str(item.get('cmd','')) for item in self.db['disabled_cmds'].find({'chat':cid},{'_id':0,'cmd':1}).limit(80)]
         except Exception:disabled=[]
         from videl.utils.db import get_automation,list_warns,get_warn_limit
-        try:warns=list_warns(cid,100)
+        decay=int((get_automation(cid).get('escalation') or {}).get('decay_days') or 0)
+        try:warns=list_warns(cid,100,decay_days=decay)
         except Exception:warns=[]
         try:automation=get_automation(cid)
         except Exception:automation=normalize({})
@@ -690,7 +692,7 @@ class GroupView:
             detail=detail,actor=OWNER_ID,source=source)
         except Exception:log.debug('audit record failed',exc_info=True)
 
-    def events(self,chat_id,*,limit=40,kind=None,before=None,before_id=None):
+    def events(self,chat_id,*,limit=40,kind=None,before=None,before_id=None,query=None,actor=None):
         # History lives in MongoDB, so it stays readable even when Telegram no
         # longer answers for the chat — that is exactly when it is needed.
         cid=integer(chat_id)
@@ -700,8 +702,9 @@ class GroupView:
         # Ask for one extra row so the panel knows whether an older page exists
         # without trusting an empty page to mean "end of history".
         rows=audit_log.recent(self.db,cid,limit=limit+1,kind=kind,before=before,
-                              before_id=before_id)
-        return {'ok':True,'kind':kind or 'all','kinds':list(audit_log.KINDS),
+                              before_id=before_id,query=query,actor=actor)
+        return {'ok':True,'kind':kind or 'all','query':query or '','actor':actor,
+                'kinds':list(audit_log.KINDS),
                 'events':rows[:limit],'has_more':len(rows)>limit}
 
     # ── portable backup ──────────────────────────────────────────────────────
@@ -993,28 +996,39 @@ class GroupView:
             self.call('banChatMember',{'chat_id':cid,'user_id':target})
             note='member banned'
         else:
+            from videl.utils import warnings as warning_rules
             from videl.utils.db import add_warn,get_escalation,get_warn_limit
-            count=add_warn(cid,target,'report')
+            window=self.db['mgmt_warnings'].find_one({'chat_id':cid,'user_id':target}) or {}
+            escalation=get_escalation(cid)
             limit=get_warn_limit(cid)
-            if count>=limit:
-                escalation=get_escalation(cid)
-                action=escalation['action'] if escalation.get('enabled') else 'none'
+            # Same verdict the bot's /warn reaches: decay first, then the rung.
+            plan=warning_rules.next_stage(window,limit,escalation.get('decay_days',0))
+            count=add_warn(cid,target,'report')
+            if plan['reached']:
+                self.db['mgmt_warnings'].update_one({'chat_id':cid,'user_id':target},
+                    {'$set':{'stages':plan['next_stage']}})
+            count=plan['count']
+            shown=min(count,limit)
+            if plan['reached']:
+                action=warning_rules.ladder_action(escalation,plan['stage']) if escalation.get('enabled') else 'none'
                 if action=='ban':
                     self.call('banChatMember',{'chat_id':cid,'user_id':target})
-                    note=f'{count}/{limit} warnings; member banned'
+                    note=f'{shown}/{limit} warnings; member banned'
                 elif action=='kick':
                     self.call('banChatMember',{'chat_id':cid,'user_id':target})
                     self.call('unbanChatMember',{'chat_id':cid,'user_id':target})
-                    note=f'{count}/{limit} warnings; member removed'
+                    note=f'{shown}/{limit} warnings; member removed'
                 elif action=='mute':
                     hours=max(1,min(int(escalation.get('mute_hours') or 6),168))
                     self.call('banChatMember',{'chat_id':cid,'user_id':target,
                         'until_date':int(time.time())+hours*3600})
-                    note=f'{count}/{limit} warnings; muted {hours}h'
+                    note=f'{shown}/{limit} warnings; muted {hours}h'
                 else:
-                    note=f'{count}/{limit} warnings; escalation is off'
+                    note=f'{shown}/{limit} warnings; escalation is off'
             else:
-                note=f'{count}/{limit} warnings'
+                note=f'{shown}/{limit} warnings'
+            if plan['decayed']:
+                note+=f" ({plan['decayed']} older lapsed)"
         self.db['mgmt_reports'].update_one({'_id':identifier},{'$set':{
             'status':'resolved','resolved':now(),'decision':decision}})
         self.log(cid,'report_update',{'id':raw,'decision':decision,'user_id':target})
@@ -1063,6 +1077,17 @@ class GroupView:
                     raise ViewError(f'The mute length must be {MUTE_RANGE[0]}–{MUTE_RANGE[1]} hours.')
             if 'enabled' in escalation and type(escalation['enabled']) is not bool:
                 raise ViewError('Escalation enabled must be true or false.')
+            if 'decay_days' in escalation:
+                decay=escalation['decay_days']
+                if isinstance(decay,bool) or not isinstance(decay,int) or not DECAY_RANGE[0]<=decay<=DECAY_RANGE[1]:
+                    raise ViewError(f'Warning decay must be {DECAY_RANGE[0]}–{DECAY_RANGE[1]} days (0 keeps warnings forever).')
+            if 'ladder' in escalation:
+                ladder=escalation['ladder']
+                if not isinstance(ladder,list) or any(item not in ESCALATION_LADDER for item in ladder):
+                    raise ViewError('The ladder may only contain mute, kick and ban, in that order.')
+                order={'mute':0,'kick':1,'ban':2}
+                if len(ladder)>3 or any(order[ladder[i]]>=order[ladder[i+1]] for i in range(len(ladder)-1)):
+                    raise ViewError('Order the ladder from the gentlest action to the harshest, without duplicates.')
             escalation=normalize_escalation({**get_automation(cid)['escalation'],**escalation})
         if protection is not None:
             if not isinstance(protection,dict):raise ViewError('The protection window must be an object.')

@@ -37,6 +37,7 @@ KINDS = (
     "approval",
     "warn",
     "warn_reset",
+    "moderation",
     "automation",
     "commands",
     "recording",
@@ -122,7 +123,8 @@ def object_id(value) -> ObjectId | None:
 
 def recent(db, chat_id: int, *, limit: int = 40, kind: str | None = None,
            before: datetime | None = None,
-           before_id=None) -> list[dict]:
+           before_id=None, query: str | None = None,
+           actor: int | None = None) -> list[dict]:
     """Newest first. A cursor is the last row already shown.
 
     Mongo stores milliseconds, so a bulk save can produce several rows with
@@ -136,20 +138,35 @@ def recent(db, chat_id: int, *, limit: int = 40, kind: str | None = None,
         limit = max(1, min(int(limit), MAX_ROWS))
     except (TypeError, ValueError):
         limit = 40
-    query: dict = {"chat_id": int(chat_id)}
+    match: dict = {"chat_id": int(chat_id)}
     if kind in KINDS:
-        query["kind"] = kind
+        match["kind"] = kind
+    if isinstance(actor, int):
+        match["actor"] = int(actor)
+    # Free text matches the stored action and detail, never a message body, so
+    # a search cannot surface anything the trail did not record.
+    needle = clean(query or "", 60)
+    text_filter = None
+    if needle:
+        safe = re.escape(needle)
+        text_filter = [{"detail": {"$regex": safe, "$options": "i"}},
+                       {"action": {"$regex": safe, "$options": "i"}}]
     if isinstance(before, datetime):
         # PyMongo stores UTC without tzinfo; a cursor must match that shape.
         if before.tzinfo is not None:
             before = before.astimezone(timezone.utc).replace(tzinfo=None)
         oid = object_id(before_id) if before_id else None
         if oid is not None:
-            query["$or"] = [{"ts": {"$lt": before}}, {"ts": before, "_id": {"$lt": oid}}]
+            page = [{"ts": {"$lt": before}}, {"ts": before, "_id": {"$lt": oid}}]
         else:
-            query["ts"] = {"$lt": before}
+            page = None
+            match["ts"] = {"$lt": before}
+        if page:
+            match["$and"] = [{"$or": page}]
+    if text_filter:
+        match.setdefault("$and", []).append({"$or": text_filter})
     try:
-        rows = list(col.find(query).sort([("ts", -1), ("_id", -1)]).limit(limit))
+        rows = list(col.find(match).sort([("ts", -1), ("_id", -1)]).limit(limit))
     except Exception:
         return []
     output = []

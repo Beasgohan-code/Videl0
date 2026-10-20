@@ -17,6 +17,7 @@ from videl import LOGGER
 from videl.app.router import Command, CommandError, Screen
 from videl.plugins import base
 from videl.plugins.base import body, escape, heading, table, target_link
+from videl.utils import warnings
 from videl.utils.audit import record_bot
 from videl.utils.bot_ui import button
 from videl.utils.command_ui import usage
@@ -118,10 +119,11 @@ def _escalation(chat_id: int) -> dict:
         from videl.utils.db import get_escalation
         return get_escalation(chat_id)
     except Exception:
-        return {"enabled": True, "action": "ban", "mute_hours": 6}
+        from videl.utils.automation import normalize_escalation
+        return normalize_escalation({})
 
 
-async def _escalate(ctx, chat_id: int, user_id: int, action: str, escalation: dict) -> str:
+async def _apply_action(ctx, chat_id: int, user_id: int, action: str, escalation: dict) -> str:
     """Apply the configured action and return a phrase for the confirmation text."""
     if action == "mute":
         hours = int(escalation.get("mute_hours") or 6)
@@ -144,15 +146,21 @@ async def warn(ctx) -> Screen:
         raise CommandError("MongoDB is not connected, so the warning was not saved.")
     await _protect(ctx, user)
     reason = _reason(tokens)
+    escalation = _escalation(chat_id)
     document = await asyncio.to_thread(store.find_one, {"chat_id": chat_id, "user_id": user.id})
-    count = int((document or {}).get("count", 0)) + 1
     limit = warn_limit(chat_id)
+    # One shared verdict for both warning surfaces: decay first, then the rung
+    # this warning reaches. A stale warning must never count against a member.
+    plan = warnings.next_stage(document, limit, escalation.get("decay_days", 0))
+    count, stage = plan["count"], plan["stage"]
+    stored_total = int((document or {}).get("count", 0)) + 1
     await asyncio.to_thread(
         store.update_one,
         {"chat_id": chat_id, "user_id": user.id},
         {
             "$push": {"reasons": {"reason": reason, "ts": datetime.now(timezone.utc).isoformat()}},
-            "$set": {"count": count, "updated": datetime.now(timezone.utc)},
+            "$set": {"count": stored_total, "updated": datetime.now(timezone.utc),
+                     "stages": plan["next_stage"] if plan["reached"] else int((document or {}).get("stages") or 0)},
         },
         upsert=True,
     )
@@ -169,15 +177,14 @@ async def warn(ctx) -> Screen:
         actor=getattr(getattr(ctx.message, "from_user", None), "id", None),
     )
     notes = ""
-    if count >= limit:
-        escalation = _escalation(chat_id)
-        action = escalation["action"] if escalation.get("enabled") else "none"
+    if plan["reached"]:
+        action = warnings.ladder_action(escalation, stage) if escalation.get("enabled") else "none"
         if action == "none":
             notes = f"Reached the limit of {limit}; escalation is switched off for this group."
         else:
             try:
                 await _require(ctx, ("can_restrict_members",))
-                note = await _escalate(ctx, chat_id, user.id, action, escalation)
+                note = await _apply_action(ctx, chat_id, user.id, action, escalation)
                 await asyncio.to_thread(_audit, chat_id, user.id, f"{limit} warnings")
                 notes = f"Reached the limit of {limit}; {note}."
             except Exception as exc:
@@ -189,7 +196,9 @@ async def warn(ctx) -> Screen:
             ("Reason", escape(reason)),
             ("Warnings", f"{count}/{limit}"),
         ])
-        + body(notes or "The warning is saved. Admins can review it with /warnings."),
+        + body(notes or "The warning is saved. Admins can review it with /warnings.")
+        + (body(f"{plan['decayed']} older warning{'s' if plan['decayed'] != 1 else ''} no longer count towards this limit.")
+           if plan["decayed"] else body("")),
         InlineKeyboardMarkup([[button("All warnings", callback_data="help:manage")]]),
     )
 
@@ -207,10 +216,12 @@ async def unwarn(ctx) -> Screen:
     if reasons:
         reasons.pop()
     count = max(0, int(document.get("count", 1)) - 1)
+    stage = max(0, int(document.get("stages") or 0) - 1)
     await asyncio.to_thread(
         store.update_one,
         {"chat_id": chat_id, "user_id": user.id},
-        {"$set": {"count": count, "reasons": reasons, "updated": datetime.now(timezone.utc)}},
+        {"$set": {"count": count, "reasons": reasons, "stages": stage,
+                  "updated": datetime.now(timezone.utc)}},
     )
     return Screen(heading("Warning removed", 3) + table([("Member", target_link(user)), ("Warnings", f"{count}/{warn_limit(chat_id)}")]))
 
@@ -227,14 +238,28 @@ async def warnings(ctx) -> Screen:
     if user is None:
         raise CommandError("Reply to a member or pass @username.")
     document = await asyncio.to_thread(store.find_one, {"chat_id": chat_id, "user_id": user.id})
-    count = int((document or {}).get("count", 0))
-    if not count:
+    limit = warn_limit(chat_id)
+    state = warnings.active_warnings(document, _escalation(chat_id).get("decay_days", 0))
+    if not state["total"]:
         return Screen(heading("Clean record", 3) + body(f"{target_link(user)} has no warnings."))
-    rows = [(f"#{index + 1}", escape((item or {}).get("reason", "—"))) for index, item in enumerate((document or {}).get("reasons") or [])]
+    decay_days = int(_escalation(chat_id).get("decay_days", 0) or 0)
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=decay_days)) if decay_days else None
+    rows = []
+    for index, item in enumerate((document or {}).get("reasons") or []):
+        entry = warnings.warning_entries({"reasons": [item]})[0]
+        live = cutoff is None or entry["ts"] is None or entry["ts"] >= cutoff
+        when = entry["ts"].strftime("%d %b %Y") if entry["ts"] else "undated"
+        rows.append((f"#{index + 1}", f"{escape(entry['reason'] or '—')} · {when}" + ("" if live else " · expired")))
+    notes = f"{state['count']} of {state['total']} warnings still count towards the limit of {limit}."
+    if state["decayed"]:
+        notes += f" {state['decayed']} lapsed after the decay window."
+    if state["expires_at"]:
+        notes += f" The next one lapses on {state['expires_at'].strftime('%d %b %Y')}."
     return Screen(
         heading("Warning history", 3)
-        + table([("Member", target_link(user)), ("Warnings", f"{count}/{warn_limit(chat_id)}")])
+        + table([("Member", target_link(user)), ("Active", f"{state['count']}/{limit}")])
         + table(rows)
+        + body(notes)
     )
 
 
@@ -245,7 +270,13 @@ async def clear_warnings(ctx) -> Screen:
     if store is None:
         raise CommandError("MongoDB is not connected.")
     await asyncio.to_thread(store.delete_one, {"chat_id": chat_id, "user_id": user.id})
-    return Screen(heading("Warnings cleared", 3) + body(f"{target_link(user)} now has a clean record."))
+    await asyncio.to_thread(
+        record_bot, chat_id, "warn_reset", action="warn_reset",
+        detail=f"member {user.id}: warnings cleared",
+        actor=getattr(getattr(ctx.message, "from_user", None), "id", None),
+    )
+    return Screen(heading("Warnings cleared", 3)
+                  + body(f"{target_link(user)} now has a clean record, and the ladder starts again."))
 
 
 async def set_warn_limit(ctx) -> Screen:
@@ -341,6 +372,15 @@ async def moderate(ctx) -> Screen:
             except Exception:
                 notes.append("The membership action is confirmed; message deletion is not.")
 
+    # The action is already confirmed by Telegram; the trail records who did it
+    # and why, so the panel can answer "who removed this member?" later.
+    await asyncio.to_thread(
+        record_bot, chat_id, "moderation",
+        action=name,
+        detail=f"member {user.id}: {reason}"[:240]
+               + (f" until {until_date.strftime('%d %b %Y %H:%M')} UTC" if until_date else ""),
+        actor=getattr(getattr(ctx.message, "from_user", None), "id", None),
+    )
     rows = [("Member", target_link(user)), ("User ID", f"<code>{user.id}</code>"), ("Reason", escape(reason))]
     if until_date is not None:
         rows.append(("Until (UTC)", until_date.strftime("%d %b %Y %H:%M")))

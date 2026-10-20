@@ -195,7 +195,7 @@ export default function FederationsScreen() {
                   <span className="min-w-0 flex-1 truncate font-medium">{row.name}</span>
                 </span>
                 <span className="mt-1 block truncate text-xs text-[var(--ios-label-secondary)]">
-                  <code>{row.id}</code> · {row.chat_count} group{row.chat_count === 1 ? "" : "s"} · {row.bans} banned
+                  <code className="break-all">{row.id}</code> · {row.chat_count} group{row.chat_count === 1 ? "" : "s"} · {row.bans} banned
                 </span>
               </button>
             ))}

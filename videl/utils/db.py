@@ -698,8 +698,14 @@ def get_warns(chat_id: int, user_id: int) -> dict:
         return {"count": 0, "reasons": []}
 
 
-def list_warns(chat_id: int, limit: int = 100) -> list:
-    """Every member with warnings in one chat, newest first."""
+def list_warns(chat_id: int, limit: int = 100, decay_days: int = 0) -> list:
+    """Every member with warnings in one chat, newest first.
+
+    ``count`` is what still counts after the decay window; ``total`` is what is
+    on record. A group with decay switched off gets identical numbers.
+    """
+    from videl.utils import warnings as warning_rules
+
     col = _col(WARN_COLLECTION)
     if col is None:
         return []
@@ -712,9 +718,15 @@ def list_warns(chat_id: int, limit: int = 100) -> list:
         return []
     rows = []
     for document in documents:
+        state = warning_rules.active_warnings(document, decay_days)
+        if state["count"] <= 0:
+            # Every warning has lapsed; the member is not on the list.
+            continue
         rows.append({
             "user_id": int(document.get("user_id") or 0),
-            "count": int(document.get("count", 0)),
+            "count": state["count"],
+            "total": state["total"],
+            "decayed": state["decayed"],
             "reasons": [warn_reason_text(item) for item in (document.get("reasons") or [])][-10:],
         })
     return rows

@@ -420,10 +420,10 @@ class EscalationTests(unittest.TestCase):
         return ctx
 
     def test_mute_is_a_temporary_ban_with_a_finite_end(self):
-        from videl.plugins.moderation import _escalate
+        from videl.plugins.moderation import _apply_action
 
         ctx = self.ctx()
-        phrase = asyncio.run(_escalate(ctx, CID, 55, "mute", {"mute_hours": 3}))
+        phrase = asyncio.run(_apply_action(ctx, CID, 55, "mute", {"mute_hours": 3}))
         self.assertIn("muted for 3 hours", phrase)
         kwargs = ctx.client.ban_chat_member.await_args.kwargs
         self.assertIn("until_date", kwargs)
@@ -431,18 +431,18 @@ class EscalationTests(unittest.TestCase):
         self.assertGreater(remaining.total_seconds(), 2 * 3600)
 
     def test_kick_bans_then_unbans(self):
-        from videl.plugins.moderation import _escalate
+        from videl.plugins.moderation import _apply_action
 
         ctx = self.ctx()
-        asyncio.run(_escalate(ctx, CID, 55, "kick", {"mute_hours": 1}))
+        asyncio.run(_apply_action(ctx, CID, 55, "kick", {"mute_hours": 1}))
         ctx.client.ban_chat_member.assert_awaited_once()
         ctx.client.unban_chat_member.assert_awaited_once()
 
     def test_ban_is_permanent(self):
-        from videl.plugins.moderation import _escalate
+        from videl.plugins.moderation import _apply_action
 
         ctx = self.ctx()
-        asyncio.run(_escalate(ctx, CID, 55, "ban", {}))
+        asyncio.run(_apply_action(ctx, CID, 55, "ban", {}))
         self.assertNotIn("until_date", ctx.client.ban_chat_member.await_args.kwargs)
 
     def test_default_ladder_keeps_banning_when_storage_is_absent(self):
@@ -742,6 +742,19 @@ class InternalRouteTests(unittest.TestCase):
         self.assertEqual([event["kind"] for event in filtered["events"]], ["preset"])
         bad = self.client.get(f"/internal/chat/{CID}/audit?before_id=nope", headers=self.headers())
         self.assertEqual(bad.status_code, 400)
+        # Search is a case-insensitive match over stored action and detail.
+        found = self.client.get(f"/internal/chat/{CID}/audit?q=LOCK_LINKS", headers=self.headers()).get_json()
+        self.assertEqual([event["kind"] for event in found["events"]], ["settings"])
+        self.assertEqual(found["query"], "LOCK_LINKS")
+        missing = self.client.get(f"/internal/chat/{CID}/audit?q=nothing-here", headers=self.headers()).get_json()
+        self.assertEqual(missing["events"], [])
+        # The actor filter narrows to one admin; a non-numeric value is refused.
+        self.db["mgmt_audit"].update_many({}, {"$set": {"actor": 6265999542}})
+        mine = self.client.get(f"/internal/chat/{CID}/audit?actor=6265999542", headers=self.headers()).get_json()
+        self.assertEqual(len(mine["events"]), 2)
+        other = self.client.get(f"/internal/chat/{CID}/audit?actor=42", headers=self.headers()).get_json()
+        self.assertEqual(other["events"], [])
+        self.assertEqual(self.client.get(f"/internal/chat/{CID}/audit?actor=abc", headers=self.headers()).status_code, 400)
 
     def test_federation_overview_and_detail(self):
         overview = self.client.get("/internal/federation", headers=self.headers()).get_json()

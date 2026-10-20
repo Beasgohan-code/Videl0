@@ -582,6 +582,16 @@ def _internal_chat_audit(chat_id):
         if db is None:
             return jsonify({"ok": False, "error": "MongoDB is not connected"}), 503
         kind = request.args.get("kind")
+        search = (request.args.get("q") or "").strip()[:60] or None
+        raw_actor = (request.args.get("actor") or "").strip()
+        actor = None
+        if raw_actor:
+            try:
+                actor = int(raw_actor)
+            except ValueError:
+                return jsonify({"ok": False, "error": "actor must be a Telegram user id"}), 400
+            if actor <= 0:
+                return jsonify({"ok": False, "error": "actor must be a Telegram user id"}), 400
         raw_limit = request.args.get("limit", "40")
         before = None
         before_id = request.args.get("before_id") or None
@@ -601,7 +611,8 @@ def _internal_chat_audit(chat_id):
         except (TypeError, ValueError):
             return jsonify({"ok": False, "error": "limit must be a number"}), 400
         return jsonify(GroupView(db, _bot_api).events(
-            chat_id, limit=limit, kind=kind, before=before, before_id=before_id))
+            chat_id, limit=limit, kind=kind, before=before, before_id=before_id,
+            query=search, actor=actor))
     except ViewError as error:
         return jsonify({"ok": False, "error": str(error)}), error.status
     except Exception:

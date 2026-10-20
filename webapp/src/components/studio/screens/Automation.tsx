@@ -11,6 +11,7 @@ import {
   Search,
   ShieldCheck,
   Timer,
+  Hourglass,
 } from "lucide-react";
 import {
   DEFAULT_PROTECTION,
@@ -27,6 +28,11 @@ import {
   windowSummary,
   zoneLabel,
   type Automation,
+  DECAY_CHOICES,
+  LADDER_ACTIONS,
+  actionCopy,
+  decayLabel,
+  ladderSteps,
   type EscalationAction,
   type Group,
   type ProtectionWindow,
@@ -34,7 +40,7 @@ import {
 
 const DEFAULT_AUTOMATION: Automation = {
   quiet_hours: { enabled: false, start: "22:00", end: "07:00", tz_offset: 0 },
-  escalation: { enabled: true, action: "ban", mute_hours: 6 },
+  escalation: { enabled: true, action: "ban", mute_hours: 6, decay_days: 0, ladder: [] },
   protection: DEFAULT_PROTECTION,
 };
 
@@ -48,7 +54,11 @@ function automationOf(group: Group | null): Automation {
   const protection = group.automation.protection ?? DEFAULT_PROTECTION;
   return {
     quiet_hours: { ...DEFAULT_AUTOMATION.quiet_hours, ...quiet },
-    escalation: { ...DEFAULT_AUTOMATION.escalation, ...escalation },
+    escalation: {
+      ...DEFAULT_AUTOMATION.escalation,
+      ...escalation,
+      ladder: Array.isArray(escalation.ladder) ? [...escalation.ladder] : [],
+    },
     protection: {
       ...DEFAULT_PROTECTION,
       ...protection,
@@ -109,8 +119,9 @@ export default function AutomationScreen() {
       quiet: groups.filter((group) => automationOf(group).quiet_hours.enabled).length,
       escalating: groups.filter((group) => {
         const escalation = automationOf(group).escalation;
-        return escalation.enabled && escalation.action !== "none";
+        return escalation.enabled && ladderSteps(escalation).length > 0;
       }).length,
+      decaying: groups.filter((group) => Number(automationOf(group).escalation.decay_days ?? 0) > 0).length,
       attention: groups.filter((group) => group.health?.attention).length,
     }),
     [groups],
@@ -226,6 +237,7 @@ export default function AutomationScreen() {
         {[
           { label: "Quiet hours on", value: totals.quiet, icon: Moon },
           { label: "Warning ladder on", value: totals.escalating, icon: ShieldCheck },
+          { label: "With warning decay", value: totals.decaying, icon: Hourglass },
           { label: "Needs attention", value: totals.attention, icon: HeartPulse },
         ].map((stat) => (
           <div key={stat.label} className="ios-card p-3">
@@ -535,24 +547,97 @@ export default function AutomationScreen() {
                     <span className={`absolute top-1 h-5 w-5 rounded-full bg-white transition ${draft.escalation.enabled ? "translate-x-6" : "translate-x-1"}`} />
                   </button>
                 </div>
-                <div role="radiogroup" aria-label="Escalation action" className="mt-3 space-y-1.5">
-                  {ESCALATION_CHOICES.map((choice) => (
-                    <button
-                      key={choice.id}
-                      role="radio"
-                      aria-checked={draft.escalation.action === choice.id}
-                      onClick={() => patch({ escalation: { action: choice.id as EscalationAction } })}
-                      disabled={saving !== null || !draft.escalation.enabled}
-                      className={`w-full rounded-xl border p-2.5 text-left text-xs transition disabled:opacity-40 ${
-                        draft.escalation.action === choice.id
-                          ? "border-white/25 bg-white/[0.09]"
-                          : "border-white/[0.07] bg-white/[0.02] hover:bg-white/[0.05]"
-                      }`}
-                    >
-                      <span className="block font-medium">{choice.label}</span>
-                      <span className="block text-[var(--ios-label-secondary)]">{choice.description}</span>
-                    </button>
-                  ))}
+                <div className="mt-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-medium">Steps</span>
+                    <span className="ios-pill text-[10px]">{ladderSteps(draft.escalation).length || 0} active</span>
+                  </div>
+                  <p className="ios-caption mt-1">
+                    The first time the limit is hit runs the first step, the next time the second, and the last step
+                    repeats. Leave every step off to keep one action for every offender.
+                  </p>
+                  <div role="group" aria-label="Ladder steps, gentlest first" className="mt-2 space-y-1.5">
+                    {LADDER_ACTIONS.map((action) => {
+                      const steps = ladderSteps(draft.escalation);
+                      const position = steps.indexOf(action);
+                      const on = position >= 0;
+                      return (
+                        <div
+                          key={action}
+                          className={`flex items-center justify-between gap-2 rounded-xl border p-2.5 text-xs ${
+                            on ? "border-white/25 bg-white/[0.09]" : "border-white/[0.07] bg-white/[0.02]"
+                          }`}
+                        >
+                          <span className="min-w-0">
+                            <span className="block font-medium">
+                              {on ? `${position + 1}. ` : ""}
+                              {actionCopy(action, draft.escalation.mute_hours).replace(/^./, (c) => c.toUpperCase())}
+                            </span>
+                            <span className="block text-[var(--ios-label-secondary)]">
+                              {action === "mute"
+                                ? `Restrict for ${draft.escalation.mute_hours}h`
+                                : action === "kick"
+                                  ? "Remove; they may rejoin"
+                                  : "Ban from the group"}
+                            </span>
+                          </span>
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={on}
+                            aria-label={`${on ? "Remove" : "Add"} the ${action} step`}
+                            disabled={saving !== null || !draft.escalation.enabled}
+                            onClick={() => {
+                              const next = on ? steps.filter((item) => item !== action) : [...steps, action];
+                              patch({ escalation: { ladder: next } });
+                            }}
+                            className={`relative h-6 w-10 shrink-0 rounded-full transition disabled:opacity-40 ${
+                              on ? "bg-[#30D158]" : "bg-white/15"
+                            }`}
+                          >
+                            <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition ${on ? "translate-x-4" : "translate-x-0.5"}`} />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {!ladderSteps(draft.escalation).length && (
+                    <div role="group" aria-label="Single escalation action" className="mt-2 space-y-1.5">
+                      {ESCALATION_CHOICES.filter((choice) => choice.id !== "none").map((choice) => (
+                        <button
+                          key={choice.id}
+                          role="radio"
+                          aria-checked={draft.escalation.action === choice.id}
+                          onClick={() => patch({ escalation: { action: choice.id as EscalationAction } })}
+                          disabled={saving !== null || !draft.escalation.enabled}
+                          className={`w-full rounded-xl border p-2.5 text-left text-xs transition disabled:opacity-40 ${
+                            draft.escalation.action === choice.id
+                              ? "border-white/25 bg-white/[0.09]"
+                              : "border-white/[0.07] bg-white/[0.02] hover:bg-white/[0.05]"
+                          }`}
+                        >
+                          <span className="block font-medium">{choice.label}</span>
+                          <span className="block text-[var(--ios-label-secondary)]">{choice.description}</span>
+                        </button>
+                      ))}
+                      <button
+                        role="radio"
+                        aria-checked={draft.escalation.action === "none"}
+                        onClick={() => patch({ escalation: { action: "none" } })}
+                        disabled={saving !== null || !draft.escalation.enabled}
+                        className={`w-full rounded-xl border p-2.5 text-left text-xs transition disabled:opacity-40 ${
+                          draft.escalation.action === "none"
+                            ? "border-white/25 bg-white/[0.09]"
+                            : "border-white/[0.07] bg-white/[0.02] hover:bg-white/[0.05]"
+                        }`}
+                      >
+                        <span className="block font-medium">Nothing</span>
+                        <span className="block text-[var(--ios-label-secondary)]">
+                          Warnings are recorded; no member is restricted.
+                        </span>
+                      </button>
+                    </div>
+                  )}
                 </div>
                 {draft.escalation.action === "mute" && (
                   <label className="mt-2 block text-xs">
@@ -571,6 +656,26 @@ export default function AutomationScreen() {
                     />
                   </label>
                 )}
+                <label className="mt-3 block text-xs">
+                  Keep old warnings for
+                  <select
+                    aria-label="Warning decay window"
+                    value={Number(draft.escalation.decay_days ?? 0)}
+                    disabled={saving !== null}
+                    onChange={(event) => patch({ escalation: { decay_days: Number(event.target.value) } })}
+                    className="ios-input mt-1 text-sm"
+                  >
+                    {DECAY_CHOICES.map((days) => (
+                      <option key={days} value={days}>
+                        {days === 0 ? "Forever (no decay)" : days === 365 ? "1 year" : `${days} days`}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <p className="ios-caption mt-1">
+                  {decayLabel(draft.escalation.decay_days)}. Warnings older than the window stop counting towards the
+                  limit, so a member who behaves for that long starts fresh.
+                </p>
                 <p className="ios-caption mt-2">{escalationSummary(draft.escalation)}</p>
                 <div className="mt-2 flex justify-end">
                   <button

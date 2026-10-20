@@ -1,7 +1,7 @@
 "use client";
 import {useEffect,useRef,useState} from "react";
 import type {ButtonRow} from "@/lib/post-buttons";
-type Job={id:string;status:string;chat_id:string;scheduled_at:string;text:string;message_id?:number;error?:string|null;finished_at?:string|null};
+type Job={id:string;status:string;chat_id:string;scheduled_at:string;text:string;message_id?:number;attempts?:number;error?:string|null;finished_at?:string|null};
 const STATUS_COPY:Record<string,string>={
  pending:"Queued",sending:"Sending now",sent:"Delivered",failed:"Rejected by Telegram",
  unconfirmed:"Outcome unknown",missed:"Missed (over a day late)",cancelled:"Cancelled",
@@ -44,12 +44,12 @@ export function ScheduledPosts({chatId,text,mediaUrl,buttons,hasLocalImage,revie
    const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error||"Schedule unconfirmed. Refresh before retrying.");
    setNotice(`Schedule ${data.status}: ${data.job_id}`);await refresh();
  })}>Schedule reviewed post</button><button disabled={busy||disabled} className="ios-btn ios-btn-glass text-xs" onClick={()=>void run(refresh)}>Refresh scheduled posts</button></div>
- <p className="ios-caption">Sending/unconfirmed posts cannot be cancelled or automatically retried. Check Telegram before scheduling another copy. Editing the studio does not change an already scheduled snapshot.</p>
- {jobs.length>0&&<div className="flex flex-wrap gap-1.5">{Object.entries(counts).map(([status,value])=><span key={status} className="ios-pill text-[10px]">{STATUS_COPY[status]??status} · {value}</span>)}</div>}
+ <p className="ios-caption">A Telegram rate limit is retried automatically and shows as Queued with the interval it is waiting for. Any other failure is final and waits for you — a duplicate post is worse than a missing one. Editing the studio does not change an already scheduled snapshot.</p>
+ {jobs.length>0&&<div className="flex flex-wrap gap-1.5">{Object.entries(counts).map(([status,value])=><span key={status} data-tone={status==="sent"?"good":status==="failed"?"bad":status==="unconfirmed"||status==="missed"?"warn":"neutral"} className="ios-pill text-[10px]">{STATUS_COPY[status]??status} · {value}</span>)}</div>}
  {notice&&<p role="status" className="text-xs">{notice}</p>}
  {ordered.map(job=><div key={job.id} className="space-y-2 rounded-xl bg-white/[0.035] p-3">
-   <div className="flex flex-wrap items-base justify-between gap-2"><p className="text-sm">{STATUS_COPY[job.status]??job.status} · {job.chat_id}</p>{late(job)&&<span className="ios-pill text-[10px] text-amber-200">due now</span>}</div>
-   <p className="ios-caption">{new Date(job.scheduled_at).toLocaleString()} · {job.id}{job.finished_at?` · finished ${new Date(job.finished_at).toLocaleString()}`:""}</p>
+   <div className="flex flex-wrap items-baseline justify-between gap-2"><p className="text-sm">{STATUS_COPY[job.status]??job.status} · {job.chat_id}</p><span className="flex items-center gap-1.5">{job.attempts?<span className="ios-pill text-[10px]" data-tone="warn">auto-retry {job.attempts}</span>:null}{late(job)&&<span className="ios-pill text-[10px]" data-tone="warn">due now</span>}</span></div>
+   <p className="ios-caption">{new Date(job.scheduled_at).toLocaleString()} · {job.id}{job.attempts?` · ${job.attempts} automatic ${job.attempts===1?"retry":"retries"}`:""}{job.finished_at?` · finished ${new Date(job.finished_at).toLocaleString()}`:""}</p>
    {job.error&&<p role="status" className="text-xs text-amber-200">{job.error}</p>}
    {STATUS_HELP[job.status]&&<p className="ios-caption">{STATUS_HELP[job.status]}</p>}
    <p className="truncate text-xs">{job.text.replace(/<[^>]+>/g,"")}</p>

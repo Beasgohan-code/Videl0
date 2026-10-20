@@ -174,8 +174,10 @@ export default function GroupsPage() {
   const [auditKind, setAuditKind] = useState("all");
   const [auditHasMore, setAuditHasMore] = useState(false);
   const [auditMoreLoading, setAuditMoreLoading] = useState(false);
+  const [auditQuery, setAuditQuery] = useState("");
+  const [auditActor, setAuditActor] = useState("");
   const [auditKinds, setAuditKinds] = useState<string[]>([
-    "settings", "preset", "automation", "commands", "blacklist", "warn", "join_request", "report",
+    "settings", "preset", "automation", "commands", "blacklist", "warn", "moderation", "join_request", "report",
   ]);
   const [commandQuery, setCommandQuery] = useState("");
   const [backupPreview, setBackupPreview] = useState<{ document: Record<string, unknown>; changes: BackupChanges } | null>(null);
@@ -256,7 +258,12 @@ export default function GroupsPage() {
     void loadDetail(selected);
   }, [selected, loadDetail]);
 
-  const loadAudit = useCallback(async (id: number, kind = "all", older?: { at: string; id: string }) => {
+  const loadAudit = useCallback(async (
+    id: number,
+    kind = "all",
+    older?: { at: string; id: string },
+    filters?: { query: string; actor: string },
+  ) => {
     if (!older) {
       setAuditState("loading");
       setAuditMessage("");
@@ -267,6 +274,10 @@ export default function GroupsPage() {
       if (kind !== "all") query.set("kind", kind);
       if (older?.at) query.set("before", older.at);
       if (older?.id) query.set("before_id", older.id);
+      const search = filters?.query ?? auditQuery.trim();
+      if (search) query.set("q", search);
+      const actor = (filters?.actor ?? auditActor).trim();
+      if (actor) query.set("actor", actor);
       const response = await fetch(`/api/groups/${id}/audit?${query.toString()}`, { cache: "no-store" });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.ok) {
@@ -306,6 +317,13 @@ export default function GroupsPage() {
   useEffect(() => {
     if (tab === "audit" && selected !== null) void loadAudit(selected, auditKind);
   }, [tab, selected, auditKind, loadAudit]);
+
+  function submitAuditSearch() {
+    if (selected === null) return;
+    setAuditEvents([]);
+    setAuditHasMore(false);
+    void loadAudit(selected, auditKind, undefined, { query: auditQuery, actor: auditActor });
+  }
 
   const auditCursor =
     auditEvents.length > 0
@@ -738,7 +756,7 @@ export default function GroupsPage() {
               className="ios-input pl-9"
             />
           </div>
-          <div className="mt-3 flex flex-wrap gap-1.5">
+          <div className="scroll-row mt-3 flex gap-1.5 sm:flex-wrap">
             {FILTERS.map((item) => (
               <button
                 key={item.id}
@@ -901,7 +919,7 @@ export default function GroupsPage() {
               )}
               {detail && (detail.problems ?? []).length > 0 && <PanelNotice>{(detail.problems ?? []).join(" ")}</PanelNotice>}
 
-              <div role="group" aria-label="Group settings panels" className="mt-4 flex flex-wrap gap-1.5">
+              <div role="group" aria-label="Group settings panels" className="scroll-row mt-4 flex gap-1.5 sm:flex-wrap">
                 {TABS.map((item) => (
                   <button
                     key={item.id}
@@ -1696,8 +1714,56 @@ export default function GroupsPage() {
                       </button>
                     </div>
                   </div>
+                  <form
+                    className="flex flex-wrap gap-2"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      submitAuditSearch();
+                    }}
+                  >
+                    <label className="min-w-0 flex-1">
+                      <span className="sr-only">Search change history</span>
+                      <input
+                        value={auditQuery}
+                        onChange={(event) => setAuditQuery(event.target.value)}
+                        placeholder="Search detail or action…"
+                        maxLength={60}
+                        className="ios-input text-sm"
+                      />
+                    </label>
+                    <label>
+                      <span className="sr-only">Filter by actor user id</span>
+                      <input
+                        value={auditActor}
+                        onChange={(event) => setAuditActor(event.target.value.replace(/[^0-9]/g, "").slice(0, 20))}
+                        placeholder="Actor ID"
+                        inputMode="numeric"
+                        className="ios-input w-28 text-sm"
+                      />
+                    </label>
+                    <button type="submit" disabled={auditState === "loading"} className="ios-btn ios-btn-glass text-xs disabled:opacity-40">
+                      <Search size={14} /> Search
+                    </button>
+                    {(auditQuery || auditActor) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAuditQuery("");
+                          setAuditActor("");
+                          if (selected !== null) {
+                            setAuditEvents([]);
+                            void loadAudit(selected, auditKind, undefined, { query: "", actor: "" });
+                          }
+                        }}
+                        className="ios-btn ios-btn-glass text-xs"
+                      >
+                        <X size={14} /> Clear
+                      </button>
+                    )}
+                  </form>
                   <p className="ios-caption">
-                    Every saved change, newest first, with the source that made it. Rows are retained for 180 days.
+                    Every saved change, newest first, with the source that made it. Search covers the recorded action
+                    and detail only — never message text. Rows are retained for 180 days.
                   </p>
                   {auditState === "error" && <PanelNotice>{auditMessage}</PanelNotice>}
                   {auditState === "loading" && auditEvents.length === 0 && (
@@ -1705,7 +1771,9 @@ export default function GroupsPage() {
                   )}
                   {auditState === "ready" && auditEvents.length === 0 && (
                     <div className="rounded-xl bg-white/[0.03] p-3 text-sm text-[var(--ios-label-secondary)]">
-                      No recorded changes yet. Switch a lock or apply a preset and it will appear here.
+                      {auditQuery || auditActor
+                        ? "Nothing matches that search. Try a shorter phrase or clear the actor filter."
+                        : "No recorded changes yet. Switch a lock or apply a preset and it will appear here."}
                     </div>
                   )}
                   <ul className="divide-y divide-white/[0.06]">

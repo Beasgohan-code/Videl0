@@ -43,6 +43,15 @@ to code that actually runs:
   for one group. A handler at group −1 refuses it before every other handler,
   so this also covers commands that never pass through the declarative router.
   Group admins and the bot owner stay exempt.
+- **Warning ladder and decay** — the warning limit can run an ordered ladder
+  (`mute → kick → ban`): the first time a member reaches the limit the first
+  step runs, the next time the second, and the last step repeats. A ladder is
+  written gentlest-first and the backend drops any rung that would weaken a
+  repeat offender's action. `decay_days` (0–365) makes warnings older than the
+  window stop counting, so a member who behaves starts fresh; warnings without
+  a timestamp are kept, never assumed old. `/warnings` shows the active count,
+  what lapsed and when the next one expires, and the bot and the panel's report
+  triage reach the same verdict for the same member.
 - **Automation** — quiet hours delete member messages inside a stored window
   (per-group UTC offset, admins and approved members exempt), scheduled
   protection windows turn chosen locks on and release only the locks they
@@ -57,12 +66,17 @@ to code that actually runs:
   the backend's internal API calls (the last 400 requests it served).
 - **Scheduled publishing** — status counts, failure reasons and a retry that is
   only allowed for posts Telegram explicitly rejected; accepted or unconfirmed
-  posts are never resent.
+  posts are never resent. A rate limit (HTTP 429) is the one failure the queue
+  handles alone: the job returns to the queue for the interval Telegram asked
+  for, up to three times, and the monitor shows each automatic attempt. A
+  terminal failure is posted once to the log channel with the chat, job id and
+  the reason Telegram gave.
 
 Boundaries: quiet hours only see messages delivered to the bot while it runs,
 join requests are recorded from that point onward, and audit rows cover panel
-changes plus bot-side lock, antispam, warning, filter, blacklist, join-request,
-report and recording events.
+changes plus bot-side lock, antispam, warning, ban/kick/mute/unban, filter,
+blacklist, join-request, report, backup and recording events. History is
+searchable by detail and filterable by actor, with an exact cursor for paging.
 
 ## Bot
 

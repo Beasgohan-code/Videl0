@@ -1,6 +1,15 @@
-"""Owner-only Mongo queue. Atomic claims; uncertain sends are never retried."""
+"""Owner-only Mongo queue. Atomic claims; uncertain sends are never retried.
+
+Two kinds of failure are deliberately treated differently:
+
+* a **rate limit** (HTTP 429) proves nothing was delivered, so the job returns
+  to the queue automatically and waits the interval Telegram asked for;
+* any other rejection is final and waits for the owner, because a duplicate
+  post is worse than a missing one.
+"""
 import hashlib
 import json
+import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 from pymongo import ReturnDocument
@@ -9,6 +18,11 @@ from videl.utils.db import get_db
 from videl.utils.bot_api import call_bot_api
 
 OWNER_ID = 6265999542
+# Telegram rate limits are transient: retry a few times, then stop and say so.
+MAX_RATE_LIMITED_RETRIES = 3
+MIN_RETRY_SECONDS = 5
+MAX_RETRY_SECONDS = 3600
+log = logging.getLogger(__name__)
 
 
 def _collection():
@@ -64,6 +78,8 @@ def list_jobs():
              'scheduled_at':doc['due_at'].replace(tzinfo=timezone.utc).isoformat(),
              'text':str(doc['payload'].get('text',doc['payload'].get('caption','')))[:200],
              'message_id':doc.get('message_id'),
+             # How many times a rate limit pushed this job back into the queue.
+             'attempts':int(doc.get('attempts') or 0),
              # Why a job stopped, when the dispatcher recorded a reason.
              'error':str(doc.get('error') or '')[:160] or None,
              'finished_at':_stamp(doc.get('finished_at'))} for doc in docs]
@@ -111,6 +127,41 @@ def cancel_job(identifier):
     return result.modified_count == 1
 
 
+def _retry_after(result, status):
+    """Seconds Telegram asked us to wait, or None when this is not a rate limit."""
+    if status != 429:
+        return None
+    parameters = result.get('parameters') if isinstance(result, dict) else None
+    try:
+        seconds = int((parameters or {}).get('retry_after') or 0)
+    except (TypeError, ValueError):
+        seconds = 0
+    return max(MIN_RETRY_SECONDS, min(seconds or 30, MAX_RETRY_SECONDS))
+
+
+def _alert(job, state, reason):
+    """Tell the owner once, in the log channel, that a post did not arrive."""
+    try:
+        import config
+        channel = int(getattr(config, 'LOG_CHANNEL_ID', 0) or 0)
+    except Exception:
+        channel = 0
+    if not channel:
+        return False
+    text = (f"<b>Scheduled post {state}</b>\n"
+            f"Chat: <code>{job.get('payload', {}).get('chat_id')}</code>\n"
+            f"Job: <code>{job.get('_id')}</code>\n"
+            f"Reason: {reason}")
+    try:
+        status, _ = call_bot_api('sendMessage', {'chat_id': channel, 'text': text,
+                                                 'parse_mode': 'HTML',
+                                                 'disable_web_page_preview': True})
+        return status == 200
+    except Exception:
+        log.debug('scheduled-post alert failed', exc_info=True)
+        return False
+
+
 def dispatch_one():
     """At most one send per tick. Catch-up >24h is marked missed, never sent."""
     col, now = _collection(), datetime.now(timezone.utc)
@@ -124,18 +175,39 @@ def dispatch_one():
         return
     try:
         status, result = call_bot_api(doc['method'],doc['payload'])
+        wait = _retry_after(result, status)
+        attempts = int(doc.get('attempts') or 0)
+        if wait is not None and attempts < MAX_RATE_LIMITED_RETRIES:
+            # Nothing was delivered: put it back with the delay Telegram asked
+            # for, and say so rather than showing a rejection that never was.
+            col.update_one({'_id':doc['_id'],'status':'sending'}, {'$set':{
+                'status':'pending','due_at':datetime.now(timezone.utc)+timedelta(seconds=wait+2),
+                'claimed_at':None,'finished_at':None,'attempts':attempts+1,
+                'error':f'Telegram rate limit; retrying in {wait}s (attempt {attempts+1} of {MAX_RATE_LIMITED_RETRIES})'}})
+            return
         accepted = bool(status == 200 and result.get('ok') and result.get('result',{}).get('message_id'))
-        state = 'sent' if accepted else 'failed' if status and 400 <= status < 500 else 'unconfirmed'
+        if wait is not None:
+            state = 'failed'
+        else:
+            state = 'sent' if accepted else 'failed' if status and 400 <= status < 500 else 'unconfirmed'
         update = {'status':state,'finished_at':datetime.now(timezone.utc)}
+        reason = ''
         if accepted:
             update['message_id'] = result['result']['message_id']
         else:
             # Store why, so the monitor can explain instead of showing a bare state.
             description = str(result.get('description') or '').strip()[:160]
-            update['error'] = description or f'Telegram returned HTTP {status or "no response"}' 
+            reason = description or f'Telegram returned HTTP {status or "no response"}'
+            if wait is not None:
+                reason = f'Rate limit persisted after {attempts} automatic retries: {reason}'[:200]
+            update['error'] = reason
+            update['attempts'] = attempts
         col.update_one({'_id':doc['_id'],'status':'sending'}, {'$set':update})
+        if state in {'failed', 'unconfirmed'}:
+            _alert(doc, state, reason or 'delivery could not be confirmed')
     except Exception:
         # Includes DB failure after Telegram accepted. A stale sending record will
         # become unconfirmed; never put it back in pending or resend automatically.
         col.update_one({'_id':doc['_id'],'status':'sending'},
                        {'$set':{'status':'unconfirmed','finished_at':datetime.now(timezone.utc)}})
+        _alert(doc, 'unconfirmed', 'the dispatcher could not finish; check Telegram before resending')

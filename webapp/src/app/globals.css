@@ -658,3 +658,60 @@ button:focus-visible,a:focus-visible { outline: 2px solid #a5b4fc; outline-offse
 @keyframes tgBlink { 0%,80%,100%{opacity:.25;transform:translateY(0)} 40%{opacity:1;transform:translateY(-2px)} }
 .tg-bubble button { opacity:.55; transition:opacity .15s ease; }
 .tg-bubble:hover button, .tg-bubble:focus-within button { opacity:1; }
+
+/* ── Polish pass: states people actually notice ───────────────────────────── */
+
+/* A chip is "on" whether a screen marks it aria-selected or aria-pressed. */
+.ios-chip[aria-pressed="true"]:not(.ios-btn) {
+  background: rgba(110,134,255,0.16);
+  border-color: rgba(141,162,255,0.4);
+  color: var(--ios-label);
+}
+.ios-chip:disabled,
+.ios-btn:disabled {
+  cursor: not-allowed;
+  transform: none;
+  filter: saturate(0.6);
+}
+.ios-btn:disabled:active { transform: none; }
+.ios-chip, .ios-btn, .ios-tab { -webkit-tap-highlight-color: transparent; }
+
+/* Comfortable touch targets on phones without changing desktop density. */
+@media (max-width: 640px) {
+  .ios-chip { min-height: 34px; padding: 8px 14px; }
+  .ios-btn { min-height: 44px; }
+  .ios-input, .ios-textarea, .ios-select { font-size: 16px; } /* stops iOS zoom-on-focus */
+}
+
+/* Long chip rows (group tabs, lock pickers) scroll instead of wrapping badly. */
+.scroll-row {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x proximity;
+}
+.scroll-row::-webkit-scrollbar { display: none; }
+.scroll-row > * { scroll-snap-align: start; flex: 0 0 auto; }
+
+/* A status chip that never relies on colour alone. */
+.ios-pill[data-tone="good"] { color: #6ee7a8; }
+.ios-pill[data-tone="warn"] { color: #fcd34d; }
+.ios-pill[data-tone="bad"] { color: #fda4af; }
+
+::selection { background: rgba(141,162,255,0.35); color: #fff; }
+
+/* Respect a user who asked the system to calm motion down. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  .ios-btn:active, .ios-tab:active { transform: none; }
+}
+
+/* Wide content (a command table, a long audit detail) never breaks the page. */
+.ios-card { overflow-wrap: anywhere; }
+.ios-card > table { display: block; overflow-x: auto; scrollbar-width: thin; }

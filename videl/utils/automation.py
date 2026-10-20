@@ -13,10 +13,13 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 QUIET_DEFAULT = {"enabled": False, "start": "22:00", "end": "07:00", "tz_offset": 0}
-ESCALATION_DEFAULT = {"enabled": True, "action": "ban", "mute_hours": 6}
+ESCALATION_DEFAULT = {"enabled": True, "action": "ban", "mute_hours": 6,
+                      "decay_days": 0, "ladder": ()}
 PROTECTION_DEFAULT = {"enabled": False, "start": "22:00", "end": "07:00", "locks": []}
 MAX_WINDOW_LOCKS = 24
 ESCALATION_ACTIONS = ("ban", "mute", "kick", "none")
+ESCALATION_LADDER = ("mute", "kick", "ban")
+DECAY_RANGE = (0, 365)
 OFFSET_RANGE = (-840, 840)  # UTC-14:00 … UTC+14:00
 MUTE_RANGE = (1, 168)
 
@@ -73,10 +76,37 @@ def normalize_escalation(raw) -> dict:
     # ``enabled`` defaults to True so an untouched group keeps the historic
     # behaviour: reach the warning limit and the member is removed.
     enabled = source.get("enabled")
+    raw_decay = source.get("decay_days", ESCALATION_DEFAULT["decay_days"])
+    try:
+        decay = 0 if isinstance(raw_decay, bool) else int(raw_decay)
+    except (TypeError, ValueError):
+        decay = 0
+    decay = max(DECAY_RANGE[0], min(decay, DECAY_RANGE[1]))
+    # The ladder is order-sensitive, so it is filtered, not sorted. Unknown or
+    # duplicate rungs are dropped rather than silently reordered.
+    ladder, seen = [], set()
+    raw_ladder = source.get("ladder")
+    if isinstance(raw_ladder, (list, tuple)):
+        for item in raw_ladder:
+            if item in ESCALATION_LADDER and item not in seen:
+                seen.add(item)
+                ladder.append(item)
+            if len(ladder) >= len(ESCALATION_LADDER):
+                break
+    # A ladder never gets gentler for a repeat offender: keep the longest
+    # strictly stronger prefix, dropping any rung that would reduce the action.
+    order = {name: index for index, name in enumerate(ESCALATION_LADDER)}
+    rising = []
+    for rung in ladder:
+        if not rising or order[rung] > order[rising[-1]]:
+            rising.append(rung)
+    ladder = rising
     return {
         "enabled": True if enabled is None else enabled is True,
         "action": action,
         "mute_hours": hours,
+        "decay_days": decay,
+        "ladder": tuple(ladder),
     }
 
 

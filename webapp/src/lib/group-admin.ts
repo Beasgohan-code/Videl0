@@ -24,7 +24,15 @@ export type HealthIssue = { code: string; message: string; advisory?: boolean };
 export type GroupHealth = { score: number; issues: HealthIssue[]; attention: boolean };
 
 export type QuietHours = { enabled: boolean; start: string; end: string; tz_offset: number };
-export type Escalation = { enabled: boolean; action: EscalationAction; mute_hours: number };
+export type Escalation = {
+  enabled: boolean;
+  action: EscalationAction;
+  mute_hours: number;
+  /** Days a warning keeps counting; 0 keeps it forever. */
+  decay_days?: number;
+  /** Rungs applied each time the limit is reached, gentlest first. */
+  ladder?: EscalationAction[] | null;
+};
 export type EscalationAction = "ban" | "mute" | "kick" | "none";
 /** What the bot last applied on its own; ``applied`` is what it will release. */
 export type ProtectionState = { active: boolean; applied: string[]; since: string | null };
@@ -483,10 +491,43 @@ export function quietSummary(quiet: QuietHours): string {
   return `Silent ${quiet.start}–${quiet.end} (${zoneLabel(quiet.tz_offset)})`;
 }
 
+export const LADDER_ACTIONS: Exclude<EscalationAction, "none">[] = ["mute", "kick", "ban"];
+export const DECAY_CHOICES = [0, 30, 60, 90, 180, 365] as const;
+
+export function actionCopy(action: EscalationAction, muteHours = 6): string {
+  if (action === "mute") return `mute ${muteHours}h`;
+  if (action === "kick") return "remove";
+  if (action === "ban") return "ban";
+  return "nothing";
+}
+
+/** Rungs that will actually run, mirroring the backend's definition. */
+export function ladderSteps(escalation: Escalation): EscalationAction[] {
+  const strength: Record<string, number> = { mute: 0, kick: 1, ban: 2 };
+  const rising: EscalationAction[] = [];
+  for (const rung of escalation.ladder ?? []) {
+    if (rung === "none" || !(rung in strength)) continue;
+    if (!rising.length || strength[rung] > strength[rising[rising.length - 1]]) rising.push(rung);
+  }
+  if (rising.length) return rising;
+  return escalation.action === "none" ? [] : [escalation.action];
+}
+
+export function decayLabel(days: number | undefined): string {
+  const value = Number(days ?? 0);
+  if (!value) return "Warnings never expire";
+  if (value === 1) return "Warnings expire after a day";
+  if (value >= 365) return "Warnings expire after a year";
+  return `Warnings expire after ${value} days`;
+}
+
 export function escalationSummary(escalation: Escalation): string {
-  if (!escalation.enabled || escalation.action === "none") return "No automatic restriction.";
-  if (escalation.action === "mute") return `Mute for ${escalation.mute_hours}h at the warning limit.`;
-  return `${escalation.action === "kick" ? "Remove" : "Ban"} at the warning limit.`;
+  if (!escalation.enabled) return "No automatic restriction; warnings are still recorded.";
+  const steps = ladderSteps(escalation);
+  if (!steps.length) return "No automatic restriction; warnings are still recorded.";
+  const rungs = steps.map((step) => actionCopy(step, escalation.mute_hours)).join(" → ");
+  const decay = decayLabel(escalation.decay_days);
+  return `${rungs} each time the limit is reached. ${decay}.`;
 }
 
 export function healthTone(score: number): "good" | "watch" | "poor" {
@@ -511,6 +552,7 @@ export function auditLabel(event: AuditEvent): string {
     filter: "Filters changed",
     approval: "Approval removed",
     warn: "Warning issued",
+    moderation: "Member action",
     warn_reset: "Warnings cleared",
     automation: "Automation updated",
     commands: "Command switch changed",

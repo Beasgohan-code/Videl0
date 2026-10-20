@@ -27,6 +27,11 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
   // Two rows can share a millisecond; the id makes the page boundary exact.
   const beforeId = url.searchParams.get("before_id");
   if (beforeId && /^[0-9a-f]{24}$/i.test(beforeId)) query.set("before_id", beforeId);
+  // Search only ever runs over stored action/detail text, never message bodies.
+  const search = url.searchParams.get("q");
+  if (search && search.trim()) query.set("q", search.trim().slice(0, 60));
+  const actor = url.searchParams.get("actor");
+  if (actor && /^[0-9]{1,20}$/.test(actor)) query.set("actor", actor);
 
   const suffix = query.toString();
   return groupCall(`/internal/chat/${chatId}/audit${suffix ? `?${suffix}` : ""}`);

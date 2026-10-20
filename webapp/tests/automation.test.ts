@@ -1,13 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  DECAY_CHOICES,
   WINDOW_LOCKS,
   attentionQueue,
   auditLabel,
   escalationSummary,
   explicitSettings,
   filterGroup,
+  actionCopy,
+  decayLabel,
   healthTone,
+  ladderSteps,
   protectionNow,
   protectionSummary,
   quietNow,
@@ -87,11 +91,12 @@ test("quiet summaries name the window and zone", () => {
 });
 
 test("escalation summaries describe the action that will run", () => {
-  assert.equal(escalationSummary({ enabled: false, action: "ban", mute_hours: 6 }), "No automatic restriction.");
-  assert.equal(escalationSummary({ enabled: true, action: "none", mute_hours: 6 }), "No automatic restriction.");
-  assert.match(escalationSummary({ enabled: true, action: "mute", mute_hours: 12 }), /12h/);
-  assert.match(escalationSummary({ enabled: true, action: "kick", mute_hours: 6 }), /Remove/);
-  assert.match(escalationSummary({ enabled: true, action: "ban", mute_hours: 6 }), /Ban/);
+  const off = "No automatic restriction; warnings are still recorded.";
+  assert.equal(escalationSummary({ enabled: false, action: "ban", mute_hours: 6 }), off);
+  assert.equal(escalationSummary({ enabled: true, action: "none", mute_hours: 6 }), off);
+  assert.match(escalationSummary({ enabled: true, action: "mute", mute_hours: 12 }), /mute 12h/);
+  assert.match(escalationSummary({ enabled: true, action: "kick", mute_hours: 6 }), /remove/);
+  assert.match(escalationSummary({ enabled: true, action: "ban", mute_hours: 6 }), /ban/);
 });
 
 // ── protection counting ────────────────────────────────────────────────────
@@ -265,4 +270,49 @@ test("the waiting-on-you filter matches both inbox queues", () => {
   ];
   assert.deepEqual(rows.filter((row) => filterGroup(row, "inbox")).map((row) => row.id), [-1, -2]);
   assert.equal(filterGroup(group({ counts: { ...base, reports: undefined } }), "inbox"), false);
+});
+
+// ── warning ladder and decay ───────────────────────────────────────────────
+
+test("the ladder summary lists every rung in order", () => {
+  const escalation = { enabled: true, action: "ban" as const, mute_hours: 6, ladder: ["mute", "kick", "ban"] as const };
+  assert.equal(escalationSummary({ ...escalation, ladder: [...escalation.ladder] }), "mute 6h → remove → ban each time the limit is reached. Warnings never expire.");
+  assert.deepEqual(ladderSteps({ ...escalation, ladder: [...escalation.ladder] }), ["mute", "kick", "ban"]);
+});
+
+test("an empty ladder falls back to the single stored action", () => {
+  assert.deepEqual(ladderSteps({ enabled: true, action: "kick", mute_hours: 6, ladder: [] }), ["kick"]);
+  assert.deepEqual(ladderSteps({ enabled: true, action: "none", mute_hours: 6 }), []);
+  assert.equal(escalationSummary({ enabled: false, action: "ban", mute_hours: 6 }), "No automatic restriction; warnings are still recorded.");
+});
+
+test("the panel drops a weakenening rung the backend would never apply", () => {
+  assert.deepEqual(ladderSteps({ enabled: true, action: "ban", mute_hours: 6, ladder: ["ban", "mute"] }), ["ban"]);
+  assert.deepEqual(ladderSteps({ enabled: true, action: "ban", mute_hours: 6, ladder: ["mute", "mute", "ban"] }), ["mute", "ban"]);
+});
+
+test("decay wording is explicit at every offered window", () => {
+  assert.equal(decayLabel(0), "Warnings never expire");
+  assert.equal(decayLabel(undefined), "Warnings never expire");
+  assert.equal(decayLabel(1), "Warnings expire after a day");
+  assert.equal(decayLabel(90), "Warnings expire after 90 days");
+  assert.equal(decayLabel(365), "Warnings expire after a year");
+  assert.deepEqual([...DECAY_CHOICES], [0, 30, 60, 90, 180, 365]);
+});
+
+test("a decaying ladder says so in the group summary", () => {
+  const summary = escalationSummary({ enabled: true, action: "ban", mute_hours: 2, ladder: ["mute", "ban"], decay_days: 90 });
+  assert.match(summary, /mute 2h → ban/);
+  assert.match(summary, /90 days/);
+});
+
+test("the ladder preview shows every rung a member will pass through", () => {
+  const escalation = { enabled: true, action: "ban" as const, mute_hours: 6, ladder: ["mute", "kick", "ban"] as const };
+  // Mirrors the backend: first limit hit mutes, second removes, third bans,
+  // and every later limit repeats the last rung.
+  const preview = ladderSteps({ ...escalation, ladder: [...escalation.ladder] });
+  assert.deepEqual(preview, ["mute", "kick", "ban"]);
+  assert.equal(actionCopy("mute", 4), "mute 4h");
+  assert.equal(actionCopy("kick"), "remove");
+  assert.equal(actionCopy("none"), "nothing");
 });
