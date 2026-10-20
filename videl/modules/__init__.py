@@ -51,6 +51,8 @@ ALL_MODULES = [
     "plugins_loader",
     # Professional Extras
     "professional",
+    "elite_pro",
+    "dashboard_sync",
 ]
 
 # Optional alias for queue_pro (some deploys expect it)
