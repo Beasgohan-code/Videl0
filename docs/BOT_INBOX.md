@@ -146,3 +146,29 @@ specific commit** with the published inbox commit SHA on
 MongoDB database, disk and service; do not create a second bot instance. This
 session has no Render connector, so backend deployment remains manual and
 must be verified separately before declaring the inbox fully live.
+
+## Messenger-first layout — 2026-10-20
+
+Reworked the inbox around the actual Telegram chat pattern, not visible admin
+workspace columns. Desktop has a conversation rail plus a flexible chat; mobile
+shows either the conversation list or the selected chat, with a Back to chats
+button. Chat info, saved replies, notes and moderation are behind the header menu.
+The composer uses one attachment/text/microphone/send row with an expandable
+media picker; long messages grow vertically. The global tool finder is omitted
+while chatting. Existing send confirmation, upload/recording limits, owner auth
+and CSRF protection remain in place. No personal-account session is introduced.
+
+Messages initially scroll to the latest captured message. Polling preserves the
+reader's position if they scroll up; a jump-to-latest control is available.
+Prepending older captured pages compensates scroll height to preserve the
+viewport. The chat rail refreshes every 15 seconds while the panel is visible,
+with real session previews from opened chats (not invented snippets or unread
+counts). Date separators and compact times replace database IDs on bubbles.
+Only the configured bot's username or a confirmed local send is outgoing; other
+bots are not treated as this bot. There are no fake online/read indicators.
+
+Validated with frontend unit tests and a production build; three mocked browser
+suites exercise mobile chat/back navigation, sending/media, workspace access,
+initial bottom position, no polling scroll hijack, older-history anchoring and
+composer placement. These are offline fixtures, not live Telegram/Mongo proof.
+The previously documented matching backend deployment is still required.

@@ -46,7 +46,7 @@ export default function Studio() {
   }, [tab]);
   return (
     <div className="studio-panel">
-      <ToolFinder />
+      {tab !== 'chat' && <ToolFinder />}
       <div className="sr-only" aria-live="polite">
         {tab} panel
       </div>

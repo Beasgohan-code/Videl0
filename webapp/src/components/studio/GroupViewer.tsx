@@ -1,6 +1,7 @@
 "use client";
-import {useCallback, useEffect, useRef, useState} from "react";
-import {MessageCircle, Search, Send, ShieldCheck, RefreshCw, Reply, X, MoreHorizontal, ExternalLink, Copy, Eye, Pause, Users, Settings2, AlertTriangle, LoaderCircle} from "lucide-react";
+import {useCallback, useEffect, useLayoutEffect, useRef, useState} from "react";
+import {ArrowLeft, ArrowDown, Check, MessageCircle, Search, Send, ShieldCheck, RefreshCw, Reply, X, MoreHorizontal, ExternalLink, Copy, Eye, Pause, Users, Settings2, AlertTriangle, LoaderCircle} from "lucide-react";
+import {sentByThisBot} from "@/lib/chat-messenger";
 import InboxWorkspace from "./InboxWorkspace";
 import {useInboxWorkspace} from "./useInboxWorkspace";
 import {orderConversations,loadedNewMessages} from "@/lib/inbox-workspace";
@@ -12,6 +13,13 @@ type Group = {type?:string;id:number; title:string; members:number|null; availab
 type Action = {action:string;text?:string;file?:File;kind?:'photo'|'video'|'voice'; message_id?:number; enabled?:boolean; retention_days?:number; settings?:Record<string,boolean>};
 export default function GroupViewer() {
   const {tab,selectedGroup,selectGroup,open} = useStudio();
+  const [mobileChat,setMobileChat]=useState(false),[detailsOpen,setDetailsOpen]=useState(false),[searchOpen,setSearchOpen]=useState(false);
+  const [isMobile,setIsMobile]=useState(false),[showJump,setShowJump]=useState(false),[groupsLoading,setGroupsLoading]=useState(true);
+  const messageList=useRef<HTMLDivElement>(null),stickToBottom=useRef(true),scrollChat=useRef<number|null>(null);
+  const restoreScroll=useRef<{height:number;top:number}|null>(null);
+  const [recent,setRecent]=useState<Record<number,{text:string;date:string}>>({});
+  useEffect(()=>{const query=window.matchMedia('(max-width: 767px)');const update=()=>setIsMobile(query.matches);update();query.addEventListener('change',update);return()=>query.removeEventListener('change',update);},[]);
+  useEffect(()=>{if(selectedGroup)setMobileChat(true);setDetailsOpen(false);setSearchOpen(false);stickToBottom.current=true;scrollChat.current=null;restoreScroll.current=null;setShowJump(false);},[selectedGroup]);
   const [receipts,setReceipts]=useState<GroupMessage[]>([]);
   const localUrls=useRef(new Set<string>());
   const [groups,setGroups] = useState<Group[]>([]), [groupSearch,setGroupSearch] = useState("");
@@ -41,13 +49,13 @@ export default function GroupViewer() {
       const rows=body.chats || [];
       setGroups(rows);
       if(body.truncated) setGroupsError('First 25 served groups shown. You can also open a known group by its numeric ID.');
-    } catch(e) {setGroupsError(e instanceof Error?e.message:'Groups unavailable.');}
+    } catch(e) {setGroupsError(e instanceof Error?e.message:'Groups unavailable.');} finally {setGroupsLoading(false);}
   },[]);
-  useEffect(()=>{void loadGroups();},[loadGroups]);
+  useEffect(()=>{if(tab!=='chat')return;void loadGroups();const timer=setInterval(()=>{if(document.visibilityState==='visible')void loadGroups();},15000);return()=>clearInterval(timer);},[loadGroups,tab]);
   useEffect(()=>()=>{localUrls.current.forEach(url=>URL.revokeObjectURL(url));localUrls.current.clear();},[]);
   useEffect(()=>{
     setReceipts([]);localUrls.current.forEach(url=>URL.revokeObjectURL(url));localUrls.current.clear();
-    setSelected(null);setReply(null);setText('');setSearch('');setSender(null);setOlder(false);setNotice('');setConfirm(null);
+    setSelected(null);setReply(null);setText('');setSearch('');setSender(null);setOlder(false);setNotice('');setError('');setConfirm(null);
   },[selectedGroup]);
   useEffect(()=>{
     if(!selectedGroup || tab!=='chat')return;
@@ -82,7 +90,7 @@ export default function GroupViewer() {
     try {
       const response=await fetch(`/api/group-view?${params}`,{cache:'no-store',signal:AbortSignal.timeout(20000)}), body=await response.json();
       if(!response.ok || !body.ok)throw new Error(body.error || 'Older messages unavailable.');
-      if(activeId.current===cid&&viewKey.current===key)setSnapshot(current=>current?.chat_id===cid?{...body,items:[...body.items,...current.items].slice(-250)}:current);
+      if(activeId.current===cid&&viewKey.current===key){if(messageList.current)restoreScroll.current={height:messageList.current.scrollHeight,top:messageList.current.scrollTop};setSnapshot(current=>current?.chat_id===cid?{...body,items:[...body.items,...current.items].slice(-250)}:current);}
     } catch(e){if(activeId.current===cid)setError(e instanceof Error?e.message:'Older messages unavailable.');}
     finally{setLoading(false);}
   }
@@ -103,8 +111,9 @@ export default function GroupViewer() {
       const body=await response.json();
       if(!response.ok || !body.ok)throw new Error(body.error || 'Action not confirmed. Check Telegram before retrying.');
       if(activeId.current===cid){
-        setNotice(body.warning || (action.action==='reply'?'Telegram confirmed your bot reply.':action.action==='purge_history'?'Saved history cleared and recording paused. Telegram messages were not deleted.':'Group action confirmed.'));
+        setNotice(body.warning || (['send','reply','attachment'].includes(action.action)?'':action.action==='purge_history'?'Saved history cleared and recording paused. Telegram messages were not deleted.':'Group action confirmed.'));
         if(['send','reply','attachment'].includes(action.action)){
+          stickToBottom.current=true;setShowJump(false);
           if(body.message_id){
             const url=action.file?URL.createObjectURL(action.file):undefined;if(url)localUrls.current.add(url);
             setReceipts(current=>[...current,{chat_id:cid,message_id:body.message_id,text,sender_id:null,
@@ -124,57 +133,72 @@ export default function GroupViewer() {
   useEffect(()=>{if(data)setDays(data.retention_days);},[selectedGroup,data?.retention_days]);
   const changeSearch=(value:string)=>{setSearch(value);setOlder(false);};
   const displayMessages=data?[...data.items,...receipts.filter(item=>item.chat_id===selectedGroup&&!data.items.some(saved=>saved.message_id===item.message_id)&&(!search||item.text.toLowerCase().includes(search.toLowerCase()))&&!sender)].sort((a,b)=>a.message_id-b.message_id):[];
+  useLayoutEffect(()=>{
+    const node=messageList.current;if(!node||!data||!mobileChat&&isMobile)return;
+    if(restoreScroll.current){const previous=restoreScroll.current;node.scrollTop=previous.top+node.scrollHeight-previous.height;restoreScroll.current=null;}
+    else if(scrollChat.current!==data.chat_id||stickToBottom.current){node.scrollTop=node.scrollHeight;stickToBottom.current=true;setShowJump(false);}
+    scrollChat.current=data.chat_id;
+  },[data,receipts,mobileChat,isMobile]);
+  useEffect(()=>{
+    if(!data||older||search||sender)return;
+    const last=[...data.items,...receipts.filter(row=>row.chat_id===data.chat_id)].sort((a,b)=>a.message_id-b.message_id).at(-1);
+    if(!last)return;
+    const preview={text:last.deleted?'Message deleted':last.text||last.media?.kind||'Message',date:last.date};
+    setRecent(previous=>previous[data.chat_id]?.text===preview.text&&previous[data.chat_id]?.date===preview.date?previous:{...previous,[data.chat_id]:preview});
+  },[data,receipts,older,search,sender]);
   const contextLink=chosen?telegramMessageLink(chosen.chat_id,chosen.message_id):null;
-  const clock=(value:string)=>new Date(value).toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+  const outgoing=(message:GroupMessage)=>sentByThisBot(message,process.env.NEXT_PUBLIC_BOT_USERNAME||'Videl0Bot');
+  const clock=(value:string)=>new Date(value).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+  const day=(value:string)=>new Date(value).toLocaleDateString([], {month:'long',day:'numeric',year:'numeric'});
   const visibleGroups=orderConversations(groups.filter(item=>{
     const meta=workspace.conversations.find(row=>row.chat_id===item.id);
     return (folder==='all'||(folder==='private'&&item.id>0)||(folder==='groups'&&item.id<0)||(folder==='pinned'&&meta?.pinned))&&`${item.title} ${item.id} ${(meta?.tags||[]).join(' ')}`.toLowerCase().includes(groupSearch.toLowerCase());
-  }),workspace.conversations);
+  }),workspace.conversations).sort((a,b)=>Number(!!workspace.conversations.find(row=>row.chat_id===b.id)?.pinned)-Number(!!workspace.conversations.find(row=>row.chat_id===a.id)?.pinned)||(Date.parse(recent[b.id]?.date||'')||0)-(Date.parse(recent[a.id]?.date||'')||0));
   const reviewed=workspace.chat?.last_reviewed_message_id||0;
   const newCount=loadedNewMessages(data?.items||[],reviewed);
   const latestIncoming=Math.max(0,...(data?.items||[]).filter(item=>!item.is_bot&&!item.deleted).map(item=>item.message_id));
-  return <main className="mx-auto max-w-[1500px] py-6">
-    <header className="flex flex-wrap items-center justify-between gap-3">
-      <div><p className="ios-caption2">VIDEL · YOUR BOT, YOUR CONVERSATIONS</p><h1 className="ios-title mt-2">Bot inbox</h1><p className="ios-subheadline mt-2">See the conversation. Keep your community in good hands.</p></div>
-      <span className="ios-pill"><ShieldCheck size={14}/>Owner only · bot account</span>
-    </header>
-    <div className="mt-5 grid gap-4 xl:grid-cols-[235px_minmax(0,1fr)_265px] lg:grid-cols-[230px_minmax(0,1fr)]">
-      <aside className="ios-card overflow-hidden self-start">
-        <div className="border-b border-indigo-300/10 p-4"><div className="flex items-center justify-between"><h2 className="text-sm font-semibold">Conversations</h2><button aria-label="Refresh group list" onClick={()=>void loadGroups()}><RefreshCw size={14}/></button></div>
+  return <main className={`tg-inbox ${mobileChat?'tg-conversation-open':''}`}>
+    <h1 className="sr-only">Bot inbox</h1>
+    <div className="tg-layout">
+      <aside className="tg-chat-list" aria-label="Chats">
+        <div className="border-b border-indigo-300/10 p-4"><div className="flex items-center justify-between"><div><h2 className="text-lg font-semibold">Chats</h2><p className="text-[11px] text-slate-400">Your bot account</p></div><button aria-label="Refresh group list" onClick={()=>void loadGroups()}><RefreshCw size={14}/></button></div>
           <label className="mt-3 flex items-center gap-2 rounded-xl bg-white/5 px-3"><Search size={14}/><input aria-label="Search group list" value={groupSearch} onChange={e=>setGroupSearch(e.target.value)} className="min-w-0 bg-transparent py-3 text-xs outline-none" placeholder="Names, IDs or tags…"/></label>
           <div className="mt-3 flex flex-wrap gap-1" aria-label="Conversation folders">{(['all','private','groups','pinned'] as const).map(value=><button key={value} aria-pressed={folder===value} onClick={()=>setFolder(value)} className={`rounded-lg px-2 py-1.5 text-[10px] capitalize ${folder===value?'bg-indigo-400/20 text-indigo-100':'text-indigo-100/45 hover:bg-white/5'}`}>{value==='private'?'DMs':value}</button>)}</div></div>
-        <div className="max-h-52 overflow-auto p-2 lg:max-h-[420px]">{visibleGroups.map(item=><button key={item.id} disabled={busy} onClick={()=>selectGroup(item.id)} className={`mb-1 flex w-full items-center gap-3 rounded-xl p-3 text-left transition disabled:opacity-40 ${selectedGroup===item.id?'bg-indigo-500/20 ring-1 ring-indigo-300/20':'hover:bg-white/5'}`}>
+        <div className="tg-chat-rows">{visibleGroups.map(item=><button key={item.id} disabled={busy} onClick={()=>{selectGroup(item.id);setMobileChat(true);}} className={`tg-chat-row flex w-full items-center gap-3 p-3 text-left transition disabled:opacity-40 ${selectedGroup===item.id?'bg-indigo-500/20 ring-1 ring-indigo-300/20':'hover:bg-white/5'}`}>
           <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-gradient-to-br from-indigo-500/35 to-teal-400/15 text-xs font-semibold">{item.title.slice(0,2).toUpperCase()}</span>
-          <span className="min-w-0"><span className="block truncate text-xs font-medium">{workspace.conversations.find(row=>row.chat_id===item.id)?.pinned?'★ ':''}{item.title}</span><span className="mt-1 block truncate text-[10px] text-indigo-100/40">{item.type==='private'?'Bot DM':item.members!=null?`${item.members} members`:'Group'} · {item.id}</span></span></button>)}
-          {!visibleGroups.length&&<p className="p-4 text-xs text-indigo-100/40">No matching groups. Refresh or enter a known group ID.</p>}</div>
+          <span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{workspace.conversations.find(row=>row.chat_id===item.id)?.pinned?'★ ':''}{item.title}</span><span className="mt-1 block truncate text-xs text-slate-400">{recent[item.id]?.text||(item.type==='private'?'Bot direct message':'Group conversation')}</span></span>{recent[item.id]&&<time className="self-start pt-1 text-[10px] text-slate-400">{clock(recent[item.id].date)}</time>}</button>)}
+          {groupsLoading&&<div role="status" className="space-y-4 p-4" aria-label="Loading conversations">{[1,2,3,4].map(n=><div key={n} className="flex gap-3 animate-pulse"><span className="h-11 w-11 rounded-full bg-white/10"/><span className="flex-1 space-y-2 py-1"><span className="block h-3 w-2/3 rounded bg-white/10"/><span className="block h-3 w-4/5 rounded bg-white/5"/></span></div>)}</div>}
+          {!groupsLoading&&!visibleGroups.length&&<p className="p-4 text-xs text-indigo-100/40">No conversations yet. Ask someone to message your bot, or add it to a group. Only bot-visible chats appear here.</p>}</div>
         {groupsError&&<p className="px-4 pb-3 text-[11px] text-amber-200/70">{groupsError}</p>}
-        <form onSubmit={e=>{e.preventDefault();const id=conversationId(manualId);if(id)selectGroup(id);else setGroupsError('Enter a numeric conversation ID already known to the bot.');}} className="border-t border-white/5 p-4"><label className="text-[11px] text-indigo-100/45" htmlFor="known-group">Open a known chat by ID</label><div className="mt-2 flex gap-2"><input id="known-group" value={manualId} onChange={e=>setManualId(e.target.value)} placeholder="-100…" className="ios-input min-w-0 text-xs"/><button disabled={busy} className="ios-btn ios-btn-glass !px-3 text-xs">Open</button></div></form>
+        <details className="tg-open-id"><summary>Open chat by ID</summary><form onSubmit={e=>{e.preventDefault();const id=conversationId(manualId);if(id){selectGroup(id);setMobileChat(true);}else setGroupsError('Enter a numeric conversation ID already known to the bot.');}} className="border-t border-white/5 p-4"><label className="text-[11px] text-indigo-100/45" htmlFor="known-group">Open a known chat by ID</label><div className="mt-2 flex gap-2"><input id="known-group" value={manualId} onChange={e=>setManualId(e.target.value)} placeholder="-100…" className="ios-input min-w-0 text-xs"/><button disabled={busy} className="ios-btn ios-btn-glass !px-3 text-xs">Open</button></div></form></details>
       </aside>
-      <section className="ios-card min-w-0 overflow-hidden">
-        <div className="border-b border-indigo-300/10 p-4"><div className="flex items-center justify-between gap-3"><div className="min-w-0"><h2 className="truncate font-semibold">{selectedGroup?(group?.title || `Group ${selectedGroup}`):'Choose a conversation'}</h2><p className="mt-1 text-[11px] text-indigo-100/40">{selectedGroup || 'Your Telegram account is never connected'}{updated&&data?` · Updated ${updated}`:''}</p></div><button aria-label="Refresh messages" disabled={!selectedGroup || loading} onClick={()=>{setOlder(false);setRefresh(value=>value+1);}} className="ios-btn ios-btn-glass !p-2"><RefreshCw size={15} className={loading?'animate-spin':''}/></button></div>
-          <div className="mt-3 flex gap-2"><label className="flex min-w-0 flex-1 items-center gap-2 rounded-xl bg-white/5 px-3"><Search size={14}/><input aria-label="Search recorded messages" disabled={!selectedGroup} className="min-w-0 w-full bg-transparent py-2.5 text-xs outline-none" value={search} onChange={e=>changeSearch(e.target.value)} maxLength={80} placeholder="Search recorded messages…"/></label>{sender&&<button onClick={()=>{setSender(null);setOlder(false);}} className="ios-pill text-[10px]">User {sender}<X size={12}/></button>}</div>
+      <section className="tg-conversation" aria-label="Conversation">
+        <div className="tg-conversation-header"><div className="flex items-center justify-between gap-3"><button className="tg-mobile-back" aria-label="Back to chats" onClick={()=>{setMobileChat(false);setDetailsOpen(false);}}><ArrowLeft size={22}/></button><div className="min-w-0 flex-1"><h2 className="truncate font-semibold">{selectedGroup?(group?.title || `Group ${selectedGroup}`):'Choose a conversation'}</h2><p className="mt-1 text-[11px] text-indigo-100/40">{selectedGroup?'Sending as your bot':'Select a chat to start messaging'}{updated&&data?` · Synced ${updated}`:''}</p></div><button aria-label="Search conversation" aria-expanded={searchOpen} onClick={()=>setSearchOpen(value=>!value)} className="tg-header-button"><Search size={19}/></button><button aria-label="Chat info and settings" aria-expanded={detailsOpen} onClick={()=>setDetailsOpen(value=>!value)} className="tg-header-button"><MoreHorizontal size={21}/></button><button aria-label="Refresh messages" disabled={!selectedGroup || loading} onClick={()=>{setOlder(false);setRefresh(value=>value+1);}} className="ios-btn ios-btn-glass !p-2"><RefreshCw size={15} className={loading?'animate-spin':''}/></button></div>
+          <div hidden={!searchOpen} className="mt-3 flex gap-2"><label className="flex min-w-0 flex-1 items-center gap-2 rounded-xl bg-white/5 px-3"><Search size={14}/><input aria-label="Search recorded messages" disabled={!selectedGroup} className="min-w-0 w-full bg-transparent py-2.5 text-xs outline-none" value={search} onChange={e=>changeSearch(e.target.value)} maxLength={80} placeholder="Search recorded messages…"/></label>{sender&&<button onClick={()=>{setSender(null);setOlder(false);}} className="ios-pill text-[10px]">User {sender}<X size={12}/></button>}</div>
         </div>
         {error&&<div role="alert" className="m-3 flex gap-2 rounded-xl bg-rose-400/10 p-3 text-xs leading-5 text-rose-200"><AlertTriangle size={16} className="shrink-0"/>{error}</div>}
         {notice&&<p role="status" className="m-3 rounded-xl bg-emerald-400/10 p-3 text-xs leading-5 text-emerald-200">{notice}</p>}
-        {data&&workspace.chat&&<div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/5 px-4 py-2"><span className="text-[10px] text-indigo-100/45">{newCount} new incoming in loaded messages · workspace marker only</span><button disabled={workspace.busy||!latestIncoming||newCount===0} onClick={()=>void workspace.save({action:'review',message_id:latestIncoming})} className="text-[10px] text-teal-200 underline disabled:opacity-40">Mark loaded messages reviewed</button></div>}
-        <div className="relative min-h-[360px] max-h-[560px] space-y-3 overflow-y-auto bg-gradient-to-br from-indigo-950/15 to-teal-950/10 p-4 sm:p-5" aria-label="Recorded group messages">
-          {!selectedGroup?<div className="py-20 text-center"><MessageCircle size={40} className="mx-auto text-indigo-300/35"/><h3 className="mt-4 font-medium">Your community, in context</h3><p className="mx-auto mt-2 max-w-xs text-xs leading-6 text-indigo-100/45">Select a group to view opt-in bot-visible messages, reply as the bot and manage members.</p></div>:!data?<div className="py-20 text-center text-xs text-indigo-100/40">{loading?'Checking your group access…':'No group data loaded.'}</div>:<>
+
+        <div ref={messageList} onScroll={()=>{const node=messageList.current;if(node){stickToBottom.current=node.scrollHeight-node.scrollTop-node.clientHeight<100;setShowJump(!stickToBottom.current);}}} onLoadCapture={()=>{const node=messageList.current;if(node&&stickToBottom.current)node.scrollTop=node.scrollHeight;}} className="tg-messages chat-canvas space-y-2" role="log" aria-live="off" aria-label="Recorded group messages">
+          {!selectedGroup?<div className="py-20 text-center"><MessageCircle size={40} className="mx-auto text-indigo-300/35"/><h3 className="mt-4 font-medium">Your messages, as your bot</h3><p className="mx-auto mt-2 max-w-xs text-xs leading-6 text-indigo-100/45">Choose a chat on the left. Read captured messages and reply with text, photos, video or voice, directly as your bot.</p></div>:!data?<div className="py-20 text-center text-xs text-indigo-100/40">{loading?<span className="inline-flex items-center gap-2"><LoaderCircle size={18} className="animate-spin"/>Loading messages…</span>:'Messages could not be loaded. Use refresh to try again.'}</div>:<>
             <p className="text-center text-[10px] text-indigo-100/35">{data.recording?'Recording enabled':'Recording paused'} · {data.retention_days}-day retention · {older?'Browsing history · refresh to return to latest':'Refreshes every 6 seconds while visible'}</p>
             {data.has_more&&data.items.length<250&&<button disabled={loading} onClick={()=>void loadOlder()} className="mx-auto block text-[11px] text-indigo-200 underline">{loading?'Loading…':'Load older messages'}</button>}
             {displayMessages.length===0&&<div className="mx-auto max-w-sm py-16 text-center"><Eye size={30} className="mx-auto text-indigo-300/40"/><h3 className="mt-4 text-sm font-medium">{search||sender?'No matching messages':data.recording?'Waiting for new bot-visible messages':'Recording is off for this group'}</h3><p className="mt-3 text-xs leading-6 text-indigo-100/45">{data.recording?'Send a new message in Telegram after enabling recording. Bot privacy mode may limit what appears.':'Enable recording in Chat settings. A notice will be posted to the group first. Old Telegram history cannot be imported.'}</p></div>}
-            {displayMessages.map(message=><article key={message.message_id} className={`flex ${message.is_bot?'justify-end':'justify-start'}`}><div className={`max-w-[95%] min-w-[160px] rounded-2xl border px-4 py-3 sm:max-w-[86%] ${message.is_bot?'rounded-br-sm border-teal-300/15 bg-teal-400/10':'rounded-bl-sm border-indigo-200/10 bg-indigo-400/[0.07]'} ${chosen?.message_id===message.message_id?'ring-1 ring-indigo-300/50':''}`}>
-              <div className="flex items-center justify-between gap-3"><button className="truncate text-left text-[11px] font-semibold text-indigo-200" onClick={()=>setSelected(message)}>{message.sender_name}{message.is_bot?' · bot':''}</button><button aria-label={`Message ${message.message_id} actions`} onClick={()=>setSelected(message)}><MoreHorizontal size={15} className="text-indigo-100/45"/></button></div>
+            {displayMessages.map((message,index)=><div key={message.message_id}>{(index===0||day(displayMessages[index-1].date)!==day(message.date))&&<div className="tg-date"><span>{day(message.date)}</span></div>}<article key={message.message_id} className={`flex ${outgoing(message)?'justify-end':'justify-start'}`}><div className={`tg-bubble max-w-[88%] min-w-[100px] rounded-2xl px-3 py-2 sm:max-w-[75%] ${outgoing(message)?'tg-outgoing rounded-br-sm':'tg-incoming rounded-bl-sm'} ${chosen?.message_id===message.message_id?'ring-1 ring-indigo-300/50':''}`}>
+              <div className="flex items-center justify-between gap-3"><button className="truncate text-left text-[11px] font-semibold text-indigo-200" onClick={()=>{setSelected(message);setDetailsOpen(true);}}>{message.sender_name}{message.is_bot?' · bot':''}</button><button aria-label={`Message ${message.message_id} actions`} onClick={()=>{setSelected(message);setDetailsOpen(true);}}><MoreHorizontal size={15} className="text-indigo-100/45"/></button></div>
               {message.reply_to_id&&<div className="mt-2 border-l-2 border-indigo-300/50 pl-2 text-[10px] text-indigo-100/45">Reply to #{message.reply_to_id}{data.items.find(item=>item.message_id===message.reply_to_id)?.text?` · ${data.items.find(item=>item.message_id===message.reply_to_id)!.text.slice(0,80)}`:''}</div>}
               {message.media&&<div className="mt-2 rounded-lg bg-white/5 p-2 text-[11px] text-indigo-100/60"><p>{message.media.kind.replace('_',' ')}{message.media.name?` · ${message.media.name}`:''}</p>{message.media.kind==='photo'?<img loading="lazy" src={message.local_preview||`/api/inbox-media?chat_id=${message.chat_id}&message_id=${message.message_id}`} alt="Bot-visible photo" className="mt-2 max-h-64 rounded-lg object-contain"/>:['voice','audio'].includes(message.media.kind)?<audio controls preload="none" src={message.local_preview||`/api/inbox-media?chat_id=${message.chat_id}&message_id=${message.message_id}`} className="mt-2 max-w-full"/>:['video','animation'].includes(message.media.kind)?<video controls preload="none" src={message.local_preview||`/api/inbox-media?chat_id=${message.chat_id}&message_id=${message.message_id}`} className="mt-2 max-h-64 rounded-lg"/>:null}<p className="mt-1 text-[9px] text-indigo-100/35">Preview up to 8 MB. If unavailable, open the original in Telegram.</p></div>}
               <p className={`mt-2 whitespace-pre-wrap break-words text-[13px] leading-6 ${message.deleted?'italic text-indigo-100/30':'text-indigo-50/85'}`}>{message.deleted?'Deleted through Videl':message.text}</p>
-              <div className="mt-2 flex items-center justify-end gap-2 text-[9px] text-indigo-100/35"><span>#{message.message_id}{message.thread_id?` · Topic ${message.thread_id}`:''}</span><span>{message.ephemeral?'confirmed · session only · ':message.edited?'edited · ':''}{clock(message.date)}</span>{!message.deleted&&<button aria-label={`Reply to message ${message.message_id}`} disabled={message.ephemeral} title={message.ephemeral?"Saved message actions become available after recording captures it":"Reply"} onClick={()=>{setReply(message);setSelected(message);}}><Reply size={13}/></button>}</div>
-            </div></article>)}
+              <div className="mt-2 flex items-center justify-end gap-2 text-[9px] text-indigo-100/35"><span>{message.thread_id?`Topic ${message.thread_id}`:''}</span><span>{message.edited?'edited · ':''}{clock(message.date)}</span>{message.ephemeral&&<span title="Telegram confirmed delivery; not a read receipt" aria-label="Delivery confirmed"><Check size={13}/></span>}{!message.deleted&&<button aria-label={`Reply to message ${message.message_id}`} disabled={message.ephemeral} title={message.ephemeral?"Saved message actions become available after recording captures it":"Reply"} onClick={()=>{setReply(message);setSelected(message);}}><Reply size={13}/></button>}</div>
+            </div></article></div>)}
           </>}
         </div>
-        <InboxComposer active={tab==='chat'} chatId={data?selectedGroup:null} reply={replying} text={text} setText={setText} busy={busy} onCancelReply={()=>setReply(null)} onSend={(file,kind)=>act({action:file?'attachment':replying?'reply':'send',...(replying?{message_id:replying.message_id}:{}),...(file&&kind?{file,kind}:{})})}/>
+        {showJump&&<button className="tg-jump" aria-label="Jump to latest messages" onClick={()=>{if(messageList.current)messageList.current.scrollTop=messageList.current.scrollHeight;stickToBottom.current=true;setShowJump(false);}}><ArrowDown size={20}/></button>}
+        <InboxComposer active={tab==='chat'&&(!isMobile||mobileChat)} chatId={data?selectedGroup:null} reply={replying} text={text} setText={setText} busy={busy} onCancelReply={()=>setReply(null)} onSend={(file,kind)=>act({action:file?'attachment':replying?'reply':'send',...(replying?{message_id:replying.message_id}:{}),...(file&&kind?{file,kind}:{})})}/>
 
       </section>
-      <aside className="space-y-4 lg:col-start-2 xl:col-start-auto">
+      <aside hidden={!detailsOpen} className="tg-details space-y-4" aria-label="Chat info"><div className="flex items-center justify-between"><h2 className="font-semibold">Chat info</h2><button aria-label="Close chat info" onClick={()=>setDetailsOpen(false)}><X size={20}/></button></div>
+        {detailsOpen&&data&&workspace.chat&&<div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/5 px-4 py-2"><span className="text-[10px] text-indigo-100/45">{newCount} new incoming in loaded messages · workspace marker only</span><button disabled={workspace.busy||!latestIncoming||newCount===0} onClick={()=>void workspace.save({action:'review',message_id:latestIncoming})} className="text-[10px] text-teal-200 underline disabled:opacity-40">Mark loaded messages reviewed</button></div>}
         <InboxWorkspace workspace={workspace} text={text} setText={setText}/>
         <section className="ios-card p-4"><h2 className="flex items-center gap-2 text-sm font-semibold"><Settings2 size={16}/>Chat settings</h2>
           <p className="mt-3 text-[11px] leading-5 text-indigo-100/45">Owner-only bot inbox. Group controls additionally require current group admin permissions.</p>

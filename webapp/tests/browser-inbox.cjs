@@ -18,7 +18,7 @@ const {chromium}=require('playwright-core');
  await page.goto((process.env.INBOX_URL||'http://127.0.0.1:3004')+'/?tab=chat');
  await page.getByRole('heading',{name:'Bot inbox',exact:true}).waitFor();
  await page.getByRole('button',{name:/Test bot DM/}).click();
- await page.getByText('Fixture message, not a live Telegram conversation',{exact:true}).waitFor();
+ await page.getByRole('log').getByText('Fixture message, not a live Telegram conversation',{exact:true}).waitFor();
  await page.getByRole('textbox',{name:'Message as bot'}).fill('Hello from the bot');
  await page.getByRole('button',{name:'Send as bot',exact:true}).click();
  await page.getByRole('textbox',{name:'Message as bot'}).filter({hasText:''}).waitFor();
