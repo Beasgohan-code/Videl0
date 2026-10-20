@@ -16,6 +16,8 @@ export type GroupCounts = {
   approved: number;
   /** Join requests still waiting in the inbox; absent on older payloads. */
   pending_joins?: number;
+  /** Open member reports waiting for a decision. */
+  reports?: number;
 };
 
 export type HealthIssue = { code: string; message: string; advisory?: boolean };
@@ -56,6 +58,8 @@ export type JoinRequest = {
 export type GroupInbox = { reports: ReportRow[]; join_requests: JoinRequest[] };
 
 export type AuditEvent = {
+  /** Mongo row id: the tie-breaker for the "Load older" cursor. */
+  id?: string;
   kind: string;
   action: string;
   detail: string;
@@ -251,7 +255,7 @@ export const PRESET_COPY: Record<PresetId, { label: string; description: string 
   lockdown: { label: "Lockdown", description: "Every lock on, greetings paused." },
 };
 
-export type GroupFilter = "all" | "protected" | "open" | "warns" | "unavailable" | "attention";
+export type GroupFilter = "all" | "protected" | "open" | "warns" | "unavailable" | "attention" | "inbox";
 export type GroupSort = "name" | "members" | "warns" | "type" | "health";
 
 export const FILTERS: { id: GroupFilter; label: string }[] = [
@@ -261,6 +265,7 @@ export const FILTERS: { id: GroupFilter; label: string }[] = [
   { id: "warns", label: "Has warnings" },
   { id: "unavailable", label: "Unreachable" },
   { id: "attention", label: "Needs attention" },
+  { id: "inbox", label: "Waiting on you" },
 ];
 
 export const SORTS: { id: GroupSort; label: string }[] = [
@@ -341,6 +346,8 @@ export function filterGroup(group: Group, filter: GroupFilter): boolean {
       return !group.available;
     case "attention":
       return group.health?.attention === true;
+    case "inbox":
+      return (group.counts?.pending_joins ?? 0) + (group.counts?.reports ?? 0) > 0;
     default:
       return true;
   }
@@ -501,7 +508,7 @@ export function auditLabel(event: AuditEvent): string {
     blacklist: "Blacklist changed",
     blacklist_mode: "Blacklist mode changed",
     note: "Note removed",
-    filter: "Filter removed",
+    filter: "Filters changed",
     approval: "Approval removed",
     warn: "Warning issued",
     warn_reset: "Warnings cleared",

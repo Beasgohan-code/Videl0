@@ -8,6 +8,7 @@ import asyncio
 import unittest
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, Mock, patch
+from urllib.parse import quote
 
 import mongomock
 
@@ -698,6 +699,8 @@ class InternalRouteTests(unittest.TestCase):
     def test_chat_list_reports_health_automation_and_summary(self):
         self.db["mgmt_join_requests"].insert_one({"chat_id": CID, "user": 55, "status": "pending"})
         self.db["mgmt_join_requests"].insert_one({"chat_id": CID, "user": 56, "status": "approved"})
+        self.db["mgmt_reports"].insert_one({"chat_id": CID, "status": "open", "target": 5})
+        self.db["mgmt_reports"].insert_one({"chat_id": CID, "status": "resolved", "target": 6})
         response = self.client.get("/internal/chats", headers=self.headers())
         payload = response.get_json()
         self.assertTrue(payload["ok"])
@@ -705,20 +708,40 @@ class InternalRouteTests(unittest.TestCase):
         self.assertIn("health", row)
         self.assertIn("quiet_hours", row["automation"])
         self.assertEqual(row["counts"]["pending_joins"], 1, "answered requests are not waiting work")
+        self.assertEqual(row["counts"]["reports"], 1, "resolved reports are history, not a queue")
         self.assertIn("pending_joins", [issue["code"] for issue in row["health"]["issues"]])
         self.assertEqual(payload["summary"]["total"], 2)
         self.assertIn("attention", payload["summary"])
 
     def test_audit_endpoint_requires_secret_and_filters(self):
         self.assertEqual(self.client.get(f"/internal/chat/{CID}/audit").status_code, 403)
-        self.db["mgmt_audit"].insert_one({"chat_id": CID, "kind": "preset", "action": "preset",
-                                          "detail": "preset: strict", "ts": datetime.now(UTC)})
-        self.db["mgmt_audit"].insert_one({"chat_id": CID, "kind": "settings", "action": "settings",
-                                          "detail": "on: lock_links", "ts": datetime.now(UTC)})
+        # One save can write several rows in the same millisecond; the cursor
+        # must page through that tie group, not skip it.
+        stamp = datetime.now(UTC)
+        self.db["mgmt_audit"].insert_many([
+            {"chat_id": CID, "kind": "preset", "action": "preset",
+             "detail": "preset: strict", "ts": stamp},
+            {"chat_id": CID, "kind": "settings", "action": "settings",
+             "detail": "on: lock_links", "ts": stamp},
+        ])
         payload = self.client.get(f"/internal/chat/{CID}/audit", headers=self.headers()).get_json()
         self.assertEqual(len(payload["events"]), 2)
+        self.assertFalse(payload["has_more"])
+        self.assertTrue(all(event["id"] for event in payload["events"]))
+        first = self.client.get(f"/internal/chat/{CID}/audit?limit=1", headers=self.headers()).get_json()
+        self.assertEqual(len(first["events"]), 1)
+        self.assertTrue(first["has_more"], "one more row exists, so the panel can offer Load older")
+        cursor = first["events"][0]
+        older = self.client.get(
+            f"/internal/chat/{CID}/audit?limit=1&before={quote(cursor['at'], safe='')}"
+            f"&before_id={cursor['id']}",
+            headers=self.headers()).get_json()
+        self.assertEqual(len(older["events"]), 1, "the tied row is still reachable")
+        self.assertNotEqual(older["events"][0]["id"], cursor["id"])
         filtered = self.client.get(f"/internal/chat/{CID}/audit?kind=preset", headers=self.headers()).get_json()
         self.assertEqual([event["kind"] for event in filtered["events"]], ["preset"])
+        bad = self.client.get(f"/internal/chat/{CID}/audit?before_id=nope", headers=self.headers())
+        self.assertEqual(bad.status_code, 400)
 
     def test_federation_overview_and_detail(self):
         overview = self.client.get("/internal/federation", headers=self.headers()).get_json()

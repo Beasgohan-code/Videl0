@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import re
 from datetime import datetime, timedelta, timezone
+from bson import ObjectId
 
 log = logging.getLogger(__name__)
 
@@ -110,9 +111,23 @@ def record_bot(chat_id: int, kind: str, *, action: str = "", detail: str = "", a
         return False
 
 
+def object_id(value) -> ObjectId | None:
+    """Parse a stored row id, or None when the caller sent something else."""
+    try:
+        return ObjectId(str(value)) if ObjectId.is_valid(str(value)) else None
+    except Exception:
+        return None
+
+
 def recent(db, chat_id: int, *, limit: int = 40, kind: str | None = None,
-           before: datetime | None = None) -> list[dict]:
-    """Newest first. A cursor is the ISO timestamp of the last row already shown."""
+           before: datetime | None = None,
+           before_id=None) -> list[dict]:
+    """Newest first. A cursor is the last row already shown.
+
+    Mongo stores milliseconds, so a bulk save can produce several rows with
+    the same ``ts``. A timestamp-only cursor would skip the rest of that tie
+    group; passing the row id as well makes the page boundary exact.
+    """
     col = _col(db)
     if col is None:
         return []
@@ -124,7 +139,14 @@ def recent(db, chat_id: int, *, limit: int = 40, kind: str | None = None,
     if kind in KINDS:
         query["kind"] = kind
     if isinstance(before, datetime):
-        query["ts"] = {"$lt": before}
+        # PyMongo stores UTC without tzinfo; a cursor must match that shape.
+        if before.tzinfo is not None:
+            before = before.astimezone(timezone.utc).replace(tzinfo=None)
+        oid = object_id(before_id) if before_id else None
+        if oid is not None:
+            query["$or"] = [{"ts": {"$lt": before}}, {"ts": before, "_id": {"$lt": oid}}]
+        else:
+            query["ts"] = {"$lt": before}
     try:
         rows = list(col.find(query).sort([("ts", -1), ("_id", -1)]).limit(limit))
     except Exception:
@@ -137,6 +159,7 @@ def recent(db, chat_id: int, *, limit: int = 40, kind: str | None = None,
                 stamp = stamp.replace(tzinfo=timezone.utc)
             stamp = stamp.astimezone(timezone.utc)
         output.append({
+            "id": str(row.get("_id", "")),
             "kind": str(row.get("kind", "")),
             "action": str(row.get("action", "")),
             "detail": str(row.get("detail", "")),

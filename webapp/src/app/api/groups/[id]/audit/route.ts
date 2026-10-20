@@ -24,6 +24,9 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
   if (limit && /^[0-9]{1,3}$/.test(limit)) query.set("limit", limit);
   const before = url.searchParams.get("before");
   if (before && !Number.isNaN(Date.parse(before))) query.set("before", new Date(before).toISOString());
+  // Two rows can share a millisecond; the id makes the page boundary exact.
+  const beforeId = url.searchParams.get("before_id");
+  if (beforeId && /^[0-9a-f]{24}$/i.test(beforeId)) query.set("before_id", beforeId);
 
   const suffix = query.toString();
   return groupCall(`/internal/chat/${chatId}/audit${suffix ? `?${suffix}` : ""}`);

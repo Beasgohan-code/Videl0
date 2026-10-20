@@ -28,7 +28,10 @@ to code that actually runs:
   presets, greetings, rules, captcha, warnings, notes, filters, blacklist,
   approvals, join-request triage (approve/decline), report triage (warn, ban,
   resolve or dismiss) and a per-group audit trail
-  (filterable, CSV export, 180-day retention).
+  (filterable by kind, paged with an exact cursor, CSV export, 180-day
+  retention). Bot-side changes — locks, antispam, warnings, filters, blacklist
+  words or its mode — are recorded too, with the acting admin when Telegram
+  reports one.
 - **Command switches** — any of the 155 registered commands can be turned off
   for one group. A handler at group −1 refuses it before every other handler,
   so this also covers commands that never pass through the declarative router.

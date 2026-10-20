@@ -158,6 +158,8 @@ export default function GroupsPage() {
   const [auditState, setAuditState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [auditMessage, setAuditMessage] = useState("");
   const [auditKind, setAuditKind] = useState("all");
+  const [auditHasMore, setAuditHasMore] = useState(false);
+  const [auditMoreLoading, setAuditMoreLoading] = useState(false);
   const [auditKinds, setAuditKinds] = useState<string[]>([
     "settings", "preset", "automation", "commands", "blacklist", "warn", "join_request", "report",
   ]);
@@ -235,12 +237,17 @@ export default function GroupsPage() {
     void loadDetail(selected);
   }, [selected, loadDetail]);
 
-  const loadAudit = useCallback(async (id: number, kind = "all") => {
-    setAuditState("loading");
-    setAuditMessage("");
+  const loadAudit = useCallback(async (id: number, kind = "all", older?: { at: string; id: string }) => {
+    if (!older) {
+      setAuditState("loading");
+      setAuditMessage("");
+    }
+    setAuditMoreLoading(true);
     try {
       const query = new URLSearchParams({ limit: "60" });
       if (kind !== "all") query.set("kind", kind);
+      if (older?.at) query.set("before", older.at);
+      if (older?.id) query.set("before_id", older.id);
       const response = await fetch(`/api/groups/${id}/audit?${query.toString()}`, { cache: "no-store" });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.ok) {
@@ -254,17 +261,19 @@ export default function GroupsPage() {
         return;
       }
       const kinds = Array.isArray(data.kinds) ? data.kinds.filter((item: unknown) => typeof item === "string") : [];
-      setAuditEvents(
-        Array.isArray(data.events)
-          ? data.events.filter((event: AuditEvent) => event && typeof event.kind === "string")
-          : [],
-      );
+      const page = Array.isArray(data.events)
+        ? data.events.filter((event: AuditEvent) => event && typeof event.kind === "string")
+        : [];
+      setAuditEvents((current) => (older ? [...current, ...page] : page));
+      setAuditHasMore(data.has_more === true);
       if (kinds.length) setAuditKinds(kinds);
       setAuditState("ready");
     } catch (e) {
-      setAuditEvents([]);
+      if (!older) setAuditEvents([]);
       setAuditState("error");
       setAuditMessage(e instanceof Error ? e.message : "History could not be loaded");
+    } finally {
+      setAuditMoreLoading(false);
     }
   }, []);
 
@@ -272,11 +281,17 @@ export default function GroupsPage() {
     // A different group must never show the previous group's history.
     setAuditEvents([]);
     setAuditState("idle");
+    setAuditHasMore(false);
   }, [selected]);
 
   useEffect(() => {
     if (tab === "audit" && selected !== null) void loadAudit(selected, auditKind);
   }, [tab, selected, auditKind, loadAudit]);
+
+  const auditCursor =
+    auditEvents.length > 0
+      ? { at: auditEvents[auditEvents.length - 1]?.at ?? "", id: auditEvents[auditEvents.length - 1]?.id ?? "" }
+      : null;
 
   useEffect(() => {
     if (!detail) return;
@@ -668,6 +683,16 @@ export default function GroupsPage() {
                           )}
                           {(group.counts?.blacklist ?? 0) > 0 && (
                             <span className="ios-pill text-[10px]">{group.counts?.blacklist} blocked</span>
+                          )}
+                          {(group.counts?.pending_joins ?? 0) > 0 && (
+                            <span className="ios-pill text-[10px] text-sky-200">
+                              {group.counts?.pending_joins} joining
+                            </span>
+                          )}
+                          {(group.counts?.reports ?? 0) > 0 && (
+                            <span className="ios-pill text-[10px] text-amber-200">
+                              {group.counts?.reports} reported
+                            </span>
                           )}
                         </span>
                       </span>
@@ -1470,6 +1495,18 @@ export default function GroupsPage() {
                       </li>
                     ))}
                   </ul>
+                  {auditHasMore && (
+                    <button
+                      onClick={() =>
+                        auditCursor && selected !== null && void loadAudit(selected, auditKind, auditCursor)
+                      }
+                      disabled={auditMoreLoading}
+                      className="ios-btn ios-btn-glass text-xs disabled:opacity-40"
+                    >
+                      {auditMoreLoading ? <Loader2 size={14} className="animate-spin" /> : <ScrollText size={14} />}
+                      Load older
+                    </button>
+                  )}
                 </div>
               )}
             </>

@@ -254,3 +254,15 @@ test("the attention queue ranks the worst groups and stays short", () => {
   assert.deepEqual(attentionQueue(rows, 1).map((row) => row.title), ["Worse"]);
   assert.deepEqual(attentionQueue([]), []);
 });
+
+test("the waiting-on-you filter matches both inbox queues", () => {
+  const base = { warns: 0, notes: 0, blacklist: 0, approved: 0 };
+  const rows = [
+    group({ id: -1, counts: { ...base, pending_joins: 2 } }),
+    group({ id: -2, counts: { ...base, reports: 1 } }),
+    group({ id: -3, counts: { ...base, reports: 0, pending_joins: 0 } }),
+    group({ id: -4, counts: base }),
+  ];
+  assert.deepEqual(rows.filter((row) => filterGroup(row, "inbox")).map((row) => row.id), [-1, -2]);
+  assert.equal(filterGroup(group({ counts: { ...base, reports: undefined } }), "inbox"), false);
+});
