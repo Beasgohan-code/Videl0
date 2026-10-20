@@ -5,6 +5,7 @@ import {
   Check,
   Copy,
   Crown,
+  Link2,
   ExternalLink,
   Lock,
   Music4,
@@ -51,7 +52,23 @@ export default function Guide() {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<CommandCategory | "all">("all");
   const [copied, setCopied] = useState("");
+  const [linked, setLinked] = useState("");
+  const [focused, setFocused] = useState("");
   const search = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const target = new URLSearchParams(window.location.search).get("cmd");
+    if (!target) return;
+    const clean = target.replace(/^\//, "");
+    setQuery(clean);
+    setFocused(clean);
+  }, []);
+
+  useEffect(() => {
+    if (!focused) return;
+    const row = document.getElementById(`command-${focused}`);
+    row?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [focused]);
 
   useEffect(() => {
     function shortcut(event: KeyboardEvent) {
@@ -100,6 +117,13 @@ export default function Guide() {
     void copyText(command.usage);
     setCopied(command.name);
     window.setTimeout(() => setCopied((value) => (value === command.name ? "" : value)), 1600);
+  }
+
+  function share(command: BotCommand) {
+    const url = `${window.location.origin}/?tab=guide&cmd=${command.name}`;
+    void navigator.clipboard?.writeText(url);
+    setLinked(command.name);
+    window.setTimeout(() => setLinked((value) => (value === command.name ? "" : value)), 1600);
   }
 
   const bot = process.env.NEXT_PUBLIC_BOT_USERNAME || "Videl0Bot";
@@ -195,7 +219,13 @@ export default function Guide() {
             </div>
             <ul className="ios-card mt-3 divide-y divide-white/[0.055] overflow-hidden">
               {group.commands.map((command) => (
-                <li key={command.name} className="group flex items-start gap-3 px-4 py-3.5 sm:px-5">
+                <li
+                  key={command.name}
+                  id={`command-${command.name}`}
+                  className={`group flex scroll-mt-40 items-start gap-3 px-4 py-3.5 sm:px-5 ${
+                    focused === command.name ? "bg-indigo-400/[0.07]" : ""
+                  }`}
+                >
                   <code className="mono mt-0.5 shrink-0 rounded-md bg-white/[0.05] px-2 py-1 text-[12px] text-indigo-200">
                     /{command.name}
                   </code>
@@ -212,17 +242,32 @@ export default function Guide() {
                       )}
                     </div>
                   </div>
-                  <button
-                    onClick={() => copy(command)}
-                    aria-label={`Copy /${command.name}`}
-                    className="mt-0.5 rounded-lg p-2 text-[var(--ios-label-tertiary)] transition hover:bg-white/[0.06] hover:text-white"
-                  >
-                    {copied === command.name ? (
-                      <Check size={15} className="text-[var(--ios-success,#30d158)]" />
-                    ) : (
-                      <Copy size={15} />
-                    )}
-                  </button>
+                  <div className="mt-0.5 flex shrink-0 items-center">
+                    <button
+                      onClick={() => copy(command)}
+                      aria-label={`Copy /${command.name}`}
+                      title={`Copy /${command.name}`}
+                      className="rounded-lg p-2 text-[var(--ios-label-tertiary)] transition hover:bg-white/[0.06] hover:text-white"
+                    >
+                      {copied === command.name ? (
+                        <Check size={15} className="text-[#30d158]" />
+                      ) : (
+                        <Copy size={15} />
+                      )}
+                    </button>
+                    <button
+                      onClick={() => share(command)}
+                      aria-label={`Copy a link to /${command.name}`}
+                      title="Copy link to this command"
+                      className="rounded-lg p-2 text-[var(--ios-label-tertiary)] transition hover:bg-white/[0.06] hover:text-white"
+                    >
+                      {linked === command.name ? (
+                        <Check size={15} className="text-[#30d158]" />
+                      ) : (
+                        <Link2 size={15} />
+                      )}
+                    </button>
+                  </div>
                 </li>
               ))}
             </ul>

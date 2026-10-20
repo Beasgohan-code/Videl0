@@ -183,17 +183,38 @@ export default function AnalyticsPage() {
           </div>
           <div className="mt-4 space-y-2">
             {analytics?.top_commands?.length ? (
-              analytics.top_commands.map((row) => (
-                <div
-                  key={row.command}
-                  className="flex items-center justify-between rounded-xl bg-white/[0.035] px-3 py-2.5"
-                >
-                  <code>/{row.command}</code>
-                  <span className="text-sm tabular-nums">
-                    {row.count.toLocaleString()}
-                  </span>
-                </div>
-              ))
+              analytics.top_commands.map((row) => {
+                const peak = Math.max(
+                  ...(analytics.top_commands || []).map((entry) => entry.count),
+                  1,
+                );
+                const share = analytics.total_commands
+                  ? Math.round((row.count / analytics.total_commands) * 100)
+                  : null;
+                return (
+                  <div
+                    key={row.command}
+                    className="relative overflow-hidden rounded-xl bg-white/[0.035] px-3 py-2.5"
+                  >
+                    <span
+                      aria-hidden
+                      className="absolute inset-y-0 left-0 bg-indigo-400/[0.14]"
+                      style={{ width: `${Math.max(4, (row.count / peak) * 100)}%` }}
+                    />
+                    <div className="relative flex items-center justify-between gap-3">
+                      <code className="truncate">/{row.command}</code>
+                      <span className="shrink-0 text-sm tabular-nums">
+                        {row.count.toLocaleString()}
+                        {share !== null && (
+                          <span className="ml-2 text-[10px] text-[var(--ios-label-tertiary)]">
+                            {share}%
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })
             ) : (
               <p className="ios-caption">
                 No command activity is available yet.

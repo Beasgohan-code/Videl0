@@ -229,3 +229,18 @@ The artwork engine grew from 36 to 54 deterministic PNGs: 34 covers at
 1200×675, 10 story cards at 1080×1350 and 10 quote cards at 1080×1080, with two
 new geometric compositions and six new palettes. Rebuild with
 `python scripts/create_post_assets.py`; the script rewrites the manifest too.
+
+## Navigation, search and Markdown tools — 2026-10-20
+
+The studio shell now groups the sidebar into **Create**, **Operate** and
+**System**, with an active rail marker, breadcrumbs and owner-only entries
+hidden until the session is verified. On phones the bottom bar keeps four
+primary tabs plus a **More** sheet instead of a ten-item scroller, and a skip
+link moves keyboard users straight to the panel.
+
+`Ctrl/⌘ K` searches panels **and** the 155 registered bot commands. Choosing a
+command opens `/?tab=guide&cmd=<name>`, highlights that row and copies the exact
+command; every guide row also offers a shareable deep link. Creator Tools gained
+a Markdown → Telegram HTML converter with a sanitized preview, and the image
+library can star favourites per browser (`videl_asset_favourites_v1`), filter by
+them, and keeps the previous upload handling unchanged.

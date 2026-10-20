@@ -33,6 +33,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className="dark">
       <body className="min-h-screen text-white antialiased">
+        <a href="#studio-panel" className="skip-link">
+          Skip to content
+        </a>
         <TelegramProvider><StudioProvider>
           {/* iOS safe area + Telegram viewport + background */}
           <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(96,165,250,0.12),transparent_55%),radial-gradient(ellipse_at_bottom_right,_rgba(167,139,250,0.10),transparent_45%),linear-gradient(to_bottom,_rgba(8,11,26,0.5),rgba(8,11,26,0.5))]" />

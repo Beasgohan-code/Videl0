@@ -1,9 +1,11 @@
 "use client";
 import { useEffect, useMemo, useState, useRef } from "react";
-import { ArrowDownToLine, Check, ImagePlus, Search, Trash2, Upload, Sparkles, Heart } from "lucide-react";
+import { ArrowDownToLine, Check, ImagePlus, Search, Trash2, Upload, Sparkles, Heart, Star } from "lucide-react";
 import { POST_ASSETS, POST_ASSET_CATEGORIES } from "@/lib/post-assets";
 
 const STORAGE_KEY = "videl_custom_assets_v1";
+const FAVOURITES_KEY = "videl_asset_favourites_v1";
+const FAVOURITES = "★ Favorites";
 
 type CustomAsset = { id: string; title: string; category: string; dataUrl: string; createdAt: string };
 type Collection = "Covers" | "Stories" | "Quote cards";
@@ -30,6 +32,27 @@ export function PostAssetLibrary({
   const fileRef = useRef<HTMLInputElement>(null);
   const [tab, setTab] = useState<"collection" | "yours">("collection");
   const [collection, setCollection] = useState<Collection>("Covers");
+  const [favourites, setFavourites] = useState<string[]>([]);
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(FAVOURITES_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) setFavourites(parsed.filter((id) => typeof id === "string"));
+      }
+    } catch {}
+  }, []);
+  useEffect(() => {
+    try {
+      localStorage.setItem(FAVOURITES_KEY, JSON.stringify(favourites));
+    } catch {}
+  }, [favourites]);
+  function toggleFavourite(id: string) {
+    setFavourites((value) =>
+      value.includes(id) ? value.filter((entry) => entry !== id) : [...value, id],
+    );
+  }
 
   useEffect(() => {
     try {
@@ -84,13 +107,22 @@ export function PostAssetLibrary({
 
   const activeCollection = COLLECTIONS.find((item) => item.key === collection)!;
   const categories = useMemo(
-    () => ["All", ...new Set(POST_ASSETS.filter((asset) => asset.aspect === activeCollection.aspect).map((asset) => asset.category))],
+    () => [
+      "All",
+      FAVOURITES,
+      ...new Set(
+        POST_ASSETS.filter((asset) => asset.aspect === activeCollection.aspect).map(
+          (asset) => asset.category,
+        ),
+      ),
+    ],
     [activeCollection.aspect],
   );
   const filtered = POST_ASSETS.filter(
     (asset) =>
       asset.aspect === activeCollection.aspect &&
-      (category === "All" || asset.category === category) &&
+      (category === "All" ||
+        (category === FAVOURITES ? favourites.includes(asset.id) : asset.category === category)) &&
       `${asset.title} ${asset.category}`.toLowerCase().includes(search.toLowerCase()),
   );
   const filteredCustom = custom.filter(
@@ -106,7 +138,8 @@ export function PostAssetLibrary({
           <h2 className="post-serif mt-2 text-2xl">A good story deserves a good image.</h2>
           <p className="mt-2 text-xs leading-5 text-stone-400">
             {POST_ASSETS.length} original PNG assets — covers, stories and quote cards — plus{" "}
-            <span className="text-[#b5c4a5]">your own uploads</span>. Attach one, download it, or use it as a starting point.
+            <span className="text-[#b5c4a5]">your own uploads</span>. Star the ones you use often,
+            then attach, download or restyle any of them.
           </p>
         </div>
         <label className="relative">
@@ -181,7 +214,7 @@ export function PostAssetLibrary({
             onClick={() => setCategory(value)}
             className={`rounded-full border px-3 py-1.5 text-[11px] transition ${value === category ? "border-[#b5c4a5]/40 bg-[#b5c4a5]/15 text-[#d7e2ca]" : "border-white/10 text-stone-400 hover:text-white"}`}
           >
-            {value}
+            {value === FAVOURITES ? `★ Favorites · ${favourites.length}` : value}
           </button>
         ))}
       </div>
@@ -236,7 +269,26 @@ export function PostAssetLibrary({
           {filtered.map((asset) => {
             const active = selected.endsWith(asset.file);
             return (
-              <article key={asset.id} className={`overflow-hidden rounded-2xl border bg-[#1c201e] ${active ? "border-[#b5c4a5]/60" : "border-white/10"}`}>
+              <article key={asset.id} className={`group/asset relative overflow-hidden rounded-2xl border bg-[#1c201e] ${active ? "border-[#b5c4a5]/60" : "border-white/10"}`}>
+                <button
+                  onClick={() => toggleFavourite(asset.id)}
+                  aria-label={
+                    favourites.includes(asset.id)
+                      ? `Remove ${asset.title} from favorites`
+                      : `Add ${asset.title} to favorites`
+                  }
+                  aria-pressed={favourites.includes(asset.id)}
+                  className={`absolute right-2 top-2 z-10 rounded-full border p-2 backdrop-blur-md transition ${
+                    favourites.includes(asset.id)
+                      ? "border-[#d9c58c]/50 bg-[#d9c58c]/25 text-[#f0dfae]"
+                      : "border-white/15 bg-black/35 text-white/70 hover:text-white"
+                  }`}
+                >
+                  <Star
+                    size={14}
+                    fill={favourites.includes(asset.id) ? "currentColor" : "none"}
+                  />
+                </button>
                 <button disabled={disabled} onClick={() => onSelect(asset.file)} className="group block w-full overflow-hidden disabled:opacity-40" aria-label={`Use ${asset.title}`}>
                   <img
                     src={asset.file}

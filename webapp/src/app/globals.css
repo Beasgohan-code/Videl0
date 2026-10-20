@@ -57,6 +57,21 @@
 }
 
 * { -webkit-tap-highlight-color: transparent; }
+:focus-visible { outline: 2px solid rgba(141,162,255,0.65); outline-offset: 2px; }
+.skip-link {
+  position: fixed;
+  left: 12px;
+  top: -64px;
+  z-index: 100;
+  border-radius: 10px;
+  background: #e7ebff;
+  color: #0a1023;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  transition: top 160ms var(--ios-spring);
+}
+.skip-link:focus { top: 12px; }
 html { 
   scrollbar-width: thin; 
   scrollbar-color: var(--ios-separator) var(--ios-bg);
@@ -476,6 +491,8 @@ button:focus-visible,a:focus-visible { outline: 2px solid #a5b4fc; outline-offse
 
 .tool-finder { padding:0; width:min(620px,calc(100vw - 24px)); max-height:85dvh; background:transparent; border:0; color:#f1f5ff; margin:10dvh auto auto; }
 .tool-finder::backdrop { background:#030712b8; backdrop-filter:blur(8px); }
+.nav-sheet { padding:0; width:min(440px,calc(100vw - 24px)); max-height:80dvh; margin:16dvh auto auto; background:transparent; border:0; color:#f1f5ff; }
+.nav-sheet::backdrop { background:#030712b8; backdrop-filter:blur(8px); }
 
 /* Bot chat is a messenger, not a three-column administration dashboard. */
 .tg-inbox { --tg-surface:#17212b; --tg-line:#ffffff0c; position:relative; margin:8px auto 0; width:100%; max-width:1600px; color:#eef3f7; }

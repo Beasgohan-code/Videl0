@@ -47,7 +47,7 @@ export default function Studio() {
     );
   }, [tab]);
   return (
-    <div className="studio-panel">
+    <div className="studio-panel" id="studio-panel" tabIndex={-1}>
       {authenticated && <BackendStatus />}
       {tab !== 'chat' && <ToolFinder />}
       <div className="sr-only" aria-live="polite">
