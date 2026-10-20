@@ -44,8 +44,11 @@ export function StudioProvider({ children }: { children: React.ReactNode }) {
   const [selectedGroup, selectGroup] = useState<number|null>(null);
   const safeTab = canOpenSection(tab, authenticated) ? tab : "home";
   useEffect(() => {
-    const initial = new URLSearchParams(window.location.search).get("tab");
+    const params = new URLSearchParams(window.location.search);
+    const initial = params.get("tab");
     if (sections.includes(initial as Section)) setTab(initial as Section);
+    // A shared command link keeps working after the tab parameter is stripped.
+    else if (params.get("cmd")) setTab("guide");
     // Deep links choose a panel, but the workspace itself always stays at the root URL.
     if (initial) {
       const url = new URL(window.location.href);
