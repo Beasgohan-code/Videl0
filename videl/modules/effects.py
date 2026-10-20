@@ -14,14 +14,8 @@ from videl import LOGGER, bot, call_py
 from videl.core.queue import peek_current
 from videl.modules.block import group_allowed, user_allowed
 from videl.utils.formatters import short
-from videl.utils.rich_ui import (
-    rich_edit,
-    rich_esc,
-    rich_heading,
-    rich_kv_table,
-    rich_note,
-    rich_send,
-)
+from videl.utils.rich_ui import rich_esc, rich_heading, rich_kv_table, rich_note
+from videl.utils.command_ui import rich_edit, rich_send
 
 # ── DB helpers using utils.db ──────────────────────────────────────────────────
 

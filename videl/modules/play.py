@@ -20,14 +20,8 @@ from videl.modules.block import group_allowed, user_allowed
 from videl.utils.assistant import is_assistant_in, try_join_assistant
 from videl.utils.db import add_served_chat, add_served_user
 from videl.utils.formatters import fmt_time, iso_to_human, iso_to_sec, sc, short
-from videl.utils.rich_ui import (
-    rich_edit,
-    rich_esc,
-    rich_heading,
-    rich_kv_table,
-    rich_note,
-    rich_send,
-)
+from videl.utils.rich_ui import rich_esc, rich_heading, rich_kv_table, rich_note
+from videl.utils.command_ui import rich_edit, rich_send
 from videl.utils.youtube import search_yt
 
 # ── Blocked words ──────────────────────────────────────────────────────────────

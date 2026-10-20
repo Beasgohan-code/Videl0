@@ -73,3 +73,30 @@ Removed 69 files:
 - `videl/modules/elite_pro.py`
 - `videl/modules/dashboard_sync.py`
 - `webapp/src/components/chat/ChatView.tsx`
+
+## Follow-up: lean command and dependency surface
+
+This pass removed 37 command names (185 → 148 registered names, including aliases):
+- Demo/showcase `/buttons` and `/features`; actual styled buttons and Richgram stay.
+- Raw `/logs` and `/log` delivery; server logging and error persistence stay.
+- Redundant aliases for lyrics, channel setup, vote-skip settings, playlists,
+  downloads, approvals and blacklist controls; canonical handlers stay.
+- `/sys` alias; private owner `/sysinfo` stays. Common `/q` and `/setup` stay.
+
+See `tests/test_command_cleanup.py` for the explicit retired-name set and
+`docs/COMMAND_REFERENCE.md` for the complete remaining set. Menu entries and
+public help were updated. Already-sent functional callbacks remain compatible.
+
+Removed unused dependencies: Beautiful Soup, lxml, QR code/barcode generators,
+URL shortener and Google TTS. Removed the unused static config help map that
+advertised retired utilities, nonfunctional paid/business/checklist/direct-message
+feature switches, old ping-image setting and unused cyber-theme deployment flag.
+`/repo` now links to the correct Videl0 source/licenses without hosting promotions
+or duplicate source/fork buttons. MIT notices and vendor credits remain intact.
+
+Also corrected retained `/song`, `/vsong`, `/download` filters: group AND private
+was impossible; they now accept group OR private messages. This filter fix is
+unit-tested, not evidence of a live successful download.
+
+No database documents, playlists, drafts, cookies, media, environment files or
+license files were deleted by this cleanup. Production rollout remains pending.

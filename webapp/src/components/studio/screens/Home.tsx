@@ -30,7 +30,7 @@ export default function Home() {
             tab: "post" as const,
             icon: Palette,
             title: "Post & image studio",
-            body: "Format selected text, customize eight editable layouts, save local drafts and export your designs.",
+            body: "Format selected text, customize 20 editable layouts, save local drafts and export your designs.",
           },
           {
             tab: "tools" as const,

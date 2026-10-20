@@ -10,7 +10,9 @@ import {
   Send,
   Trash2,
 } from "lucide-react";
+import {ScheduledPosts} from "@/components/studio/ScheduledPosts";
 import { ImageComposer } from "@/components/studio/ImageComposer";
+import {postChecks,VERSION_KEY} from "@/lib/studio-workflows";
 import { visibleLength, plainPostText } from "@/lib/telegram-format";
 import { RichEditor } from "@/components/editor/RichEditor";
 import { ButtonBuilder, BtnRow } from "@/components/editor/ButtonBuilder";
@@ -20,6 +22,8 @@ import {
   PostDraft as Draft,
   DRAFT_KEY,
   RECOVERY_KEY,
+  draftDocument,
+  importDraftDocument,
   parseDrafts,
   parseDraft,
 } from "@/lib/post-drafts";
@@ -63,6 +67,7 @@ export default function ChannelStudio() {
   const [mediaUrl, setMediaUrl] = useState("");
   const [buttons, setButtons] = useState<BtnRow[]>([]);
   const [drafts, setDrafts] = useState<Draft[]>([]);
+  const [versions,setVersions]=useState<Draft[]>([]);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
   const [lightPreview, setLightPreview] = useState(false);
@@ -75,6 +80,7 @@ export default function ChannelStudio() {
   useEffect(() => {
     try {
       setDrafts(parseDrafts(localStorage.getItem(DRAFT_KEY) || "[]"));
+      setVersions(parseDrafts(localStorage.getItem(VERSION_KEY) || "[]"));
       const saved = localStorage.getItem(RECOVERY_KEY);
       if (saved) setRecovery(parseDraft(JSON.parse(saved)));
     } catch {
@@ -172,6 +178,12 @@ export default function ChannelStudio() {
     };
     if (persistDrafts([draft, ...drafts].slice(0, 20)))
       setResult({ ok: true, message: "Draft saved in this browser only." });
+  }
+  function saveVersion(){
+    if(!text.trim()&&!mediaUrl&&!buttons.length)return;
+    const version:Draft={id:crypto.randomUUID(),chatId:isOwner?chatId:"",text,parseMode:"HTML",mediaUrl:localImage?"":mediaUrl,buttons:JSON.parse(JSON.stringify(buttons)),savedAt:new Date().toISOString()};
+    const next=[version,...versions].slice(0,20);
+    try{localStorage.setItem(VERSION_KEY,JSON.stringify(next));setVersions(next);setResult({ok:true,message:"Version saved locally. Local image files are not included."})}catch{setResult({ok:false,message:"Version not saved: browser storage unavailable."})}
   }
   function restoreDraft(draft: Draft) {
     if (
@@ -304,7 +316,7 @@ export default function ChannelStudio() {
               : "Write, design and export your next Telegram post. No sign-in required."}
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button
             disabled={busy}
             onClick={() => {
@@ -327,6 +339,14 @@ export default function ChannelStudio() {
           >
             <RefreshCw size={15} /> New post
           </button>
+          <button disabled={busy} className="ios-btn ios-btn-glass text-sm" onClick={() => {
+            const draft:Draft={id:crypto.randomUUID(),chatId:isOwner?chatId:"",text,parseMode:"HTML",mediaUrl:localImage?"":mediaUrl,buttons,savedAt:new Date().toISOString()};
+            try{const url=URL.createObjectURL(new Blob([draftDocument(draft)],{type:"application/json"}));const anchor=document.createElement("a");anchor.href=url;anchor.download="videl-post.json";anchor.click();setTimeout(()=>URL.revokeObjectURL(url),1000);setResult({ok:true,message:"Text and buttons exported. Download attached local images separately."})}catch(error){setResult({ok:false,message:(error as Error).message})}
+          }}>Export post JSON</button>
+          <label className="ios-btn ios-btn-glass cursor-pointer text-sm">Import post JSON<input aria-label="Import post JSON" type="file" accept=".json" className="sr-only" disabled={busy} onChange={async event=>{
+            const file=event.target.files?.[0];event.target.value="";if(!file)return;
+            try{if(file.size>131072)throw new Error("Post JSON must be smaller than 128 KB.");const draft=importDraftDocument(JSON.parse(await file.text()));if(!isOwner)draft.chatId="";restoreDraft(draft)}catch(error){setResult({ok:false,message:(error as Error).message})}
+          }}/></label>
           <button
             disabled={busy}
             onClick={saveDraft}
@@ -700,7 +720,7 @@ export default function ChannelStudio() {
             </div>
             <div className="mt-4">
               <ChannelPreview
-                channel={chatId}
+                channel={isOwner ? chatId : "Your post"}
                 text={text}
                 mediaUrl={mediaUrl}
                 buttons={buttons}
@@ -735,6 +755,9 @@ export default function ChannelStudio() {
               </a>
             </div>
           </section>
+          {isOwner&&<ScheduledPosts chatId={chatId} text={text} mediaUrl={mediaUrl} buttons={buttons} hasLocalImage={!!localImage} reviewed={reviewed} disabled={busy||remaining<0}/>}
+          <section className="ios-card space-y-3 p-4"><h2 className="font-semibold">Publishing checklist</h2><p className="ios-caption">Advisory checks, not a guarantee of delivery.</p>{postChecks(text,!!mediaUrl||!!localImage,buttons).map(check=><div key={check.label} className="rounded-xl bg-white/[0.035] p-3"><div className="text-sm">{check.state==="pass"?"✓":check.state==="error"?"Fix":"Review"} · {check.label}</div><p className="ios-caption mt-1">{check.detail}</p></div>)}</section>
+          <section className="ios-card space-y-3 p-4"><h2 className="font-semibold">Version history</h2><p className="ios-caption">Up to 20 manual checkpoints in this browser. Image files are excluded.</p><button className="ios-btn ios-btn-glass text-xs" disabled={busy} onClick={saveVersion}>Save version</button>{versions.map((version,i)=><div className="rounded-xl bg-white/[0.035] p-3" key={version.id}><p className="text-xs">{new Date(version.savedAt).toLocaleString()} · {visibleLength(version.text)} characters</p><p className="ios-caption truncate">{plainPostText(version.text).slice(0,100)||"Image/button post"}</p><button className="ios-pill mt-2" disabled={busy} onClick={()=>restoreDraft({...version,chatId:isOwner?version.chatId:""})}>Restore version {versions.length-i}</button></div>)}</section>
           <section className="ios-card p-4">
             <div className="flex items-center justify-between">
               <div>

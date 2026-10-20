@@ -17,6 +17,7 @@ import {
   parseDesign,
   designDocument,
 } from "@/lib/image-design";
+import { BrandKits } from "./BrandKits";
 import { designLibrary } from "@/lib/design-library";
 const presets = [
   {
@@ -326,7 +327,7 @@ export function ImageComposer({
           onClick={() => setLibraryOpen((v) => !v)}
           className="ios-btn ios-btn-glass text-xs"
         >
-          {libraryOpen ? "Close design library" : "Browse 8 editable layouts"}
+          {libraryOpen ? "Close design library" : `Browse ${designLibrary.length} editable layouts`}
         </button>
         <span className="ml-3 text-[10px] text-stone-500">
           Every word, color and position stays editable.
@@ -334,7 +335,7 @@ export function ImageComposer({
         {libraryOpen && (
           <div className="mt-4">
             <div className="mb-4 flex flex-wrap gap-2">
-              {["All", "Announcement", "Event", "Community", "Editorial"].map(
+              {["All", ...new Set(designLibrary.map(recipe=>recipe.category))].map(
                 (c) => (
                   <button
                     key={c}
@@ -434,6 +435,7 @@ export function ImageComposer({
               />
             ))}
           </div>
+          <BrandKits design={design} onApply={change} disabled={disabled || loading || attaching}/>
           <label className="block text-xs text-stone-400">
             Heading
             <textarea

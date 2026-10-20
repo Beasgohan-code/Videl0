@@ -18,14 +18,8 @@ from videl.utils.db import get_skip_votes_needed, set_skip_votes_needed
 from videl.utils.formatters import sc, short
 from videl.utils.helpers import delete_file
 from videl.utils.permissions import is_user_authorized
-from videl.utils.rich_ui import (
-    rich_esc,
-    rich_heading,
-    rich_kv_table,
-    rich_note,
-    rich_send,
-    rich_edit,
-)
+from videl.utils.rich_ui import rich_esc, rich_heading, rich_kv_table, rich_note
+from videl.utils.command_ui import rich_send, rich_edit
 
 # chat_id -> set of user_ids who voted to skip current track
 _skip_votes: dict[int, set[int]] = defaultdict(set)
@@ -45,7 +39,7 @@ def _track_key(song: dict | None) -> str:
 
 
 @bot.on_message(
-    filters.command(["voteskip", "setvoteskip", "skipvotes"])
+    filters.command('voteskip')
     & filters.group
     & group_allowed
     & user_allowed
@@ -77,32 +71,6 @@ async def set_voteskip_cmd(_, message: Message) -> None:
     )
 
 
-@bot.on_message(
-    filters.command(["queue", "q"])
-    & filters.group
-    & group_allowed
-    & user_allowed
-)
-async def queue_cmd(_, message: Message) -> None:
-    chat_id = message.chat.id
-    q = get_queue(chat_id)
-    if not q:
-        await rich_send(bot, chat_id, rich_heading(f"📋 {sc('queue is empty')}", level=3))
-        return
-
-    lines = []
-    for i, s in enumerate(q[:15]):
-        prefix = "▶️" if i == 0 else f"`{i}.`"
-        title = short(s.get("title", "?"), 40)
-        req = s.get("requester", "?")
-        lines.append(f"{prefix} <b>{rich_esc(title)}</b>\n    ↳ {rich_esc(req)} • {rich_esc(s.get('duration', '?'))}")
-
-    extra = f"\n\n… {sc('and')} {len(q) - 15} {sc('more')}" if len(q) > 15 else ""
-    await rich_send(
-        bot, chat_id,
-        rich_heading(f"📋 {sc('queue')} ({len(q)})", level=3)
-        + rich_note("\n".join(lines) + extra),
-    )
 
 
 async def handle_vote_skip(cq: CallbackQuery) -> bool:

@@ -20,9 +20,9 @@ test("CSV export quotes values and prevents spreadsheet formulas", () => {
   assert.ok(csv.includes('"a,b\nvalue"'));
   assert.ok(csv.includes('"0"'));
 });
-test("all eight layout recipes remain valid editable design documents", () => {
-  assert.equal(designLibrary.length, 8);
-  assert.equal(new Set(designLibrary.map((r) => r.id)).size, 8);
+test("all 20 layout recipes remain valid editable design documents", () => {
+  assert.equal(designLibrary.length, 20);
+  assert.equal(new Set(designLibrary.map((r) => r.id)).size, 20);
   for (const recipe of designLibrary)
     assert.deepEqual(
       parseDesign(JSON.parse(designDocument(recipe.design))),

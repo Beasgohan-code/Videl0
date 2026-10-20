@@ -1,6 +1,6 @@
 # --------------------------------------------------------------------------------
-#  Videl © 2026 | Developed by Beasgohan-code — Blocklist / Blacklist ✦ Perfect
-#  FallenRobot blacklist.py + blacklist_stickers — Richgram premium perfect
+#  Videl © 2026 | Developed by Beasgohan-code — Blocklist / Blacklist
+#  FallenRobot blacklist.py + blacklist_stickers — Richgram UI
 # --------------------------------------------------------------------------------
 
 import re
@@ -12,7 +12,8 @@ from videl import bot, LOGGER
 from videl.modules.block import group_allowed, user_allowed
 from videl.utils.permissions import is_user_authorized
 from videl.utils.formatters import sc, sb
-from videl.utils.rich_ui import rich_esc, rich_heading, rich_note, rich_table, rich_kv_table, rich_details, rich_button, rich_send, rich_edit
+from videl.utils.rich_ui import rich_esc, rich_heading, rich_note, rich_table, rich_kv_table, rich_details, rich_button
+from videl.utils.command_ui import rich_send, rich_edit
 from videl.utils.db import add_blacklist, remove_blacklist, get_blacklist, get_blacklist_mode, set_blacklist_mode, add_blacklist_sticker, remove_blacklist_sticker, list_bl_stickers, is_approved
 
 try:
@@ -22,11 +23,11 @@ except Exception:
         return fb
 
 def _hdr(t, lvl=3):
-    return rich_heading(pe("orb","") + " " + t + " " + pe("spark",""), level=lvl)
+    return rich_heading(t, level=lvl)
 
 VALID_MODES = {"off","del","warn","mute","ban","kick","tban"}
 
-@bot.on_message(filters.command(["addblacklist","addbl"]) & filters.group & group_allowed & user_allowed)
+@bot.on_message(filters.command('addblacklist') & filters.group & group_allowed & user_allowed)
 async def addbl_cmd(_, m):
     if not await is_user_authorized(m):
         return
@@ -49,7 +50,7 @@ async def addbl_cmd(_, m):
     kb = InlineKeyboardMarkup([[InlineKeyboardButton(pe("eyes","👀") + " " + sc("view all"), callback_data="bl:view")]])
     await rich_send(bot, m.chat.id, body, reply_markup=kb)
 
-@bot.on_message(filters.command(["delblacklist","rmblacklist","rembl"]) & filters.group & group_allowed & user_allowed)
+@bot.on_message(filters.command(['delblacklist', 'rmblacklist']) & filters.group & group_allowed & user_allowed)
 async def delbl_cmd(_, m):
     if not await is_user_authorized(m):
         return
@@ -64,7 +65,7 @@ async def delbl_cmd(_, m):
     else:
         await rich_send(bot, m.chat.id, _hdr(pe("warn","⚠️") + " " + sc("not found"),3) + rich_note("<code>" + rich_esc(trig) + "</code>"))
 
-@bot.on_message(filters.command(["blacklist","blacklists","blist"]) & filters.group & group_allowed & user_allowed)
+@bot.on_message(filters.command('blacklist') & filters.group & group_allowed & user_allowed)
 async def listbl_cmd(_, m):
     bl = get_blacklist(m.chat.id)
     mode = get_blacklist_mode(m.chat.id)
@@ -86,7 +87,7 @@ async def listbl_cmd(_, m):
     kb = InlineKeyboardMarkup([[InlineKeyboardButton(pe("cross","❌") + " " + sc("clear all"), callback_data="bl:clear"), InlineKeyboardButton(pe("target","") + " " + sc("change mode"), callback_data="bl:mode")],[InlineKeyboardButton(pe("spark","") + " " + sc("close"), callback_data="bl:close")]])
     await rich_send(bot, m.chat.id, body, reply_markup=kb)
 
-@bot.on_message(filters.command(["blacklistmode","blmode","blaction"]) & filters.group & group_allowed & user_allowed)
+@bot.on_message(filters.command('blacklistmode') & filters.group & group_allowed & user_allowed)
 async def blmode_cmd(_, m):
     if not await is_user_authorized(m):
         return
@@ -111,7 +112,7 @@ async def blmode_cmd(_, m):
     set_blacklist_mode(m.chat.id, mode)
     await rich_send(bot, m.chat.id, _hdr(pe("check","✅") + " " + sc("mode updated"),3) + rich_kv_table([(pe("target","") + " " + sc("mode"), "<code>" + rich_esc(mode) + "</code>")]) + "<p>" + rich_button(pe("eyes","👀") + " " + sc("view list"), callback_data="bl:view") + "</p>")
 
-@bot.on_message(filters.command(["addblsticker","addblackliststicker"]) & filters.group & group_allowed & user_allowed)
+@bot.on_message(filters.command('addblsticker') & filters.group & group_allowed & user_allowed)
 async def add_bl_sticker(_, m):
     if not await is_user_authorized(m):
         return
@@ -123,7 +124,7 @@ async def add_bl_sticker(_, m):
     body += "<p>" + rich_button(pe("eyes","👀") + " " + sc("view stickers"), callback_data="bl:stickers") + "</p>"
     await rich_send(bot, m.chat.id, body)
 
-@bot.on_message(filters.command(["delblsticker","remblsticker"]) & filters.group & group_allowed & user_allowed)
+@bot.on_message(filters.command('delblsticker') & filters.group & group_allowed & user_allowed)
 async def del_bl_sticker(_, m):
     if not await is_user_authorized(m):
         return
@@ -135,7 +136,7 @@ async def del_bl_sticker(_, m):
     else:
         await rich_send(bot, m.chat.id, _hdr(pe("warn","⚠️") + " " + sc("not blacklisted"),3))
 
-@bot.on_message(filters.command(["blstickers","blackliststickers"]) & filters.group & group_allowed & user_allowed)
+@bot.on_message(filters.command('blstickers') & filters.group & group_allowed & user_allowed)
 async def list_bl_stickers_cmd(_, m):
     lst = list_bl_stickers(m.chat.id)
     if not lst:

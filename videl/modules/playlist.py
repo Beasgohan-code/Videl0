@@ -26,13 +26,8 @@ from videl.utils.db import (
     save_playlist,
 )
 from videl.utils.permissions import is_user_authorized
-from videl.utils.rich_ui import (
-    rich_esc,
-    rich_heading,
-    rich_kv_table,
-    rich_note,
-    rich_send,
-)
+from videl.utils.rich_ui import rich_esc, rich_heading, rich_kv_table, rich_note
+from videl.utils.command_ui import rich_send
 
 
 def _owner_id(message: Message, group: bool = False) -> int:
@@ -42,7 +37,7 @@ def _owner_id(message: Message, group: bool = False) -> int:
 
 
 @bot.on_message(
-    filters.command(["saveplaylist", "savepl"])
+    filters.command('saveplaylist')
     & filters.group
     & group_allowed
     & user_allowed
@@ -108,7 +103,7 @@ async def save_playlist_cmd(_, message: Message) -> None:
 
 
 @bot.on_message(
-    filters.command(["playlist", "loadplaylist", "loadpl"])
+    filters.command('playlist')
     & filters.group
     & group_allowed
     & user_allowed
@@ -188,7 +183,7 @@ async def load_playlist_cmd(_, message: Message) -> None:
 
 
 @bot.on_message(
-    filters.command(["playlists", "myplaylists", "listpl"])
+    filters.command('playlists')
     & group_allowed
     & user_allowed
 )
@@ -228,7 +223,7 @@ async def list_playlists_cmd(_, message: Message) -> None:
 
 
 @bot.on_message(
-    filters.command(["deleteplaylist", "delpl", "rmplaylist"])
+    filters.command('deleteplaylist')
     & group_allowed
     & user_allowed
 )

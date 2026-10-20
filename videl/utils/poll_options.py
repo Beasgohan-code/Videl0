@@ -25,8 +25,19 @@ def build_poll(text: str, quiz: bool = False) -> dict:
         "--add-options",
         "--hide-results",
         "--members-only",
+        "--silent",
+        "--protect",
     }
-    if any(flag not in known for flag in flags):
+    timer_flags = [flag for flag in flags if flag.startswith("--seconds=")]
+    if len(timer_flags) > 1:
+        raise ValueError("Choose only one poll timer.")
+    open_period = None
+    if timer_flags:
+        value = timer_flags[0].split("=", 1)[1]
+        if not value.isascii() or not value.isdigit() or not 5 <= int(value) <= 600:
+            raise ValueError("Poll timers allow 5–600 seconds.")
+        open_period = int(value)
+    if any(flag not in known and flag not in timer_flags for flag in flags):
         raise ValueError("Unknown poll flag. Use /modernhelp for supported options.")
     if not question or len(question.encode("utf-16-le")) // 2 > 300:
         raise ValueError("Questions must contain 1–300 characters.")
@@ -57,6 +68,12 @@ def build_poll(text: str, quiz: bool = False) -> dict:
         "hide_results_until_closes": "--hide-results" in flags,
         "members_only": "--members-only" in flags,
     }
+    if open_period is not None:
+        result["open_period"] = open_period
+    if "--silent" in flags:
+        result["disable_notification"] = True
+    if "--protect" in flags:
+        result["protect_content"] = True
     if quiz:
         result["correct_option_ids"] = correct
     else:

@@ -2,19 +2,13 @@
 #  Videl © 2026 | Developed by Beasgohan-code — Perfected
 #  Readable now-playing cards and semantic native playback controls
 # --------------------------------------------------------------------------------
-import asyncio, random, time
-from pyrogram.enums import ParseMode
+import asyncio, time
 from pyrogram.errors import BadRequest
-from pyrogram.raw.functions.phone import CreateGroupCall
 from pyrogram.types import InlineKeyboardMarkup, Message
 from videl.utils.bot_ui import button as InlineKeyboardButton, visual_call
-from pytgcalls import filters as fl
-from ntgcalls import TelegramServerError
-from pytgcalls.exceptions import NoActiveGroupCall
-from pytgcalls.types import AudioQuality, MediaStream, VideoQuality, ChatUpdate, StreamEnded, GroupCallConfig, GroupCallParticipant, UpdatedGroupCallParticipant
+from pytgcalls.types import AudioQuality, MediaStream, VideoQuality
 import config
-from videl import LOGGER, assistant, bot, call_py
-from videl.core.queue import remove_from_queue
+from videl import LOGGER, bot, call_py
 from videl.utils.formatters import parse_dur, short
 from videl.utils.rich_ui import rich_edit, rich_esc, rich_heading, rich_img, rich_kv_table, rich_note, rich_send
 from videl.utils.youtube import resolve_stream
@@ -51,7 +45,46 @@ def set_loop(c,m):
 def cycle_loop(c):
     order=("off","one","all"); cur=get_loop(c); nxt=order[(order.index(cur)+1)%len(order)]; return set_loop(c,nxt)
 def is_paused(c): return bool(_paused.get(c,False))
-def set_paused(c,v): _paused[c]=v
+_pause_started = {}
+_progress_tasks = {}
+
+
+def set_paused(c, value):
+    if value and not _paused.get(c, False):
+        _pause_started[c] = time.time()
+    elif not value and c in _pause_started:
+        duration = time.time() - _pause_started.pop(c)
+        if c in _np_start:
+            _np_start[c] += duration
+    _paused[c] = value
+
+
+def current_position(chat_id):
+    now = _pause_started.get(chat_id, time.time())
+    return max(0, now - _np_start.get(chat_id, now))
+
+
+def stop_progress(chat_id, reset=True):
+    old = _progress_tasks.pop(chat_id, None)
+    if old and not old.done():
+        old.cancel()
+    if reset:
+        for state in (_paused, _pause_started, _np_msg, _np_song, _np_start, _np_total, _loop_mode):
+            state.pop(chat_id, None)
+
+
+def start_progress(chat_id, message, total, song):
+    stop_progress(chat_id, reset=False)
+    _pause_started.pop(chat_id, None)
+    _paused[chat_id] = False
+    if message is not None:_np_msg[chat_id] = message
+    else:_np_msg.pop(chat_id,None)
+    _np_song[chat_id] = song
+    _np_start[chat_id] = time.time()
+    _np_total[chat_id] = total
+    if message is not None:
+        _progress_tasks[chat_id] = asyncio.create_task(_update_progress(chat_id, message, time.time(), total, song))
+
 
 # ── Caption ───────────────────────────────────────────────────────────────────
 def _dot(elapsed: float, total: float) -> str:
@@ -92,7 +125,7 @@ async def refresh_np_ui(chat_id:int):
     msg=_np_msg.get(chat_id); song=_np_song.get(chat_id)
     if not msg or not song: return
     start_t=_np_start.get(chat_id,time.time()); total=_np_total.get(chat_id,0) or 0
-    elapsed=min(time.time()-start_t,total) if total else 0
+    elapsed=min(current_position(chat_id),total) if total else current_position(chat_id)
     cap=_now_playing_caption(song,elapsed,total,chat_id=chat_id); kb=_now_playing_kb(chat_id)
     try:
         if getattr(msg,"photo",None): await visual_call(bot.edit_message_caption,chat_id,msg.id,caption=cap,reply_markup=kb)
@@ -100,156 +133,95 @@ async def refresh_np_ui(chat_id:int):
     except: pass
 
 async def _update_progress(chat_id:int, msg:Message, start_t:float, total:float, song:dict):
-    _np_msg[chat_id]=msg; _np_song[chat_id]=song; _np_start[chat_id]=start_t; _np_total[chat_id]=total; set_paused(chat_id,False)
-    paused_accum=0.0; pause_began=None
-    while True:
-        if is_paused(chat_id):
-            if pause_began is None: pause_began=time.time()
-            await asyncio.sleep(2); continue
-        if pause_began is not None:
-            paused_accum+=time.time()-pause_began; pause_began=None; _np_start[chat_id]=start_t+paused_accum
-        elapsed=min(time.time()-start_t-paused_accum,total) if total else 0
-        cap=_now_playing_caption(song,elapsed,total,chat_id=chat_id); kb=_now_playing_kb(chat_id)
-        try:
-            if getattr(msg,"photo",None): await visual_call(bot.edit_message_caption,chat_id,msg.id,caption=cap,reply_markup=kb)
-            else: await rich_edit(msg,cap,reply_markup=kb)
-        except Exception as e:
-            if "MESSAGE_NOT_MODIFIED" not in str(e): break
-        if total and elapsed>=total: break
+    while _np_msg.get(chat_id) is msg:
+        if not is_paused(chat_id):
+            await refresh_np_ui(chat_id)
+            if total and current_position(chat_id) >= total:
+                break
         await asyncio.sleep(12)
 
-# ── VC ensure ─────────────────────────────────────────────────────────────────
-async def _try_create_group_call(client, chat_id:int, who:str)->bool:
-    try:
-        peer=await client.resolve_peer(chat_id)
-        await client.invoke(CreateGroupCall(peer=peer, random_id=random.randint(10000,999999)))
-        LOGGER.info(f"[VC] Created by {who} in {chat_id}"); await asyncio.sleep(1.5); return True
-    except Exception as e:
-        err=str(e).lower()
-        if "already" in err or "groupcall_already_started" in err or "group_call_already_started" in err:
-            LOGGER.info(f"[VC] Already active ({who}) in {chat_id}"); return True
-        LOGGER.warning(f"[VC] {who} CreateGroupCall failed: {e}"); return False
+# ── Acknowledged playback transaction ──────────────────────────────────────────
+async def play_song(chat_id:int, message:Message, song:dict, *, advance=False, rotate=False)->bool:
+    """Resolve before changing streams; commit queue changes only after engine ack.
 
-async def _try_promote_assistant(chat_id:int)->bool:
-    try:
-        from pyrogram.types import ChatPrivileges
-        me_asst=await assistant.get_me()
-        await bot.promote_chat_member(chat_id, me_asst.id, privileges=ChatPrivileges(can_manage_video_chats=True, can_invite_users=True))
-        LOGGER.info(f"[VC] Promoted assistant in {chat_id}"); await asyncio.sleep(1); return True
-    except Exception as e: LOGGER.warning(f"[VC] promote assistant failed: {e}"); return False
-
-async def _ensure_vc(chat_id:int)->bool:
-    chat_id=int(chat_id)
-    if await _try_create_group_call(assistant,chat_id,"assistant"): return True
-    if await _try_create_group_call(bot,chat_id,"bot"): return True
-    if await _try_promote_assistant(chat_id):
-        if await _try_create_group_call(assistant,chat_id,"assistant-after-promote"): return True
-        if await _try_create_group_call(bot,chat_id,"bot-after-promote"): return True
-    await rich_send(bot,chat_id,
-        rich_heading(f"◍ {__import__('videl.utils.formatters',fromlist=['sc']).sc('need vc admin')}",level=3)
-        + rich_note("ᴛᴇʟᴇɢʀᴀᴍ ɴᴇᴇᴅs <b>ᴍᴀɴᴀɢᴇ ᴠɪᴅᴇᴏ ᴄʜᴀᴛs</b> ᴛᴏ <b>sᴛᴀʀᴛ</b> ᴀ ᴄᴀʟʟ.<br>«ᴀᴅᴅ ᴍᴇᴍʙᴇʀs» ᴏɴʟʏ ɪɴᴠɪᴛᴇs ᴀssɪsᴛᴀɴᴛ — ɪᴛ ᴄᴀɴɴᴏᴛ sᴛᴀʀᴛ ᴠᴄ.<br><br>"
-                    "<b>ғɪx:</b> ᴘʀᴏᴍᴏᴛᴇ <b>ʙᴏᴛ + ᴀssɪsᴛᴀɴᴛ</b> → ᴍᴀɴᴀɢᴇ ᴠɪᴅᴇᴏ ᴄʜᴀᴛs<br>ᴏʀ sᴛᴀʀᴛ ᴠᴏɪᴄᴇ ᴄʜᴀᴛ ᴍᴀɴᴜᴀʟʟʏ ᴏɴᴄᴇ, ᴛʜᴇɴ /play ᴀɢᴀɪɴ"))
-    return False
-
-# ── MAIN PLAY ─────────────────────────────────────────────────────────────────
-async def play_song(chat_id:int, message:Message, song:dict)->None:
-    chat_id=int(chat_id); url=song.get("url")
-    if not url: return
-    from videl.utils.formatters import sc
-    loading_text=rich_heading(f"◍ {sc('loading')} ⫶",level=3)+rich_kv_table([(sc("song"), rich_esc(short(song['title'])))])
-    try: await rich_edit(message, loading_text)
-    except: message=await rich_send(bot,chat_id,loading_text)
-    try:
-        want_video=bool(song.get("video",False)); media_path=await resolve_stream(url, video=want_video)
-    except Exception as e:
-        try: remove_from_queue(chat_id,0)
-        except: pass
-        await rich_send(bot,chat_id, rich_heading(f"◍ {sc('download failed')}",level=3)+rich_note(f"<code>{rich_esc(str(e)[:400])}</code>")); return
-    is_video=song.get("video",False)
-    _vid_exts=(".mkv",".mp4",".webm",".avi",".mov",".m4v",".flv",".wmv",".mpeg",".mpg",".3gp")
-    try:
-        path_l=str(media_path or song.get("url") or "").lower()
-        if any(path_l.endswith(ext) for ext in _vid_exts): is_video=True; song["video"]=True
-    except: pass
-    if not is_video:
+    False means playback was not confirmed. No uncertain voice request is retried.
+    Card/log delivery is independent and can never undo acknowledged playback.
+    """
+    from videl.core.playback_state import lock,acknowledged
+    from videl.core.queue import peek_current,get_queue,pop_current,add_to_queue
+    async with lock(chat_id):
+        expected=peek_current(chat_id)
+        tracks=get_queue(chat_id)
+        if (advance and (len(tracks)<2 or tracks[1] is not song)) or (not advance and expected is not song):
+            return False
+        url=song.get('url')
+        if not url:return False
         try:
-            from videl.modules.effects import maybe_apply_effects
-            media_path=await maybe_apply_effects(chat_id, media_path)
-        except Exception as fx_err: LOGGER.warning(f"[Effects] Skipped: {fx_err}")
-    played=False
-    for attempt in range(2):
-        try:
-            if is_video: await call_py.play(chat_id, MediaStream(media_path, audio_parameters=AudioQuality.HIGH, video_parameters=VideoQuality.HD_720p))
-            else: await call_py.play(chat_id, MediaStream(media_path, audio_parameters=AudioQuality.HIGH, video_flags=MediaStream.Flags.IGNORE))
-            played=True; break
-        except NoActiveGroupCall:
-            if attempt==0:
-                LOGGER.info(f"[VC] NoActiveGroupCall — Creating VC in {chat_id}")
-                ok=await _ensure_vc(chat_id)
-                if ok: continue
-                try: remove_from_queue(chat_id,0)
-                except: pass
-                return
-        except TelegramServerError as e:
-            LOGGER.error(f"[PLAY] TelegramServerError: {e}")
-            try: remove_from_queue(chat_id,0)
-            except: pass
-            await rich_send(bot,chat_id, rich_heading(f"◍ {sc('playback failed')} — ᴛɢ sᴇʀᴠᴇʀ",level=3)+rich_note(f"<code>{rich_esc(e)}</code>")); return
-        except Exception as e:
-            err=str(e).lower()
-            vc_missing=any(x in err for x in ("groupcallnotfound","not_in_group_call","groupcall_forbidden","not in group call","no active group call"))
-            if vc_missing and attempt==0:
-                LOGGER.info(f"[VC] Creating VC in {chat_id}"); ok=await _ensure_vc(chat_id)
-                if ok: continue
-                try: remove_from_queue(chat_id,0)
-                except: pass
-                return
-            if "chat_admin_required" in err or ("admin" in err and "user" not in err):
-                LOGGER.error(f"[ADMIN ERROR] {e}"); ok=await _ensure_vc(chat_id)
-                if ok: continue
-                try: remove_from_queue(chat_id,0)
-                except: pass
-                return
-            try: remove_from_queue(chat_id,0)
-            except: pass
-            await rich_send(bot,chat_id, rich_heading(f"◍ {sc('playback failed')}",level=3)+rich_note(f"<code>{rich_esc(e)}</code>")); LOGGER.error(f"[PLAY ERROR] {e}"); return
-    if not played: return
-    try:
-        from videl.modules.seek import set_seek_state; set_seek_state(chat_id,0)
-    except: pass
-    try:
-        from videl.database import add_served_chat, add_served_user, increment_play_count
-        add_served_chat(chat_id); rid=song.get("requester_id")
-        if rid: add_served_user(rid)
-        increment_play_count(chat_id)
-    except Exception as db_err: LOGGER.warning(f"[DB ERROR] {db_err}")
-    total=parse_dur(str(song.get("duration","0:00")))
-    if not total and song.get("duration_seconds"): total=float(song["duration_seconds"])
-    set_paused(chat_id,False)
-    caption=_now_playing_caption(song,0,total,chat_id=chat_id); kb=_now_playing_kb(chat_id); thumb=_thumb_url(song)
-    pmsg=None
-    photo_unconfirmed=False
-    if thumb:
-        try:
-            pmsg=await visual_call(bot.send_photo,chat_id, photo=thumb, caption=caption, reply_markup=kb)
+            want_video=bool(song.get('video',False))
+            media_path=await asyncio.wait_for(resolve_stream(url,video=want_video),45)
+            if not want_video:
+                from videl.modules.effects import maybe_apply_effects
+                media_path=await asyncio.wait_for(maybe_apply_effects(chat_id,media_path),20)
+            # Other legacy producers may append while resolution awaits, but
+            # cannot silently substitute a different queue head for this request.
+            if peek_current(chat_id) is not expected:return False
+            stream=MediaStream(media_path,audio_parameters=AudioQuality.HIGH,
+                **({'video_parameters':VideoQuality.HD_720p} if want_video else {'video_flags':MediaStream.Flags.IGNORE}))
+            response=await asyncio.wait_for(call_py.play(chat_id,stream),30)
+            if response is False:raise RuntimeError('Voice engine did not acknowledge playback')
+        except asyncio.CancelledError:raise
+        except Exception as error:
+            LOGGER.warning('Playback unconfirmed (%s); queue preserved, no retry',type(error).__name__)
             try:
-                if message and getattr(message,"id",None): await message.delete()
-            except Exception: pass
-        except BadRequest:
-            LOGGER.info("[NP] Thumbnail rejected; using a text card")
-        except Exception as exc:
-            # Telegram might have accepted it: never duplicate an ambiguous send.
-            LOGGER.warning("[NP] Photo delivery unconfirmed (%s); not resending", type(exc).__name__)
-            photo_unconfirmed=True
-    if pmsg is None and not photo_unconfirmed:
-        if message is not None:
-            pmsg=await rich_edit(message,caption,reply_markup=kb)
-            if pmsg is None: pmsg=message
-        else:
-            pmsg=await rich_send(bot,chat_id,caption,reply_markup=kb)
-    if pmsg is not None:
-        asyncio.create_task(_update_progress(chat_id,pmsg,time.time(),total,song))
-    if config.LOGGER_ID:
-        asyncio.create_task(rich_send(bot,config.LOGGER_ID,
-            rich_heading(f"◍ {sc('now playing')} — {rich_esc(short(song.get('title','?'),32))}",level=3)
-            + rich_kv_table([("ᴛɪᴛʟᴇ",rich_esc(song.get("title","?"))),("ᴅᴜʀᴀᴛɪᴏɴ",rich_esc(song.get("duration","?"))),("ʙʏ",rich_esc(song.get("requester","?")))])))
+                await rich_send(bot,chat_id,rich_heading('Playback not confirmed',level=3)+rich_note(
+                    'The queue was preserved. Check that a voice chat is active and the assistant can join. Use /replay to retry the current track or /skip to try the next. No permissions were changed.'))
+            except Exception:pass
+            return False
+        if advance:
+            finished=pop_current(chat_id)
+            if rotate and finished:add_to_queue(chat_id,finished)
+        acknowledged(chat_id,song)
+        try:
+            total=parse_dur(str(song.get('duration','0:00'))) or float(song.get('duration_seconds') or 0)
+        except (ValueError,TypeError):total=0
+        # Establish the playback clock even when every UI delivery fails.
+        start_progress(chat_id,None,total,song)
+        try:
+            from videl.modules.seek import set_seek_state
+            set_seek_state(chat_id,0)
+        except Exception:pass
+        pmsg=None
+        try:
+            caption=_now_playing_caption(song,0,total,chat_id=chat_id)
+            kb=_now_playing_kb(chat_id)
+            thumb=_thumb_url(song)
+            if thumb:
+                try:pmsg=await visual_call(bot.send_photo,chat_id,photo=thumb,caption=caption,reply_markup=kb)
+                except BadRequest:
+                    # A definite thumbnail rejection is safe to fall back from.
+                    pmsg=await rich_edit(message,caption,reply_markup=kb) if message is not None else await rich_send(bot,chat_id,caption,reply_markup=kb)
+            elif message is not None:pmsg=await rich_edit(message,caption,reply_markup=kb)
+            else:pmsg=await rich_send(bot,chat_id,caption,reply_markup=kb)
+        except Exception as error:
+            LOGGER.warning('Player card unconfirmed after playback ack (%s); no resend',type(error).__name__)
+        if pmsg is not None:
+            # Preserve the acknowledgement-time clock (UI delivery can be slow).
+            _np_msg[chat_id]=pmsg
+            _progress_tasks[chat_id]=asyncio.create_task(_update_progress(chat_id,pmsg,_np_start[chat_id],total,song))
+        try:
+            from videl.database import add_served_chat,add_served_user,increment_play_count
+            def record():
+                add_served_chat(chat_id)
+                if song.get('requester_id'):add_served_user(song['requester_id'])
+                increment_play_count(chat_id)
+            await asyncio.to_thread(record)
+        except Exception as error:LOGGER.warning('Play statistics unavailable (%s)',type(error).__name__)
+        if config.LOGGER_ID:
+            async def log_play():
+                try:
+                    await rich_send(bot,config.LOGGER_ID,rich_heading('Now playing',level=3)+rich_kv_table([
+                        ('Track',rich_esc(str(song.get('title','Unknown'))[:160])),
+                        ('Chat',str(chat_id)),('Requester',rich_esc(str(song.get('requester','Unknown'))[:100]))]))
+                except Exception as error:LOGGER.warning('Play log unavailable (%s)',type(error).__name__)
+            asyncio.create_task(log_play())
+        return True

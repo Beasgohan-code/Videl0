@@ -1,7 +1,7 @@
 # --------------------------------------------------------------------------------
-#  Videl © 2026 | Developed by Beasgohan-code — Approvals ✦ Perfect
-#  FallenRobot approve.py — bypass locks/blacklist/antiflood — better than Rose
-#  Richgram perfect: premium costume + rich_button + rich_table + rich_details
+#  Videl © 2026 | Developed by Beasgohan-code — Approvals
+#  FallenRobot approve.py — bypass locks/blacklist/antiflood
+#  Richgram cards and native action keyboards
 # --------------------------------------------------------------------------------
 
 from pyrogram import filters
@@ -11,10 +11,8 @@ from videl import bot
 from videl.modules.block import group_allowed, user_allowed
 from videl.utils.permissions import is_user_authorized
 from videl.utils.formatters import sc, sb
-from videl.utils.rich_ui import (
-    rich_esc, rich_heading, rich_note, rich_table, rich_kv_table,
-    rich_details, rich_button, rich_send, rich_edit
-)
+from videl.utils.rich_ui import rich_esc, rich_heading, rich_note, rich_table, rich_kv_table, rich_details, rich_button
+from videl.utils.command_ui import rich_send, rich_edit
 from videl.utils.db import approve_user, disapprove_user, is_approved, list_approved
 
 try:
@@ -24,7 +22,7 @@ except Exception:
         return fb
 
 def _hdr(t, lvl=3):
-    return rich_heading(pe("orb","") + " " + t + " " + pe("spark",""), level=lvl)
+    return rich_heading(t, level=lvl)
 
 async def _resolve_target(m):
     if m.reply_to_message and m.reply_to_message.from_user:
@@ -43,7 +41,7 @@ async def _resolve_target(m):
 def _uid_link(uid, name):
     return '<a href="tg://user?id=' + str(uid) + '">' + rich_esc(name or str(uid)) + '</a>'
 
-@bot.on_message(filters.command(["approve","addapprove"]) & filters.group & group_allowed & user_allowed)
+@bot.on_message(filters.command('approve') & filters.group & group_allowed & user_allowed)
 async def approve_cmd(_, m):
     if not await is_user_authorized(m):
         return
@@ -64,7 +62,7 @@ async def approve_cmd(_, m):
     kb = InlineKeyboardMarkup([[InlineKeyboardButton(pe("cross","❌") + " " + sc("unapprove"), callback_data="approve:rm:" + str(uid)), InlineKeyboardButton(pe("eyes","👀") + " " + sc("view all"), callback_data="approve:list")]])
     await rich_send(bot, m.chat.id, body, reply_markup=kb)
 
-@bot.on_message(filters.command(["unapprove","rmapprove","disapprove"]) & filters.group & group_allowed & user_allowed)
+@bot.on_message(filters.command('unapprove') & filters.group & group_allowed & user_allowed)
 async def unapprove_cmd(_, m):
     if not await is_user_authorized(m):
         return
@@ -80,7 +78,7 @@ async def unapprove_cmd(_, m):
     kb = InlineKeyboardMarkup([[InlineKeyboardButton(pe("eyes","👀") + " " + sc("view all"), callback_data="approve:list")]])
     await rich_send(bot, m.chat.id, body, reply_markup=kb)
 
-@bot.on_message(filters.command(["approved","approvelist"]) & filters.group & group_allowed & user_allowed)
+@bot.on_message(filters.command('approved') & filters.group & group_allowed & user_allowed)
 async def approved_list(_, m):
     arr = list_approved(m.chat.id)
     if not arr:

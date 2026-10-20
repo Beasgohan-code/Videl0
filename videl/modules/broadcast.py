@@ -28,13 +28,8 @@ from videl.utils.db import (
     get_broadcast_count,
     remove_broadcast_chat,
 )
-from videl.utils.rich_ui import (
-    rich_edit,
-    rich_heading,
-    rich_kv_table,
-    rich_note,
-    rich_send,
-)
+from videl.utils.rich_ui import rich_heading, rich_kv_table, rich_note
+from videl.utils.command_ui import rich_edit, rich_send
 
 logger = logging.getLogger(__name__)
 

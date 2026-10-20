@@ -14,6 +14,8 @@ from videl.utils.formatters import iso_to_human, iso_to_sec
 logger = logging.getLogger(__name__)
 
 # ── Per-chat state ────────────────────────────────────────────────────────────
+_generations={}
+
 _autoplay_active:   dict[int, bool] = {}
 _autoplay_query:    dict[int, str]  = {}
 _autoplay_fetched:  dict[int, set]  = {}
@@ -32,6 +34,7 @@ def get_autoplay_query(chat_id: int) -> str:
 
 
 def stop_autoplay(chat_id: int) -> None:
+    _generations.pop(chat_id,None)
     _autoplay_active.pop(chat_id, None)
     _autoplay_query.pop(chat_id, None)
     _autoplay_fetched.pop(chat_id, None)
@@ -41,6 +44,8 @@ def stop_autoplay(chat_id: int) -> None:
 async def _fetch_more(chat_id: int, requester: str, requester_id: int) -> int:
     if _autoplay_fetching.get(chat_id):
         return 0
+    token=_generations.get(chat_id)
+    if token is None:return 0
     _autoplay_fetching[chat_id] = True
 
     query   = _autoplay_query.get(chat_id, "")
@@ -56,7 +61,7 @@ async def _fetch_more(chat_id: int, requester: str, requester_id: int) -> int:
 
     try:
         for variation in variations:
-            if not is_autoplay(chat_id):
+            if not is_autoplay(chat_id) or _generations.get(chat_id) is not token:
                 break
             if added >= BATCH_SIZE:
                 break
@@ -64,11 +69,12 @@ async def _fetch_more(chat_id: int, requester: str, requester_id: int) -> int:
             try:
                 result = await search_yt(variation)
 
+                if _generations.get(chat_id) is not token:break
                 if isinstance(result, dict) and "playlist" in result:
                     items = result["playlist"]
                     random.shuffle(items)
                     for item in items:
-                        if not is_autoplay(chat_id):
+                        if not is_autoplay(chat_id) or _generations.get(chat_id) is not token:
                             break
                         vid_url = item.get("link", "")
                         vid_id  = vid_url.split("v=")[-1].split("&")[0] if "v=" in vid_url else vid_url
@@ -110,7 +116,7 @@ async def _fetch_more(chat_id: int, requester: str, requester_id: int) -> int:
                 continue
 
     finally:
-        _autoplay_fetching[chat_id] = False
+        if _generations.get(chat_id) is token:_autoplay_fetching[chat_id] = False
 
     logger.info(f"[AutoPlay] {chat_id}: +{added} songs added")
     return added
@@ -124,6 +130,7 @@ async def start_autoplay(
 ) -> int:
     stop_autoplay(chat_id)
 
+    _generations[chat_id]=object()
     _autoplay_active[chat_id]  = True
     _autoplay_query[chat_id]   = query
     _autoplay_fetched[chat_id] = set()
@@ -145,3 +152,15 @@ async def maybe_refetch(
         asyncio.create_task(
             _fetch_more(chat_id, requester, requester_id)
         )
+
+
+async def refill(chat_id):
+    """Await one refill, rather than racing a detached task against queue drain."""
+    if not is_autoplay(chat_id):return 0
+    if _autoplay_fetching.get(chat_id):
+        token=_generations.get(chat_id)
+        for _ in range(40):
+            if _generations.get(chat_id) is not token or not _autoplay_fetching.get(chat_id):break
+            await asyncio.sleep(0.25)
+        return 0
+    return await _fetch_more(chat_id,'AutoPlay',0)

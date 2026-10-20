@@ -2,7 +2,7 @@
 Videl — Proper Centralized Logger — Rich + New Bot API 10.3
 Logs ALL important events to LOGGER_ID channel with rich formatting:
 - startup / shutdown / new chat / left chat / new user / commands / errors / watchdog
-- also persists errors to MongoDB error_logs for /logs retrieval
+- also persists errors to MongoDB error_logs for owner diagnostics
 Uses rich_ui (InputRichMessage when Kurigram available, else HTML fallback).
 MongoDB only — no file spam.
 """
@@ -41,7 +41,7 @@ async def _log(client, html_text: str):
         logger.warning(f"[logger] failed to send log: {e}")
 
 def _save_error_mongo(where: str, err: str, context: str = ""):
-    """Persist error to MongoDB error_logs for /logs cmd — best effort."""
+    """Persist error to MongoDB error_logs for owner diagnostics — best effort."""
     try:
         from videl.utils.db import _db
         if _db is None:
@@ -215,7 +215,7 @@ async def log_error(client, where: str, error: Exception, context: str = ""):
             + rich_details("ᴛʀᴀᴄᴇʙᴀᴄᴋ", rich_pre(tb, "log"), open=False)
         )
         await _log(client, text)
-        # also persist to mongo for /logs
+        # also persist to mongo for owner diagnostics
         _save_error_mongo(where, f"{error}\n{tb[:1500]}", context)
     except Exception as e:
         logger.debug(f"log_error fail: {e}")

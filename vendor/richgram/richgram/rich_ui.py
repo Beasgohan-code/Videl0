@@ -210,8 +210,11 @@ def rich_button(
     url: str = None,
     callback_data: str = None,
     style: str = None,
+    icon_custom_emoji_id: str = None,
 ) -> str:
     style_attr = f' style="{_attr(style)}"' if style in BUTTON_STYLES else ""
+    if icon_custom_emoji_id and re.fullmatch(r"[1-9][0-9]{0,18}", str(icon_custom_emoji_id)):
+        style_attr += f' icon_custom_emoji_id="{_attr(icon_custom_emoji_id)}"'
     if callback_data:
         return (
             f'<tg-button type="callback_data"{style_attr} '
@@ -314,6 +317,55 @@ def _normalize_html(html_text: str) -> str:
         else:
             parts[i] = _BR_CONVERT_RE.sub("<br/>\n", parts[i])
     return "".join(parts)
+
+
+def _native_buttons(html_text, reply_markup=None):
+    """Bridge our authored button HTML to actionable Kurigram keyboards.
+
+    Explicit keyboards always win. No callback handler is invented here; data is
+    preserved byte-for-byte, with Telegram's 64-byte bound enforced.
+    """
+    from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+    from pyrogram.enums import ButtonStyle
+    styles = {"primary": ButtonStyle.PRIMARY, "success": ButtonStyle.SUCCESS,
+              "danger": ButtonStyle.DANGER, "default": ButtonStyle.DEFAULT}
+    rows = []
+    pattern = r"<tg-button\b([^>]*)>(.*?)</tg-button>"
+
+    def read_buttons(fragment):
+        row = []
+        def convert(match):
+            attrs = {key: _html.unescape(value) for key, value in _ATTR_RE.findall(match[1])}
+            label = _html.unescape(re.sub(r"<[^>]+>", "", match[2])).strip()
+            if not label:
+                return match[0]
+            options = {}
+            data, url = attrs.get("data"), attrs.get("url")
+            if attrs.get("type") == "callback_data" and data and len(data.encode("utf-8")) <= 64:
+                options["callback_data"] = data
+            elif url and re.match(r"^(?:https?://|tg://)", url, re.I):
+                options["url"] = url
+            else:
+                return match[0]
+            options["style"] = styles.get(attrs.get("style"), ButtonStyle.DEFAULT)
+            icon = attrs.get("icon_custom_emoji_id")
+            if icon and re.fullmatch(r"[1-9][0-9]{0,18}", icon) and int(icon) <= 9223372036854775807:
+                options["icon_custom_emoji_id"] = icon
+            row.append(InlineKeyboardButton(label, **options))
+            return ""
+        remaining = re.sub(pattern, convert, fragment, flags=re.I | re.S)
+        # Telegram accepts at most eight buttons per row.
+        rows.extend(row[i:i+8] for i in range(0, len(row), 8))
+        return remaining
+
+    def convert_row(match):
+        return read_buttons(match[1])
+    body = re.sub(r"<tg-button-row\b[^>]*>(.*?)</tg-button-row>", convert_row,
+                  html_text, flags=re.I | re.S)
+    body = read_buttons(body)
+    if not rows:
+        return html_text, reply_markup
+    return body.strip() or "Choose an action.", reply_markup if reply_markup is not None else InlineKeyboardMarkup(rows)
 
 
 def _button_to_plain(match) -> str:
@@ -419,6 +471,8 @@ async def rich_send(
     if not html_text:
         return None
 
+    html_text, reply_markup = _native_buttons(html_text, reply_markup)
+
     if kwargs:
         logger.debug(f"[rich_send] ignoring unknown arguments: {sorted(kwargs)}")
 
@@ -487,7 +541,7 @@ async def rich_send(
         )
     except Exception as e:
         # Only retry a definite Telegram rejection, never an ambiguous network failure.
-        if isinstance(e, BadRequest) and not markdown and ("<tg-emoji" in html_text or any(getattr(btn, "icon_custom_emoji_id", None) for row in getattr(reply_markup, "inline_keyboard", []) for btn in row)):
+        if isinstance(e, BadRequest) and not markdown and ("<tg-emoji" in html_text or any(getattr(btn, "icon_custom_emoji_id", None) or getattr(getattr(btn, "style", None), "value", "default") != "default" for row in getattr(reply_markup, "inline_keyboard", []) for btn in row)):
             import copy
             from pyrogram.types import InlineKeyboardMarkup
             plain = _EMOJI_TAG_RE.sub(r"\1", _plain_fallback(html_text))
@@ -499,6 +553,8 @@ async def rich_send(
                     for button in row:
                         clone=copy.copy(button)
                         clone.icon_custom_emoji_id=None
+                        from pyrogram.enums import ButtonStyle
+                        clone.style=ButtonStyle.DEFAULT
                         clean.append(clone)
                     rows.append(clean)
                 if rows: safe_shared["reply_markup"]=InlineKeyboardMarkup(rows)
@@ -747,6 +803,8 @@ async def rich_edit(
     if not html_text:
         return None
 
+    html_text, reply_markup = _native_buttons(html_text, reply_markup)
+
     options = dict(
         business_connection_id=business_connection_id,
         markdown=markdown,
@@ -897,6 +955,8 @@ async def rich_edit_inline(
 ):
     if not html_text or not inline_message_id:
         return None
+
+    html_text, reply_markup = _native_buttons(html_text, reply_markup)
 
     wants_rich = bool(markdown or media or _has_rich_only_tags(html_text))
     if RICH_AVAILABLE and wants_rich:

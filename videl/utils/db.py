@@ -27,7 +27,8 @@ def start_mongo() -> bool:
         return False
 
     try:
-        _client = MongoClient(config.MONGO_DB_URL, serverSelectionTimeoutMS=5000)
+        _client = MongoClient(config.MONGO_DB_URL, serverSelectionTimeoutMS=5000,
+                              connectTimeoutMS=5000, socketTimeoutMS=10000)
         _client.admin.command("ping")
         # Prefer env name; default "Videl" (matches existing Atlas DB — case matters)
         db_name = (os.environ.get("MONGO_DB_NAME") or "Videl").strip() or "Videl"
@@ -920,69 +921,37 @@ def touch_user_activity(user_id: int) -> None:
         logger.error(f"[DB] touch_user_activity: {e}")
 
 
-def cleanup_old_data(days: int = 30) -> dict:
-    """
-    Remove inactive / stale data older than `days`.
-    Returns counts of deleted documents per collection.
-    """
-    import time as _t
-    cutoff = _t.time() - (days * 86400)
-    stats: dict = {}
+def cleanup_old_data(days: int = 30, *, apply: bool = False) -> dict:
+    """Preview by default; prune only disposable telemetry and delivered reminders.
 
+    Never infer that a group left, a user blocked the bot, or a playlist is
+    unwanted from age. Settings, memberships, counters, pending work and all
+    user-authored content are deliberately outside this allowlist.
+    """
+    import time
+    from datetime import datetime, timezone
+    if not isinstance(days, int) or isinstance(days, bool) or not 7 <= days <= 365:
+        raise ValueError("Retention must be between 7 and 365 days")
     if _db is None:
-        return {"error": "no db"}
-
-    # Inactive chats
-    try:
-        col = _col("chat_activity")
-        if col is not None:
-            stale = list(col.find({"last_active": {"$lt": cutoff}}, {"_id": 1}))
-            ids = [d["_id"] for d in stale]
-            if ids:
-                col.delete_many({"_id": {"$in": ids}})
-                for name in ("served_chats", "play_stats", "chat_effects",
-                             "chat_settings", "welcome", "goodbye", "nsfw_settings"):
-                    c = _col(name)
-                    if c is not None:
-                        c.delete_many({"_id": {"$in": ids}})
-            stats["inactive_chats"] = len(ids)
-        else:
-            stats["inactive_chats"] = 0
-    except Exception as e:
-        logger.error(f"[cleanup] chats: {e}")
-        stats["inactive_chats"] = 0
-
-    # Inactive users
-    try:
-        col = _col("user_activity")
-        if col is not None:
-            stale = list(col.find({"last_active": {"$lt": cutoff}}, {"_id": 1}))
-            ids = [d["_id"] for d in stale]
-            if ids:
-                col.delete_many({"_id": {"$in": ids}})
-                su = _col("served_users")
-                if su is not None:
-                    su.delete_many({"_id": {"$in": ids}})
-            stats["inactive_users"] = len(ids)
-        else:
-            stats["inactive_users"] = 0
-    except Exception as e:
-        logger.error(f"[cleanup] users: {e}")
-        stats["inactive_users"] = 0
-
-    # Old playlists
-    try:
-        col = _col("playlists")
-        if col is not None:
-            res = col.delete_many({"updated_at": {"$lt": cutoff}})
-            stats["old_playlists"] = res.deleted_count
-        else:
-            stats["old_playlists"] = 0
-    except Exception as e:
-        logger.error(f"[cleanup] playlists: {e}")
-        stats["old_playlists"] = 0
-
-    logger.info(f"[cleanup] {days}-day cleanup done: {stats}")
+        return {"ok": False, "error": "Database unavailable", "applied": False}
+    cutoff = time.time() - days * 86400
+    filters = {
+        "chat_activity": {"last_active": {"$type": "number", "$lt": cutoff}},
+        "user_activity": {"last_active": {"$type": "number", "$lt": cutoff}},
+        "plugin_reminders": {"status": "sent", "sent_at": {
+            "$type": "date", "$lt": datetime.fromtimestamp(cutoff, timezone.utc)}},
+    }
+    stats = {"ok": True, "applied": apply, "retention_days": days, "counts": {}, "errors": []}
+    for name, query in filters.items():
+        try:
+            collection = _col(name)
+            # Delete with the same age/status predicate, not IDs from a stale read.
+            stats["counts"][name] = (collection.delete_many(query).deleted_count if apply
+                                      else collection.count_documents(query))
+        except Exception:
+            logger.exception("Safe retention failed for %s", name)
+            stats["ok"] = False
+            stats["errors"].append(name)
     return stats
 
 

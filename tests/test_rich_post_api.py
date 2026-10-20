@@ -64,6 +64,38 @@ class RichPostApiTests(unittest.TestCase):
             self.assertEqual(response.status_code, 403)
             send.assert_not_called()
 
+    def test_native_styles_copy_and_custom_icons_are_sent(self):
+        with patch.object(self.api.config, "WEBAPP_SECRET", "offline-test-only"), patch.object(self.api, "_bot_api", return_value=(True, {"ok":True,"result":{"message_id":9}})) as send:
+            response=self.client.post("/internal/channel-post",headers={"X-Videl-Internal":"offline-test-only"},json={"chat_id":"-1001","text":"Hello","buttons":[[{"text":"Join","url":"https://example.com","style":"success","iconId":"5368324170671202286"},{"text":"Copy","copyText":"HELLO","style":"primary"}]]})
+            self.assertEqual(response.status_code,200)
+            buttons=send.call_args.args[1]["reply_markup"]["inline_keyboard"][0]
+            self.assertEqual(buttons[0]["style"],"success")
+            self.assertEqual(buttons[0]["icon_custom_emoji_id"],"5368324170671202286")
+            self.assertEqual(buttons[1]["copy_text"],{"text":"HELLO"})
+            self.assertNotIn("url",buttons[1])
+
+    def test_invalid_native_button_fields_never_send(self):
+        for item in [{"style":"fake","url":"https://example.com"},{"copyText":"😀"*129},{"url":"https://example.com","iconId":"9223372036854775808"}]:
+            with self.subTest(item=item), patch.object(self.api.config,"WEBAPP_SECRET","offline-test-only"),patch.object(self.api,"_bot_api") as send:
+                response=self.client.post("/internal/channel-post",headers={"X-Videl-Internal":"offline-test-only"},json={"chat_id":"-1001","text":"Hello","buttons":[[{"text":"Test",**item}]]})
+                self.assertEqual(response.status_code,400)
+                send.assert_not_called()
+
+    def test_schedule_endpoint_never_sends_immediately(self):
+        with patch.object(self.api.config,"WEBAPP_SECRET","offline-test-only"),patch("videl.utils.scheduled_posts.enqueue",return_value={"ok":True,"job_id":"test","status":"pending"}) as enqueue,patch.object(self.api,"_bot_api") as send:
+            response=self.client.post("/internal/scheduled-posts",headers={"X-Videl-Internal":"offline-test-only"},json={"chat_id":"-1001","text":"Hello","schedule_at":"2026-10-21T12:00:00Z","request_id":"test"})
+            self.assertEqual(response.status_code,200)
+            enqueue.assert_called_once()
+            send.assert_not_called()
+            response=self.client.post("/internal/scheduled-posts",headers={"X-Videl-Internal":"offline-test-only"},json={"chat_id":"-1001","text":"Hello"})
+            self.assertEqual(response.status_code,400)
+            send.assert_not_called()
+
+    def test_schedule_management_is_protected(self):
+        for method in ['get','post','delete']:
+            with patch.object(self.api.config,"WEBAPP_SECRET","offline-test-only"):
+                self.assertEqual(getattr(self.client,method)("/internal/scheduled-posts").status_code,403)
+
 
 if __name__ == "__main__":
     unittest.main()

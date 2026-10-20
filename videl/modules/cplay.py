@@ -24,13 +24,8 @@ from videl.utils.db import (
     set_linked_channel,
 )
 from videl.utils.permissions import is_user_authorized
-from videl.utils.rich_ui import (
-    rich_esc,
-    rich_heading,
-    rich_kv_table,
-    rich_note,
-    rich_send,
-)
+from videl.utils.rich_ui import rich_esc, rich_heading, rich_kv_table, rich_note
+from videl.utils.command_ui import rich_send
 
 
 async def _resolve_channel(chat_id: int, arg: str | None = None) -> int | None:
@@ -49,7 +44,7 @@ async def _resolve_channel(chat_id: int, arg: str | None = None) -> int | None:
 
 
 @bot.on_message(
-    filters.command(["channelplay", "cplayset", "setchannel"])
+    filters.command('channelplay')
     & filters.group
     & group_allowed
     & user_allowed

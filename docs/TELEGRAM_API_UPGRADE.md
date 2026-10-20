@@ -42,3 +42,38 @@ PyTgCalls 3.x / NTgCalls 3.x are separate breaking voice-engine upgrades, not Bo
 Run `.venv/bin/python -m unittest discover -s tests -q` and import all `ALL_MODULES` offline. Tests mock network calls, confirm topic/admin checks, preserve callback actions, exercise emoji rejection fallbacks, and prohibit duplicate sends after ambiguous timeouts. No real messages, reactions, topics or polls are created by the tests.
 
 The **Render backend must deploy this commit** for bot handlers/UI changes to take effect; Vercel alone cannot update a running bot. Live custom emoji eligibility, real voice playback, and Telegram admin rights still need verification on the configured bot. Do not paste bot tokens into chat.
+
+## Complete command presentation follow-up
+
+Active command text sends, replies and edits now explicitly import the adapters
+in `videl/utils/command_ui.py`. These call the vendored Badmunda05 Richgram engine;
+there is no global monkey patch. Feedback without a heading gets a consistent
+card heading (without exceeding the visible message limit), and feedback without
+existing controls gets real Guide/Commands buttons. Explicit keyboards, rich
+inline action markup, edit-time keyboard removal, thread/quote/privacy options
+and return values are preserved. Existing destructive/admin actions still run
+through their original permission guards. Saved user payloads stay native.
+
+`/start` now separates public creation/music from private owner metrics and owner
+navigation. The workflow guide uses readable rows and category navigation.
+Pause/resume use one acknowledged workflow: a failed player-card refresh no longer
+misreports a confirmed voice-engine state change as a failed pause/resume.
+
+Additional poll flags: `--silent`, `--protect`, `--seconds=60` (5–600 seconds).
+These send actual `disable_notification`, `protect_content` and `open_period`
+fields; malformed timers fail before Telegram is called. Forum results include
+styled Close/Reopen controls whose callbacks check the message's chat and current
+admin privileges on every click. General-topic actions are refused. `/apiinfo`
+and `/emojiinfo` are exact-owner/private only.
+
+Removed demo commands remain removed; the retained command catalogue stays at
+148 names, including aliases. New features are added to useful existing workflows,
+not reintroduced as showcase commands. The implementation does not claim support
+for every Bot API method or universal client support.
+
+Latest validation: 97 Python tests and 36 frontend tests passed; compilation and
+all registered module imports passed. Tests include real Richgram-to-native
+fallback rendering with mocked Telegram calls, explicit keyboard preservation,
+public/owner start separation, native transport exceptions, topic callbacks and
+poll validation. Production rollout and live voice/forum/poll verification remain
+pending; deploying the frontend alone cannot update the bot handlers.

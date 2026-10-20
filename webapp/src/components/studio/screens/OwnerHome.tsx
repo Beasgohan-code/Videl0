@@ -45,7 +45,7 @@ const actions: {
   },
   {
     tab: "chat",
-    label: "Smart Chat",
+    label: "Bot inbox",
     icon: MessageCircle,
     color: "from-blue-500 to-indigo-600",
   },

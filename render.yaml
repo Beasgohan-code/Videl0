@@ -34,7 +34,5 @@ services:
       # KEEPALIVE_PORT intentionally NOT set on Render — single port → only videl Flask owns 10000
       # For VPS two-port setup, set KEEPALIVE_PORT=8000
       # MongoDB only — Supabase/Dropbox removed
-      - key: CYBER_DARK
-        value: "1"
       - key: ENV
         value: "production"

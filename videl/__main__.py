@@ -5,6 +5,7 @@ import importlib
 import os
 import signal
 import threading
+import re
 import time
 import logging
 import hmac
@@ -39,6 +40,9 @@ def _bot_api(method, payload, files=None):
     return call_bot_api(method, payload, files=files)
 
 
+from videl.api.group_view_routes import register_group_view_routes
+register_group_view_routes(_flask,_internal_authorized,_bot_api)
+
 # ── Render backend health and service metadata ───────────────────────────
 @_flask.route("/")
 @_flask.route("/_videl_status")
@@ -55,7 +59,9 @@ def _status_json():
 @_flask.route("/health")
 def _health():
     from videl import bot_start_time
-    return jsonify({"status": "ok", "service": "videl-render-backend", "bot_status": _BOT_STATUS, "uptime": max(0, int(time.time() - bot_start_time))}), 200
+    from videl.core.watcher import watchdog_status
+    maintenance = watchdog_status()
+    return jsonify({"status": "ok", "service": "videl-render-backend", "bot_status": _BOT_STATUS, "uptime": max(0, int(time.time() - bot_start_time)), "watchdog": {key: maintenance[key] for key in ("running", "healthy", "last_tick")}}), 200
 
 @_flask.route("/internal/auth", methods=["POST"])
 def _internal_auth():
@@ -144,6 +150,30 @@ def _internal_send_message():
     message = result.get("result", {})
     return jsonify({"ok": True, "chat_id": str(message.get("chat", {}).get("id", chat_id)), "message_id": message.get("message_id"), "via": "bot"})
 
+@_flask.route("/internal/scheduled-posts", methods=["GET", "POST", "DELETE"])
+def _internal_scheduled_posts():
+    if not _internal_authorized():
+        return jsonify({"ok":False,"error":"unauthorized"}),403
+    if request.method == "POST":
+        body = request.get_json(silent=True)
+        if not isinstance(body, dict) or not body.get("schedule_at"):
+            return jsonify({"ok":False,"error":"A scheduled time is required"}),400
+        return _internal_channel_post()
+    from videl.utils.scheduled_posts import list_jobs, cancel_job
+    try:
+        if request.method == "GET":
+            return jsonify({"ok":True,"jobs":list_jobs()}),200
+        body = request.get_json(silent=True)
+        if not isinstance(body,dict):
+            raise ValueError("A job ID is required")
+        cancelled = cancel_job(body.get("id"))
+        return jsonify({"ok":cancelled,"error":None if cancelled else "Job is no longer pending; refresh its status."}),200 if cancelled else 409
+    except (ValueError,TypeError,AttributeError):
+        return jsonify({"ok":False,"error":"Invalid schedule ID"}),400
+    except Exception:
+        return jsonify({"ok":False,"error":"Schedule queue unavailable"}),503
+
+
 @_flask.route("/internal/channel-post", methods=["POST"])
 def _internal_channel_post():
     if not _internal_authorized():
@@ -213,16 +243,48 @@ def _internal_channel_post():
                 if not isinstance(row, list) or not row or len(row) > 8: raise ValueError("invalid row")
                 normalized = []
                 for item in row:
+                    if not isinstance(item, dict):
+                        raise ValueError("button must be an object")
                     label = str(item.get("text", "")).strip()
-                    url = str(item.get("url", item.get("href", ""))).strip()
-                    parsed = urlparse(url)
-                    if not label or len(label) > 64 or parsed.scheme not in ("https", "http") or not parsed.netloc:
-                        raise ValueError("buttons need a label and valid http(s) URL")
-                    normalized.append({"text": label, "url": url})
+                    if not label or len(label) > 64:
+                        raise ValueError("button labels allow 1–64 characters")
+                    entry = {"text": label}
+                    copy_text = item.get("copyText")
+                    if copy_text is not None:
+                        if not isinstance(copy_text, str) or not 1 <= len(copy_text.encode("utf-16-le")) // 2 <= 256:
+                            raise ValueError("copy text allows 1–256 characters")
+                        entry["copy_text"] = {"text": copy_text}
+                    else:
+                        url = str(item.get("url", item.get("href", ""))).strip()
+                        parsed = urlparse(url)
+                        if parsed.scheme != "https" or not parsed.netloc or parsed.username or parsed.password or len(url) > 2048:
+                            raise ValueError("buttons require a valid HTTPS URL without credentials")
+                        entry["url"] = url
+                    style = item.get("style", "default")
+                    if style not in {"default", "primary", "success", "danger"}:
+                        raise ValueError("unsupported button style")
+                    if style != "default":
+                        entry["style"] = style
+                    icon = item.get("iconId")
+                    if icon:
+                        if not isinstance(icon, str) or not re.fullmatch(r"[1-9][0-9]{0,18}", icon) or int(icon) > 9223372036854775807:
+                            raise ValueError("invalid custom emoji ID")
+                        entry["icon_custom_emoji_id"] = icon
+                    normalized.append(entry)
                 keyboard.append(normalized)
             payload["reply_markup"] = {"inline_keyboard": keyboard}
         except (ValueError, TypeError, AttributeError) as exc:
             return jsonify({"ok": False, "error": f"Invalid button layout: {exc}"}), 400
+    if "schedule_at" in body:
+        if image_data is not None:
+            return jsonify({"ok": False, "error": "Scheduled images need a persistent HTTPS URL, not a local upload"}), 400
+        try:
+            from videl.utils.scheduled_posts import enqueue
+            return jsonify(enqueue(method, payload, body["schedule_at"], body.get("request_id"))), 200
+        except ValueError as exc:
+            return jsonify({"ok": False, "error": str(exc)}), 400
+        except Exception:
+            return jsonify({"ok": False, "error": "Schedule could not be confirmed. Refresh the queue before retrying."}), 503
     if image_data is not None:
         extension = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}[image_mime]
         status, result = _bot_api(method, payload, files={"photo": (f"videl-post.{extension}", image_data, image_mime)})
@@ -393,8 +455,10 @@ def _internal_chat_settings():
             return jsonify({"ok": False, "error": "MongoDB is not connected"}), 503
         if db["served_chats"].find_one({"_id": chat_id}) is None:
             return jsonify({"ok": False, "error": "Chat is not in Videl's served group list"}), 404
-        db["mgmt_chat_settings"].update_one({"chat_id": chat_id}, {"$set": settings}, upsert=True)
-        return jsonify({"ok": True, "chat_id": chat_id, "settings": settings})
+        from videl.utils.group_view import GroupView,ViewError
+        try:
+            return jsonify(GroupView(db,_bot_api).act({'chat_id':chat_id,'action':'protect','settings':settings}))
+        except ViewError as error:return jsonify({'ok':False,'error':str(error)}),error.status
     except (TypeError, ValueError):
         return jsonify({"ok": False, "error": "chat_id must be an integer"}), 400
     except Exception:
@@ -646,6 +710,11 @@ if __name__ == "__main__":
                     await log_error(bot, f"load {mod}", e)
                 except: pass
 
+        from videl.utils.captcha import start_captcha_worker
+        start_captcha_worker()
+        from videl.core.watcher import start_watchdog
+        start_watchdog()
+
         try:
             from videl.plugins.runtime import restore_pending_reminders
             restored = await restore_pending_reminders()
@@ -663,6 +732,10 @@ if __name__ == "__main__":
             await asyncio.Event().wait()
         finally:
             _BOT_STATUS = "stopping"
+            from videl.core.watcher import stop_watchdog
+            await stop_watchdog()
+            from videl.utils.captcha import stop_captcha_worker
+            await stop_captcha_worker()
             try:
                 await log_shutdown(bot, "idle exit")
             except: pass

@@ -1,21 +1,7 @@
 # --------------------------------------------------------------------------------
 #  Videl © 2026 | Developed by Beasgohan-code
-#  Videl → Videl Full Port — Pyrogram + Richgram + MongoDB
-#  Videl Professional Management Suite — 9 core modules ported to Videl Professional Suite
-#  Ported: All 9 modules fully integrated, credits changed to Videl, Richgram UI
-#
-#  Features ported:
-#  • Admin: ban/tban/kick/mute/tmute/warn/unwarn/warnings/clearwarns/setwarnlimit/banlist/getadmins/promote/demote
-#  • Locks: lock/unlock/locks (links/media/stickers/all/forward/polls) + content filter
-#  • Blacklist: addblacklist/rmblacklist/blacklist + auto-delete + auto-warn
-#  • Filters: filter/stop/filters + keyword auto-reply
-#  • Notes: save/get/delnote/notes + #trigger (FallenRobot-style)
-#  • Greetings: setwelcome/welcome/setcaptcha + welcome messages + captcha
-#  • Pins: pin/unpin/unpinall/purge/cleanup/slowmode
-#  • Rules: setrules/rules/clearrules
-#  • Group utilities: polls and sticker metadata
-#  • Misc: start/help/id/whois/stats
-#  Uses Videl MongoDB only — no external deps, no Flask
+#  MongoDB-backed group management with vendored Badmunda05 Richgram UI.
+#  Telegram permissions and handler checks remain authoritative.
 # --------------------------------------------------------------------------------
 
 import html
@@ -28,19 +14,19 @@ from collections import OrderedDict, deque
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
+from videl.utils.command_ui import notice as command_notice
 from pyrogram import filters
-from pyrogram.types import Message, InlineKeyboardMarkup, CallbackQuery
+from pyrogram.types import Message, InlineKeyboardMarkup, CallbackQuery, ChatAdministratorRights
 from videl.utils.bot_ui import button as InlineKeyboardButton, visual_call
-from pyrogram.enums import ChatMemberStatus
+from pyrogram.enums import ChatMemberStatus, ChatMembersFilter
 from pyrogram.errors import ChatAdminRequired, FloodWait, UserAdminInvalid
 
 import config
 from videl import LOGGER, bot
-from videl.utils.db import get_db
-from videl.utils.rich_ui import (
-    rich_heading, rich_kv_table, rich_note, rich_esc, rich_send, rich_reply, rich_edit,
-    rich_button, rich_details, rich_pre, rich_list
-)
+from videl.utils.db import get_db, is_approved
+from videl.utils.moderation import LOCK_TYPES, locked_message_reason
+from videl.utils.rich_ui import rich_heading, rich_kv_table, rich_note, rich_esc, rich_button, rich_details, rich_pre, rich_list
+from videl.utils.command_ui import rich_send, rich_reply, rich_edit
 
 logger = logging.getLogger(__name__)
 
@@ -86,27 +72,31 @@ def get_chat_setting(chat_id: int, key: str, default=None):
     except Exception:
         return default
 
-def set_chat_setting(chat_id: int, key: str, value):
+def set_chat_settings(chat_id: int, values: dict) -> bool:
     try:
         col = _chat_settings_col()
         if col is None:
-            return
-        col.update_one({"chat_id": chat_id}, {"$set": {key: value}}, upsert=True)
-    except Exception as e:
-        logger.debug(f"set_chat_setting fail: {e}")
+            return False
+        col.update_one({"chat_id": chat_id}, {"$set": values}, upsert=True)
+        return True
+    except Exception:
+        logger.warning("Group settings were not saved", exc_info=True)
+        return False
+
+
+def set_chat_setting(chat_id: int, key: str, value) -> bool:
+    return set_chat_settings(chat_id, {key: value})
+
 
 def parse_time_arg(text: str) -> Optional[int]:
-    m = re.search(r"(\d+)\s*([smhd])", text.lower())
-    if not m:
+    match = re.search(r"(?:^|\s)([1-9][0-9]{0,6})([smhd])(?:\s|$)", text.lower())
+    if not match:
         return None
-    amount = int(m.group(1))
-    mult = {"s": 1, "m": 60, "h": 3600, "d": 86400}
-    return amount * mult[m.group(2)]
+    seconds = int(match[1]) * {"s": 1, "m": 60, "h": 3600, "d": 86400}[match[2]]
+    return seconds if 60 <= seconds <= 365 * 86400 else None
 
 async def is_admin(chat_id: int, user_id: int) -> bool:
     if user_id in getattr(config, "ADMIN_IDS", set()) or user_id == getattr(config, "OWNER_ID", 0):
-        return True
-    if user_id in getattr(config, "SUDO_USERS", []):
         return True
     try:
         m = await bot.get_chat_member(chat_id, user_id)
@@ -130,40 +120,28 @@ async def get_target(message: Message):
             except Exception:
                 return uid, str(uid), str(uid)
         except ValueError:
-            # Try username lookup via admins
             try:
-                admins = await bot.get_chat_members(message.chat.id, filter="administrators")
-                for a in admins:
-                    if a.user.username and a.user.username.lower() == arg.lower():
-                        u = a.user
-                        return u.id, u.first_name, f"@{u.username}"
+                user = await bot.get_users(arg)
+                return user.id, user.first_name, f"@{user.username}" if user.username else user.first_name
             except Exception:
-                pass
-            return None, arg, arg
+                return None, arg, arg
     return None, None, None
 
 # ── Help Keyboard (Richgram) ──────────────────────────────────────────────────
 def help_keyboard():
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🛡 Moderation", callback_data="mgmt_help_mod"),
-         InlineKeyboardButton("⚙️ Settings", callback_data="mgmt_help_settings")],
-        [InlineKeyboardButton("📝 Notes & filters", callback_data="mgmt_help_notes"),
-         InlineKeyboardButton("🔧 Admin tools", callback_data="mgmt_help_admin")],
-        [InlineKeyboardButton("Telegram tools", callback_data="modern_tools_help")],
-        [InlineKeyboardButton("🔗 Videl", url="https://t.me/VidelUpdates"),
-         InlineKeyboardButton("💬 Support", url="https://t.me/VidelSupport")],
-    ])
+    from videl.utils.help_catalog import guide
+    return guide()[1]
 
 # ── Admin: Warn System ────────────────────────────────────────────────────────
-@bot.on_message(filters.command(["warn", "dwarn"]))
+@bot.on_message(filters.command(["warn", "dwarn"]) & filters.group)
 async def warn_cmd(_, message: Message):
-    if not await is_admin(message.chat.id, message.from_user.id):
+    if not message.from_user or not await is_admin(message.chat.id, message.from_user.id):
         return await rich_reply(message, rich_heading("❌ Admins only", level=3))
     target_id, target_name, _ = await get_target(message)
     if not target_id:
-        return await rich_reply(message, rich_note("❌ Reply to a user or use <code>/warn @user &lt;reason&gt;</code>"))
+        return await rich_reply(message, command_notice('Reply to a user or use <code>/warn @user &lt;reason&gt;</code>', status='error'))
     if await is_admin(message.chat.id, target_id):
-        return await rich_reply(message, rich_note("❌ Cannot warn an admin."))
+        return await rich_reply(message, command_notice('Cannot warn an admin.', status='error'))
     reason = " ".join(message.command[2:]) if len(message.command) > 2 else (" ".join(message.command[1:]) if message.reply_to_message and len(message.command) > 1 else "No reason")
     if message.command[0].lower() == "warn" and len(message.command) > 1 and not message.reply_to_message:
         # Try to extract reason after username
@@ -174,7 +152,7 @@ async def warn_cmd(_, message: Message):
     try:
         col = _warnings_col()
         if col is None:
-            return await rich_reply(message, rich_note("❌ MongoDB not connected"))
+            return await rich_reply(message, command_notice('MongoDB not connected', status='error'))
         doc = col.find_one({"chat_id": message.chat.id, "user_id": target_id})
         count = (doc.get("count", 0) + 1) if doc else 1
         col.update_one(
@@ -194,30 +172,30 @@ async def warn_cmd(_, message: Message):
                     bcol.update_one({"chat_id": message.chat.id, "user_id": target_id}, {"$set": {"ts": datetime.now(timezone.utc).isoformat()}}, upsert=True)
                 await rich_send(bot, message.chat.id, rich_heading(f"🚫 {rich_esc(target_name)} banned for {threshold} warnings", level=3))
             except Exception as e:
-                await rich_reply(message, rich_note(f"❌ Auto-ban failed: <code>{rich_esc(str(e))}</code>"))
+                await rich_reply(message, command_notice(f'Auto-ban failed: <code>{rich_esc(str(e))}</code>', status='error'))
     except Exception as e:
-        await rich_reply(message, rich_note(f"❌ Error: <code>{rich_esc(str(e))}</code>"))
+        await rich_reply(message, command_notice(f'Error: <code>{rich_esc(str(e))}</code>', status='error'))
 
-@bot.on_message(filters.command(["unwarn", "rmwarn"]))
+@bot.on_message(filters.command(["unwarn", "rmwarn"]) & filters.group)
 async def unwarn_cmd(_, message: Message):
-    if not await is_admin(message.chat.id, message.from_user.id):
+    if not message.from_user or not await is_admin(message.chat.id, message.from_user.id):
         return await rich_reply(message, rich_heading("❌ Admins only", level=3))
     target_id, target_name, _ = await get_target(message)
     if not target_id:
-        return await rich_reply(message, rich_note("❌ Reply to a user or use <code>/unwarn @user</code>"))
+        return await rich_reply(message, command_notice('Reply to a user or use <code>/unwarn @user</code>', status='error'))
     col = _warnings_col()
     if col is None:
-        return await rich_reply(message, rich_note("❌ DB not connected"))
+        return await rich_reply(message, command_notice('DB not connected', status='error'))
     doc = col.find_one({"chat_id": message.chat.id, "user_id": target_id})
     if not doc or doc.get("count", 0) == 0:
-        return await rich_reply(message, rich_note(f"✅ {rich_esc(target_name)} has no warnings."))
+        return await rich_reply(message, command_notice(f'{rich_esc(target_name)} has no warnings.', status='success'))
     reasons = doc.get("reasons", [])
     if reasons: reasons.pop()
     new_count = max(0, doc.get("count", 1) - 1)
     col.update_one({"chat_id": message.chat.id, "user_id": target_id}, {"$set": {"count": new_count, "reasons": reasons}})
-    await rich_reply(message, rich_note(f"✅ Removed one warning from {rich_esc(target_name)}. Now <code>{new_count}</code> warnings."))
+    await rich_reply(message, command_notice(f'Removed one warning from {rich_esc(target_name)}. Now <code>{new_count}</code> warnings.', status='success'))
 
-@bot.on_message(filters.command(["warnings", "warns"]))
+@bot.on_message(filters.command(["warnings", "warns"]) & filters.group)
 async def warnings_cmd(_, message: Message):
     target_id, target_name, _ = await get_target(message)
     if not target_id:
@@ -225,209 +203,122 @@ async def warnings_cmd(_, message: Message):
         target_name = message.from_user.first_name
     col = _warnings_col()
     if col is None:
-        return await rich_reply(message, rich_note("❌ DB not connected"))
+        return await rich_reply(message, command_notice('DB not connected', status='error'))
     threshold = get_chat_setting(message.chat.id, "warn_threshold", 3)
     doc = col.find_one({"chat_id": message.chat.id, "user_id": target_id})
     if not doc or doc.get("count", 0) == 0:
-        return await rich_reply(message, rich_note(f"✅ {rich_esc(target_name)} has no warnings."))
+        return await rich_reply(message, command_notice(f'{rich_esc(target_name)} has no warnings.', status='success'))
     count = doc.get("count", 0)
     reasons = doc.get("reasons", [])
     rows = [(f"{i+1}.", f"<code>{rich_esc(r.get('reason','—'))}</code> <i>{r.get('ts','')[:10]}</i>") for i, r in enumerate(reasons)]
     await rich_reply(message, rich_heading(f"⚠️ {rich_esc(target_name)}: {count}/{threshold} warnings", level=3) + rich_kv_table(rows))
 
-@bot.on_message(filters.command(["clearwarns", "resetwarns"]))
+@bot.on_message(filters.command(["clearwarns", "resetwarns"]) & filters.group)
 async def clearwarns_cmd(_, message: Message):
-    if not await is_admin(message.chat.id, message.from_user.id):
+    if not message.from_user or not await is_admin(message.chat.id, message.from_user.id):
         return await rich_reply(message, rich_heading("❌ Admins only", level=3))
     target_id, target_name, _ = await get_target(message)
     if not target_id:
-        return await rich_reply(message, rich_note("❌ Reply to a user"))
+        return await rich_reply(message, command_notice('Reply to a user', status='error'))
     col = _warnings_col()
     if col is not None:
         col.delete_one({"chat_id": message.chat.id, "user_id": target_id})
-    await rich_reply(message, rich_note(f"✅ All warnings cleared for {rich_esc(target_name)}."))
+    await rich_reply(message, command_notice(f'All warnings cleared for {rich_esc(target_name)}.', status='success'))
 
-@bot.on_message(filters.command("setwarnlimit"))
+@bot.on_message(filters.command("setwarnlimit") & filters.group)
 async def setwarnlimit_cmd(_, message: Message):
-    if not await is_admin(message.chat.id, message.from_user.id):
+    if not message.from_user or not await is_admin(message.chat.id, message.from_user.id):
         return await rich_reply(message, rich_heading("❌ Admins only", level=3))
     if len(message.command) < 2 or not message.command[1].isdigit():
-        return await rich_reply(message, rich_note("❌ Usage: <code>/setwarnlimit &lt;number&gt;</code>"))
+        return await rich_reply(message, command_notice('Usage: <code>/setwarnlimit &lt;number&gt;</code>', status='error', title='How to use this command'))
     limit = int(message.command[1])
-    set_chat_setting(message.chat.id, "warn_threshold", limit)
-    await rich_reply(message, rich_note(f"✅ Warn limit set to <code>{limit}</code>"))
+    if not set_chat_setting(message.chat.id, "warn_threshold", limit):
+        return await rich_reply(message, rich_note("MongoDB is unavailable. Nothing was saved."))
+    await rich_reply(message, command_notice(f'Warn limit set to <code>{limit}</code>', status='success'))
 
 # ── Admin: Ban/Kick/Mute ─────────────────────────────────────────────────────
-@bot.on_message(filters.command(["ban", "tban", "dban"]))
-async def ban_cmd(_, message: Message):
-    if not await is_admin(message.chat.id, message.from_user.id):
-        return await rich_reply(message, rich_heading("❌ Admins only", level=3))
-    target_id, target_name, _ = await get_target(message)
-    if not target_id:
-        return await rich_reply(message, rich_note("❌ Reply to a user or use <code>/ban @user &lt;reason&gt;</code>"))
-    if await is_admin(message.chat.id, target_id):
-        return await rich_reply(message, rich_note("❌ Cannot ban an admin."))
-    until = None
-    if message.command[0].lower() == "tban":
-        dur = parse_time_arg(message.text)
-        if dur:
-            until = datetime.now(timezone.utc) + timedelta(seconds=dur)
-    reason = " ".join(message.command[2:]) if len(message.command) > 2 else "No reason"
-    try:
-        await bot.ban_chat_member(message.chat.id, target_id, until_date=until)
-        bcol = _banned_col()
-        if bcol is not None:
-            bcol.update_one({"chat_id": message.chat.id, "user_id": target_id}, {"$set": {"ts": datetime.now(timezone.utc).isoformat(), "reason": reason}}, upsert=True)
-        await rich_reply(message, rich_kv_table([("🚫 Banned", f"{rich_esc(target_name)} (<code>{target_id}</code>)"), ("Reason", f"<code>{rich_esc(reason)}</code>")] + ([("Until", f"<code>{until}</code>")] if until else [])))
-        if message.command[0].lower() == "dban" and message.reply_to_message:
-            try: await message.reply_to_message.delete()
-            except Exception: pass
-    except Exception as e:
-        await rich_reply(message, rich_note(f"❌ Ban failed: <code>{rich_esc(str(e))}</code>"))
 
-@bot.on_message(filters.command("unban"))
-async def unban_cmd(_, message: Message):
-    if not await is_admin(message.chat.id, message.from_user.id):
-        return await rich_reply(message, rich_heading("❌ Admins only", level=3))
-    target_id, target_name, _ = await get_target(message)
-    if not target_id:
-        return await rich_reply(message, rich_note("❌ Reply to a user"))
-    try:
-        await bot.unban_chat_member(message.chat.id, target_id)
-        await rich_reply(message, rich_note(f"✅ Unbanned {rich_esc(target_name)}"))
-    except Exception as e:
-        await rich_reply(message, rich_note(f"❌ Unban failed: <code>{rich_esc(str(e))}</code>"))
 
-@bot.on_message(filters.command(["kick", "dkick"]))
-async def kick_cmd(_, message: Message):
-    if not await is_admin(message.chat.id, message.from_user.id):
-        return await rich_reply(message, rich_heading("❌ Admins only", level=3))
-    target_id, target_name, _ = await get_target(message)
-    if not target_id:
-        return await rich_reply(message, rich_note("❌ Reply to a user"))
-    try:
-        await bot.ban_chat_member(message.chat.id, target_id)
-        await bot.unban_chat_member(message.chat.id, target_id)
-        await rich_reply(message, rich_note(f"✅ Kicked {rich_esc(target_name)}"))
-        if message.command[0].lower() == "dkick" and message.reply_to_message:
-            try: await message.reply_to_message.delete()
-            except Exception: pass
-    except Exception as e:
-        await rich_reply(message, rich_note(f"❌ Kick failed: <code>{rich_esc(str(e))}</code>"))
 
-@bot.on_message(filters.command(["mute", "tmute"]))
-async def mute_cmd(_, message: Message):
-    if not await is_admin(message.chat.id, message.from_user.id):
-        return await rich_reply(message, rich_heading("❌ Admins only", level=3))
-    target_id, target_name, _ = await get_target(message)
-    if not target_id:
-        return await rich_reply(message, rich_note("❌ Reply to a user"))
-    until = None
-    if message.command[0].lower() == "tmute":
-        dur = parse_time_arg(message.text)
-        if dur:
-            until = datetime.now(timezone.utc) + timedelta(seconds=dur)
-    try:
-        from pyrogram.types import ChatPermissions
-        await bot.restrict_chat_member(message.chat.id, target_id, ChatPermissions(can_send_messages=False), until_date=until)
-        await rich_reply(message, rich_kv_table([("🔇 Muted", f"{rich_esc(target_name)} (<code>{target_id}</code>)")] + ([("Until", f"<code>{until}</code>")] if until else [("Duration", "<code>forever</code>")])))
-    except Exception as e:
-        await rich_reply(message, rich_note(f"❌ Mute failed: <code>{rich_esc(str(e))}</code>"))
 
-@bot.on_message(filters.command("unmute"))
-async def unmute_cmd(_, message: Message):
-    if not await is_admin(message.chat.id, message.from_user.id):
-        return await rich_reply(message, rich_heading("❌ Admins only", level=3))
-    target_id, target_name, _ = await get_target(message)
-    if not target_id:
-        return await rich_reply(message, rich_note("❌ Reply to a user"))
-    try:
-        from pyrogram.types import ChatPermissions
-        await bot.restrict_chat_member(message.chat.id, target_id, ChatPermissions(can_send_messages=True, can_send_media_messages=True, can_send_other_messages=True, can_add_web_page_previews=True))
-        await rich_reply(message, rich_note(f"✅ Unmuted {rich_esc(target_name)}"))
-    except Exception as e:
-        await rich_reply(message, rich_note(f"❌ Unmute failed: <code>{rich_esc(str(e))}</code>"))
 
-@bot.on_message(filters.command("promote"))
+@bot.on_message(filters.command("promote") & filters.group)
 async def promote_cmd(_, message: Message):
-    if not await is_admin(message.chat.id, message.from_user.id):
+    if not message.from_user or not await is_admin(message.chat.id, message.from_user.id):
         return await rich_reply(message, rich_heading("❌ Admins only", level=3))
     target_id, target_name, _ = await get_target(message)
     if not target_id:
-        return await rich_reply(message, rich_note("❌ Reply to a user"))
+        return await rich_reply(message, command_notice('Reply to a user', status='error'))
     try:
-        await bot.promote_chat_member(message.chat.id, target_id, can_delete_messages=True, can_restrict_members=True, can_pin_messages=True, can_promote_members=False)
-        await rich_reply(message, rich_note(f"✅ Promoted {rich_esc(target_name)}"))
+        await bot.promote_chat_member(message.chat.id, target_id, privileges=ChatAdministratorRights(can_delete_messages=True, can_restrict_members=True, can_pin_messages=True))
+        await rich_reply(message, command_notice(f'Promoted {rich_esc(target_name)}', status='success'))
     except Exception as e:
-        await rich_reply(message, rich_note(f"❌ Promote failed: <code>{rich_esc(str(e))}</code>"))
+        await rich_reply(message, command_notice(f'Promote failed: <code>{rich_esc(str(e))}</code>', status='error'))
 
-@bot.on_message(filters.command("demote"))
+@bot.on_message(filters.command("demote") & filters.group)
 async def demote_cmd(_, message: Message):
-    if not await is_admin(message.chat.id, message.from_user.id):
+    if not message.from_user or not await is_admin(message.chat.id, message.from_user.id):
         return await rich_reply(message, rich_heading("❌ Admins only", level=3))
     target_id, target_name, _ = await get_target(message)
     if not target_id:
-        return await rich_reply(message, rich_note("❌ Reply to a user"))
+        return await rich_reply(message, command_notice('Reply to a user', status='error'))
     try:
-        await bot.promote_chat_member(message.chat.id, target_id, can_delete_messages=False, can_restrict_members=False, can_pin_messages=False, can_promote_members=False, is_anonymous=False)
-        await rich_reply(message, rich_note(f"✅ Demoted {rich_esc(target_name)}"))
+        await bot.promote_chat_member(message.chat.id, target_id, privileges=ChatAdministratorRights(can_manage_chat=False))
+        await rich_reply(message, command_notice(f'Demoted {rich_esc(target_name)}', status='success'))
     except Exception as e:
-        await rich_reply(message, rich_note(f"❌ Demote failed: <code>{rich_esc(str(e))}</code>"))
+        await rich_reply(message, command_notice(f'Demote failed: <code>{rich_esc(str(e))}</code>', status='error'))
 
-@bot.on_message(filters.command("banlist"))
+@bot.on_message(filters.command("banlist") & filters.group)
 async def banlist_cmd(_, message: Message):
-    if not await is_admin(message.chat.id, message.from_user.id):
+    if not message.from_user or not await is_admin(message.chat.id, message.from_user.id):
         return await rich_reply(message, rich_heading("❌ Admins only", level=3))
     bcol = _banned_col()
     if bcol is None:
-        return await rich_reply(message, rich_note("❌ DB not connected"))
+        return await rich_reply(message, command_notice('DB not connected', status='error'))
     docs = list(bcol.find({"chat_id": message.chat.id}))
     if not docs:
-        return await rich_reply(message, rich_note("✅ No banned users"))
+        return await rich_reply(message, command_notice('No banned users', status='success'))
     rows = [(f"<code>{d['user_id']}</code>", f"<code>{d.get('reason','—')[:30]}</code>") for d in docs[:20]]
     await rich_reply(message, rich_heading("🚫 Banned Users", level=3) + rich_kv_table(rows))
 
-@bot.on_message(filters.command(["admins", "getadmins"]))
+@bot.on_message(filters.command(["admins", "getadmins"]) & filters.group)
 async def getadmins_cmd(_, message: Message):
     try:
-        admins = await bot.get_chat_members(message.chat.id, filter="administrators")
+        admins = [member async for member in bot.get_chat_members(message.chat.id, filter=ChatMembersFilter.ADMINISTRATORS, limit=50)]
         rows = [(f"{'👑' if a.status == ChatMemberStatus.OWNER else '⚡'} {rich_esc(a.user.first_name)}", f"<code>{a.user.id}</code> @{rich_esc(a.user.username or '—')}") for a in admins]
         await rich_reply(message, rich_heading("👑 Admins", level=3) + rich_kv_table(rows))
     except Exception as e:
-        await rich_reply(message, rich_note(f"❌ Failed: <code>{rich_esc(str(e))}</code>"))
+        await rich_reply(message, command_notice(f'Failed: <code>{rich_esc(str(e))}</code>', status='error'))
 
 # ── Locks ─────────────────────────────────────────────────────────────────────
-_LOCK_TYPES = ("links", "media", "stickers", "all", "forward", "polls")
+_LOCK_TYPES = LOCK_TYPES + ("all",)
 
-@bot.on_message(filters.command("lock"))
+
+async def change_lock(message, enabled):
+    if not message.from_user or not await is_admin(message.chat.id, message.from_user.id):
+        return await rich_reply(message, rich_note("Group admins only."))
+    selected = (message.command[1].lower() if len(message.command) > 1 else "")
+    if selected not in _LOCK_TYPES:
+        return await rich_reply(message, rich_note("Choose: <code>" + " | ".join(_LOCK_TYPES) + "</code>"))
+    types = LOCK_TYPES if selected == "all" else (selected,)
+    updates = {f"lock_{kind}": enabled for kind in types}
+    if "forward" in types:
+        updates["lock_forwards"] = enabled
+    if not set_chat_settings(message.chat.id, updates):
+        return await rich_reply(message, rich_note("MongoDB is unavailable. Nothing was saved."))
+    await rich_reply(message, rich_note(f"{selected.capitalize()}: {'blocked' if enabled else 'allowed'}. Admins and approved users are exempt."))
+
+
+@bot.on_message(filters.command("lock") & filters.group)
 async def lock_cmd(_, message: Message):
-    if not await is_admin(message.chat.id, message.from_user.id):
-        return await rich_reply(message, rich_heading("❌ Admins only", level=3))
-    if len(message.command) < 2 or message.command[1].lower() not in _LOCK_TYPES:
-        return await rich_reply(message, rich_note(f"❌ Usage: <code>/lock &lt;{' | '.join(_LOCK_TYPES)}&gt;</code>"))
-    lock_type = message.command[1].lower()
-    if lock_type == "all":
-        for t in _LOCK_TYPES:
-            if t != "all": set_chat_setting(message.chat.id, f"lock_{t}", True)
-    else:
-        set_chat_setting(message.chat.id, f"lock_{lock_type}", True)
-    await rich_reply(message, rich_note(f"🔒 {lock_type.capitalize()} locked."))
+    await change_lock(message, True)
 
-@bot.on_message(filters.command("unlock"))
+
+@bot.on_message(filters.command("unlock") & filters.group)
 async def unlock_cmd(_, message: Message):
-    if not await is_admin(message.chat.id, message.from_user.id):
-        return await rich_reply(message, rich_heading("❌ Admins only", level=3))
-    if len(message.command) < 2 or message.command[1].lower() not in _LOCK_TYPES:
-        return await rich_reply(message, rich_note(f"❌ Usage: <code>/unlock &lt;{' | '.join(_LOCK_TYPES)}&gt;</code>"))
-    lock_type = message.command[1].lower()
-    if lock_type == "all":
-        for t in _LOCK_TYPES:
-            if t != "all": set_chat_setting(message.chat.id, f"lock_{t}", False)
-    else:
-        set_chat_setting(message.chat.id, f"lock_{lock_type}", False)
-    await rich_reply(message, rich_note(f"🔓 {lock_type.capitalize()} unlocked."))
+    await change_lock(message, False)
 
-@bot.on_message(filters.command("locks"))
+@bot.on_message(filters.command("locks") & filters.group)
 async def locks_cmd(_, message: Message):
     rows = []
     for t in _LOCK_TYPES:
@@ -447,6 +338,8 @@ async def mgmt_content_checker(_, message: Message):
     # Admin bypass
     if message.from_user and await is_admin(message.chat.id, message.from_user.id):
         return
+    if message.from_user and is_approved(message.chat.id, message.from_user.id):
+        return
     # Both the wizard and web manager persist these exact keys.
     if get_chat_setting(message.chat.id, "antispam", False) and message.from_user:
         key = (message.chat.id, message.from_user.id)
@@ -462,147 +355,52 @@ async def mgmt_content_checker(_, message: Message):
             try: await message.delete()
             except Exception: logger.debug("Anti-spam deletion failed", exc_info=True)
             return
-    if ((get_chat_setting(message.chat.id, "lock_forwards", False) or
-         get_chat_setting(message.chat.id, "lock_forward", False)) and
-            (message.forward_date or message.forward_from or message.forward_from_chat)):
-        try: await message.delete()
-        except Exception: logger.debug("Forward-lock deletion failed", exc_info=True)
-        return
-    if get_chat_setting(message.chat.id, "lock_polls", False) and message.poll:
-        try: await message.delete()
-        except Exception: logger.debug("Poll-lock deletion failed", exc_info=True)
-        return
-    text = message.text or message.caption or ""
-    # Links lock
-    if get_chat_setting(message.chat.id, "lock_links", False):
-        if message.entities:
-            for e in message.entities:
-                if e.type in ("url", "text_link"):
-                    try: await message.delete()
-                    except Exception: pass
-                    try: await bot.send_message(message.chat.id, "❌ Links are locked here.")
-                    except Exception: pass
-                    return
-        if _URL_RE.search(text):
-            try: await message.delete()
-            except Exception: pass
-            return
-    # Media lock
-    if get_chat_setting(message.chat.id, "lock_media", False):
-        if message.photo or message.video or message.audio or message.document or message.animation or message.voice or message.video_note:
-            try: await message.delete()
-            except Exception: pass
-            return
-    # Stickers lock
-    if get_chat_setting(message.chat.id, "lock_stickers", False):
-        if message.sticker:
-            try: await message.delete()
-            except Exception: pass
-            return
-
-# ── Blacklist ─────────────────────────────────────────────────────────────────
-@bot.on_message(filters.command("addblacklist"))
-async def addblacklist_cmd(_, message: Message):
-    if not await is_admin(message.chat.id, message.from_user.id):
-        return await rich_reply(message, rich_heading("❌ Admins only", level=3))
-    if len(message.command) < 2:
-        return await rich_reply(message, rich_note("❌ Usage: <code>/addblacklist &lt;word&gt;</code>"))
-    word = " ".join(message.command[1:]).lower().strip()
-    col = _blacklist_col()
-    if col is None:
-        return await rich_reply(message, rich_note("❌ DB not connected"))
-    col.update_one({"chat_id": message.chat.id}, {"$addToSet": {"words": word}}, upsert=True)
-    await rich_reply(message, rich_note(f"✅ <code>{rich_esc(word)}</code> added to blacklist."))
-
-@bot.on_message(filters.command("rmblacklist"))
-async def rmblacklist_cmd(_, message: Message):
-    if not await is_admin(message.chat.id, message.from_user.id):
-        return await rich_reply(message, rich_heading("❌ Admins only", level=3))
-    if len(message.command) < 2:
-        return await rich_reply(message, rich_note("❌ Usage: <code>/rmblacklist &lt;word&gt;</code>"))
-    word = " ".join(message.command[1:]).lower().strip()
-    col = _blacklist_col()
-    if col is not None:
-        col.update_one({"chat_id": message.chat.id}, {"$pull": {"words": word}})
-    await rich_reply(message, rich_note(f"✅ <code>{rich_esc(word)}</code> removed."))
-
-@bot.on_message(filters.command("blacklist"))
-async def blacklist_list_cmd(_, message: Message):
-    col = _blacklist_col()
-    if col is None:
-        return await rich_reply(message, rich_note("❌ DB not connected"))
-    doc = col.find_one({"chat_id": message.chat.id})
-    words = doc.get("words", []) if doc else []
-    if not words:
-        return await rich_reply(message, rich_note("✅ No blacklisted words"))
-    rows = [(f"<code>{rich_esc(w)}</code>", "") for w in words]
-    await rich_reply(message, rich_heading("🚫 Blacklisted Words", level=3) + rich_kv_table(rows))
-
-@bot.on_message(filters.group, group=16)
-async def mgmt_blacklist_checker(_, message: Message):
-    if not message.chat or message.chat.type == "private": return
-    if message.from_user and await is_admin(message.chat.id, message.from_user.id): return
-    text = (message.text or message.caption or "").lower()
-    if not text: return
-    col = _blacklist_col()
-    if col is None: return
-    doc = col.find_one({"chat_id": message.chat.id})
-    words = doc.get("words", []) if doc else []
-    for word in words:
-        if word in text:
-            try: await message.delete()
-            except Exception: pass
-            threshold = get_chat_setting(message.chat.id, "warn_threshold", 3)
-            wcol = _warnings_col()
-            if wcol is not None:
-                wcol.update_one({"chat_id": message.chat.id, "user_id": message.from_user.id}, {"$inc": {"count": 1}, "$push": {"reasons": {"reason": f"Blacklisted: {word}", "ts": datetime.now(timezone.utc).isoformat()}}}, upsert=True)
-                doc2 = wcol.find_one({"chat_id": message.chat.id, "user_id": message.from_user.id})
-                count = doc2.get("count", 1) if doc2 else 1
-                await bot.send_message(message.chat.id, f"⚠️ {message.from_user.first_name} warned for blacklisted word. {count}/{threshold}")
-                if count >= threshold:
-                    try: await bot.ban_chat_member(message.chat.id, message.from_user.id)
-                    except Exception: pass
-            return
+    reason = locked_message_reason(message, lambda kind: get_chat_setting(message.chat.id, "lock_" + kind, False) or (kind == "forward" and get_chat_setting(message.chat.id, "lock_forwards", False)))
+    if reason:
+        try:
+            await message.delete()
+        except Exception:
+            logger.debug("Lock deletion failed", exc_info=True)
 
 # ── Filters ───────────────────────────────────────────────────────────────────
-@bot.on_message(filters.command("filter"))
+@bot.on_message(filters.command("filter") & filters.group)
 async def filter_add_cmd(_, message: Message):
-    if not await is_admin(message.chat.id, message.from_user.id):
+    if not message.from_user or not await is_admin(message.chat.id, message.from_user.id):
         return await rich_reply(message, rich_heading("❌ Admins only", level=3))
     if len(message.command) < 3:
-        return await rich_reply(message, rich_note("❌ Usage: <code>/filter &lt;keyword&gt; &lt;reply&gt;</code>"))
+        return await rich_reply(message, command_notice('Usage: <code>/filter &lt;keyword&gt; &lt;reply&gt;</code>', status='error', title='How to use this command'))
     keyword = message.command[1].lower().strip()
     reply = " ".join(message.command[2:])
     if message.reply_to_message:
         reply = message.reply_to_message.text or reply
     col = _filters_col()
     if col is None:
-        return await rich_reply(message, rich_note("❌ DB not connected"))
+        return await rich_reply(message, command_notice('DB not connected', status='error'))
     col.update_one({"chat_id": message.chat.id, "keyword": keyword}, {"$set": {"reply": reply}}, upsert=True)
-    await rich_reply(message, rich_note(f"✅ Filter <code>{rich_esc(keyword)}</code> saved → <code>{rich_esc(reply[:50])}</code>"))
+    await rich_reply(message, command_notice(f'Filter <code>{rich_esc(keyword)}</code> saved → <code>{rich_esc(reply[:50])}</code>', status='success'))
 
-@bot.on_message(filters.command("stop"))
+@bot.on_message(filters.command("stopfilter") & filters.group)
 async def filter_stop_cmd(_, message: Message):
-    if not await is_admin(message.chat.id, message.from_user.id):
+    if not message.from_user or not await is_admin(message.chat.id, message.from_user.id):
         return await rich_reply(message, rich_heading("❌ Admins only", level=3))
     if len(message.command) < 2:
-        return await rich_reply(message, rich_note("❌ Usage: <code>/stop &lt;keyword&gt;</code>"))
+        return await rich_reply(message, command_notice('Usage: <code>/stop &lt;keyword&gt;</code>', status='error', title='How to use this command'))
     keyword = message.command[1].lower().strip()
     col = _filters_col()
     if col is not None:
         r = col.delete_one({"chat_id": message.chat.id, "keyword": keyword})
         if r.deleted_count:
-            return await rich_reply(message, rich_note(f"✅ Filter <code>{rich_esc(keyword)}</code> removed."))
-    await rich_reply(message, rich_note(f"❌ No filter <code>{rich_esc(keyword)}</code> found."))
+            return await rich_reply(message, command_notice(f'Filter <code>{rich_esc(keyword)}</code> removed.', status='success'))
+    await rich_reply(message, command_notice(f'No filter <code>{rich_esc(keyword)}</code> found.', status='error'))
 
-@bot.on_message(filters.command("filters"))
+@bot.on_message(filters.command("filters") & filters.group)
 async def filters_list_cmd(_, message: Message):
     col = _filters_col()
     if col is None:
-        return await rich_reply(message, rich_note("❌ DB not connected"))
+        return await rich_reply(message, command_notice('DB not connected', status='error'))
     docs = list(col.find({"chat_id": message.chat.id}))
     if not docs:
-        return await rich_reply(message, rich_note("✅ No filters in this chat"))
+        return await rich_reply(message, command_notice('No filters in this chat', status='success'))
     rows = [(f"<code>{rich_esc(d['keyword'])}</code>", f"<code>{rich_esc(d['reply'][:30])}</code>") for d in docs]
     await rich_reply(message, rich_heading("🔤 Filters", level=3) + rich_kv_table(rows))
 
@@ -621,12 +419,12 @@ async def mgmt_filter_checker(_, message: Message):
             break
 
 # ── Notes ─────────────────────────────────────────────────────────────────────
-@bot.on_message(filters.command("save"))
+@bot.on_message(filters.command("save") & filters.group)
 async def save_note_cmd(_, message: Message):
-    if not await is_admin(message.chat.id, message.from_user.id):
+    if not message.from_user or not await is_admin(message.chat.id, message.from_user.id):
         return await rich_reply(message, rich_heading("❌ Admins only", level=3))
     if len(message.command) < 2:
-        return await rich_reply(message, rich_note("❌ Usage: <code>/save &lt;name&gt; &lt;content&gt;</code> or reply with <code>/save &lt;name&gt;</code>"))
+        return await rich_reply(message, command_notice('Usage: <code>/save &lt;name&gt; &lt;content&gt;</code> or reply with <code>/save &lt;name&gt;</code>', status='error', title='How to use this command'))
     name = message.command[1].lower().strip()
     content = " ".join(message.command[2:]) if len(message.command) > 2 else ""
     note_type = "text"
@@ -640,19 +438,19 @@ async def save_note_cmd(_, message: Message):
         elif r.audio: content, note_type, caption = r.audio.file_id, "audio", r.caption or ""
         elif r.sticker: content, note_type = r.sticker.file_id, "sticker"
     if not content:
-        return await rich_reply(message, rich_note("❌ Provide content"))
+        return await rich_reply(message, command_notice('Provide content', status='error'))
     col = _notes_col()
     if col is None:
-        return await rich_reply(message, rich_note("❌ DB not connected"))
+        return await rich_reply(message, command_notice('DB not connected', status='error'))
     doc = {"chat_id": message.chat.id, "name": name, "content": content, "type": note_type}
     if caption: doc["caption"] = caption
     col.update_one({"chat_id": message.chat.id, "name": name}, {"$set": doc}, upsert=True)
-    await rich_reply(message, rich_note(f"✅ Note <code>{rich_esc(name)}</code> saved. Get with <code>#{rich_esc(name)}</code> or <code>/get {rich_esc(name)}</code>"))
+    await rich_reply(message, command_notice(f'Note <code>{rich_esc(name)}</code> saved. Get with <code>#{rich_esc(name)}</code> or <code>/get {rich_esc(name)}</code>', status='success'))
 
-@bot.on_message(filters.command("get"))
+@bot.on_message(filters.command("get") & filters.group)
 async def get_note_cmd(_, message: Message):
     if len(message.command) < 2:
-        return await rich_reply(message, rich_note("❌ Usage: <code>/get &lt;name&gt;</code>"))
+        return await rich_reply(message, command_notice('Usage: <code>/get &lt;name&gt;</code>', status='error', title='How to use this command'))
     name = message.command[1].lower().strip()
     await send_note(message.chat.id, name, reply_to=message.id)
 
@@ -661,7 +459,7 @@ async def send_note(chat_id: int, name: str, reply_to=None):
     if col is None: return
     doc = col.find_one({"chat_id": chat_id, "name": name.lower()})
     if not doc:
-        await bot.send_message(chat_id, f"❌ No note `{name}` found.")
+        await rich_send(bot, chat_id, rich_heading("Note not found", level=3) + rich_note(f"No saved note named <code>{rich_esc(name)}</code>."), reply_to_message_id=reply_to)
         return
     t, content, caption = doc.get("type", "text"), doc["content"], doc.get("caption", "")
     try:
@@ -674,27 +472,27 @@ async def send_note(chat_id: int, name: str, reply_to=None):
     except Exception as e:
         logger.debug(f"send_note fail: {e}")
 
-@bot.on_message(filters.command("delnote"))
+@bot.on_message(filters.command("delnote") & filters.group)
 async def delnote_cmd(_, message: Message):
-    if not await is_admin(message.chat.id, message.from_user.id):
+    if not message.from_user or not await is_admin(message.chat.id, message.from_user.id):
         return await rich_reply(message, rich_heading("❌ Admins only", level=3))
     if len(message.command) < 2:
-        return await rich_reply(message, rich_note("❌ Usage: <code>/delnote &lt;name&gt;</code>"))
+        return await rich_reply(message, command_notice('Usage: <code>/delnote &lt;name&gt;</code>', status='error', title='How to use this command'))
     name = message.command[1].lower().strip()
     col = _notes_col()
     if col is not None and col.delete_one({"chat_id": message.chat.id, "name": name}).deleted_count:
-        await rich_reply(message, rich_note(f"✅ Note <code>{rich_esc(name)}</code> deleted."))
+        await rich_reply(message, command_notice(f'Note <code>{rich_esc(name)}</code> deleted.', status='success'))
     else:
-        await rich_reply(message, rich_note(f"❌ No note <code>{rich_esc(name)}</code> found."))
+        await rich_reply(message, command_notice(f'No note <code>{rich_esc(name)}</code> found.', status='error'))
 
-@bot.on_message(filters.command("notes"))
+@bot.on_message(filters.command("notes") & filters.group)
 async def notes_list_cmd(_, message: Message):
     col = _notes_col()
     if col is None:
-        return await rich_reply(message, rich_note("❌ DB not connected"))
+        return await rich_reply(message, command_notice('DB not connected', status='error'))
     docs = list(col.find({"chat_id": message.chat.id}, {"name": 1}))
     if not docs:
-        return await rich_reply(message, rich_note("✅ No notes in this chat"))
+        return await rich_reply(message, command_notice('No notes in this chat', status='success'))
     rows = [(f"<code>#{rich_esc(d['name'])}</code>", "") for d in docs]
     await rich_reply(message, rich_heading("📝 Saved Notes", level=3) + rich_kv_table(rows))
 
@@ -707,71 +505,40 @@ async def mgmt_notes_trigger(_, message: Message):
         await send_note(message.chat.id, m.group(1), reply_to=message.id)
 
 # ── Greetings & Captcha ───────────────────────────────────────────────────────
-@bot.on_message(filters.command("setwelcome"))
+@bot.on_message(filters.command("setwelcome") & filters.group)
 async def setwelcome_cmd(_, message: Message):
-    if not await is_admin(message.chat.id, message.from_user.id):
+    if not message.from_user or not await is_admin(message.chat.id, message.from_user.id):
         return await rich_reply(message, rich_heading("❌ Admins only", level=3))
     content = " ".join(message.command[1:]) if len(message.command) > 1 else ""
     if not content:
-        return await rich_reply(message, rich_note("❌ Usage: <code>/setwelcome &lt;message&gt;</code> — placeholders: <code>{name} {id} {title}</code>"))
-    set_chat_setting(message.chat.id, "welcome_message", content)
-    await rich_reply(message, rich_note("✅ Welcome message updated."))
+        return await rich_reply(message, command_notice('Usage: <code>/setwelcome &lt;message&gt;</code> — placeholders: <code>{name} {id} {title}</code>', status='error', title='How to use this command'))
+    if not set_chat_setting(message.chat.id, "welcome_message", content):
+        return await rich_reply(message, rich_note("MongoDB is unavailable. Nothing was saved."))
+    await rich_reply(message, command_notice('Welcome message updated.', status='success'))
 
-@bot.on_message(filters.command("welcome"))
+@bot.on_message(filters.command("welcome") & filters.group)
 async def welcome_toggle_cmd(_, message: Message):
-    if not await is_admin(message.chat.id, message.from_user.id):
+    if not message.from_user or not await is_admin(message.chat.id, message.from_user.id):
         return await rich_reply(message, rich_heading("❌ Admins only", level=3))
     if len(message.command) < 2 or message.command[1].lower() not in ("on", "off"):
-        return await rich_reply(message, rich_note("❌ Usage: <code>/welcome on|off</code>"))
+        return await rich_reply(message, command_notice('Usage: <code>/welcome on|off</code>', status='error', title='How to use this command'))
     enabled = message.command[1].lower() == "on"
-    set_chat_setting(message.chat.id, "welcome_enabled", enabled)
-    await rich_reply(message, rich_note(f"✅ Welcome messages {'enabled' if enabled else 'disabled'}."))
+    if not set_chat_setting(message.chat.id, "welcome_enabled", enabled):
+        return await rich_reply(message, rich_note("MongoDB is unavailable. Nothing was saved."))
+    await rich_reply(message, command_notice(f"Welcome messages {('enabled' if enabled else 'disabled')}.", status='success'))
 
-@bot.on_message(filters.command("setcaptcha"))
+@bot.on_message(filters.command("setcaptcha") & filters.group)
 async def setcaptcha_cmd(_, message: Message):
-    if not await is_admin(message.chat.id, message.from_user.id):
+    if not message.from_user or not await is_admin(message.chat.id, message.from_user.id):
         return await rich_reply(message, rich_heading("❌ Admins only", level=3))
     if len(message.command) < 2 or message.command[1].lower() not in ("on", "off"):
-        return await rich_reply(message, rich_note("❌ Usage: <code>/setcaptcha on|off</code>"))
+        return await rich_reply(message, command_notice('Usage: <code>/setcaptcha on|off</code>', status='error', title='How to use this command'))
     enabled = message.command[1].lower() == "on"
-    set_chat_setting(message.chat.id, "captcha_enabled", enabled)
-    await rich_reply(message, rich_note(f"✅ Captcha {'enabled' if enabled else 'disabled'}."))
+    if not set_chat_setting(message.chat.id, "captcha_enabled", enabled):
+        return await rich_reply(message, rich_note("MongoDB is unavailable. Nothing was saved."))
+    await rich_reply(message, command_notice(f"Captcha {('enabled' if enabled else 'disabled')}.", status='success'))
 
-def _gen_captcha():
-    a, b = random.randint(1, 10), random.randint(1, 10)
-    op = random.choice(["+", "-", "×"])
-    if op == "+": ans = a + b
-    elif op == "-": ans = a - b
-    else: ans = a * b
-    return f"What is {a} {op} {b}?", str(ans)
-
-async def _send_captcha(chat_id: int, user_id: int, user_name: str):
-    q, ans = _gen_captcha()
-    wrong1 = str(int(ans) + random.choice([-1, 1, 2, -2]))
-    wrong2 = str(int(ans) + random.choice([3, -3, 4, -4]))
-    opts = [ans, wrong1, wrong2]
-    random.shuffle(opts)
-    kb = InlineKeyboardMarkup([[InlineKeyboardButton(opt, callback_data=f"mgmt_cap_{user_id}_{opt}_{ans}") for opt in opts]])
-    try:
-        m = await visual_call(bot.send_message, chat_id, text=f"👋 Welcome {user_name}!\n{q}\nVerify in 120s or you'll be kicked.", reply_markup=kb)
-        # Save challenge
-        ccol = _captcha_col()
-        if ccol is not None:
-            ccol.update_one({"chat_id": chat_id, "user_id": user_id}, {"$set": {"answer": ans, "msg_id": m.id, "ts": time.time()}}, upsert=True)
-        # Auto-kick timer
-        async def _kick_timeout():
-            await asyncio.sleep(120)
-            c = ccol.find_one({"chat_id": chat_id, "user_id": user_id}) if ccol is not None else None
-            if c:
-                try:
-                    await bot.ban_chat_member(chat_id, user_id)
-                    await bot.unban_chat_member(chat_id, user_id)
-                    await bot.send_message(chat_id, f"⏰ {user_name} kicked for not verifying (captcha timeout)")
-                    ccol.delete_one({"chat_id": chat_id, "user_id": user_id})
-                except Exception: pass
-        asyncio.create_task(_kick_timeout())
-    except Exception as e:
-        logger.debug(f"captcha send fail: {e}")
+from videl.utils.captcha import issue_challenge as _send_captcha, answer_challenge
 
 @bot.on_message(filters.new_chat_members, group=5)
 async def mgmt_welcome_handler(_, message: Message):
@@ -784,132 +551,103 @@ async def mgmt_welcome_handler(_, message: Message):
         if get_chat_setting(message.chat.id, "welcome_enabled", True):
             tmpl = get_chat_setting(message.chat.id, "welcome_message", "Welcome {name} to {title}! 👋")
             try:
-                txt = tmpl.format(name=member.first_name, id=member.id, title=message.chat.title or "group", mention=f"@{member.username}" if getattr(member, "username", None) else member.first_name)
+                txt = tmpl.format(name=rich_esc(member.first_name), id=member.id, title=rich_esc(message.chat.title or "group"), mention=rich_esc(f"@{member.username}" if getattr(member, "username", None) else member.first_name))
             except Exception:
                 txt = tmpl
             try:
                 await bot.send_message(message.chat.id, txt)
             except Exception: pass
-        # Captcha
-        if get_chat_setting(message.chat.id, "captcha_enabled", False):
-            # Restrict new user
-            try:
-                from pyrogram.types import ChatPermissions
-                await bot.restrict_chat_member(message.chat.id, member.id, ChatPermissions(can_send_messages=False))
-            except Exception: pass
+        # Stateful CAPTCHA handles restrictions, saved challenges and safe rollback.
+        if not member.is_bot and get_chat_setting(message.chat.id, "captcha_enabled", False) and not is_approved(message.chat.id, member.id):
             await _send_captcha(message.chat.id, member.id, member.first_name or "New user")
 
-@bot.on_callback_query(filters.regex(r"^mgmt_cap_"))
+@bot.on_callback_query(filters.regex(r"^verify:"))
 async def mgmt_captcha_callback(_, cq: CallbackQuery):
-    try:
-        _, user_id, chosen, ans = cq.data.split("_", 3)
-        user_id = int(user_id)
-        if cq.from_user.id != user_id and not await is_admin(cq.message.chat.id, cq.from_user.id):
-            return await cq.answer("This captcha is not for you!", show_alert=True)
-        if chosen == ans:
-            # Correct — unrestrict
-            try:
-                from pyrogram.types import ChatPermissions
-                await bot.restrict_chat_member(cq.message.chat.id, user_id, ChatPermissions(can_send_messages=True, can_send_media_messages=True, can_send_other_messages=True, can_add_web_page_previews=True))
-            except Exception: pass
-            ccol = _captcha_col()
-            if ccol is not None:
-                ccol.delete_one({"chat_id": cq.message.chat.id, "user_id": user_id})
-            await cq.message.edit_text(f"✅ {cq.from_user.first_name} verified! Welcome 🎉")
-            await cq.answer("Verified ✅")
-        else:
-            await cq.answer("❌ Wrong answer! Try again.", show_alert=True)
-            # Kick on wrong
-            try:
-                await bot.ban_chat_member(cq.message.chat.id, user_id)
-                await bot.unban_chat_member(cq.message.chat.id, user_id)
-                await cq.message.edit_text(f"❌ {cq.from_user.first_name} failed captched and was kicked.")
-            except Exception: pass
-    except Exception as e:
-        logger.debug(f"captcha callback fail: {e}")
-        await cq.answer("Error", show_alert=False)
+    await answer_challenge(cq)
 
 # ── Pins, Purge, Slowmode ────────────────────────────────────────────────────
-@bot.on_message(filters.command(["pin", "unpin", "unpinall"]))
+@bot.on_message(filters.command(["pin", "unpin", "unpinall"]) & filters.group)
 async def pin_cmds(_, message: Message):
-    if not await is_admin(message.chat.id, message.from_user.id):
+    if not message.from_user or not await is_admin(message.chat.id, message.from_user.id):
         return await rich_reply(message, rich_heading("❌ Admins only", level=3))
     cmd = message.command[0].lower()
     try:
         if cmd == "pin":
             if not message.reply_to_message:
-                return await rich_reply(message, rich_note("❌ Reply to a message to pin."))
+                return await rich_reply(message, command_notice('Reply to a message to pin.', status='error'))
             await bot.pin_chat_message(message.chat.id, message.reply_to_message.id, disable_notification=False)
             await rich_reply(message, rich_note("📌 Message pinned."))
         elif cmd == "unpin":
             await bot.unpin_chat_message(message.chat.id)
-            await rich_reply(message, rich_note("✅ Message unpinned."))
+            await rich_reply(message, command_notice('Message unpinned.', status='success'))
         elif cmd == "unpinall":
             await bot.unpin_all_chat_messages(message.chat.id)
-            await rich_reply(message, rich_note("✅ All pins removed."))
+            await rich_reply(message, command_notice('All pins removed.', status='success'))
     except Exception as e:
-        await rich_reply(message, rich_note(f"❌ Failed: <code>{rich_esc(str(e))}</code>"))
+        await rich_reply(message, command_notice(f'Failed: <code>{rich_esc(str(e))}</code>', status='error'))
 
-@bot.on_message(filters.command(["purge", "cleanup"]))
+@bot.on_message(filters.command(["purge", "cleanup"]) & filters.group)
 async def purge_cmd(_, message: Message):
-    if not await is_admin(message.chat.id, message.from_user.id):
+    if not message.from_user or not await is_admin(message.chat.id, message.from_user.id):
         return await rich_reply(message, rich_heading("❌ Admins only", level=3))
     if message.command[0].lower() == "purge":
         if not message.reply_to_message:
-            return await rich_reply(message, rich_note("❌ Reply to the first message to purge from."))
+            return await rich_reply(message, command_notice('Reply to the first message to purge from.', status='error'))
         start, end = message.reply_to_message.id, message.id
         deleted = 0
         for mid in range(start, end):
             try: await bot.delete_messages(message.chat.id, mid); deleted += 1
             except Exception: pass
-        await bot.send_message(message.chat.id, f"✅ Purged {deleted} messages.")
+        await rich_send(bot, message.chat.id, rich_heading("Purge results", level=3) + rich_note(f"Telegram confirmed deletion of {deleted} messages."))
     else:
         count = int(message.command[1]) if len(message.command) > 1 and message.command[1].isdigit() else 0
         if not (1 <= count <= 100):
-            return await rich_reply(message, rich_note("❌ Usage: <code>/cleanup &lt;1-100&gt;</code>"))
+            return await rich_reply(message, command_notice('Usage: <code>/cleanup &lt;1-100&gt;</code>', status='error', title='How to use this command'))
         deleted = 0
         for off in range(count):
             try: await bot.delete_messages(message.chat.id, message.id - off); deleted += 1
             except Exception: pass
-        await bot.send_message(message.chat.id, f"✅ Deleted {deleted} messages.")
+        await rich_send(bot, message.chat.id, rich_heading("Cleanup results", level=3) + rich_note(f"Telegram confirmed deletion of {deleted} messages."))
 
-@bot.on_message(filters.command("slowmode"))
+@bot.on_message(filters.command("slowmode") & filters.group)
 async def slowmode_cmd(_, message: Message):
-    if not await is_admin(message.chat.id, message.from_user.id):
+    if not message.from_user or not await is_admin(message.chat.id, message.from_user.id):
         return await rich_reply(message, rich_heading("❌ Admins only", level=3))
     if len(message.command) < 2 or not message.command[1].isdigit():
-        return await rich_reply(message, rich_note("❌ Usage: <code>/slowmode &lt;seconds&gt;</code> (0 to disable)"))
+        return await rich_reply(message, command_notice('Usage: <code>/slowmode &lt;seconds&gt;</code> (0 to disable)', status='error', title='How to use this command'))
     sec = int(message.command[1])
     try:
         await bot.set_chat_slow_mode(message.chat.id, sec)
-        await rich_reply(message, rich_note(f"✅ Slowmode {'disabled' if sec==0 else f'set to {sec}s'}"))
+        await rich_reply(message, command_notice(f"Slowmode {('disabled' if sec == 0 else f'set to {sec}s')}", status='success'))
     except Exception as e:
-        await rich_reply(message, rich_note(f"❌ Failed: <code>{rich_esc(str(e))}</code>"))
+        await rich_reply(message, command_notice(f'Failed: <code>{rich_esc(str(e))}</code>', status='error'))
 
 # ── Rules ─────────────────────────────────────────────────────────────────────
-@bot.on_message(filters.command("setrules"))
+@bot.on_message(filters.command("setrules") & filters.group)
 async def setrules_cmd(_, message: Message):
-    if not await is_admin(message.chat.id, message.from_user.id):
+    if not message.from_user or not await is_admin(message.chat.id, message.from_user.id):
         return await rich_reply(message, rich_heading("❌ Admins only", level=3))
     content = " ".join(message.command[1:]) if len(message.command) > 1 else ""
     if not content:
-        return await rich_reply(message, rich_note("❌ Usage: <code>/setrules &lt;rules&gt;</code>"))
-    set_chat_setting(message.chat.id, "rules", content)
-    await rich_reply(message, rich_note("✅ Rules updated."))
+        return await rich_reply(message, command_notice('Usage: <code>/setrules &lt;rules&gt;</code>', status='error', title='How to use this command'))
+    if not set_chat_setting(message.chat.id, "rules", content):
+        return await rich_reply(message, rich_note("MongoDB is unavailable. Nothing was saved."))
+    await rich_reply(message, command_notice('Rules updated.', status='success'))
 
-@bot.on_message(filters.command("rules"))
+@bot.on_message(filters.command("rules") & filters.group)
 async def rules_cmd(_, message: Message):
     rules = get_chat_setting(message.chat.id, "rules", None)
     if not rules:
-        return await rich_reply(message, rich_note("❌ No rules set"))
+        return await rich_reply(message, command_notice('No rules set', status='error'))
     await rich_reply(message, rich_heading("📜 Group Rules", level=3) + rich_note(rules))
 
-@bot.on_message(filters.command("clearrules"))
+@bot.on_message(filters.command("clearrules") & filters.group)
 async def clearrules_cmd(_, message: Message):
-    if not await is_admin(message.chat.id, message.from_user.id):
+    if not message.from_user or not await is_admin(message.chat.id, message.from_user.id):
         return await rich_reply(message, rich_heading("❌ Admins only", level=3))
-    set_chat_setting(message.chat.id, "rules", None)
-    await rich_reply(message, rich_note("✅ Rules cleared."))
+    if not set_chat_setting(message.chat.id, "rules", None):
+        return await rich_reply(message, rich_note("MongoDB is unavailable. Nothing was saved."))
+    await rich_reply(message, command_notice('Rules cleared.', status='success'))
 
 # ── Group utilities ─────────────────────────────────────────────────────────
 @bot.on_message(filters.command(["poll", "quiz"]))
@@ -932,42 +670,9 @@ async def stickerid_cmd(_, message: Message):
     if message.reply_to_message and message.reply_to_message.sticker:
         await rich_reply(message, rich_code(message.reply_to_message.sticker.file_id, lang=""))
     else:
-        await rich_reply(message, rich_note("❌ Reply to a sticker"))
+        await rich_reply(message, command_notice('Reply to a sticker', status='error'))
 
 # ── Misc: help/id/whois/stats ────────────────────────────────────────────────
-@bot.on_message(filters.command("help"))
-async def help_cmd(_, message: Message):
-    await rich_reply(message, rich_heading("📖 Videl Help — Videl Powered", level=2) + rich_note("Select a category:") , reply_markup=help_keyboard())
-
-@bot.on_callback_query(filters.regex(r"^mgmt_help_"))
-async def help_callback(_, cq: CallbackQuery):
-    data = cq.data
-    texts = {
-        "mgmt_help_mod": "🛡 <b>Moderation</b>\n<code>/ban</code> • <code>/tban 1h</code> • <code>/unban</code> • <code>/kick</code> • <code>/mute</code> • <code>/tmute 10m</code> • <code>/unmute</code>\n<code>/warn</code> • <code>/unwarn</code> • <code>/warnings</code> • <code>/clearwarns</code> • <code>/setwarnlimit 3</code>\n<code>/promote</code> • <code>/demote</code> • <code>/banlist</code> • <code>/admins</code>",
-        "mgmt_help_settings": "⚙️ <b>Settings</b>\n<code>/setwelcome</code> • <code>/welcome on|off</code> • <code>/setcaptcha on|off</code>\n<code>/setrules</code> • <code>/rules</code> • <code>/clearrules</code>\n<code>/lock links|media|stickers|all</code> • <code>/unlock</code> • <code>/locks</code>\n<code>/slowmode 10</code> • <code>/slowmode 0</code> to disable",
-        "mgmt_help_notes": "📝 <b>Notes & Filters</b>\n<code>/save name content</code> • <code>/get name</code> • <code>#name</code> trigger • <code>/delnote name</code> • <code>/notes</code>\n<code>/filter keyword reply</code> • <code>/stop keyword</code> • <code>/filters</code>\n<code>/addblacklist word</code> • <code>/rmblacklist word</code> • <code>/blacklist</code>",
-        "mgmt_help_admin": "🔧 <b>Admin Tools</b>\n<code>/pin</code> (reply) • <code>/unpin</code> • <code>/unpinall</code>\n<code>/purge</code> (reply) • <code>/cleanup 5</code>",
-        "mgmt_help_misc": "ℹ️ <b>Misc</b>\n<code>/id</code> • <code>/whois @user</code> • <code>/stats</code>",
-    }
-    key = data.replace("mgmt_help_", "mgmt_help_" if data.startswith("mgmt_help_") else data)
-    txt = texts.get(data, "Select a category")
-    kb = InlineKeyboardMarkup([[InlineKeyboardButton("« Back", callback_data="mgmt_help_back")]])
-    await rich_edit(cq.message, txt, reply_markup=kb)
-    await cq.answer()
-
-@bot.on_callback_query(filters.regex(r"^mgmt_help_back$"))
-async def help_back(_, cq: CallbackQuery):
-    await rich_edit(cq.message, rich_heading("📖 Videl Help", level=2) + rich_note("Select a category"), reply_markup=help_keyboard())
-    await cq.answer()
-
-@bot.on_message(filters.command("id"))
-async def id_cmd(_, message: Message):
-    chat_id = message.chat.id
-    user_id = message.from_user.id if message.from_user else "—"
-    text = rich_heading("🆔 IDs", level=3) + rich_kv_table([("Chat", f"<code>{chat_id}</code>"), ("You", f"<code>{user_id}</code>")])
-    if message.reply_to_message and message.reply_to_message.from_user:
-        text += rich_kv_table([("Replied", f"<code>{message.reply_to_message.from_user.id}</code> — {rich_esc(message.reply_to_message.from_user.first_name)}")])
-    await rich_reply(message, text)
 
 @bot.on_message(filters.command("whois"))
 async def whois_cmd(_, message: Message):
@@ -993,7 +698,7 @@ async def whois_cmd(_, message: Message):
 async def stats_cmd(_, message: Message):
     db = _db()
     if db is None:
-        return await rich_reply(message, rich_note("❌ DB not connected"))
+        return await rich_reply(message, command_notice('DB not connected', status='error'))
     try:
         chat_count = db["mgmt_chat_settings"].count_documents({}) if "mgmt_chat_settings" in db.list_collection_names() else 0
         warn_count = db["mgmt_warnings"].count_documents({}) if "mgmt_warnings" in db.list_collection_names() else 0
@@ -1007,4 +712,4 @@ async def stats_cmd(_, message: Message):
     m, s = divmod(r, 60)
     await rich_reply(message, rich_heading("📊 Videl Stats", level=3) + rich_kv_table([("Uptime", f"<code>{h}h {m}m {s}s</code>"), ("Chats", f"<code>{chat_count}</code>"), ("Warnings", f"<code>{warn_count}</code>"), ("Notes", f"<code>{note_count}</code>"), ("Bot", f"@{getattr(config, 'BOT_USERNAME', 'Videl0Bot')}")]))
 
-LOGGER.info(" Videl → Videl integrated ✅ — all 9 modules ported, Richgram UI, credits → Videl")
+LOGGER.info("Group management handlers loaded with Richgram command UI")

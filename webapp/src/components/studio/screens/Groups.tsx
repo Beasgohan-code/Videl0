@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import {useStudio} from "../StudioProvider";
 import {
   AlertCircle,
   ExternalLink,
@@ -54,6 +55,7 @@ const controls = [
 export default function GroupsPage({
   automation = false,
 }: { automation?: boolean } = {}) {
+  const {open,selectGroup} = useStudio();
   const savingRef = useRef(false);
   const [query, setQuery] = useState("");
   const [groups, setGroups] = useState<Group[]>([]);
@@ -153,6 +155,7 @@ export default function GroupsPage({
           {error}
         </div>
       )}
+      {active && <button onClick={()=>{selectGroup(active.id);open('chat');}} className="ios-btn ios-btn-primary mt-5 text-sm">View messages & moderate · {active.title}</button>}
       <div className="mt-6 grid gap-4 lg:grid-cols-[0.9fr_1.1fr]">
         <section className="ios-card p-4 sm:p-5">
           <div className="flex items-center justify-between">

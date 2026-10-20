@@ -19,7 +19,7 @@ from videl import bot as test_bot
 with patch.object(test_bot, "add_handler"):
     api_tools_module = importlib.import_module("videl.modules.api_tools")
     management_module = importlib.import_module("videl.modules.management_core")
-    start_module = importlib.import_module("videl.modules.start")
+    start_module = importlib.import_module("videl.app.general")
 
 
 class PollTests(unittest.TestCase):
@@ -163,21 +163,23 @@ class KeyboardTests(unittest.TestCase):
         self.assertEqual(tg_emoji("9999999999999999999", "Hi"), "Hi")
 
     def test_start_uses_signed_mini_app_launch_buttons_in_private(self):
-        from videl.modules.start import _start_kb
+        from videl.app.general import start_keyboard
 
-        private = _start_kb(True).inline_keyboard
-        group = _start_kb(False).inline_keyboard
-        self.assertIsNotNone(private[0][0].web_app)
-        self.assertIsNotNone(private[2][0].web_app)
-        self.assertIsNotNone(group[0][0].url)
+        private = start_keyboard(True).inline_keyboard
+        group = start_keyboard(False).inline_keyboard
+        self.assertIsNotNone(private[-1][0].web_app)
+        owner = start_keyboard(True, owner=True).inline_keyboard
+        self.assertIsNotNone(owner[0][0].web_app)
+        self.assertFalse(any(item.callback_data == "cmds:owner:0" for row in private for item in row))
+        self.assertIsNotNone(group[-1][0].url)
 
     def test_missing_database_is_not_displayed_as_zero(self):
-        from videl.modules.start import _studio_private_caption
+        from videl.app.general import start_caption
 
         with patch(
             "videl.utils.db.read_live_totals", side_effect=RuntimeError("offline")
         ):
-            self.assertIn("Unavailable", _studio_private_caption(1, "Owner"))
+            self.assertIn("Unavailable", start_caption(6265999542, "Owner"))
 
 
 class AsyncBehaviorTests(unittest.IsolatedAsyncioTestCase):

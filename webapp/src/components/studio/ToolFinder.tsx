@@ -37,8 +37,8 @@ const tools: {
   },
   {
     tab: "chat",
-    title: "Smart Chat",
-    description: "Send messages as your bot or user session",
+    title: "Bot inbox",
+    description: "Bot DMs, groups, photos, voice and chat settings",
     icon: MessageCircle,
   },
   {

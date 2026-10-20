@@ -1,15 +1,16 @@
 """Curated production modules; demo, entertainment and AI modules are excluded."""
 ALL_MODULES = [
+    "group_view", "application",
     # Telegram voice-chat music. These are the real PyTgCalls handlers, not the
     # retired simulated music_pro adapter.
     "play", "cplay", "autoplay", "smartqueue", "playlist", "effects",
-    "seek", "pause", "resume", "skip", "stop", "lyrics", "downloader",
+    "seek",  "lyrics", "downloader",
     "block",
     # MongoDB-backed group management and distinct moderation features.
-    "management_core", "federation", "blocklist", "approve", "wizard",
+    "management_core", "federation", "blocklist", "approve", "group_manager",
     # General operations, owner diagnostics and live command telemetry.
-    "bot", "callbacks", "start", "misc", "ping", "broadcast",
-    "utils_extra", "analytics", "logs", "owner_utils",
+    "bot", "callbacks", "misc", "broadcast",
+    "analytics", "owner_utils", "activity",
     # Curated, implemented professional utility commands.
-    "plugins_loader", "professional", "api_tools",
+    "plugins_loader", "api_tools",
 ]

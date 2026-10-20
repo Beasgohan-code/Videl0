@@ -1,3 +1,4 @@
+import { parseButtons } from "./post-buttons";
 import type { BtnRow } from "@/components/editor/ButtonBuilder";
 
 export type PostDraft = {
@@ -30,24 +31,7 @@ export function parseDraft(value: unknown): PostDraft | null {
     d.mediaUrl.length <= 2048
       ? d.mediaUrl
       : "";
-  const buttons: BtnRow[] = [];
-  if (Array.isArray(d.buttons))
-    for (const row of d.buttons.slice(0, 8)) {
-      if (!Array.isArray(row)) continue;
-      const clean = row
-        .filter(
-          (b) =>
-            b &&
-            typeof b.text === "string" &&
-            b.text.length <= 64 &&
-            typeof b.url === "string" &&
-            /^https?:\/\//i.test(b.url) &&
-            b.url.length <= 2048,
-        )
-        .slice(0, 8)
-        .map((b) => ({ text: b.text, url: b.url }));
-      if (clean.length) buttons.push(clean);
-    }
+  const buttons = parseButtons(d.buttons);
   return {
     id: d.id.slice(0, 128),
     chatId: d.chatId,
@@ -70,4 +54,19 @@ export function parseDrafts(json: string): PostDraft[] {
   } catch {
     return [];
   }
+}
+
+/** Portable text/button draft; local image blobs are deliberately never serialized. */
+export function draftDocument(draft: PostDraft): string {
+  const clean = parseDraft(draft);
+  if (!clean) throw new Error("Invalid post draft");
+  return JSON.stringify({format:"videl-post",version:1,draft:clean},null,2);
+}
+export function importDraftDocument(value: unknown): PostDraft {
+  if(!value || typeof value!=="object") throw new Error("Not a Videl post document");
+  const doc=value as Record<string,unknown>;
+  if(doc.format!=="videl-post"||doc.version!==1)throw new Error("Unsupported post document. Use an exported Videl post JSON file.");
+  const draft=parseDraft(doc.draft);
+  if(!draft)throw new Error("This draft is invalid or too large.");
+  return draft;
 }

@@ -26,10 +26,4 @@ isodate==0.7.2
 aiofiles==25.1.0
 psutil==7.2.2
 python-dotenv==1.2.2
-beautifulsoup4==4.12.3
-lxml==5.2.2
 Pillow==10.4.0
-qrcode[pil]==8.0
-python-barcode==0.15.1
-pyshorteners==1.0.1
-gtts==2.5.1

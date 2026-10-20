@@ -32,10 +32,13 @@ const legacy: Record<string, Section> = {
 const StudioContext = createContext<{
   tab: Section;
   open: (tab: Section) => void;
-}>({ tab: "home", open: () => {} });
+  selectedGroup: number | null;
+  selectGroup: (id: number) => void;
+}>({ tab: "home", open: () => {}, selectedGroup: null, selectGroup: () => {} });
 export function StudioProvider({ children }: { children: React.ReactNode }) {
   const [tab, setTab] = useState<Section>("home");
   const { authenticated } = useTelegram();
+  const [selectedGroup, selectGroup] = useState<number|null>(null);
   const safeTab = canOpenSection(tab, authenticated) ? tab : "home";
   useEffect(() => {
     const initial = new URLSearchParams(window.location.search).get("tab");
@@ -76,7 +79,7 @@ export function StudioProvider({ children }: { children: React.ReactNode }) {
     }
   }
   return (
-    <StudioContext.Provider value={{ tab: safeTab, open: setTab }}>
+    <StudioContext.Provider value={{ tab: safeTab, open: setTab, selectedGroup, selectGroup }}>
       <div onClickCapture={capture}>{children}</div>
     </StudioContext.Provider>
   );

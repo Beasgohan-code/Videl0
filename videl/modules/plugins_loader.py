@@ -9,14 +9,7 @@ from videl import LOGGER
 
 logger = logging.getLogger(__name__)
 PLUGINS_DIR = pathlib.Path(__file__).parent.parent / "plugins"
-PROFESSIONAL_PLUGINS = (
-    "afk", "barcode", "channel", "clean", "currency", "define", "ebook",
-    "filters_pro", "font", "google", "helper_pro", "idpro", "invite",
-    "language", "lastfm", "lyricspro", "musichelp", "notes_pro",
-    "paste", "pollpro", "reminder", "rules_pro", "scheduler", "sticker_tools",
-    "tagall", "telegraph2", "telegraph_pro", "timer", "trace", "translate",
-    "unshort", "userinfo", "ytsearch", "tts",
-)
+PROFESSIONAL_PLUGINS = ("afk", "reminder")
 LOADED: list[str] = []
 FAILED: list[tuple[str, str]] = []
 

@@ -15,14 +15,8 @@ from videl import bot, LOGGER
 from videl.core.queue import peek_current
 from videl.modules.block import group_allowed, user_allowed
 from videl.utils.formatters import sc, short
-from videl.utils.rich_ui import (
-    rich_esc,
-    rich_heading,
-    rich_kv_table,
-    rich_note,
-    rich_send,
-    rich_edit,
-)
+from videl.utils.rich_ui import rich_esc, rich_heading, rich_kv_table, rich_note
+from videl.utils.command_ui import rich_send, rich_edit
 
 LRCLIB_API = "https://lrclib.net/api/search"
 
@@ -85,7 +79,7 @@ def _format_lyrics(data: dict, max_chars: int = 3500) -> str:
 
 
 @bot.on_message(
-    filters.command(["lyrics", "lyric", "ly"])
+    filters.command('lyrics')
     & group_allowed
     & user_allowed
 )

@@ -19,14 +19,8 @@ from videl.utils.db import (
     remove_broadcast_chat,
     remove_served_chat,
 )
-from videl.utils.rich_ui import (
-    rich_esc,
-    rich_heading,
-    rich_img,
-    rich_kv_table,
-    rich_note,
-    rich_send,
-)
+from videl.utils.rich_ui import rich_esc, rich_heading, rich_img, rich_kv_table, rich_note
+from videl.utils.command_ui import rich_send
 
 LEFT_PHOTOS = [
     "https://telegra.ph/file/1949480f01355b4e87d26.jpg",

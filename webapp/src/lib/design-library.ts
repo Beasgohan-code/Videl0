@@ -2,7 +2,7 @@ import { initialDesign, type ImageDesign } from "./image-design";
 export type DesignRecipe = {
   id: string;
   name: string;
-  category: "Announcement" | "Event" | "Community" | "Editorial";
+  category: "Announcement" | "Event" | "Community" | "Editorial" | "Campaign" | "Milestone";
   description: string;
   design: ImageDesign;
 };
@@ -135,4 +135,17 @@ export const designLibrary: DesignRecipe[] = [
       pattern: "dots",
     },
   ),
+
+  recipe("release-notes", "Built to improve", "Announcement", "Product changelog", {title:"Small changes.\nBig difference.",subtitle:"Version 2.0\nList the three updates your audience should know.",label:"RELEASE NOTES",background:"#142436",accent:"#74b9d6",color:"#ecf8fc",font:"Arial",pattern:"grid"}),
+  recipe("service-status", "Service restored", "Announcement", "Incident or maintenance update", {title:"Back up.\nReady for you.",subtitle:"Add the affected service, recovery time and next steps.",label:"SERVICE UPDATE",background:"#e5e5dd",accent:"#536d5b",color:"#23372c",pattern:"rings"}),
+  recipe("countdown", "The countdown", "Event", "Event reminder with editable timing", {ratio:"square",title:"Three days.\nOne great event.",subtitle:"Your date · Your time zone\nTell people where to join.",label:"SAVE THE DATE",background:"#442f4c",accent:"#d9a6c9",color:"#fff0fa",pattern:"dots"}),
+  recipe("agenda", "A day well spent", "Event", "Agenda and session overview", {ratio:"portrait",title:"Your time.\nWell spent.",subtitle:"10:00 — Opening\n11:00 — Workshop\n12:00 — Questions",label:"THE AGENDA",background:"#e5d4b6",accent:"#9b7448",color:"#3c2e24",titleY:25,subtitleY:61,pattern:"grid"}),
+  recipe("spotlight", "Meet the maker", "Community", "Member or team spotlight", {ratio:"square",title:"Good people.\nGreat ideas.",subtitle:"Introduce a member and the work that makes them special.",label:"COMMUNITY SPOTLIGHT",background:"#1c4048",accent:"#8dc8be",color:"#edf9f4",pattern:"rings"}),
+  recipe("opportunity", "Your next move", "Community", "Open call or opportunity", {title:"Your next move\nstarts here.",subtitle:"Who can apply · Closing date\nAdd a clear next step.",label:"OPEN OPPORTUNITY",background:"#374328",accent:"#ccdb98",color:"#f4f7e7",pattern:"grid"}),
+  recipe("checklist", "Keep it simple", "Editorial", "Three actionable takeaways", {ratio:"portrait",title:"A little clarity\ngoes a long way.",subtitle:"01 — Your first tip\n02 — Your second tip\n03 — Your final takeaway",label:"THE SHORT LIST",background:"#f0e8dd",accent:"#b37d57",color:"#493629",titleY:26,subtitleY:62,pattern:"dots"}),
+  recipe("case-study", "Behind the result", "Editorial", "Case study or project story", {title:"The challenge.\nThe change.",subtitle:"Share the problem, the approach and the result.",label:"A CLOSER LOOK",background:"#292e41",accent:"#b0afd9",color:"#f5f3ff",pattern:"rings"}),
+  recipe("early-access", "Be first", "Campaign", "Waitlist or early access", {ratio:"square",title:"A first look.\nJust for you.",subtitle:"Explain what is new and why early access matters.",label:"EARLY ACCESS",background:"#523c30",accent:"#e3b791",color:"#fff4e8",pattern:"dots"}),
+  recipe("support-cause", "Something that matters", "Campaign", "Cause, campaign or fundraiser", {title:"Small actions.\nReal impact.",subtitle:"Tell the story. Make the next step clear.",label:"MAKE A DIFFERENCE",background:"#23443a",accent:"#a9d6a2",color:"#eff9e9",pattern:"rings"}),
+  recipe("thank-you", "Made possible by you", "Milestone", "Celebrate a community milestone", {ratio:"square",title:"We got here\ntogether.",subtitle:"Add your milestone and thank the people who made it possible.",label:"THANK YOU",background:"#46354e",accent:"#d4b0dd",color:"#fcf0ff",pattern:"rings"}),
+  recipe("year-review", "A year in the making", "Milestone", "Year or project retrospective", {ratio:"portrait",title:"Look how far\nwe have come.",subtitle:"Your first highlight\nYour second highlight\nWhat comes next",label:"THE YEAR IN REVIEW",background:"#c9d5df",accent:"#5b748c",color:"#24394d",titleY:27,subtitleY:64,pattern:"grid"}),
 ];

@@ -14,7 +14,6 @@ services:
       MONGO_DB_URL: ""
       OWNER_ID: ""
       PORT: "10000"
-      CYBER_DARK: "1"
     health_check:
       path: /health
       port: 10000

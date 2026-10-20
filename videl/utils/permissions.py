@@ -10,13 +10,13 @@ from pyrogram.types import CallbackQuery, Message
 
 import config
 
-TRUSTED_IDS: set[int] = {777000, config.OWNER_ID}
+TRUSTED_IDS: set[int] = {config.OWNER_ID}
 
 
 async def is_user_authorized(obj: Union[Message, CallbackQuery]) -> bool:
     """
     Returns True if the user is:
-    - Bot owner or Telegram system account (777000)
+    - Bot owner
     - A group admin or owner
     """
     if isinstance(obj, CallbackQuery):

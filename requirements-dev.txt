@@ -1,0 +1,2 @@
+# Offline MongoDB contract tests; not a production database backend.
+mongomock==4.3.0

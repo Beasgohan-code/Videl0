@@ -20,7 +20,7 @@ const tabs: { tab: Section; label: string; icon: typeof Home }[] = [
   { tab: "home", label: "Home", icon: Home },
   { tab: "post", label: "Post Studio", icon: Palette },
   { tab: "tools", label: "Creator Tools", icon: Wand2 },
-  { tab: "chat", label: "Chat", icon: MessageCircle },
+  { tab: "chat", label: "Bot Inbox", icon: MessageCircle },
   { tab: "groups", label: "Group Manager", icon: Users },
   { tab: "automation", label: "Automation", icon: Zap },
   { tab: "analytics", label: "Analytics", icon: BarChart3 },

@@ -1,0 +1,113 @@
+"""Permission-checked group workspace, reports and join-request invite links."""
+from collections import OrderedDict
+import time
+from pyrogram import filters
+from pyrogram.enums import ChatMembersFilter
+from pyrogram.types import InlineKeyboardMarkup
+from videl import bot
+from videl.modules.management_core import is_admin, get_chat_setting, set_chat_settings, _chat_settings_col
+from videl.utils.bot_ui import button
+from videl.utils.rich_ui import rich_heading, rich_note, rich_kv_table, rich_esc
+from videl.utils.command_ui import rich_reply, rich_edit
+
+RULES = {"antispam": "Flood protection", "lock_links": "Block links", "lock_forwards": "Block forwards", "lock_media": "Block media", "lock_stickers": "Block stickers", "lock_polls": "Block polls", "captcha_enabled": "Join verification", "welcome_enabled": "Welcome message"}
+_REPORTS = OrderedDict()
+
+
+def panel(chat_id, title):
+    try:
+        col = _chat_settings_col()
+        if col is None:
+            raise RuntimeError("MongoDB unavailable")
+        saved = col.find_one({"chat_id": chat_id}) or {}
+    except Exception:
+        return rich_heading("Group settings unavailable", level=2) + rich_note("MongoDB could not be read. No protection state is being reported."), InlineKeyboardMarkup([[button("Refresh", callback_data=f"groupcfg:{chat_id}:refresh:0")]])
+    states = {key: bool(saved.get(key, key == "welcome_enabled")) for key in RULES}
+    rows = []
+    items = list(RULES.items())
+    for index in range(0, len(items), 2):
+        rows.append([button(f"{'On' if states[key] else 'Off'} · {label}", callback_data=f"groupcfg:{chat_id}:{key}:{int(not states[key])}", style="success" if states[key] else "default", icon="shield") for key, label in items[index:index+2]])
+    rows.append([button("Command guide", callback_data="guide:manage"), button("Refresh", callback_data=f"groupcfg:{chat_id}:refresh:0")])
+    text = rich_heading("Group workspace", level=2) + rich_kv_table([("Group", rich_esc(title)), ("Chat ID", f"<code>{chat_id}</code>")]) + rich_note("Explicit On/Off actions are saved in MongoDB. Only current group admins can change them. The bot needs Delete messages and Restrict members permissions for protection and join verification.")
+    return text, InlineKeyboardMarkup(rows)
+
+
+@bot.on_message(filters.command(["group", "setup"]) & filters.group)
+async def group_command(_, message):
+    if not message.from_user or not await is_admin(message.chat.id, message.from_user.id):
+        return await rich_reply(message, rich_note("Group admins only."))
+    text, markup = panel(message.chat.id, message.chat.title or "Group")
+    await rich_reply(message, text, reply_markup=markup)
+
+
+@bot.on_callback_query(filters.regex(r"^groupcfg:"))
+async def group_setting(_, query):
+    try:
+        _, chat, key, value = query.data.split(":")
+        if not query.message or int(chat) != query.message.chat.id or value not in {"0", "1"}:
+            raise ValueError()
+    except (ValueError, AttributeError):
+        return await query.answer("Invalid group control.", show_alert=True)
+    if not await is_admin(query.message.chat.id, query.from_user.id):
+        return await query.answer("Group admins only.", show_alert=True)
+    if key != "refresh":
+        if key not in RULES:
+            return await query.answer("Unknown setting.", show_alert=True)
+        updates = {key: value == "1"}
+        if key == "lock_forwards":
+            updates["lock_forward"] = value == "1"
+        if not set_chat_settings(int(chat), updates):
+            return await query.answer("MongoDB unavailable. Nothing was saved.", show_alert=True)
+    await query.answer("Saved" if key != "refresh" else "Refreshed")
+    text, markup = panel(int(chat), query.message.chat.title or "Group")
+    await rich_edit(query.message, text, reply_markup=markup)
+
+
+@bot.on_message(filters.command("report") & filters.group)
+async def report_command(_, message):
+    target = message.reply_to_message
+    if not message.from_user or not target or not target.from_user:
+        return await rich_reply(message, rich_note("Reply to the message you want admins to review with /report."))
+    key = (message.chat.id, message.from_user.id)
+    now = time.monotonic()
+    if now - _REPORTS.get(key, -60) < 60:
+        return await rich_reply(message, rich_note("Please wait a minute before submitting another report."))
+    admins = [member async for member in bot.get_chat_members(message.chat.id, filter=ChatMembersFilter.ADMINISTRATORS, limit=20)]
+    mentions = " ".join(f'<a href="tg://user?id={member.user.id}">{rich_esc(member.user.first_name)}</a>' for member in admins if not member.user.is_bot)
+    if not mentions:
+        return await rich_reply(message, rich_note("No human admins could be resolved. Contact your group owner."))
+    _REPORTS[key] = now
+    _REPORTS.move_to_end(key)
+    while len(_REPORTS) > 4096:
+        _REPORTS.popitem(last=False)
+    await rich_reply(message, rich_heading("Admin review requested", level=3) + rich_note(f"Reported message: <code>{target.id}</code>\n{mentions}\nReports do not automatically punish anyone."))
+
+
+@bot.on_message(filters.command("invite") & filters.group)
+async def invite_command(_, message):
+    if not message.from_user or not await is_admin(message.chat.id, message.from_user.id):
+        return await rich_reply(message, rich_note("Group admins only."))
+    args = message.command[1:]
+    if args not in ([], ["--request"]):
+        return await rich_reply(message, rich_note("Use /invite or /invite --request for an admin-approval link."))
+    try:
+        link = await bot.create_chat_invite_link(message.chat.id, creates_join_request=bool(args))
+        await rich_reply(message, rich_heading("Invite link created", level=3) + rich_note("Admin approval required." if args else "Anyone with this link can request entry under your chat settings."), reply_markup=InlineKeyboardMarkup([[button("Open invite", url=link.invite_link)]]))
+    except Exception as exc:
+        await rich_reply(message, rich_note(f"Could not create an invite ({rich_esc(type(exc).__name__)}). Check Invite users permission."))
+
+
+@bot.on_message(filters.command("permissions") & filters.group)
+async def permission_command(_, message):
+    if not message.from_user or not await is_admin(message.chat.id, message.from_user.id):
+        return await rich_reply(message, rich_note("Group admins only."))
+    from videl.utils.permission_diagnostics import permission_rows
+    try:
+        me = await bot.get_me()
+        member = await bot.get_chat_member(message.chat.id, me.id)
+        rows = permission_rows(member)
+    except Exception:
+        return await rich_reply(message, rich_note("Could not read current bot permissions. No rights are being reported; try again."))
+    await rich_reply(message, rich_heading("Bot permission diagnostics", level=2)
+        + rich_kv_table(rows)
+        + rich_note("A group owner can change these in Telegram → Group → Administrators → Videl. Rights alone do not guarantee assistant access, media availability or playback."))

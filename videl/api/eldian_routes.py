@@ -1,240 +1,183 @@
-# --------------------------------------------------------------------------------
-#  Built-in download API (Eldian-compatible)
-#  Inspired by https://github.com/Eldian-Network/eldian-music-api
-#  Mounted on Videl's Flask server so the bot can call itself on localhost.
-# --------------------------------------------------------------------------------
+"""Authenticated Eldian-compatible media API on Videl's existing Render port.
 
+Audio uses the MIT-licensed Eldian Network downloader, not a second bot process.
+No endpoint accepts arbitrary hosts, cookie uploads, proxies or shell commands.
+"""
 from __future__ import annotations
 
+import hmac
 import logging
+import mimetypes
 import os
 import re
+import shutil
+import threading
 import time
+from collections import OrderedDict, deque
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
+from flask import Flask, jsonify, request, send_file
 import yt_dlp
-from flask import Flask, Response, jsonify, request, send_file
 
 logger = logging.getLogger(__name__)
-
 _API_DIR = Path("downloads") / "api"
-_API_KEY = (os.environ.get("ELDIAN_API_KEY") or os.environ.get("WEBAPP_SECRET") or "").strip()
+_SLOTS = threading.BoundedSemaphore(2)
+_ACTIVE: set[Path] = set()
+_LOCK = threading.Lock()
+_WINDOWS: OrderedDict = OrderedDict()
+MAX_BYTES = 300 * 1024 * 1024
 
 
 def _extract_id(value: str) -> str | None:
-    if not value:
+    value = str(value or "").strip()
+    if len(value) > 2048:
         return None
-    value = value.strip()
-    if re.fullmatch(r"[\w-]{6,20}", value):
+    if re.fullmatch(r"[A-Za-z0-9_-]{11}", value):
         return value
-    m = re.search(r"(?:v=|/shorts/|youtu\.be/)([\w-]{6,20})", value)
-    return m.group(1) if m else None
-
-
-def _cookies_file() -> str | None:
-    paths = []
-    for key in ("YTDLP_COOKIES", "COOKIES_PATH", "YOUTUBE_COOKIES_FILE"):
-        v = os.environ.get(key)
-        if v:
-            paths.append(v)
-    paths.extend(["cookies.txt", "/app/cookies.txt", str(Path("downloads") / "cookies.txt")])
-
-    def _is_real(path: str) -> bool:
-        try:
-            raw = Path(path).read_text(encoding="utf-8", errors="ignore")
-        except Exception:
-            return False
-        markers = ("SID", "HSID", "SSID", "LOGIN_INFO", "__Secure-", "SAPISID", "APISID")
-        return any(m in raw for m in markers)
-
-    for path in paths:
-        if path and os.path.isfile(path) and os.path.getsize(path) > 80 and _is_real(path):
-            return path
-
-    url = (os.environ.get("YTDLP_COOKIES_URL") or "").strip()
-    if not url:
-        return None
-    dest = Path("downloads") / "cookies.txt"
     try:
-        if dest.is_file() and dest.stat().st_size > 80 and _is_real(str(dest)):
-            return str(dest)
-        import urllib.request
-
-        req = urllib.request.Request(url, headers={"User-Agent": "VidelBot"})
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            data = resp.read()
-        if len(data) > 80:
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_bytes(data)
-            return str(dest)
-    except Exception as e:
-        logger.warning(f"[api] cookies url: {e}")
-    return None
-
-
-def _ydl_download(video_id: str, video: bool = False) -> Path:
-    """Sync yt-dlp download → local Path. Raises RuntimeError on failure."""
-    _API_DIR.mkdir(parents=True, exist_ok=True)
-    out_dir = _API_DIR / uuid4().hex
-    out_dir.mkdir(parents=True, exist_ok=True)
-    outtmpl = str(out_dir / f"{video_id}.%(ext)s")
-    watch = f"https://www.youtube.com/watch?v={video_id}"
-
-    fmt = (
-        "best[height<=720]/best"
-        if video
-        else "bestaudio[ext=m4a]/bestaudio/best"
-    )
-    opts: dict = {
-        "format": fmt,
-        "outtmpl": outtmpl,
-        "noplaylist": True,
-        "quiet": True,
-        "no_warnings": True,
-        "noprogress": True,
-        "geo_bypass": True,
-        "nocheckcertificate": True,
-        "retries": 3,
-        "fragment_retries": 3,
-        "extractor_args": {"youtube": {"player_client": ["android", "ios", "web"]}},
-    }
-    cookies = _cookies_file()
-    if cookies:
-        opts["cookiefile"] = cookies
-    proxy = (os.environ.get("PROXY_URL") or os.environ.get("YOUTUBE_PROXY") or "").strip()
-    if proxy:
-        if "://" not in proxy:
-            proxy = "http://" + proxy
-        opts["proxy"] = proxy
-
-    last_err: Exception | None = None
-    for attempt in range(1, 4):
-        try:
-            with yt_dlp.YoutubeDL(opts) as ydl:
-                info = ydl.extract_info(watch, download=True)
-            if info is None:
-                raise RuntimeError("no info")
-            for candidate in sorted(out_dir.glob(f"{video_id}.*")):
-                if candidate.is_file() and candidate.stat().st_size > 1024:
-                    return candidate
-            # prepare_filename fallback
-            path = Path(ydl.prepare_filename(info))
-            if path.is_file() and path.stat().st_size > 1024:
-                return path
-            raise RuntimeError("file missing after download")
-        except Exception as e:
-            last_err = e
-            logger.warning(f"[api] yt-dlp attempt {attempt}: {e}")
-            time.sleep(1)
-
-    raise RuntimeError(str(last_err) if last_err else "download failed")
+        parsed = urlparse(value)
+        if parsed.scheme != "https" or parsed.username or parsed.password or parsed.port not in (None, 443):
+            return None
+        host = (parsed.hostname or "").lower()
+        if host == "youtu.be":
+            candidate = parsed.path.strip("/").split("/")[0]
+        elif host in {"youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com"}:
+            candidate = parse_qs(parsed.query).get("v", [""])[0]
+            if parsed.path.startswith(("/shorts/", "/embed/", "/live/")):
+                candidate = parsed.path.split("/")[2]
+        else:
+            return None
+        return candidate if re.fullmatch(r"[A-Za-z0-9_-]{11}", candidate) else None
+    except (ValueError, IndexError):
+        return None
 
 
 def _require_key_if_set() -> tuple[bool, str | None]:
-    """Require X-API-Key header when configured, or loopback-only when unset."""
-    import hmac
-    key = (os.environ.get("ELDIAN_API_KEY") or os.environ.get("WEBAPP_SECRET") or _API_KEY or "").strip()
+    # Fail closed even on loopback: reverse proxies can also use loopback addresses.
+    key = (os.environ.get("ELDIAN_API_KEY") or os.environ.get("WEBAPP_SECRET") or "").strip()
+    supplied = request.headers.get("X-API-Key", "")
     if not key:
-        if request.remote_addr in ("127.0.0.1", "::1"):
-            return True, None
-        return False, "API key is not configured for external access"
-    got = (
-        request.headers.get("X-API-Key")
-        or request.args.get("api_key")
-        or request.args.get("api")
-        or ""
-    ).strip()
-    if not got or not hmac.compare_digest(got, key):
-        return False, "Invalid or missing API key"
-    return True, None
+        return False, "Media API credentials are not configured"
+    return (True, None) if hmac.compare_digest(supplied, key) else (False, "Invalid or missing X-API-Key")
+
+
+def _rate_allowed() -> bool:
+    now = time.monotonic()
+    # Bounded per-source accounting. The semaphore separately bounds total work.
+    source = request.remote_addr or "unknown"
+    with _LOCK:
+        window = _WINDOWS.setdefault(source, deque())
+        _WINDOWS.move_to_end(source)
+        while window and now - window[0] >= 60:
+            window.popleft()
+        while len(_WINDOWS) > 2048:
+            _WINDOWS.popitem(last=False)
+        if len(window) >= 12:
+            return False
+        window.append(now)
+        return True
+
+
+def _cleanup_stale() -> None:
+    _API_DIR.mkdir(parents=True, exist_ok=True)
+    with _LOCK:
+        active = set(_ACTIVE)
+    for directory in _API_DIR.iterdir():
+        try:
+            if directory.is_dir() and directory not in active and directory.stat().st_mtime < time.time() - 3600:
+                shutil.rmtree(directory, ignore_errors=True)
+        except FileNotFoundError:
+            pass
+
+
+def _download(video_id: str, video: bool, directory: Path) -> Path:
+    if not video:
+        from vendor.eldian_music_api.app.youtube import download_audio
+        return download_audio(video_id, directory)
+    options = {
+        "format": "best[height<=720][ext=mp4]/best[height<=720]",
+        "outtmpl": str(directory / f"{video_id}.%(ext)s"),
+        "noplaylist": True, "quiet": True, "no_warnings": True,
+        "socket_timeout": 20, "retries": 2, "fragment_retries": 2,
+        "max_filesize": MAX_BYTES,
+    }
+    cookie = (os.getenv("YTDLP_COOKIES") or os.getenv("YT_COOKIES_FILE") or "").strip()
+    if cookie and Path(cookie).is_file():
+        options["cookiefile"] = cookie
+    with yt_dlp.YoutubeDL(options) as client:
+        info = client.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=True)
+        if not info:
+            raise RuntimeError("No media returned")
+        return Path(client.prepare_filename(info))
 
 
 def register_eldian_routes(app: Flask) -> None:
-    """Attach Eldian-compatible routes to the existing Flask app."""
+    @app.get("/api/music")
+    def music_contract():
+        return jsonify({"service": "Videl music API", "version": 1,
+            "authentication": "X-API-Key header (server-to-server only)",
+            "audio": {"method": "POST", "path": "/v1/track/by-video-id", "json": {"video_id": "11-character YouTube video ID"}},
+            "video": {"method": "GET", "path": "/api/download?video_id=VIDEO_ID"},
+            "limits": {"concurrent_requests": 2, "requests_per_source_per_minute": 12, "maximum_file_bytes": MAX_BYTES},
+            "upstream": "https://github.com/Eldian-Network/eldian-music-api"})
 
     @app.get("/api/status")
     def api_status():
-        return jsonify(
-            {
-                "status": "ok",
-                "service": "videl-built-in-eldian",
-                "cookies": bool(_cookies_file()),
-                "auth_required": bool(_API_KEY),
-            }
-        )
-
-    @app.get("/api/stream_audio")
-    def api_stream_audio():
-        ok, err = _require_key_if_set()
+        ok, error = _require_key_if_set()
         if not ok:
-            return jsonify({"error": err}), 401
+            return jsonify({"ok": False, "error": error}), 401
+        return jsonify({"ok": True, "service": "videl-eldian", "auth_required": True})
 
-        raw = request.args.get("url") or request.args.get("video_id") or ""
-        vid = _extract_id(raw)
-        if not vid:
-            return jsonify({"error": "url or video_id required"}), 422
+    def serve(video: bool = False):
+        ok, error = _require_key_if_set()
+        if not ok:
+            return jsonify({"detail": error}), 401
+        data = request.get_json(silent=True) if request.method == "POST" else request.args
+        if not data or not isinstance(data, dict) and request.method == "POST":
+            return jsonify({"detail": "A JSON object with video_id is required"}), 422
+        video_id = _extract_id(data.get("video_id") or data.get("url") or "")
+        if not video_id:
+            return jsonify({"detail": "Use an 11-character video ID or an HTTPS YouTube URL"}), 422
+        if not _rate_allowed():
+            return jsonify({"detail": "Media request limit reached"}), 429, {"Retry-After": "60"}
+        if not _SLOTS.acquire(blocking=False):
+            return jsonify({"detail": "Both media workers are busy; retry later"}), 503, {"Retry-After": "5"}
+        directory = _API_DIR / uuid4().hex
+        with _LOCK:
+            _ACTIVE.add(directory)
+        released = False
+
+        def cleanup():
+            nonlocal released
+            if released:
+                return
+            released = True
+            shutil.rmtree(directory, ignore_errors=True)
+            with _LOCK:
+                _ACTIVE.discard(directory)
+            _SLOTS.release()
 
         try:
-            path = _ydl_download(vid, video=False)
-            return send_file(
-                path,
-                mimetype="audio/mpeg",
-                as_attachment=False,
-                download_name=path.name,
-            )
-        except Exception as e:
-            logger.error(f"[api] stream_audio: {e}")
-            return jsonify({"error": str(e)[:300]}), 502
+            _cleanup_stale()
+            directory.mkdir(parents=True, exist_ok=True)
+            path = _download(video_id, video, directory).resolve()
+            if directory.resolve() not in path.parents or not path.is_file() or not 0 < path.stat().st_size <= MAX_BYTES:
+                raise RuntimeError("Downloader did not return a bounded media file")
+            response = send_file(path, mimetype=mimetypes.guess_type(path.name)[0] or "application/octet-stream", as_attachment=True, download_name=path.name, max_age=0)
+            response.headers["Cache-Control"] = "private, no-store"
+            response.headers["X-Content-Type-Options"] = "nosniff"
+            response.direct_passthrough = False
+            response.call_on_close(cleanup)
+            return response
+        except Exception as exc:
+            # Downloader exceptions can contain proxy credentials or private paths.
+            logger.warning("Media request failed (%s)", type(exc).__name__)
+            cleanup()
+            return jsonify({"detail": "Media download failed. Check server-side downloader credentials and availability."}), 502
 
-    @app.get("/api/download")
-    def api_download():
-        ok, err = _require_key_if_set()
-        if not ok:
-            return jsonify({"error": err}), 401
-
-        raw = request.args.get("url") or request.args.get("video_id") or ""
-        vid = _extract_id(raw)
-        if not vid:
-            return jsonify({"error": "url or video_id required"}), 422
-
-        try:
-            path = _ydl_download(vid, video=True)
-            return send_file(
-                path,
-                mimetype="video/mp4",
-                as_attachment=False,
-                download_name=path.name,
-            )
-        except Exception as e:
-            logger.error(f"[api] download: {e}")
-            return jsonify({"error": str(e)[:300]}), 502
-
-    @app.post("/v1/track/by-video-id")
-    def api_v1_track():
-        """Official Eldian-Network style endpoint."""
-        ok, err = _require_key_if_set()
-        if not ok:
-            return jsonify({"detail": err}), 401
-
-        data = request.get_json(silent=True) or {}
-        vid = _extract_id(str(data.get("video_id") or data.get("url") or ""))
-        if not vid:
-            return jsonify({"detail": "video_id required"}), 422
-
-        try:
-            path = _ydl_download(vid, video=False)
-            return send_file(
-                path,
-                mimetype="application/octet-stream",
-                as_attachment=True,
-                download_name=path.name,
-            )
-        except Exception as e:
-            logger.error(f"[api] v1 track: {e}")
-            return jsonify({"detail": str(e)[:300]}), 502
-
-    logger.info(
-        "[api] Eldian-compatible routes registered: "
-        "/api/status /api/stream_audio /api/download /v1/track/by-video-id"
-    )
+    app.add_url_rule("/v1/track/by-video-id", "eldian_audio", lambda: serve(False), methods=["POST"])
+    app.add_url_rule("/api/stream_audio", "eldian_stream", lambda: serve(False), methods=["GET"])
+    app.add_url_rule("/api/download", "eldian_video", lambda: serve(True), methods=["GET"])
+    logger.info("Authenticated Eldian media API mounted on the existing Render server")

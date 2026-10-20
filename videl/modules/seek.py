@@ -14,15 +14,8 @@ from videl import bot, call_py, LOGGER
 from videl.core.queue import peek_current
 from videl.modules.block import group_allowed, user_allowed
 from videl.utils.formatters import fmt_time, parse_dur, progress_bar, short
-from videl.utils.rich_ui import (
-    rich_edit,
-    rich_esc,
-    rich_heading,
-    rich_img,
-    rich_kv_table,
-    rich_note,
-    rich_send,
-)
+from videl.utils.rich_ui import rich_esc, rich_heading, rich_img, rich_kv_table, rich_note
+from videl.utils.command_ui import rich_edit, rich_send
 from videl.utils.youtube import resolve_stream
 
 # ── Seek state tracker ─────────────────────────────────────────────────────────
@@ -34,10 +27,8 @@ def set_seek_state(chat_id: int, offset: int) -> None:
 
 
 def get_current_position(chat_id: int) -> int:
-    state = _seek_state.get(chat_id)
-    if not state:
-        return 0
-    return state["offset"] + int(time.time() - state["start_ts"])
+    from videl.core.player import current_position
+    return int(current_position(chat_id))
 
 
 def clear_seek_state(chat_id: int) -> None:
@@ -103,6 +94,10 @@ async def _seek_to(chat_id: int, target_sec: int, message: Message) -> None:
             return
 
     set_seek_state(chat_id, target_sec)
+    from videl.core.player import _np_start, _pause_started, set_paused
+    _np_start[chat_id] = time.time() - target_sec
+    _pause_started.pop(chat_id, None)
+    set_paused(chat_id, False)
 
     # True rich card — same pattern as the now-playing message in player.py
     # (embedded thumbnail via rich_img, real heading + table), not a caption.

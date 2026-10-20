@@ -1,6 +1,6 @@
 # --------------------------------------------------------------------------------
-#  Videl © 2026 | Developed by Beasgohan-code — Federations ✦ Perfect
-#  PaulSonOfLars/tgbot + FallenRobot feds — Richgram perfect premium
+#  Videl © 2026 | Developed by Beasgohan-code — Federations
+#  PaulSonOfLars/tgbot + FallenRobot feds — Richgram UI
 # --------------------------------------------------------------------------------
 
 import re
@@ -11,7 +11,8 @@ from videl import bot, LOGGER
 from videl.modules.block import group_allowed, user_allowed
 from videl.utils.permissions import is_user_authorized
 from videl.utils.formatters import sc, sb
-from videl.utils.rich_ui import rich_esc, rich_heading, rich_note, rich_table, rich_kv_table, rich_details, rich_button, rich_img, rich_send, rich_edit
+from videl.utils.rich_ui import rich_esc, rich_heading, rich_note, rich_table, rich_kv_table, rich_details, rich_button, rich_img
+from videl.utils.command_ui import rich_send, rich_edit
 from videl.utils.db import create_fed, delete_fed, get_fed, list_feds, join_fed_chat, leave_fed_chat, get_chat_fed, set_chat_fed, fban, unfban, get_fban, list_fbans, fed_add_admin, fed_remove_admin, fed_list_admins, is_fed_admin, get_fed_chats
 import config
 try:
@@ -22,7 +23,7 @@ except Exception:
 
 _HERO = "https://iili.io/n5ClDil.jpg"
 def _hdr(t, lvl=3):
-    return rich_heading(pe("orb","") + " " + t + " " + pe("spark",""), level=lvl)
+    return rich_heading(t, level=lvl)
 def _hero():
     return rich_img(_HERO)
 def _fed_id(name):

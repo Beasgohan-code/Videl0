@@ -164,7 +164,6 @@ OCR_API_KEY: str = _str("OCR_API_KEY", "")
 # ── Branding & Assets ─────────────────────────────────────────────────────────
 START_PHOTOS: list[str] = _list_str("START_PHOTOS") or _list_str("START_PHOTO") or ["https://iili.io/n5ClDil.jpg"]
 START_PHOTO: str = START_PHOTOS[0] if START_PHOTOS else "https://iili.io/n5ClDil.jpg"
-PING_IMG_URL: str = _str("PING_IMG_URL", "https://files.catbox.moe/ddzvc0.jpg")
 
 # ── Limits & Behaviour ────────────────────────────────────────────────────────
 MAX_DURATION_SECONDS: int = _int("MAX_DURATION_SECONDS", 1800)  # 30 min
@@ -179,23 +178,8 @@ DEFAULT_FLOOD_WINDOW: int = _int("DEFAULT_FLOOD_WINDOW", 6)
 RATE_LIMIT_CMDS: int = _int("RATE_LIMIT_CMDS", 8)
 WEBAPP_SECRET: str = _str("WEBAPP_SECRET", "")
 
-# ── Aesthetic ─────────────────────────────────────────────────────────────────
-CYBER_DARK: bool = _bool("CYBER_DARK", True)
+# ── Premium emoji configuration ─────────────────────────────────────────────────────────────────
 USE_PREMIUM_EMOJI: bool = _bool("USE_PREMIUM_EMOJI", True)
-ENABLE_RICH_MESSAGES: bool = _bool("ENABLE_RICH_MESSAGES", True)
-ENABLE_BUSINESS: bool = _bool("ENABLE_BUSINESS", True)
-ENABLE_PAID_BROADCAST: bool = _bool("ENABLE_PAID_BROADCAST", True)
-ENABLE_CHECKLIST: bool = _bool("ENABLE_CHECKLIST", True)
-ENABLE_DIRECT_MESSAGES: bool = _bool("ENABLE_DIRECT_MESSAGES", True)
-
-# ── Help Map (only currently curated professional commands) ────────────────
-COMMANDS_HELP: dict[str, list[str]] = {
-    "General": ["/start", "/help", "/ping", "/stats", "/id", "/repo"],
-    "Music": ["/play", "/vplay", "/cplay", "/queue", "/skip", "/pause", "/resume", "/stop", "/lyrics", "/playlist", "/autoplay"],
-    "Group moderation": ["/ban", "/unban", "/kick", "/mute", "/unmute", "/warn", "/warnings", "/lock", "/unlock", "/purge", "/setrules", "/rules"],
-    "Utilities": ["/calc", "/define", "/translate", "/currency", "/userinfo", "/notes", "/remind", "/poll"],
-    "Owner": ["/broadcast", "/logs", "/sysinfo", "/uptime"],
-}
 
 # ── Validate critical ─────────────────────────────────────────────────────────
 def validate_or_warn() -> list[str]:

@@ -37,12 +37,20 @@ _orig_button = rich_button  # from vendored
 
 
 def rich_button(
-    text: str, url: str = None, callback_data: str = None, style: str = None
+    text: str, url: str = None, callback_data: str = None, style: str = None,
+    icon_custom_emoji_id: str = None,
 ) -> str:
-    # normalize Videl colour names to Richgram styles
+    # Share native semantics with explicit keyboards. Labels are plain text;
+    # custom-emoji HTML becomes an optional native icon, never literal markup.
+    from videl.utils.bot_ui import button
     if style:
         style = COLOUR_MAP.get(style.lower(), style)
-    return _orig_button(text, url=url, callback_data=callback_data, style=style)
+    native = button(text, style=style, icon_custom_emoji_id=icon_custom_emoji_id,
+                    **({"callback_data": callback_data} if callback_data else {"url": url} if url else {}))
+    return _orig_button(rich_esc(native.text), url=url, callback_data=callback_data,
+                        style=native.style.value if native.style else style,
+                        icon_custom_emoji_id=native.icon_custom_emoji_id)
+
 
 
 # keep old API names for existing videl code which imports from here

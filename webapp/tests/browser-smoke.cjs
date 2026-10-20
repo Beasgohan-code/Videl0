@@ -28,12 +28,25 @@ const assert = require("node:assert/strict");
     "auth_date=123&user=%7B%22id%22%3A6265999542%7D&hash=offline-fixture";
   await page.route("https://telegram.org/**", (route) => route.abort());
   let sent = 0;
+  const scheduled=[];
   const guestApiRequests = [];
   let summaryError = false;
   await page.route("**/api/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
     if (authMode === "guest" && path !== "/api/auth")
       guestApiRequests.push(path);
+    if(path==="/api/schedules"&&sessionActive){
+      const method=route.request().method();
+      if(method==="POST"){
+        const body=route.request().postDataJSON();
+        assert.ok(body.schedule_at.endsWith("Z"));
+        assert.ok(body.request_id);
+        scheduled.push({id:body.request_id,status:"pending",chat_id:body.chat_id,scheduled_at:body.schedule_at,text:body.text});
+        return route.fulfill({contentType:"application/json",body:JSON.stringify({ok:true,job_id:body.request_id,status:"pending"})});
+      }
+      if(method==="DELETE")scheduled.find(job=>job.id===route.request().postDataJSON().id).status="cancelled";
+      return route.fulfill({contentType:"application/json",body:JSON.stringify({ok:true,jobs:scheduled})});
+    }
     if (path === "/api/auth" && authMode !== "guest") {
       if (route.request().method() === "POST") {
         assert.equal(route.request().postDataJSON().initData, signedFixture);
@@ -249,6 +262,7 @@ const assert = require("node:assert/strict");
   assert.equal(doc.design.subtitleSize, 42);
   assert.equal(doc.design.labelX, 9);
   await page.getByLabel("Heading", { exact: true }).fill("Temporary change");
+  page.removeAllListeners("dialog");
   page.once("dialog", (dialog) => dialog.accept());
   await page
     .locator('input[accept=".json,application/json"]')
@@ -268,6 +282,7 @@ const assert = require("node:assert/strict");
   await page.getByText(/Telegram accepted the post/).waitFor();
   assert.equal(sent, 1);
   await page.getByRole("checkbox", { name: /I reviewed/ }).check();
+  page.removeAllListeners("dialog");
   page.once("dialog", (dialog) => dialog.dismiss());
   await page.getByRole("button", { name: "Publish post", exact: true }).click();
   assert.equal(sent, 1, "Duplicate confirmation cancellation must not send");
@@ -348,6 +363,25 @@ const assert = require("node:assert/strict");
     await page.goto(`${base}/?tab=${tab}`);
     await page.getByRole("heading", { name: heading, exact: true }).waitFor();
   }
+  await page.goto(`${base}/?tab=post`);
+  await page.getByRole("heading",{name:"Scheduled publishing",exact:true}).waitFor();
+  const portableScheduled={format:"videl-post",version:1,draft:{id:"scheduled-fixture",chatId:"@offline_test",text:"<b>Scheduled announcement</b>",parseMode:"HTML",mediaUrl:"",buttons:[],savedAt:new Date().toISOString()}};
+  page.removeAllListeners("dialog");
+  page.once("dialog",dialog=>dialog.accept());
+  await page.getByLabel("Import post JSON",{exact:true}).setInputFiles({name:"videl-post.json",mimeType:"application/json",buffer:Buffer.from(JSON.stringify(portableScheduled))});
+  await page.getByRole("checkbox",{name:/I reviewed the destination/}).check();
+  const future=new Date(Date.now()+3600000);
+  const localDate=new Date(future.getTime()-future.getTimezoneOffset()*60000).toISOString().slice(0,16);
+  await page.getByLabel("Scheduled time",{exact:true}).fill(localDate);
+  page.removeAllListeners("dialog");
+  page.once("dialog",dialog=>dialog.accept());
+  await page.getByRole("button",{name:"Schedule reviewed post",exact:true}).click();
+  await page.getByRole("button",{name:"Cancel scheduled post",exact:true}).waitFor();
+  assert.equal(scheduled.length,1);
+  page.removeAllListeners("dialog");
+  page.once("dialog",dialog=>dialog.accept());
+  await page.getByRole("button",{name:"Cancel scheduled post",exact:true}).click();
+  await page.getByText("cancelled · @offline_test",{exact:true}).waitFor();
   await page.goto(`${base}/?tab=groups`);
   await page.getByRole("button", { name: /Offline community/ }).waitFor();
   await page.getByLabel("Search served groups").fill("missing-group");
@@ -394,8 +428,9 @@ const assert = require("node:assert/strict");
   await page.goto(`${base}/?tab=post`);
   await page.getByRole("button", { name: "Design Image", exact: true }).click();
   await page
-    .getByRole("button", { name: "Browse 8 editable layouts", exact: true })
+    .getByRole("button", { name: "Browse 20 editable layouts", exact: true })
     .click();
+  page.removeAllListeners("dialog");
   page.once("dialog", (dialog) => dialog.accept());
   await page
     .getByRole("button", { name: "Apply layout A warm welcome", exact: true })
@@ -472,9 +507,42 @@ const assert = require("node:assert/strict");
     await page.getByRole("button", { name: "Sign out", exact: true }).count(),
     0,
   );
+  // Public rich-button editing and portable post documents use real browser state.
+  await page.goto(`${base}/?tab=post`);
+  await page.getByPlaceholder("Button label",{exact:true}).fill("Copy invite");
+  await page.getByLabel("Button action",{exact:true}).selectOption("copy");
+  await page.getByPlaceholder("Text to copy",{exact:true}).fill("WELCOME2026");
+  await page.getByLabel("Button color",{exact:true}).selectOption("success");
+  await page.getByRole("button",{name:"+ Row",exact:true}).click();
+  await page.getByRole("button",{name:"Edit Copy invite",exact:true}).click();
+  await page.getByPlaceholder("Button label",{exact:true}).fill("Copy code");
+  await page.getByRole("button",{name:"Save button",exact:true}).click();
+  await page.getByRole("button",{name:"Edit Copy code",exact:true}).waitFor();
+  const postDownload=page.waitForEvent("download");
+  await page.getByRole("button",{name:"Export post JSON",exact:true}).click();
+  const portable=JSON.parse(await fs.readFile(await (await postDownload).path(),"utf8"));
+  assert.equal(portable.format,"videl-post");
+  assert.equal(portable.draft.buttons[0][0].copyText,"WELCOME2026");
+  assert.equal(portable.draft.buttons[0][0].style,"success");
+  portable.draft.buttons[0][0].text="Imported code";
+  page.removeAllListeners("dialog");
+  page.once("dialog",dialog=>dialog.accept());
+  await page.getByLabel("Import post JSON",{exact:true}).setInputFiles({name:"videl-post.json",mimeType:"application/json",buffer:Buffer.from(JSON.stringify(portable))});
+  await page.getByRole("button",{name:"Edit Imported code",exact:true}).waitFor();
+  await page.getByRole("heading",{name:"Publishing checklist",exact:true}).waitFor();
+  await page.getByRole("button",{name:"Save version",exact:true}).click();
+  assert.ok(await page.getByRole("button",{name:/^Restore version /}).count()>0);
+  // Guest creation must never expose the owner publishing queue.
+  assert.equal(await page.getByRole("heading",{name:"Scheduled publishing",exact:true}).count(),0);
+  await page.getByRole("button",{name:"Design Image",exact:true}).click();
+  await page.getByLabel("Brand kit name",{exact:true}).fill("Community brand");
+  await page.getByRole("button",{name:"Save current brand",exact:true}).click();
+  await page.getByRole("button",{name:"Apply brand Community brand",exact:true}).click();
+  const brand=await page.evaluate(()=>JSON.parse(localStorage.getItem("videl_brand_kits_v1")));
+  assert.equal(brand[0].name,"Community brand");
   assert.deepEqual(errors, []);
   console.log(
-    "PASS: real Chromium PNG export, editable JSON export, keyboard movement, JSON import, mocked image publish, duplicate guard, caption limit, post recovery, design restore, 390px mobile layout, owner-session restoration, SDK-independent Mini App login, blocked-cookie diagnosis, private-tool gates, all private screens, group search/toggle, chat quick replies, CSV export, tool finder, editable recipe PNG export; no runtime errors.",
+    "PASS: real Chromium PNG export, editable JSON export, keyboard movement, JSON import, mocked image publish, duplicate guard, caption limit, post recovery, design restore, 390px mobile layout, owner-session restoration, SDK-independent Mini App login, blocked-cookie diagnosis, private-tool gates, all private screens, group search/toggle, chat quick replies, CSV export, tool finder, editable recipe PNG export, rich copy-button editing, post JSON roundtrip, brand kits, version checkpoints and public scheduling gates; no runtime errors.",
   );
   await browser.close();
 })().catch((e) => {

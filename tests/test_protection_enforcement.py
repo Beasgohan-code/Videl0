@@ -8,6 +8,7 @@ import logging
 import re
 import time
 import unittest
+from videl.utils.moderation import locked_message_reason
 
 
 class ProtectionTests(unittest.TestCase):
@@ -17,7 +18,7 @@ class ProtectionTests(unittest.TestCase):
         handler.decorator_list = []
         self.settings = {}
         async def is_admin(*args): return False
-        self.ns = dict(Message=object, is_admin=is_admin, get_chat_setting=lambda cid, key, default=None: self.settings.get(key, default), time=time, deque=deque, _FLOOD_WINDOWS=OrderedDict(), _URL_RE=re.compile(r"https?://\S+"), logger=logging.getLogger(__name__))
+        self.ns = dict(is_approved=lambda *args: False, locked_message_reason=locked_message_reason, Message=object, is_admin=is_admin, get_chat_setting=lambda cid, key, default=None: self.settings.get(key, default), time=time, deque=deque, _FLOOD_WINDOWS=OrderedDict(), _URL_RE=re.compile(r"https?://\S+"), logger=logging.getLogger(__name__))
         exec(compile(ast.Module(body=[handler], type_ignores=[]), "handler", "exec"), self.ns)
         self.deleted = 0
         async def delete(): self.deleted += 1

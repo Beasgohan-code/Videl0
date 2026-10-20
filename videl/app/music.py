@@ -1,0 +1,68 @@
+"""Replacement queue controls backed by the real voice engine and queue.
+
+No simulated state: pause/resume update progress only after engine acknowledgement.
+Search, stream transitions and channel playback remain in their existing engine.
+"""
+import logging
+import random
+from videl import call_py
+from videl.core import queue,player
+from videl.utils.command_ui import result
+from .router import Screen,CommandError
+
+log=logging.getLogger(__name__)
+from videl.core.playback_state import lock
+
+
+async def view_queue(ctx):
+    tracks=list(queue.get_queue(ctx.message.chat.id))
+    if not tracks:return Screen(result('Your queue',body='Nothing is queued. Use <code>/play song name</code> to start.'))
+    # Fixed display budget, including malicious/very long metadata.
+    rows=[('Now playing' if index==0 else str(index),str(track.get('title','Untitled'))[:80]) for index,track in enumerate(tracks[:15])]
+    return Screen(result('Your queue',rows,body=f'{max(0,len(tracks)-1)} upcoming tracks. Current track is shown first.'))
+
+
+async def control(ctx, *, cycle=False):
+    chat_id=ctx.message.chat.id
+    name=ctx.command.name
+    if name in {'skip','stop','end','resetplayer','replay'}:
+        from videl.core.transitions import transition
+        outcome=await transition(chat_id,name)
+        if not outcome.confirmed:raise CommandError(outcome.body)
+        # Stop has no live player; do not leave stale pause/replay controls.
+        keyboard=player._now_playing_kb(chat_id) if queue.peek_current(chat_id) else None
+        return Screen(result(outcome.title,body=outcome.body),keyboard)
+    # Serialize new pause/resume and queue commands within this chat only.
+    async with lock(chat_id):
+        if not queue.peek_current(chat_id):raise CommandError('No active track. Start playback with /play song name.')
+        if name in {'pause','resume'}:
+            paused=name=='pause'
+            if player.is_paused(chat_id)==paused:
+                return Screen(result('Already paused' if paused else 'Already playing',body='No voice-engine change was requested.'),player._now_playing_kb(chat_id))
+            acknowledged=await (call_py.pause(chat_id) if paused else call_py.resume(chat_id))
+            if acknowledged is False:raise RuntimeError('Voice engine did not acknowledge action')
+            player.set_paused(chat_id,paused)
+            title='Playback paused' if paused else 'Playback resumed'
+            body='Queue preserved. Playback state was acknowledged by the voice engine.'
+        elif name=='loop':
+            mode=ctx.command.arguments.casefold()
+            if cycle:
+                modes=('off','one','all')
+                mode=modes[(modes.index(player.get_loop(chat_id))+1)%len(modes)]
+            if mode not in {'off','one','all'}:raise CommandError('Use /loop off, /loop one or /loop all.')
+            player.set_loop(chat_id,mode)
+            title='Repeat updated';body=f'Repeat mode: {mode}.'
+        elif name=='shuffle':
+            tracks=queue.get_queue(chat_id)
+            pending=tracks[1:];random.shuffle(pending);tracks[1:]=pending
+            title='Upcoming tracks shuffled';body=f'{len(pending)} upcoming tracks shuffled. Current playback is unchanged.'
+        elif name=='clear':
+            from videl.core.autoplay import stop_autoplay
+            stop_autoplay(chat_id)
+            removed=queue.clear_pending(chat_id)
+            # Preserve files: progress/stream-end handlers may still hold references.
+            title='Upcoming queue cleared';body=f'{len(removed)} pending tracks removed. Current playback continues. AutoPlay is off.'
+        else:raise CommandError('Unknown playback control.')
+        try:await player.refresh_np_ui(chat_id)
+        except Exception:log.warning('Player card refresh failed after confirmed %s; no action retry',name)
+        return Screen(result(title,body=body),player._now_playing_kb(chat_id))

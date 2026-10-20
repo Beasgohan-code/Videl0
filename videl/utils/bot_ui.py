@@ -1,6 +1,7 @@
 """Videl's native keyboard design system. Uses maintained Kurigram types, not patches."""
 
 from __future__ import annotations
+import html
 import copy
 import os
 import re
@@ -24,7 +25,11 @@ def button(text: str, *args, style=None, icon=None, **kwargs) -> NativeButton:
     if args:
         # Preserve native positional-call validation instead of silently reinterpreting it.
         return NativeButton(text, *args, **kwargs)
-    label = str(text).strip()
+    # Native button labels are plain text, never Telegram HTML.
+    source = str(text)
+    embedded = re.search(r'<tg-emoji\b[^>]*emoji-id=["\']([0-9]+)', source)
+    label = html.unescape(re.sub(r"<[^>]+>", "", source)).strip()
+    label = label.translate(str.maketrans("ᴀʙᴄᴅᴇғɢʜɪᴊᴋʟᴍɴᴏᴘǫʀsᴛᴜᴠᴡxʏᴢ", "abcdefghijklmnopqrstuvwxyz"))
     label = re.sub(r"^[◍⬪⫶⬩𖦹⦿◎⬢]+\s*", "", label)
     lower = label.lower()
     semantic = None
@@ -70,6 +75,8 @@ def button(text: str, *args, style=None, icon=None, **kwargs) -> NativeButton:
             aliases.get(selected.lower(), selected.lower()), enums.ButtonStyle.DEFAULT
         )
     emoji_id = kwargs.pop("icon_custom_emoji_id", None)
+    if not emoji_id and embedded:
+        emoji_id = embedded[1]
     if ICONS_ENABLED:
         emoji_id = emoji_id or PREMIUM_IDS.get(icon or semantic or "", "") or None
     else:
@@ -88,7 +95,7 @@ def button(text: str, *args, style=None, icon=None, **kwargs) -> NativeButton:
 
 
 def plain_keyboard(markup):
-    """Copy, never mutate shared keyboards, when custom icons are rejected."""
+    """Copy, never mutate actions, when optional styles/icons are rejected."""
     if not isinstance(markup, InlineKeyboardMarkup):
         return markup
     rows = []
@@ -97,6 +104,7 @@ def plain_keyboard(markup):
         for item in row:
             clone = copy.copy(item)
             clone.icon_custom_emoji_id = None
+            clone.style = enums.ButtonStyle.DEFAULT
             clean.append(clone)
         rows.append(clean)
     return InlineKeyboardMarkup(rows)
@@ -126,6 +134,7 @@ async def visual_call(function, *args, **kwargs):
         markup = safe.get("reply_markup")
         if any(
             getattr(item, "icon_custom_emoji_id", None)
+            or getattr(item, "style", None) not in (None, enums.ButtonStyle.DEFAULT)
             for row in getattr(markup, "inline_keyboard", [])
             for item in row
         ):

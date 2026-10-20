@@ -18,14 +18,8 @@ from videl.utils.db import (
     is_user_blocked_db,
     get_blocked_users,
 )
-from videl.utils.rich_ui import (
-    rich_esc,
-    rich_heading,
-    rich_kv_table,
-    rich_note,
-    rich_send,
-    sanitize_display_name,
-)
+from videl.utils.rich_ui import rich_esc, rich_heading, rich_kv_table, rich_note, sanitize_display_name
+from videl.utils.command_ui import rich_send
 
 
 # ── Pyrogram filters (import these in other modules) ──────────────────────────

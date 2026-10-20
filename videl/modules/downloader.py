@@ -4,7 +4,7 @@
 #  - yt-dlp (https://github.com/yt-dlp/yt-dlp) for YouTube/IG/TikTok/YT Music
 #  - Pyrogram (Kurigram) for Telegram file handling (Bot API 10.3)
 #  - aiohttp + httpx for network resilience
-#  Commands: /song, /vsong, /download, /ytaudio, /ytvideo, /playdl
+#  Commands: /song, /vsong, /download
 #  Features: search picker, progress bar, thumbnail, metadata, auto-cleanup, proxy & cookies support
 # --------------------------------------------------------------------------------
 from __future__ import annotations
@@ -29,19 +29,8 @@ import config
 from videl import bot, LOGGER
 from videl.modules.block import group_allowed, user_allowed
 from videl.utils.formatters import sc, sb, short
-from videl.utils.rich_ui import (
-    rich_esc,
-    rich_heading,
-    rich_kv_table,
-    rich_note,
-    rich_table,
-    rich_details,
-    rich_button,
-    rich_img,
-    rich_send,
-    rich_edit,
-    rich_send_blocks,
-)
+from videl.utils.rich_ui import rich_esc, rich_heading, rich_kv_table, rich_note, rich_table, rich_details, rich_button, rich_img, rich_send_blocks
+from videl.utils.command_ui import rich_send, rich_edit
 
 try:
     from videl.utils.premium_emojis import pe
@@ -260,7 +249,7 @@ def _hero_img(url: Optional[str] = None):
 
 # ── /song — download audio (like ShizuMusic /song) ────────────────────────────
 
-@bot.on_message(filters.command(["song", "ytaudio", "mdown", "yta"]) & filters.group & filters.private)
+@bot.on_message(filters.command('song') & (filters.group | filters.private))
 async def song_cmd(_, m: Message):
     query = " ".join(m.command[1:]) if len(m.command) > 1 else ""
     if not query and m.reply_to_message and m.reply_to_message.text:
@@ -365,7 +354,7 @@ async def song_cmd(_, m: Message):
                 pass
 
 
-@bot.on_message(filters.command(["vsong", "ytvideo", "vdownload"]) & filters.group & filters.private)
+@bot.on_message(filters.command('vsong') & (filters.group | filters.private))
 async def vsong_cmd(_, m: Message):
     query = " ".join(m.command[1:]) if len(m.command) > 1 else ""
     if not query and m.reply_to_message and m.reply_to_message.text:
@@ -407,7 +396,7 @@ async def vsong_cmd(_, m: Message):
                 pass
 
 
-@bot.on_message(filters.command(["download", "dl"]) & filters.group & filters.private)
+@bot.on_message(filters.command('download') & (filters.group | filters.private))
 async def download_cmd(_, m: Message):
     query = " ".join(m.command[1:]) if len(m.command) > 1 else ""
     if not query:

@@ -65,3 +65,13 @@ def queue_size(chat_id: int) -> int:
 
 def is_empty(chat_id: int) -> bool:
     return queue_size(chat_id) == 0
+
+
+def clear_pending(chat_id: int) -> list:
+    """Remove upcoming tracks without losing the currently playing queue head."""
+    queue = chat_queues.get(chat_id)
+    if not queue:
+        return []
+    removed = queue[1:]
+    del queue[1:]
+    return removed
