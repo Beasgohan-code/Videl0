@@ -460,7 +460,11 @@ button:focus-visible,a:focus-visible { outline: 2px solid #a5b4fc; outline-offse
 .tg-attachment-options { position:absolute; z-index:25; bottom:52px; left:0; padding:10px; gap:8px; display:flex; background:#233546; border:1px solid #ffffff15; border-radius:14px; box-shadow:0 6px 20px #0006; }
 
 /* ── Amazing Premium Upgrade — Beautiful messenger + rich formatting ───────── */
-.tg-premium-emoji { display:inline-block; padding:0 1px; font-size:1.08em; line-height:1; filter:drop-shadow(0 0 5px rgba(139,92,246,.5)); animation:popIn .3s var(--ios-spring); }
+/* Premium emoji: the fallback character stays in the DOM and the resolved
+   Telegram artwork is layered on top. No neon, no glow — the real emoji wins. */
+.tg-premium-emoji { position:relative; display:inline-block; line-height:1; vertical-align:-.12em; }
+.tg-emoji-art { position:absolute; inset:-.14em -.08em; background-size:contain; background-repeat:no-repeat; background-position:center; pointer-events:none; }
+.tg-chat-avatar { display:grid; place-items:center; flex-shrink:0; height:38px; width:38px; border-radius:50%; font-size:11px; font-weight:700; letter-spacing:.02em; color:#fff; background:linear-gradient(140deg,#3a6ea5,#6a5fae); border:1px solid #ffffff26; }
 .tg-composer-premium { box-shadow:0 -10px 40px #0004; }
 .tg-composer-premium .tg-attachment-menu summary { width:44px; height:44px; border-radius:50%; background:#0e1621; }
 .telegram-rich { word-break:break-word; }
@@ -495,3 +499,51 @@ button:focus-visible,a:focus-visible { outline: 2px solid #a5b4fc; outline-offse
 .tg-messages { background-image: radial-gradient(circle at 1px 1px,rgba(99,102,241,.08) 1px,transparent 0),radial-gradient(ellipse at 20% 0%,rgba(56,189,248,.07),transparent 55%),radial-gradient(ellipse at 100% 100%,rgba(168,85,247,.06),transparent 50%); background-size:24px 24px,100% 100%,100% 100%; }
 .tg-details h2 { letter-spacing:-.01em; }
 @media (max-width:767px){ .tg-chat-row { margin:1px 0; border-radius:0; } }
+
+
+/* ── Rich editor + rich composer ──────────────────────────────────────────── */
+.rich-toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:2px; padding:6px 8px; border-bottom:1px solid #ffffff14; background:#ffffff05; }
+.rich-toolbar-group { display:flex; gap:2px; }
+.rich-toolbar-divider { width:1px; height:20px; margin:0 5px; background:#ffffff1a; }
+.rich-tool { display:grid; place-items:center; padding:7px; border-radius:8px; color:#a4ada0; transition:background .15s ease,color .15s ease; }
+.rich-tool:hover:not(:disabled) { background:#ffffff10; color:#fff; }
+.rich-tool-active { background:#c1cdb32e; color:#d8e6c8; }
+.rich-bubble { display:flex; gap:2px; padding:4px; border-radius:12px; background:#1b221e; border:1px solid #ffffff1f; box-shadow:0 14px 34px #00000073; }
+.rich-bubble-tool { padding:8px; border-radius:8px; color:#c7cec1; transition:background .15s ease; }
+.rich-bubble-tool:hover { background:#ffffff12; }
+.rich-bubble-tool-active { background:#ffffff1f; color:#fff; }
+.visual-post-editor p.is-editor-empty:first-child::before { color:#6f7a6b; }
+.visual-post-editor .tg-editor-spoiler, .tg-rich-input .tg-editor-spoiler { background:#ffffff1f; border-radius:4px; padding:0 3px; }
+.tg-rich-composer { border-radius:14px; background:#101a24; border:1px solid #ffffff14; overflow:hidden; transition:border-color .2s ease, box-shadow .2s ease; }
+.tg-rich-focused { border-color:#60a5fa59; box-shadow:0 0 0 3px #60a5fa12; }
+.tg-rich-toolbar { display:flex; align-items:center; gap:1px; padding:4px 6px; border-bottom:1px solid #ffffff0d; }
+.tg-rich-tool { padding:5px; border-radius:6px; color:#8ea3b5; transition:background .15s ease,color .15s ease; }
+.tg-rich-tool:hover:not(:disabled) { background:#ffffff12; color:#fff; }
+.tg-rich-tool-active { background:#5288c145; color:#dbeafe; }
+.tg-rich-input { min-height:44px; max-height:168px; overflow-y:auto; padding:10px 12px; font-size:14px; line-height:1.6; outline:none; scrollbar-width:thin; }
+.tg-rich-input p { margin:0 0 .35em; }
+.tg-rich-input p:last-child { margin-bottom:0; }
+.tg-rich-input p.is-editor-empty:first-child::before { content:attr(data-placeholder); float:left; height:0; color:#71828f; pointer-events:none; }
+.tg-rich-input a { color:#7cc4f0; text-decoration:underline; text-underline-offset:2px; }
+.tg-rich-input code { font-family:'JetBrains Mono',monospace; font-size:12px; background:#ffffff14; border-radius:5px; padding:1px 5px; }
+.tg-rich-input pre { margin:.4em 0; background:#0a1220; border:1px solid #ffffff12; border-radius:10px; padding:10px; white-space:pre-wrap; font-family:'JetBrains Mono',monospace; font-size:12px; }
+.tg-rich-input blockquote { margin:.4em 0; border-left:3px solid #5288c1; padding:4px 10px; background:#5288c11a; border-radius:0 8px 8px 0; }
+.tg-rich-input ul { list-style:disc; padding-left:1.3em; }
+.tg-rich-input ol { list-style:decimal; padding-left:1.3em; }
+.tg-rich-input [data-spoiler] { background:#31414f; border-radius:5px; padding:0 4px; color:transparent; text-shadow:0 0 9px #ffffffa8; cursor:pointer; transition:color .2s ease,text-shadow .2s ease; }
+.tg-rich-input [data-spoiler]:hover { color:inherit; text-shadow:none; }
+.tg-rich-input ::selection { background:#60a5fa3d; }
+.tg-rich-hint { padding:0 10px 7px; font-size:9px; color:#6a7884; }
+.tg-emoji-pop { padding:8px; border-bottom:1px solid #ffffff12; background:#0b141f; }
+.emoji-picker { display:flex; flex-direction:column; }
+.emoji-picker .tg-premium-emoji { font-size:17px; }
+.tg-emoji-pop .emoji-picker .tg-premium-emoji { font-size:16px; }
+.tg-compose-row { align-items:center; }
+.tg-compose-hint-box { line-height:1.5; }
+@media (max-width:640px) {
+  .rich-toolbar { overflow-x:auto; flex-wrap:nowrap; scrollbar-width:none; }
+  .rich-toolbar::-webkit-scrollbar { display:none; }
+  .tg-rich-toolbar { overflow-x:auto; scrollbar-width:none; }
+  .tg-rich-toolbar::-webkit-scrollbar { display:none; }
+  .tg-rich-input { max-height:132px; font-size:16px; }
+}

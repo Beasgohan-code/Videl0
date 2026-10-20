@@ -15,11 +15,30 @@ from pymongo.errors import DuplicateKeyError
 OWNER_ID=6265999542
 RETENTION=(1,7,30)
 PROTECTION={'lock_links','lock_media','lock_stickers','lock_forwards','lock_polls','lock_mentions','antispam','welcome_enabled'}
+REACTIONS=('👍','❤️','🔥','🎉','😁','🤔','👏','🙏','💯','⚡')
+_PARSE_ERROR=re.compile(r'parse|entit|tag|nest',re.I)
+
+
+def parse_error(status,description):
+    return status==400 and bool(_PARSE_ERROR.search(str(description or '')))
 log=logging.getLogger(__name__)
 
 
 class ViewError(ValueError):
     def __init__(self,message,status=400):super().__init__(message);self.status=status
+
+
+class TelegramError(ViewError):
+    """A rejected Bot API call. A 400 response is explicit: nothing was sent."""
+
+    def __init__(self,description,status=502):
+        super().__init__('Telegram rejected this action. Check the destination and try again.',502)
+        self.description=str(description or '')
+        self.api_status=status
+
+    @property
+    def parse_error(self):
+        return self.api_status==400 and bool(_PARSE_ERROR.search(self.description))
 
 
 def integer(value,*,positive=False):
@@ -37,11 +56,90 @@ def aware(value):
     return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
 
 
+_ENTITY_MARKS={'BOLD':'b','ITALIC':'i','UNDERLINE':'u','STRIKETHROUGH':'s','SPOILER':'tg-spoiler','CODE':'code','PRE':'pre','BLOCKQUOTE':'blockquote'}
+
+
+def _utf16_positions(text):
+    """Map UTF-16 code-unit offsets (Telegram's unit) to Python string indexes."""
+    positions=[];index=0
+    for char in text:
+        positions.append(index)
+        index+=2 if ord(char)>0xFFFF else 1
+    positions.append(index)
+    return positions
+
+
+def entities_html(text,entities):
+    """Recreate Telegram formatting captured from message entities as HTML.
+
+    Pyrogram hands us plain text plus offsets, so formatting — including custom
+    (premium) emoji — would otherwise be lost the moment a message is stored.
+    Returns (html, used); improperly overlapping entities are dropped rather
+    than emitted as broken markup, and the result is passed through
+    :func:`normalize_rich` so it is always safe to send back to Telegram.
+    """
+    text=str(text or '')
+    if not text or not entities:return text,False
+    units=_utf16_positions(text)
+    def to_index(offset):
+        offset=max(0,int(offset or 0))
+        for index,unit in enumerate(units):
+            if unit>=offset:return index
+        return len(text)
+    spans=[]
+    for entity in entities:
+        kind=str(getattr(getattr(entity,'type',None),'name',getattr(entity,'type','')) or '').upper()
+        start=to_index(getattr(entity,'offset',0));end=to_index(getattr(entity,'offset',0)+getattr(entity,'length',0))
+        if end<=start or start<0 or end>len(text):continue
+        mark=_ENTITY_MARKS.get(kind)
+        if mark:
+            spans.append((start,end,f'<{mark}>',f'</{mark}>'))
+            continue
+        if kind=='TEXT_LINK':
+            url=str(getattr(entity,'url','') or '')
+            if _HREF.match(url):spans.append((start,end,f'<a href="{_html.escape(url,quote=True)}">','</a>'))
+            continue
+        if kind=='CUSTOM_EMOJI':
+            emoji_id=str(getattr(entity,'custom_emoji_id','') or '')
+            fallback=text[start:end]
+            if _EMOJI_ID.fullmatch(emoji_id) and fallback and len(fallback)<=8 and not re.search(r'\s',fallback):
+                spans.append((start,end,f'<tg-emoji emoji-id="{emoji_id}">','</tg-emoji>'))
+    if not spans:return text,False
+
+    def build(start,end,pool):
+        parts=[];cursor=start
+        while cursor<end:
+            candidate=None
+            for span in pool:
+                if span[0]<cursor or span[1]>end:continue
+                if candidate is None or span[0]<candidate[0] or (span[0]==candidate[0] and span[1]>candidate[1]):candidate=span
+            if candidate is None:break
+            if candidate[0]>cursor:parts.append(_escape(text[cursor:candidate[0]]))
+            inner=build(candidate[0],candidate[1],[span for span in pool if span is not candidate])
+            if inner:parts.append(candidate[2]+inner+candidate[3])
+            cursor=candidate[1]
+        if cursor<end:parts.append(_escape(text[cursor:end]))
+        return ''.join(parts)
+
+    html=build(0,len(text),spans)
+    normalized,_,_=normalize_rich(html)
+    return normalized,bool(normalized!=_escape(text))
+
+
+def is_rich(text):
+    return bool(re.search(r'</?(?:b|i|u|s|code|pre|blockquote|a|tg-spoiler|tg-emoji)\b',str(text or '')))
+
+
 def snapshot(message):
     chat=getattr(message,'chat',None)
     kind=str(getattr(getattr(chat,'type',None),'value',getattr(chat,'type','')))
     if kind not in {'group','supergroup','private'}:return None
-    text=str(getattr(message,'text',None) or getattr(message,'caption',None) or '')[:4096]
+    raw_text=str(getattr(message,'text',None) or getattr(message,'caption',None) or '')[:4096]
+    entities=getattr(message,'entities',None) or getattr(message,'caption_entities',None) or []
+    text,rich=False,False
+    try:text,rich=entities_html(raw_text,entities)
+    except Exception:text,rich=raw_text,False
+    if not isinstance(text,str) or not text:text=raw_text
     media=None
     for key in ('photo','video','document','audio','voice','sticker','animation','video_note','poll'):
         item=getattr(message,key,None)
@@ -50,6 +148,15 @@ def snapshot(message):
                    'file_id':getattr(item,'file_id',None),'size':getattr(item,'file_size',None),
                    'mime':getattr(item,'mime_type',None)}
             break
+    poll=None
+    raw_poll=getattr(message,'poll',None)
+    if raw_poll is not None:
+        try:
+            options=[str(getattr(option,'text',''))[:100] for option in (getattr(raw_poll,'options',None) or [])][:10]
+            poll={'question':str(getattr(raw_poll,'question',''))[:300],'options':options,
+                'anonymous':bool(getattr(raw_poll,'is_anonymous',True)),
+                'multiple':bool(getattr(raw_poll,'allows_multiple_answers',False))}
+        except Exception:poll=None
     if not text and media is None:return None
     user=getattr(message,'from_user',None)
     sender=user or getattr(message,'sender_chat',None)
@@ -59,58 +166,195 @@ def snapshot(message):
         'sender_name':str(getattr(sender,'first_name',None) or getattr(sender,'title',None) or 'Anonymous')[:100],
         'sender_username':str(getattr(sender,'username','') or '')[:64],
         'is_bot':bool(getattr(user,'is_bot',False)),
-        'reply_to_id':getattr(reply,'id',None),'thread_id':getattr(message,'message_thread_id',None),
+        'reply_to_id':getattr(reply,'id',None),'thread_id':getattr(message,'message_thread_id',None),'poll':poll,
         'date':aware(getattr(message,'date',None)),'edited':bool(getattr(message,'edit_date',None)),
-        'deleted':False}
+        'deleted':False,'rich':bool(rich)}
 
 
 _ALLOWED_RICH={'b','strong','i','em','u','ins','s','strike','del','code','pre','blockquote','a','tg-spoiler','tg-emoji'}
-_RICH_TAG=re.compile(r'</?\s*([a-zA-Z][a-zA-Z0-9-]*)([^>]*)>')
+_ALIASES={'strong':'b','em':'i','ins':'u','strike':'s','del':'s'}
+_BLOCK_TAGS={'p','div','section','article','tr','li','h1','h2','h3','h4','h5','h6'}
+_TAG_TOKEN=re.compile(r'</?[A-Za-z][A-Za-z0-9-]*(?:\s[^<>]*)?/?>')
+_ATTRIBUTE=re.compile(r'([A-Za-z_][\w-]*)\s*=\s*("[^"]*"|\'[^\']*\'|[^\s>]+)')
+_EMOJI_ID=re.compile(r'^[0-9]{1,20}$')
+_EMPTY_PAIR=re.compile(r'<([A-Za-z][\w-]*)((?:\s[^<>]*)?)></\1>')
+_HREF=re.compile(r'^(?:https?://|tg://)',re.I)
+
+
+def _escape(value):
+    return value.replace('&','&amp;').replace('<','&lt;').replace('>','&gt;')
+
+
+def _decode(value):
+    return _html.unescape(value)
+
+
+def _attributes(raw):
+    return {match.group(1).lower():_decode(match.group(2).strip('"\'')) for match in _ATTRIBUTE.finditer(raw)}
+
+
+def _open_tag(name,attrs):
+    if name=='a':return f'<a href="{_html.escape(attrs.get("href",""),quote=True)}">'
+    if name=='tg-emoji':return f'<tg-emoji emoji-id="{attrs.get("emoji-id","")}">'
+    return f'<{name}>'
+
+
+_TAG_SHAPE=re.compile(r"<\s*(/?)\s*([A-Za-z][\w-]*)((?:\"[^\"]*\"|'[^']*'|[^<>])*?)\s*(/?)\s*>$",re.S)
+
+
+def normalize_rich(value):
+    """Rewrite arbitrary HTML-ish text into Telegram-safe, correctly nested HTML.
+
+    Telegram only accepts well-formed nesting. Bold/italic/underline/strike/
+    spoiler may nest with each other, but code/pre may not share characters with
+    them, blockquotes cannot nest, and links cannot contain code. This parser
+    closes and reopens formatting around code, flattens tags inside code, drops
+    unknown tags while keeping their text, and auto-balances mismatched tags.
+    Returns (html, plain_text, used_html).
+    """
+    if not isinstance(value,str):raise ViewError('A text message is required.')
+    out=[];plain=[];stack=[];ignored={};code=None;emoji=None
+    position=0
+
+    def emit(text):out.append(text)
+
+    def add_text(segment):
+        if not segment:return
+        decoded=_decode(segment)
+        if not decoded:return
+        plain.append(decoded)
+        if code is not None:
+            emit(_escape(decoded))
+        elif emoji is not None:
+            emoji['buffer'].append(decoded)
+        else:
+            emit(_escape(decoded))
+
+    def newline():
+        if not out or out[-1].endswith('\n'):return
+        emit('\n');plain.append('\n')
+
+    def close_emoji():
+        nonlocal emoji
+        if emoji is None:return
+        content=''.join(emoji['buffer']).strip()
+        if content and len(content)<=8 and not re.search(r'\s',content):
+            emit(f'<tg-emoji emoji-id="{emoji["id"]}">{_escape(content)}</tg-emoji>')
+        else:
+            emit(_escape(''.join(emoji['buffer'])))
+        emoji=None
+
+    for match in _TAG_TOKEN.finditer(value):
+        add_text(value[position:match.start()])
+        position=match.end()
+        shape=_TAG_SHAPE.match(match.group(0))
+        if not shape:continue
+        closing=bool(shape.group(1));name=shape.group(2).lower();attr_text=shape.group(3) or ''
+        name=_ALIASES.get(name,name)
+        if code is not None:
+            if name in {'code','pre'} and closing:
+                emit(f'</{code["name"]}>')
+                saved=code['saved'];code=None
+                for open_name,open_attrs in saved:emit(_open_tag(open_name,open_attrs))
+            # Every other tag inside code is flattened; its text is kept.
+            continue
+        if name=='tg-emoji' and closing:
+            close_emoji();continue
+        if emoji is not None:
+            # Tags inside a custom emoji are dropped; only its text matters.
+            continue
+        if closing:
+            if ignored.get(name):
+                ignored[name]-=1;continue
+            if name in {'code','pre'} or name=='tg-emoji':
+                continue
+            if name not in {open_name for open_name,_ in stack}:
+                continue
+            while stack and stack[-1][0]!=name:
+                emit(f'</{stack[-1][0]}>');stack.pop()
+            if stack:
+                emit(f'</{name}>');stack.pop()
+            if name in _BLOCK_TAGS:newline()
+            continue
+        if name=='br':
+            emit('\n');plain.append('\n');continue
+        if name in _BLOCK_TAGS:
+            newline();continue
+        if name in {'code','pre'}:
+            saved=[(open_name,open_attrs) for open_name,open_attrs in stack]
+            for open_name,_ in reversed(saved):emit(f'</{open_name}>')
+            code={'name':name,'saved':saved}
+            emit(f'<{name}>')
+            continue
+        if name=='tg-emoji':
+            attrs=_attributes(attr_text)
+            eid=attrs.get('emoji-id','')
+            if not _EMOJI_ID.fullmatch(eid):continue
+            emoji={'id':eid,'buffer':[]}
+            continue
+        if name=='a':
+            attrs=_attributes(attr_text)
+            if not _HREF.match(attrs.get('href','')):
+                ignored['a']=ignored.get('a',0)+1;continue
+            if any(open_name=='a' for open_name,_ in stack):
+                ignored['a']=ignored.get('a',0)+1;continue
+        if name=='blockquote' and any(open_name=='blockquote' for open_name,_ in stack):
+            ignored['blockquote']=ignored.get('blockquote',0)+1;continue
+        if name in {'b','i','u','s','tg-spoiler'} and any(open_name==name for open_name,_ in stack):
+            ignored[name]=ignored.get(name,0)+1;continue
+        if name not in _ALLOWED_RICH:continue
+        stack.append((name,_attributes(attr_text) if name=='a' else {}))
+        emit(_open_tag(name,_attributes(attr_text)))
+    add_text(value[position:])
+    if emoji is not None:close_emoji()
+    if code is not None:
+        emit(f'</{code["name"]}>')
+        for open_name,open_attrs in code['saved']:emit(_open_tag(open_name,open_attrs))
+        code=None
+    while stack:
+        emit(f'</{stack[-1][0]}>');stack.pop()
+    html=''.join(out).rstrip('\n')
+    for _ in range(6):
+        cleaned=_EMPTY_PAIR.sub('',html)
+        if cleaned==html:break
+        html=cleaned
+    used=bool(re.search(r'</?(?:b|i|u|s|code|pre|blockquote|a|tg-spoiler|tg-emoji)\b',html))
+    return html,''.join(plain).rstrip('\n'),used
+
+
+def plain_from_rich(value):
+    """Visible text of stored Telegram-style HTML, for safe fallback sends."""
+    html,plain,used=normalize_rich(value)
+    return plain if used else value
 
 
 def rich_text(text,limit=4096):
-    """Validate Telegram HTML, strip unsafe tags/attributes and premium emoji IDs.
+    """Validate and normalize Telegram HTML; returns (text,is_html).
 
-    Returns (text,is_html). Plain text is returned untouched. Only formatting
-    that Telegram documents is allowed; unknown tags are shown as literal text.
+    Plain text is returned unchanged. Formatting is normalized to Telegram's
+    documented nesting rules, unknown tags are dropped, unsafe links and emoji
+    IDs are rejected, and the visible UTF-16 length is enforced.
     """
     if not isinstance(text,str) or not text.strip():
         raise ViewError(f'Enter a message of 1–{limit} Telegram text units.')
-    has=bool(re.search(r'<\s*/?\s*(?:b|i|u|s|code|pre|blockquote|a|tg-spoiler|tg-emoji|span)\b',text,re.I))
+    has=bool(re.search(r'<[A-Za-z/!]',text))
     if not has:
         if len(text.encode('utf-16-le'))//2>limit:
             raise ViewError(f'Enter a message of 1–{limit} Telegram text units.')
         return text,False
-    if re.search(r'<tg-emoji',text,re.I):
-        for _tag in re.findall(r'<tg-emoji[^>]*>',text,re.I):
-            if not re.fullmatch(r"""<tg-emoji\s+emoji-id\s*=\s*["']?[0-9]{1,20}["']?\s*>""",_tag,re.I):
-                raise ViewError('Premium emoji ID must be 1–20 digits. Copy it from @emoji or Telegram.')
-    def replace(match):
-        raw=match.group(0);name=match.group(1).lower()
-        if name not in _ALLOWED_RICH:
-            return _html.escape(raw)
-        raw=re.sub(r"""\s+on\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)""",'',raw,flags=re.I)
-        if raw.startswith('</'):
-            return f'</{name}>'
-        if name=='tg-emoji':
-            found=re.fullmatch(r"""<tg-emoji\s+emoji-id\s*=\s*["']?([0-9]{1,20})["']?\s*>""",raw,re.I)
-            return f'<tg-emoji emoji-id="{found.group(1)}">' if found else _html.escape(raw)
-        if name=='a':
-            href=re.search(r"""href\s*=\s*(["'])(.*?)\1""",raw,re.I|re.S)
-            if href and re.match(r'^(?:https?://|tg://)',href.group(2),re.I):
-                return f'<a href="{_html.escape(href.group(2),quote=True)}">'
-            return '<a>'
-        return f'<{name}>'
-    text=_RICH_TAG.sub(replace,text)
-    text=re.sub(r'<(?!/?(?:b|strong|i|em|u|ins|s|strike|del|code|pre|blockquote|a|tg-spoiler|tg-emoji)(?:\s|>))','&lt;',text)
-    plain=_html.unescape(re.sub(r'<[^>]+>','',text))
+    for tag in re.findall(r'<tg-emoji[^>]*>',text,re.I):
+        attrs=_attributes(tag[1:-1])
+        if not _EMOJI_ID.fullmatch(attrs.get('emoji-id','')):
+            raise ViewError('Premium emoji ID must be 1–20 digits. Copy it from @emoji or Telegram.')
+    html,plain,used=normalize_rich(text)
     if not plain.strip():
-        raise ViewError('Formatted messages need visible text outside the tags.')
+        raise ViewError('A formatted message needs visible text outside its tags.')
     if len(plain.encode('utf-16-le'))//2>limit:
         raise ViewError(f'Formatted messages are limited to {limit} Telegram text units. Shorten the visible text.')
-    if len(text)>min(20000,limit*8):
+    if len(html)>min(20000,limit*8):
         raise ViewError('Formatted message is too large.')
-    return text,True
+    if not used:return plain,False
+    return html,True
 
 
 def indexes(db):
@@ -131,6 +375,9 @@ def store(db,item):
     if item['date']<now()-timedelta(days=days):return
     epoch=settings.get('epoch')
     document={**item,'expires_at':item['date']+timedelta(days=days),'epoch':epoch}
+    # Bot replies are stored as the HTML that was actually delivered, so mark
+    # them textually so the viewer renders them instead of escaping the tags.
+    if 'rich' not in document:document['rich']=is_rich(document.get('text'))
     key={'chat_id':item['chat_id'],'message_id':item['message_id']}
     # Preserve a local deletion marker if a late edit arrives.
     if (db['group_view_messages'].find_one(key) or {}).get('deleted'):return
@@ -179,6 +426,8 @@ class GroupView:
 
     def call(self,method,payload):
         status,body=self.api(method,payload)
+        if status==400:
+            raise TelegramError(body.get('description',''),400)
         if not status or not body.get('ok') or body.get('result') is False:
             raise ViewError('Telegram did not confirm this request. Check the group before retrying.',502)
         return body.get('result')
@@ -234,6 +483,64 @@ class GroupView:
             'capture_dropped':_dropped,'rich_text':True,'settings':{key:bool(protections.get(key,False)) for key in PROTECTION},
             'visibility_note':'Only messages delivered to this bot after recording was enabled. No Telegram history import; privacy mode can limit visibility. Small photos, videos and voice messages can be viewed through the owner-only media proxy. Unobserved deletions are not synchronized.'}
 
+    def info(self,chat_id):
+        """Chat profile, like a Telegram chat info screen (allowlisted fields)."""
+        cid,actor=self.access(chat_id)
+        me=self.call('getMe',{})
+        chat=self.call('getChat',{'chat_id':cid}) or {}
+        if not isinstance(chat,dict):raise ViewError('Telegram did not return this chat.',502)
+        members=None
+        if cid<0:
+            try:members=self.call('getChatMemberCount',{'chat_id':cid})
+            except ViewError:members=None
+        if not isinstance(members,int) or members<0:members=None
+        pinned=self._pinned(chat)
+        bot_member=None
+        if cid<0:
+            try:bot_member=self.call('getChatMember',{'chat_id':cid,'user_id':me['id']})
+            except ViewError:bot_member=None
+        settings=self.db['group_view_settings'].find_one({'_id':cid}) or {}
+        days=settings.get('retention_days',7)
+        if days not in RETENTION:days=7
+        protections=self.db['mgmt_chat_settings'].find_one({'chat_id':cid}) or {}
+        photo=chat.get('photo') if isinstance(chat.get('photo'),dict) else {}
+        base={'id':cid,'title':str(chat.get('title') or chat.get('first_name') or chat.get('username') or cid)[:128],
+            'type':str(chat.get('type') or ('private' if cid>0 else 'supergroup'))[:20],
+            'username':str(chat.get('username') or '')[:64] or None,
+            'first_name':str(chat.get('first_name') or '')[:64] or None,
+            'description':str(chat.get('description') or chat.get('bio') or '')[:600] or None,
+            'member_count':members,'has_photo':bool(photo.get('small_file_id')),
+            'is_forum':bool(chat.get('is_forum')),'slow_mode_delay':int(chat.get('slow_mode_delay') or 0),
+            'linked_chat_id':chat.get('linked_chat_id'),'pinned':pinned,
+            'recording':bool(settings.get('enabled')),'retention_days':days,
+            'protections':{key:bool(protections.get(key,False)) for key in PROTECTION}}
+        if cid<0:
+            allowed=chat.get('permissions') if isinstance(chat.get('permissions'),dict) else {}
+            base['permissions']={key:bool(allowed.get(key)) for key in
+                ('can_send_messages','can_send_photos','can_send_videos','can_send_polls','can_send_other_messages','can_add_web_page_previews')}
+            member_status=(bot_member or {}).get('status')
+            base['bot']={'name':str((me or {}).get('first_name') or 'Videl')[:64],
+                'username':str((me or {}).get('username') or '')[:64] or None,
+                'status':member_status if member_status in {'creator','administrator','member','restricted','left','kicked'} else None,
+                'is_admin':member_status in {'creator','administrator'},
+                'can_manage':bool((bot_member or {}).get('can_manage_chat')) if member_status=='administrator' else False}
+            base['owner']={'status':actor.get('status') if actor.get('status') in {'creator','administrator','member','restricted','left','kicked'} else None}
+        invite=None
+        if cid<0:
+            try:invite=self.call('exportChatInviteLink',{'chat_id':cid})
+            except ViewError:invite=None
+            if not isinstance(invite,str) or not invite.startswith('https://t.me/'):invite=None
+        base['invite_link']=invite
+        return {'ok':True,'info':base,'rich_text':True}
+
+    @staticmethod
+    def _pinned(chat):
+        raw=chat.get('pinned_message')
+        if not isinstance(raw,dict):return None
+        text=raw.get('text') or raw.get('caption') or ''
+        return {'message_id':raw.get('message_id'),'text':str(text)[:280],
+            'date':aware(raw.get('date')).isoformat() if raw.get('date') else None}
+
     def settings(self,cid,actor,body):
         action=body.get('action')
         if action=='recording':
@@ -267,14 +574,14 @@ class GroupView:
         cid,actor=self.access(body.get('chat_id'))
         action=body.get('action')
         if action in {'recording','purge_history','protect'}:return self.settings(cid,actor,body)
-        if cid>0 and action not in {'send','reply','delete'}:raise ViewError('This action is group-only.',403)
-        if action not in {'send','reply','delete','mute','unmute','ban','pin','unpin'}:raise ViewError('Unsupported group action.')
-        mid=None if action=='send' else integer(body.get('message_id'),positive=True)
+        if cid>0 and action not in {'send','reply','delete','react','poll'}:raise ViewError('This action is group-only.',403)
+        if action not in {'send','reply','delete','react','poll','mute','unmute','ban','pin','unpin'}:raise ViewError('Unsupported group action.')
+        mid=None if action in {'send','poll'} else integer(body.get('message_id'),positive=True)
         policy=self.db['group_view_settings'].find_one({'_id':cid}) or {}
         days=policy.get('retention_days',7)
         if days not in RETENTION:days=7
         message=self.db['group_view_messages'].find_one({'chat_id':cid,'message_id':mid,'expires_at':{'$gt':now()},'date':{'$gte':now()-timedelta(days=days)}})
-        if action!='send' and (not message or message.get('deleted')):raise ViewError('This recorded message is missing, expired or deleted.',404)
+        if action not in {'send','poll'} and (not message or message.get('deleted')):raise ViewError('This recorded message is missing, expired or deleted.',404)
         rights={'delete':[] if cid>0 else ['can_delete_messages'],'pin':['can_pin_messages'],'unpin':['can_pin_messages'],
             'mute':['can_restrict_members'],'unmute':['can_restrict_members'],'ban':['can_restrict_members']}.get(action,[])
         me=self.rights(cid,actor,rights)
@@ -285,6 +592,7 @@ class GroupView:
             member=self.call('getChatMember',{'chat_id':cid,'user_id':target})
             if member.get('status') in {'creator','administrator'}:raise ViewError('Group administrators are protected targets.',403)
         payload={'chat_id':cid}
+        is_html=False
         if action in {'send','reply'}:
             text=body.get('text')
             if not isinstance(text,str) or not text.strip():
@@ -293,6 +601,23 @@ class GroupView:
             method='sendMessage';payload.update(text=text)
             if is_html:payload['parse_mode']='HTML'
             if mid:payload['reply_parameters']={'message_id':mid,'allow_sending_without_reply':False}
+            if message and message.get('thread_id'):payload['message_thread_id']=message['thread_id']
+        elif action=='react':
+            emoji=body.get('emoji')
+            if emoji not in REACTIONS:
+                raise ViewError('Choose one of the supported reaction emojis.')
+            method='setMessageReaction';payload.update(message_id=mid,reaction=[{'type':'emoji','emoji':emoji}])
+        elif action=='poll':
+            question=body.get('question')
+            options=body.get('options')
+            if not isinstance(question,str) or not question.strip() or len(question)>300:
+                raise ViewError('Poll questions must be 1–300 characters.')
+            if not isinstance(options,list) or not (2<=len(options)<=10) or any(not isinstance(item,str) or not item.strip() or len(item)>100 for item in options):
+                raise ViewError('Add 2–10 poll options, each 1–100 characters.')
+            method='sendPoll'
+            payload.update(question=question.strip(),options=[item.strip() for item in options],
+                is_anonymous=body.get('anonymous') is not False,
+                allows_multiple_answers=bool(body.get('multiple')))
             if message and message.get('thread_id'):payload['message_thread_id']=message['thread_id']
         elif action=='delete':method='deleteMessage';payload['message_id']=mid
         elif action in {'pin','unpin'}:
@@ -321,21 +646,42 @@ class GroupView:
             if previous.get('request')!=signature:raise ViewError('Request ID already belongs to another action.',409)
             return {'ok':previous.get('status')=='confirmed','status':previous.get('status','unconfirmed'),
                     'error':None if previous.get('status')=='confirmed' else 'Earlier delivery is pending or unconfirmed. Check Telegram; it was not retried.'}
-        try:result=self.call(method,payload)
+        fallback_note=None
+        try:
+            try:result=self.call(method,payload)
+            except TelegramError as error:
+                # Telegram explicitly rejected the entities, so nothing was
+                # delivered; one plain-text retry cannot duplicate a message.
+                if not is_html or not error.parse_error:raise
+                plain=plain_from_rich(payload['text'])
+                retry={**payload,'text':plain};retry.pop('parse_mode',None)
+                result=self.call(method,retry)
+                payload=retry
+                fallback_note='Telegram could not render every formatting tag, so the message was sent as plain text. Check the result before resending.'
         except Exception:
             self.db['group_view_operations'].update_one({'_id':key},{'$set':{'status':'unconfirmed'}})
             raise
         # Telegram success is separate from local follow-up persistence.
-        warning=None
+        warning=fallback_note
         try:
             self.db['group_view_operations'].update_one({'_id':key},{'$set':{'status':'confirmed'}})
             if action=='delete':self.db['group_view_messages'].update_one({'chat_id':cid,'message_id':mid},{'$set':{'deleted':True,'text':'','media':None}})
-            if action in {'send','reply'} and isinstance(result,dict):
-                settings=self.db['group_view_settings'].find_one({'_id':cid}) or {}
-                if settings.get('enabled'):
+            if action=='react':self.db['group_view_messages'].update_one({'chat_id':cid,'message_id':mid},{'$set':{'bot_reaction':payload['reaction'][0]['emoji']}})
+            settings=self.db['group_view_settings'].find_one({'_id':cid}) or {}
+            if settings.get('enabled'):
+                if action in {'send','reply'} and isinstance(result,dict):
                     store(self.db,{'chat_id':cid,'message_id':result['message_id'],'text':payload['text'],'media':None,
                         'sender_id':me['id'],'sender_is_user':True,'sender_name':me.get('first_name','Videl'),
                         'sender_username':me.get('username',''),'is_bot':True,'reply_to_id':mid,
                         'thread_id':message.get('thread_id') if message else None,'date':now(),'edited':False,'deleted':False})
-        except Exception:warning='Telegram confirmed the action, but the local receipt/history update could not be saved.'
-        return {'ok':True,'status':'confirmed','message_id':result.get('message_id') if isinstance(result,dict) else None,'warning':warning}
+                if action=='poll' and isinstance(result,dict):
+                    store(self.db,{'chat_id':cid,'message_id':result['message_id'],'text':payload['question'],
+                        'media':{'kind':'poll','name':payload['question'][:160]},
+                        'poll':{'question':payload['question'],'options':payload['options'],
+                            'anonymous':payload['is_anonymous'],'multiple':payload['allows_multiple_answers']},
+                        'sender_id':me['id'],'sender_is_user':True,'sender_name':me.get('first_name','Videl'),
+                        'sender_username':me.get('username',''),'is_bot':True,'reply_to_id':None,
+                        'thread_id':payload.get('message_thread_id'),'date':now(),'edited':False,'deleted':False})
+        except Exception:warning=fallback_note or 'Telegram confirmed the action, but the local receipt/history update could not be saved.'
+        return {'ok':True,'status':'confirmed','message_id':result.get('message_id') if isinstance(result,dict) else None,
+                'warning':warning,'reaction':payload.get('reaction',[{}])[0].get('emoji') if action=='react' else None}

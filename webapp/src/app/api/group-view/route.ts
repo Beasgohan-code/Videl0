@@ -9,7 +9,7 @@ async function proxy(req: Request) {
   if (!backend || !secret) return unavailableBackend();
   const source = new URL(req.url);
   const params = new URLSearchParams();
-  for (const key of ["chat_id", "before", "q", "sender"]) {
+  for (const key of ["chat_id", "before", "q", "sender", "info"]) {
     const value = source.searchParams.get(key);
     if (value !== null) params.set(key, value);
   }

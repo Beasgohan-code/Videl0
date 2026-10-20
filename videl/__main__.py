@@ -210,12 +210,22 @@ def _internal_channel_post():
     parse_mode = body.get("parse_mode", "HTML")
     if parse_mode not in ("HTML", "Markdown", "MarkdownV2"):
         return jsonify({"ok": False, "error": "Unsupported parse mode"}), 400
+    if parse_mode == "HTML" and text:
+        # The visual editor can nest marks in ways Telegram rejects (code plus
+        # bold on the same characters). Normalize here so a post is delivered
+        # instead of failing with "can't parse entities".
+        from videl.utils.group_view import normalize_rich
+        text, _, used = normalize_rich(text)
+        if not used:
+            parse_mode = None
     from videl.utils.post_format import post_text_length
     text_length = post_text_length(text, parse_mode)
     if text_length > 4096:
         return jsonify({"ok": False, "error": "Post text is limited to 4096 visible characters"}), 400
     method = "sendMessage"
-    payload = {"chat_id": chat_id, "parse_mode": parse_mode}
+    payload = {"chat_id": chat_id}
+    if parse_mode:
+        payload["parse_mode"] = parse_mode
     if image_data is not None:
         if text_length > 1024:
             return jsonify({"ok": False, "error": "Image captions allow 1024 visible characters"}), 400

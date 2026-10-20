@@ -24,6 +24,30 @@ class RichPostApiTests(unittest.TestCase):
             self.assertEqual(payload["caption"], caption)
             self.assertEqual(payload["parse_mode"], "HTML")
 
+    def test_nested_marks_are_normalized_before_sending(self):
+        with patch.object(self.api.config, "WEBAPP_SECRET", "offline-test-only"), patch.object(
+            self.api, "_bot_api", return_value=(True, {"ok": True, "result": {"message_id": 11}})
+        ) as send:
+            response = self.client.post("/internal/channel-post", headers={"X-Videl-Internal": "offline-test-only"}, json={
+                "chat_id": "-1001",
+                "text": 'Hwy <u>hu<code>h<tg-spoiler>hhhh</tg-spoiler></code></u> '
+                        '<tg-emoji emoji-id="5368324170671202286">\U0001F44D</tg-emoji>',
+            })
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(send.call_args.args[1]["text"],
+                'Hwy <u>hu</u><code>hhhhh</code> <tg-emoji emoji-id="5368324170671202286">\U0001F44D</tg-emoji>')
+            self.assertEqual(send.call_args.args[1]["parse_mode"], "HTML")
+
+    def test_plain_text_post_does_not_send_html_parse_mode(self):
+        with patch.object(self.api.config, "WEBAPP_SECRET", "offline-test-only"), patch.object(
+            self.api, "_bot_api", return_value=(True, {"ok": True, "result": {"message_id": 12}})
+        ) as send:
+            response = self.client.post("/internal/channel-post", headers={"X-Videl-Internal": "offline-test-only"}, json={
+                "chat_id": "-1001", "text": "Just words & things",
+            })
+            self.assertEqual(response.status_code, 200)
+            self.assertNotIn("parse_mode", send.call_args.args[1])
+
     def test_oversize_caption_is_not_sent(self):
         with patch.object(self.api.config, "WEBAPP_SECRET", "offline-test-only"), patch.object(self.api, "_bot_api") as send:
             response = self.client.post("/internal/channel-post", headers={"X-Videl-Internal": "offline-test-only"}, json={

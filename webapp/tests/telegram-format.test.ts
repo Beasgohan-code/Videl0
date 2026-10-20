@@ -12,7 +12,7 @@ test("paragraphs, line breaks and lists stay readable",()=>{
 test("unsafe links and pasted active content are rejected",()=>{
  assert.equal(safeLink("javascript:alert(1)"),null);
  const html=cleanTelegramHtml('<script>alert(1)</script><b onclick="alert(2)">safe</b><a href="javascript:alert(1)">link</a><img src=x onerror=alert(1)>');
- assert.equal(html,'<b>safe</b><a>link</a>');
+ assert.equal(html,'<b>safe</b>link');
  assert.equal(telegramHtml({type:"text",text:"link",marks:[{type:"link",attrs:{href:"javascript:alert(1)"}}]}),"link");
 });
 test("entities round-trip without double escaping",()=>{
@@ -74,4 +74,21 @@ test("format helpers wrap the current selection and keep the caret inside",()=>{
 test("rich chat text strips unknown tags but keeps standard Telegram formatting",()=>{
  assert.equal(chatPreviewHtml("<b>Bold</b> <i>it</i> <u>u</u> <s>s</s> <code>c</code>"),"<b>Bold</b> <i>it</i> <u>u</u> <s>s</s> <code>c</code>");
  assert.equal(chatPreviewHtml("<div>plain</div><img src=x onerror=alert(1)>"),"plain");
+});
+
+test("premium emoji nodes serialize with a visible fallback character",()=>{
+ const doc={type:"doc",content:[{type:"paragraph",content:[
+  {type:"text",text:"Launch "},
+  {type:"premiumEmoji",attrs:{emojiId:"5368324170671202286",char:"🔥"}},
+  {type:"text",text:" now"}]}]};
+ assert.equal(telegramHtml(doc),'Launch <tg-emoji emoji-id="5368324170671202286">🔥</tg-emoji> now');
+ const invalid={type:"doc",content:[{type:"paragraph",content:[{type:"premiumEmoji",attrs:{emojiId:"abc",char:"✨"}}]}]};
+ assert.equal(telegramHtml(invalid),'✨');
+});
+test("nested Telegram formatting survives the chat renderer",()=>{
+ const html='Hwy <u>hu<code>h<tg-spoiler>hhhh</tg-spoiler></code></u>';
+ const out=chatPreviewHtml(html);
+ assert.equal(out,'Hwy <u>hu<code>h<span class="post-spoiler">hhhh</span></code></u>');
+ assert.equal(chatPreviewHtml("<script>alert(1)</script><b>ok</b>"),"<b>ok</b>");
+ assert.equal(chatPreviewHtml('<a href="javascript:alert(1)">x</a>'),"x");
 });

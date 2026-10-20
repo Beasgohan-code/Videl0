@@ -1,10 +1,16 @@
 import { decodeHTML } from "entities";
 import sanitizeHtml from "sanitize-html";
+import { premiumEmojiArt } from "./premium-emoji";
 export type RichNode = {type?:string;text?:string;attrs?:Record<string,unknown>;marks?:{type:string;attrs?:Record<string,unknown>}[];content?:RichNode[]};
 export function escapeText(text:string){return text.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;")}
 export function safeLink(value:string){try{const url=new URL(value);return ["https:","http:","tg:"].includes(url.protocol)?url.href:null}catch{return null}}
 /** Serialize structured editor content into Telegram-supported HTML only. */
 export function telegramHtml(node:RichNode):string{
+ if(node.type==="premiumEmoji"){
+  const id=String(node.attrs?.emojiId??"");
+  const char=String(node.attrs?.char??"✨");
+  return /^[0-9]{1,20}$/.test(id)?`<tg-emoji emoji-id="${id}">${escapeText(char)}</tg-emoji>`:escapeText(char);
+ }
  if(node.type==="text"){
   let text=escapeText(node.text||"");
   for(const mark of node.marks||[]){
@@ -27,10 +33,15 @@ export function telegramHtml(node:RichNode):string{
  return text;
 }
 const allowedTags=["b","strong","i","em","u","s","del","code","pre","blockquote","tg-spoiler","a","tg-emoji"];
-export function cleanTelegramHtml(value:string){return sanitizeHtml(value,{allowedTags,allowedAttributes:{a:["href"],"tg-emoji":["emoji-id"]},allowedSchemes:["https","http","tg"],allowProtocolRelative:false})}
+export function cleanTelegramHtml(value:string){
+ let html=sanitizeHtml(value,{allowedTags,allowedAttributes:{a:["href"],"tg-emoji":["emoji-id"]},allowedSchemes:["https","http","tg"],allowProtocolRelative:false});
+ // An anchor whose scheme was rejected is unwrapped so it never renders as a dead link.
+ for(let i=0;i<3&&/<a>/.test(html);i++)html=html.replace(/<a>([\s\S]*?)<\/a>/g,"$1");
+ return html;
+}
 export function editorHtml(value:string){return cleanTelegramHtml(value).replace(/\n/g,"<br>").replace(/<tg-spoiler>/g,'<span data-spoiler="true">').replace(/<\/tg-spoiler>/g,"</span>").replace(/<tg-emoji[^>]*emoji-id="([0-9]+)"[^>]*>(.*?)<\/tg-emoji>/g,'<tg-emoji emoji-id="$1">$2</tg-emoji>')}
-export function previewHtml(value:string){return cleanTelegramHtml(value).replace(/\n/g,"<br>").replace(/<tg-spoiler>/g,'<span class="post-spoiler">').replace(/<\/tg-spoiler>/g,"</span>").replace(/<tg-emoji[^>]*emoji-id="([^"]+)"[^>]*>(.*?)<\/tg-emoji>/g,'<span class="tg-premium-emoji" data-emoji-id="$1" title="Premium emoji $1">$2</span>')}
-export function chatPreviewHtml(value:string){if(!value) return ""; let html=cleanTelegramHtml(value); html=html.replace(/\n/g,"<br>"); html=html.replace(/<tg-spoiler>/g,'<span class="post-spoiler">').replace(/<\/tg-spoiler>/g,'</span>'); html=html.replace(/<tg-emoji[^>]*emoji-id="([^"]+)"[^>]*>(.*?)<\/tg-emoji>/g,'<span class="tg-premium-emoji">$2</span>'); return html;}
+export function previewHtml(value:string){return cleanTelegramHtml(value).replace(/\n/g,"<br>").replace(/<tg-spoiler>/g,'<span class="post-spoiler">').replace(/<\/tg-spoiler>/g,"</span>").replace(/<tg-emoji[^>]*emoji-id="([0-9]{1,20})"[^>]*>([\s\S]*?)<\/tg-emoji>/g,(_,id,char)=>premiumEmojiArt(id,char))}
+export function chatPreviewHtml(value:string){if(!value) return ""; let html=cleanTelegramHtml(value); html=html.replace(/\n/g,"<br>"); html=html.replace(/<tg-spoiler>/g,'<span class="post-spoiler">').replace(/<\/tg-spoiler>/g,"</span>"); html=html.replace(/<tg-emoji[^>]*emoji-id="([0-9]{1,20})"[^>]*>([\s\S]*?)<\/tg-emoji>/g,(_,id,char)=>premiumEmojiArt(id,char)); return html;}
 export function wrapWithTag(text:string,start:number,end:number,open:string,close:string){const before=text.slice(0,start); const selected=text.slice(start,end); const after=text.slice(end); if(!selected) return {text:text.slice(0,start)+open+close+text.slice(start),selection:[start+open.length,start+open.length] as const}; return {text:before+open+selected+close+after, selection:[start+open.length, end+open.length] as const}}
 export function plainPostText(value:string){return decodeHTML(sanitizeHtml(value,{allowedTags:[],allowedAttributes:{}}))}
 export function visibleLength(value:string){return plainPostText(value).length}

@@ -3,7 +3,8 @@
 ## Public creative workspace
 
 - Post Studio with visual formatting, live preview and link-button design.
-- Cover Library with 12 original covers plus up to 20 personal PNG/JPEG/WebP uploads, stored in that browser.
+- Image Library with 36 original, locally generated PNG assets — 24 wide covers (16:9), 6 story cards (4:5) and 6 quote cards (1:1) — plus up to 10 personal PNG/JPEG/WebP uploads stored in that browser. Regenerate the catalogue with `python scripts/create_post_assets.py`.
+- Telegram-style rich editor in Post Studio and in the bot messenger: format by selecting text (bold, italic, underline, strike, spoiler, monospace, code block, quote, lists, links), premium emoji picker, live Telegram bubble preview, Telegram HTML view and a character counter.
 - 20 customizable image layouts, layer editing, JSON design import/export and PNG download.
 - Local draft/recovery storage; downloadable plain text and native text sharing.
 - Creator Tools: Unicode-aware caption counts, Telegram UTF-16 limit checks, unique hashtags and campaign URL builder.
@@ -19,6 +20,14 @@ Smart Chat sends bot messages with Telegram HTML formatting (bold, italic,
 underline, strike, mono, quote, spoiler, links) and premium custom emoji via
 `<tg-emoji emoji-id="…">`; viewers fall back to the supplied character. Bots need
 a Fragment username or a Premium owner (Bot API 9.4+) to send custom emoji.
+
+Bot Inbox is a messenger-style client: chat folders, drafts, search, media
+sending, replies, reactions, polls and a chat-info panel (profile, member count,
+description, permissions, pinned message, invite link, bot admin status).
+Formatting captured from Telegram message entities is stored as safe HTML, so
+incoming bold, code, spoilers and premium emoji render in the viewer instead of
+being flattened. Premium emoji artwork is resolved server-side through
+`/api/premium-emoji` so the bot token never reaches the browser.
 
 Music playback/queue controls, group moderation and MongoDB-backed rules are retained. New Telegram tools include advanced polls/quizzes, permission-checked reactions and forum-topic actions. See [API details](docs/TELEGRAM_API_UPGRADE.md) for exact commands and eligibility caveats.
 

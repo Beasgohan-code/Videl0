@@ -4,6 +4,9 @@ export type GroupMessage = {
   sender_username: string; is_bot: boolean; date: string; edited: boolean; deleted: boolean;
   reply_to_id: number | null; thread_id: number | null;
   media: {kind: string; name: string} | null;
+  rich?: boolean;
+  bot_reaction?: string | null;
+  poll?: {question: string; options: string[]; anonymous: boolean; multiple: boolean} | null;
 };
 export type GroupSnapshot = {
   chat_id: number; items: GroupMessage[]; has_more: boolean; next_before: number | null;
@@ -32,4 +35,9 @@ export function groupId(value: string): number | null {
 export function conversationId(value:string):number|null{
  if(!/^-?[0-9]+$/.test(value))return null;
  const id=Number(value);return Number.isSafeInteger(id)&&id!==0?id:null;
+}
+
+/** True when a stored message contains Telegram-supported formatting markup. */
+export function hasRichMarkup(text: string | null | undefined) {
+  return /<\/?(?:b|i|u|s|code|pre|blockquote|a|tg-spoiler|tg-emoji)\b/.test(text || "");
 }

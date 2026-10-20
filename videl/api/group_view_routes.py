@@ -11,7 +11,10 @@ def register_group_view_routes(app,authorized,api):
         try:
             service=GroupView(get_db(),api)
             if request.method=='GET':
-                result=service.read(request.args.get('chat_id'),before=request.args.get('before'),query=request.args.get('q',''),sender=request.args.get('sender'))
+                if request.args.get('info'):
+                    result=service.info(request.args.get('chat_id'))
+                else:
+                    result=service.read(request.args.get('chat_id'),before=request.args.get('before'),query=request.args.get('q',''),sender=request.args.get('sender'))
             else:
                 if request.content_length and request.content_length>20000:raise ViewError('Request body is too large.',413)
                 body=request.get_json(silent=True)
@@ -22,6 +25,17 @@ def register_group_view_routes(app,authorized,api):
         except ViewError as error:return jsonify({'ok':False,'error':str(error)}),error.status,{'Cache-Control':'no-store'}
         except Exception:
             return jsonify({'ok':False,'error':'Group viewer unavailable. If an action was submitted, check Telegram before retrying.'}),503,{'Cache-Control':'no-store'}
+
+    @app.route('/internal/premium-emoji',methods=['GET'])
+    def premium_emoji():
+        if not authorized():return jsonify({'ok':False,'error':'unauthorized'}),403
+        from videl.utils.premium_emoji import EmojiError,fetch_emoji
+        from flask import Response
+        try:
+            mime,payload=fetch_emoji(api,request.args.get('id',''))
+        except EmojiError as error:
+            return jsonify({'ok':False,'error':str(error)}),error.status,{'Cache-Control':'no-store'}
+        return Response(payload,mimetype=mime,headers={'Cache-Control':'private, max-age=86400','X-Content-Type-Options':'nosniff'})
 
     @app.route('/internal/bot-conversations',methods=['GET'])
     def bot_conversations():
