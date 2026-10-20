@@ -196,7 +196,10 @@ server whitelists `b,strong,i,em,u,ins,s,strike,del,code,pre,blockquote,a,
 tg-spoiler,tg-emoji`, strips `on*` handlers, only allows `https/http/tg`
 links, validates emoji IDs, and enforces the 4096/1024 visible UTF-16 limits.
 Unrecognised tags are shown literally instead of being sent. Invalid HTML is
-rejected before any Telegram call.
+rejected before any Telegram call. The snapshot advertises `rich_text: true`;
+until the deployed backend reports it, the composer sends clean plain text and
+shows a small notice, then switches rich sending on automatically after the
+backend deploy — no further frontend change is needed.
 
 Post Studio's **Cover Library** now has two tabs: the 12 original Videl covers
 and **Your Assets** — up to 10 PNG/JPEG/WebP uploads (1.5 MB each) stored in

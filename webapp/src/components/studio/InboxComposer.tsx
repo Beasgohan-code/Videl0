@@ -23,9 +23,9 @@ const PREMIUM_PRESETS: {id:string, char:string, label:string}[] = [
   {id:"5258260149037965799", char:"🔒", label:"Lock"},
 ];
 
-export default function InboxComposer({chatId,reply,text,setText,busy,active,onCancelReply,onSend}:{
+export default function InboxComposer({chatId,reply,text,setText,busy,active,richText,onCancelReply,onSend}:{
  chatId:number|null;active:boolean;reply:GroupMessage|null;text:string;setText:(text:string)=>void;busy:boolean;
- onCancelReply:()=>void;onSend:(file:File|null,kind:Kind|null)=>Promise<boolean>;
+ richText?:boolean;onCancelReply:()=>void;onSend:(file:File|null,kind:Kind|null)=>Promise<boolean>;
 }){
  const [attachment,setAttachment]=useState<{file:File;kind:Kind}|null>(null),[preview,setPreview]=useState('');
  const [error,setError]=useState(''),[recording,setRecording]=useState(false),[seconds,setSeconds]=useState(0);
@@ -133,6 +133,7 @@ export default function InboxComposer({chatId,reply,text,setText,busy,active,onC
   {attachment&&<div className="mb-3 rounded-2xl bg-white/[0.06] p-3 ring-1 ring-white/10"><div className="flex items-center justify-between"><span className="truncate text-[11px] font-medium text-white/70">{attachment.kind} · {attachment.file.name} · {(attachment.file.size/1024).toFixed(0)} KB</span><button aria-label="Remove attachment" disabled={busy} onClick={()=>setAttachment(null)} className="rounded-full p-1 hover:bg-white/10"><X size={14}/></button></div>{preview&&attachment.kind==='photo'&&<img src={preview} alt="Attachment preview" className="mt-3 max-h-44 rounded-xl object-contain ring-1 ring-white/10"/>}{preview&&attachment.kind==='video'&&<video controls src={preview} className="mt-3 max-h-44 rounded-xl ring-1 ring-white/10"/>}{preview&&attachment.kind==='voice'&&<audio controls src={preview} className="mt-3 max-w-full"/>}</div>}
   {error&&<p role="alert" className="mb-3 rounded-xl bg-rose-500/10 px-3 py-2 text-xs text-rose-200 ring-1 ring-rose-500/20">{error}</p>}
 
+  {richText===false&&<p className="mb-2 rounded-lg bg-amber-400/10 px-3 py-2 text-[10px] leading-4 text-amber-200/80 ring-1 ring-amber-400/20">Rich formatting is waiting for the updated backend to finish deploying. Until then, formatting is sent as clean plain text and switches on automatically.</p>}
   {/* Beautiful formatting toolbar */}
   <div className="mb-3 flex flex-wrap items-center gap-1.5 rounded-2xl bg-white/[0.04] p-2 ring-1 ring-white/[0.06]">
     <div className="flex items-center gap-1">

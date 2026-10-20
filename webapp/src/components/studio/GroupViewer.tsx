@@ -231,7 +231,7 @@ export default function GroupViewer() {
           </>}
         </div>
         {showJump&&<button className="tg-jump" aria-label="Jump to latest messages" onClick={()=>{if(messageList.current)messageList.current.scrollTop=messageList.current.scrollHeight;stickToBottom.current=true;setShowJump(false);}}><ArrowDown size={20}/></button>}
-        <InboxComposer active={tab==='chat'&&(!isMobile||mobileChat)} chatId={data?selectedGroup:null} reply={replying} text={text} setText={setText} busy={busy} onCancelReply={()=>setReply(null)} onSend={(file,kind)=>act({action:file?'attachment':replying?'reply':'send',...(replying?{message_id:replying.message_id}:{}),...(file&&kind?{file,kind}:{})})}/>
+        <InboxComposer active={tab==='chat'&&(!isMobile||mobileChat)} chatId={data?selectedGroup:null} reply={replying} text={text} setText={setText} busy={busy} richText={data?data.rich_text!==false:true} onCancelReply={()=>setReply(null)} onSend={(file,kind)=>act({action:file?'attachment':replying?'reply':'send',...(replying?{message_id:replying.message_id}:{}),...(file&&kind?{file,kind}:{})})}/>
 
       </section>
       <aside hidden={!detailsOpen} className="tg-details space-y-4" aria-label="Chat info"><div className="flex items-center justify-between"><h2 className="font-semibold">Chat info</h2><button aria-label="Close chat info" onClick={()=>setDetailsOpen(false)}><X size={20}/></button></div>
