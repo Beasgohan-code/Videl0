@@ -1,309 +1,422 @@
-# --------------------------------------------------------------------------------
-#  Videl © 2026 | Developed by Beasgohan-code
-#  Fork & improve freely under MIT. Keep credits.
-# --------------------------------------------------------------------------------
-
+# Videl — Unified Server — Bot + WebApp on ONE Render URL
+# https://videl0.onrender.com        → bot + webapp
+# https://videl0.onrender.com/api    → API index
+# https://videl0.onrender.com/dashboard → dashboard
+# https://videl0.onrender.com/chat   → web chat (chat as bot)
+# https://videl0.onrender.com/post   → channel post maker
+# All on single PORT (Render $PORT = 10000), Flask owns $PORT, proxies to Next.js :3000
 import asyncio
 import importlib
 import os
-import re
-import sys
+import signal
+import subprocess
 import threading
 import time
-
+import logging
 import requests
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request, Response, redirect
 from pyrogram import idle
-from pyrogram.types import BotCommand
-
 import config
-from videl import LOGGER, assistant, bot, call_py
+from videl import LOGGER, bot
 from videl.modules import ALL_MODULES
-from videl.utils.rich_ui import (
-    rich_esc,
-    rich_heading,
-    rich_kv_table,
-    rich_send,
-)
 
-ASSISTANT_USERNAME: str = ""
-
-# ── Flask health + built-in Eldian-compatible download API ────────────────────
+NEXT_PORT = int(os.getenv("NEXT_PORT", "3000"))
+NEXT_URL = f"http://127.0.0.1:{NEXT_PORT}"
 
 _flask = Flask(__name__)
+_next_proc = None
 
-
-@_flask.route("/")
-def _home():
-    return jsonify(
-        {
-            "service": "Videl Music",
-            "status": "running",
-            "api": {
-                "status": "/api/status",
-                "audio": "/api/stream_audio?url=YOUTUBE_URL",
-                "video": "/api/download?url=YOUTUBE_URL",
-                "eldian_v1": "POST /v1/track/by-video-id",
-            },
-            "credit": "Beasgohan-code · Eldian-compatible API built-in",
+# ── Bot health + API index ───────────────────────────────────────────────
+# FIXED: "/" now serves Telegram Mini App (Next.js), NOT JSON — perfect for BotFather
+@_flask.route("/_videl_status")
+def _status_json():
+    return jsonify({
+        "service": "Videl Unified",
+        "status": "running",
+        "bot": getattr(config, "BOT_USERNAME", "Videl0Bot"),
+        "webapp": f"{request.host_url.rstrip('/')}/",
+        "miniapp_url": f"{request.host_url.rstrip('/')}/",
+        "dashboard": f"{request.host_url.rstrip('/')}/dashboard",
+        "endpoints": {
+            "health": "/health",
+            "api": "/api",
+            "dashboard": "/dashboard",
         }
-    ), 200
-
+    }), 200
 
 @_flask.route("/health")
 def _health():
-    return jsonify({"status": "ok", "service": "videl"}), 200
+    return jsonify({"status": "ok", "service": "videl-unified", "uptime": int(time.time())}), 200
 
+@_flask.route("/api")
+@_flask.route("/api/")
+def _api_index():
+    return jsonify({
+        "ok": True,
+        "service": "videl-api",
+        "endpoints": {
+            "/api/health": "health check",
+            "/api/stats": "bot stats (MongoDB)",
+            "/api/channel": "POST {chat_id,text,parse_mode,media_url,buttons} → send to TG channel",
+            "/api/chat": "POST {chat_id,text,as_user} → send as bot/userbot",
+            "/api/auth": "POST TG login verify owner",
+            "/api/gbans": "global bans",
+            "/api/queue": "music queue",
+            "/api/analytics": "analytics series",
+        },
+        "webapp": ["/", "/dashboard", "/dashboard/channel", "/dashboard/chat", "/chat", "/post"],
+        "miniapp": "/  ← USE THIS FOR BOTFATHER MINI APP URL",
+        "note": "All on ONE Render URL — https://videl0.onrender.com"
+    }), 200
 
-# Register Eldian-style download routes (same process as the bot)
-try:
-    from videl.api.eldian_routes import register_eldian_routes
+@_flask.route("/api/health")
+def _api_health_proxy():
+    return _health()
 
-    register_eldian_routes(_flask)
-except Exception as _api_err:
-    LOGGER.warning(f"Built-in download API not loaded: {_api_err}")
+# ── Aliases — unified, no redirect visible (proxy direct to Next.js) ─────
+@_flask.route("/chat")
+@_flask.route("/chat/")
+def _chat_page():
+    proxied = _proxy_to_next("/chat")
+    if proxied is not None:
+        return proxied
+    return redirect("/dashboard/chat", 302)
 
+@_flask.route("/post")
+@_flask.route("/post/")
+def _post_page():
+    proxied = _proxy_to_next("/post")
+    if proxied is not None:
+        return proxied
+    return redirect("/dashboard/channel", 302)
 
-def _run_flask() -> None:
+# ── Proxy to Next.js for webapp ─────────────────────────────────────────
+def _is_next_available():
+    try:
+        requests.get(f"{NEXT_URL}/api/health", timeout=1.5)
+        return True
+    except:
+        return False
+
+def _proxy_to_next(path: str):
+    """Proxy any request to Next.js standalone server."""
+    if not _is_next_available():
+        return None
+    try:
+        url = f"{NEXT_URL}{path}"
+        # forward query string
+        if request.query_string:
+            url += f"?{request.query_string.decode()}"
+        headers = {k: v for k, v in request.headers if k.lower() not in ("host", "connection", "content-length")}
+        resp = requests.request(
+            method=request.method,
+            url=url,
+            headers=headers,
+            data=request.get_data(),
+            cookies=request.cookies,
+            allow_redirects=False,
+            timeout=15,
+        )
+        # Build Flask response
+        excluded = {"content-encoding", "content-length", "transfer-encoding", "connection"}
+        hdrs = [(k, v) for k, v in resp.headers.items() if k.lower() not in excluded]
+        return Response(resp.content, status=resp.status_code, headers=dict(hdrs))
+    except Exception as e:
+        LOGGER.warning(f"proxy fail {path}: {e}")
+        return None
+
+# Catch-all proxy for Next.js assets & pages
+# Must be after explicit bot routes to avoid shadowing /health
+@_flask.route("/dashboard", defaults={"path": ""})
+@_flask.route("/dashboard/<path:path>")
+@_flask.route("/auth", defaults={"path": ""})
+@_flask.route("/auth/<path:path>")
+@_flask.route("/_next/<path:path>")
+@_flask.route("/api/<path:path>", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
+def _proxy_catchall(path=""):
+    # /api/* should try Next.js first, else Flask fallback
+    full = request.path
+    proxied = _proxy_to_next(full)
+    if proxied is not None:
+        return proxied
+    # Flask fallback for /api if Next.js not running
+    if full.startswith("/api/"):
+        return jsonify({"ok": False, "error": "API via Next.js not available — Next.js building/starting. Try /health or check logs.", "path": full}), 503
+    if full.startswith("/dashboard") or full.startswith("/auth") or full.startswith("/_next"):
+        return jsonify({"ok": False, "error": "Webapp starting — Next.js on :3000 not ready yet", "hint": "wait 20s, refresh /dashboard"}), 503
+    return jsonify({"ok": False, "error": "not found", "path": full}), 404
+
+# ── MINI APP ROOT — THE MOST IMPORTANT FIX FOR TELEGRAM ───────────────────
+# This is what BotFather should point to — serves Next.js Home as Mini App
+@_flask.route("/", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
+def _home_miniapp():
+    proxied = _proxy_to_next("/")
+    if proxied is not None:
+        return proxied
+    # Fallback while Next.js boots
+    return jsonify({
+        "ok": True,
+        "service": "Videl Mini App",
+        "message": "WebApp building — refresh in 15s",
+        "miniapp_url": f"{request.host_url.rstrip('/')}/",
+        "dashboard": f"{request.host_url.rstrip('/')}/dashboard",
+        "health": f"{request.host_url.rstrip('/')}/health",
+        "note": "If you see this JSON, Next.js is still building. Wait 20s and refresh."
+    }), 503
+
+# Also proxy bare /api subpaths that Flask didn't match (already above)
+@_flask.route("/<path:path>", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
+def _fallback_proxy(path):
+    # Proxy ALL webapp paths — including "/" already handled above
+    # Prioritize Next.js for these prefixes
+    if path.startswith(("_next/", "dashboard/", "auth/", "api/", "chat", "post", "groups", "analytics", "automation", "settings")):
+        proxied = _proxy_to_next(f"/{path}")
+        if proxied is not None:
+            return proxied
+        # if Next not ready yet
+        if path.startswith(("chat", "post", "dashboard", "_next", "groups", "analytics")):
+            return jsonify({"ok": False, "error": "Webapp starting — Next.js on :3000 booting", "hint": "refresh in 15s"}), 503
+    # Also try to proxy unknown paths to Next.js (for client-side routing)
+    proxied = _proxy_to_next(f"/{path}")
+    if proxied is not None:
+        return proxied
+    return jsonify({"ok": False, "error": "not found", "path": f"/{path}", "see": "/api", "hint": "Try / or /dashboard for Mini App"}), 404
+
+def _log_all_urls_console():
+    """Log ALL URLs to console on startup"""
+    try:
+        from videl.utils.url_logger import log_urls_sync
+        log_urls_sync()
+    except Exception as e:
+        LOGGER.warning(f"URL console log fail: {e}")
+    # Also detailed Flask URL map
+    try:
+        LOGGER.info("◎ Flask URL Map — All Registered Routes:")
+        for rule in _flask.url_map.iter_rules():
+            methods = ",".join(sorted(rule.methods - {"HEAD", "OPTIONS"}))
+            LOGGER.info(f"  • {rule.rule:<30} → [{methods}]")
+    except Exception as e:
+        LOGGER.debug(f"Flask URL map log fail: {e}")
+
+def _run_flask():
     port = int(os.getenv("PORT", str(config.PORT)))
-    LOGGER.info(f"Binding health+API server on 0.0.0.0:{port}")
+    LOGGER.info(f"◎ Flask Unified — ALL URLs startup logger armed")
+    _log_all_urls_console()
+    LOGGER.info(f"Flask unified on 0.0.0.0:{port} → proxy → Next.js :{NEXT_PORT}")
     _flask.run(host="0.0.0.0", port=port, use_reloader=False, threaded=True)
 
+def _start_nextjs():
+    global _next_proc
+    # Only if webapp built
+    webapp_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "webapp")
+    standalone = os.path.join(webapp_dir, ".next/standalone/server.js")
+    standalone_alt = os.path.join(webapp_dir, "server.js")
+    pkg = os.path.join(webapp_dir, "package.json")
+    if not os.path.exists(pkg):
+        LOGGER.info("webapp not present — skipping Next.js")
+        return
+    # Build if not built
+    next_built = os.path.join(webapp_dir, ".next/BUILD_ID")
+    if not os.path.exists(next_built):
+        LOGGER.info("webapp not built — building Next.js (this takes 30s)...")
+        try:
+            subprocess.run(["npm", "ci"], cwd=webapp_dir, timeout=120, check=False)
+            subprocess.run(["npm", "run", "build"], cwd=webapp_dir, timeout=180, check=False)
+        except Exception as e:
+            LOGGER.warning(f"Next build fail: {e}")
+    # Try standalone first
+    cmd = None
+    if os.path.exists(standalone):
+        cmd = ["node", standalone]
+        cwd = os.path.join(webapp_dir, ".next/standalone")
+    elif os.path.exists(standalone_alt):
+        cmd = ["node", standalone_alt]
+        cwd = webapp_dir
+    else:
+        # fallback next start
+        cmd = ["npx", "next", "start", "-p", str(NEXT_PORT), "-H", "0.0.0.0"]
+        cwd = webapp_dir
+    try:
+        env = os.environ.copy()
+        env["PORT"] = str(NEXT_PORT)
+        env["NEXT_PORT"] = str(NEXT_PORT)
+        env["HOSTNAME"] = "0.0.0.0"
+        LOGGER.info(f"Starting Next.js: {' '.join(cmd)} in {cwd}")
+        _next_proc = subprocess.Popen(cmd, cwd=cwd, env=env)
+        LOGGER.info(f"Next.js pid {_next_proc.pid} on :{NEXT_PORT}")
+        # wait briefly to confirm
+        for _ in range(15):
+            time.sleep(1)
+            if _is_next_available():
+                LOGGER.info("Next.js ready ✅")
+                break
+        else:
+            LOGGER.warning("Next.js not responding yet — will retry via proxy")
+    except Exception as e:
+        LOGGER.warning(f"Next.js start fail: {e}")
 
-# ── Keep-Alive ────────────────────────────────────────────────────────────────
-
-def _keep_alive() -> None:
-    url = os.getenv("RENDER_EXTERNAL_URL", f"http://0.0.0.0:{config.PORT}")
+def _keep_alive():
+    # keep-alive ping self (Render free tier sleep prevention)
+    url = os.getenv("RENDER_EXTERNAL_URL", f"http://127.0.0.1:{os.getenv('PORT', config.PORT)}")
+    # use public URL if available, else localhost
+    public = os.getenv("RENDER_EXTERNAL_URL", "https://videl0.onrender.com")
+    target = public if public.startswith("http") else url
     while True:
         try:
-            requests.get(url, timeout=10)
-            LOGGER.info(f"Keep-alive ping sent → {url}")
-        except Exception as e:
-            LOGGER.warning(f"Keep-alive ping failed: {e}")
+            requests.get(target + "/health", timeout=10)
+            # also tickle Next.js via proxy path
+            try:
+                requests.get(target + "/api/health", timeout=10)
+            except: pass
+        except: pass
         time.sleep(300)
 
-
-# ── Startup notification ──────────────────────────────────────────────────────
-
-
-async def _notify_owner(me, assistant_username: str) -> None:
-    """Notify logger group + send DM to owner when bot starts."""
-    content = (
-        rich_heading("◍ Vɪᴅᴇʟ sᴛᴀʀᴛᴇᴅ ◍", level=3)
-        + rich_kv_table([
-            ("Bot", f"@{rich_esc(me.username or 'N/A')}"),
-            ("Assistant", f"@{rich_esc(assistant_username)}"),
-            ("Owner", str(config.OWNER_ID)),
-        ])
-    )
-
-    # Logger group (if set)
-    if config.LOGGER_ID:
-        try:
-            await rich_send(bot, config.LOGGER_ID, content)
-        except Exception as e:
-            LOGGER.warning(f"Logger notification error: {e}")
-
-    # Owner DM
-    try:
-        await bot.send_message(
-            config.OWNER_ID,
-            (
-                f"◍ <b>{config.BOT_NAME}</b> — ᴏɴʟɪɴᴇ ⫶\n\n"
-                f"• Bot: @{me.username or 'N/A'}\n"
-                f"• Assistant: @{assistant_username or 'N/A'}\n"
-                f"• ID: <code>{me.id}</code>\n\n"
-                f"<i>All systems ready. Have fun!</i>"
-            ),
-        )
-        LOGGER.info(f"Startup DM sent to owner {config.OWNER_ID}")
-    except Exception as e:
-        LOGGER.warning(f"Owner DM notification error: {e}")
-
-# ── Main ──────────────────────────────────────────────────────────────────────
-
 if __name__ == "__main__":
-
-    # 1. MongoDB
+    # Mongo
     try:
         from videl.utils.db import start_mongo
-        ok = start_mongo()
-        if ok:
-            LOGGER.info("MongoDB ready.")
-        else:
-            LOGGER.warning("MongoDB not connected — continuing without DB.")
+        start_mongo()
     except Exception as e:
-        LOGGER.warning(f"MongoDB startup error: {e} — continuing without DB.")
+        LOGGER.warning(f"mongo: {e}")
 
-    # 2. Flask
+    # Start Next.js in background thread (non-blocking) if webapp present
+    threading.Thread(target=_start_nextjs, daemon=True).start()
     threading.Thread(target=_run_flask, daemon=True).start()
-    LOGGER.info(f"Flask health server on port {config.PORT}")
-
-    # 3. Keep-alive ping
     threading.Thread(target=_keep_alive, daemon=True).start()
-    LOGGER.info("Keep-alive thread started")
+    LOGGER.info(f"Unified health on {config.PORT} — /health OK, proxy to :{NEXT_PORT}")
 
-    # ── 4–12. Start clients in correct order on ONE event loop ───────────────
-    # Order matters:
-    #   1) bot Client
-    #   2) assistant Client
-    #   3) PyTgCalls (bound to assistant)
-    # Mixing sync starts + run_until_complete on different loops causes:
-    #   "belongs to an event loop that is not running"
+    missing = [k for k in ("API_ID","API_HASH","BOT_TOKEN","MONGO_DB_URL") if not os.getenv(k)]
+    if missing:
+        LOGGER.warning(f"Missing env: {missing} — bot in health-only mode, webapp still serves")
 
-    async def _boot() -> None:
-        global ASSISTANT_USERNAME
+    # ── Bot with full logs (start/stop/error/other) ──────────────────────
+    async def _boot():
+        # setup shutdown/error hooks inside event loop
+        import signal as _sig
+        from videl.utils.logger import log_startup, log_shutdown, log_error, setup_async_error_handler
 
-        # Bot
-        for attempt in range(10):
+        loop = asyncio.get_running_loop()
+        setup_async_error_handler(bot, loop)
+
+        # graceful shutdown handler
+        _shutting = False
+        def _sig_handler(sig, frame):
+            nonlocal _shutting
+            if _shutting: return
+            _shutting = True
+            LOGGER.info(f"Signal {sig} — shutting down...")
             try:
-                await bot.start()
-                LOGGER.info("Bot client started")
-                break
-            except Exception as e:
-                if "FLOOD_WAIT" in str(e):
-                    m = re.search(r"(\d+)", str(e))
-                    wait = min(int(m.group(1)) + 5 if m else 300, 1800)
-                    LOGGER.warning(f"FLOOD_WAIT — sleeping {wait}s (attempt {attempt + 1}/10)")
-                    await asyncio.sleep(wait)
-                else:
-                    LOGGER.error(f"Bot start failed: {e}")
-                    raise SystemExit(1) from e
-        else:
-            LOGGER.error("Bot failed to start after 10 attempts")
-            raise SystemExit(1)
+                # schedule async log_shutdown
+                asyncio.run_coroutine_threadsafe(log_shutdown(bot, f"signal {sig}"), loop)
+            except: pass
+
+        try:
+            for s in (_sig.SIGINT, _sig.SIGTERM):
+                signal.signal(s, _sig_handler)
+        except Exception:
+            pass  # not in main thread on some runners
+
+        # Start bot
+        try:
+            await bot.start()
+        except Exception as e:
+            LOGGER.error(f"bot.start fail: {e}")
+            try:
+                await log_error(bot, "bot.start", e, "startup")
+            except: pass
+            # keep Flask + Next.js alive even if bot fails
+            LOGGER.info("Bot failed — health+webapp still running")
+            while True:
+                await asyncio.sleep(3600)
+            return
 
         me = await bot.get_me()
-        LOGGER.info(f"Bot: @{me.username}")
+        LOGGER.info(f"Bot @{me.username} started")
 
-        # Bot commands — elite group help better than Rose/GroupHelp + music
+        # assistant (userbot) optional
+        assistant_username = ""
         try:
+            from videl import assistant as _assis
+            if config.STRING_SESSION:
+                await _assis.start()
+                am = await _assis.get_me()
+                assistant_username = am.username or str(am.id)
+                LOGGER.info(f"Assistant @{assistant_username} started")
+            else:
+                LOGGER.info("No STRING_SESSION — assistant disabled")
+        except Exception as e:
+            LOGGER.warning(f"assistant fail: {e}")
+            try:
+                await log_error(bot, "assistant.start", e)
+            except: pass
+
+        # bot commands (include logs + unified)
+        try:
+            from pyrogram.types import BotCommand
             await bot.set_bot_commands([
-                BotCommand("start",      "◍ Vɪᴅᴇʟ — Start"),
-                BotCommand("help",       "⬪ Help — all modules"),
-                BotCommand("play",       "⬪ Play music in VC"),
-                BotCommand("vplay",      "⬪ Play video in VC"),
-                BotCommand("cplay",      "⬪ Play in channel"),
-                BotCommand("pause",      "ɪɪ Pause"),
-                BotCommand("resume",     "▷ Resume"),
-                BotCommand("skip",       "‣‣ Skip"),
-                BotCommand("stop",       "⬩ Stop & clear"),
-                BotCommand("queue",      "⫶ Queue"),
-                BotCommand("lyrics",     "◍ Lyrics"),
-                BotCommand("ping",       "⦿ Ping & stats"),
-                BotCommand("ban",        "◍ Ban — elite admin"),
-                BotCommand("mute",       "⦿ Mute / tmute"),
-                BotCommand("warn",       "⬪ Warn with limit"),
-                BotCommand("admins",     "◎ Admin list"),
-                BotCommand("locks",      "◍ Elite locks — 32 types"),
-                BotCommand("approve",    "◎ Approve bypass"),
-                BotCommand("captcha",    "𖦹 Captcha verification"),
-                BotCommand("blacklist",  "⬢ Blocklist words"),
-                BotCommand("fban",       "⬪ Federation ban"),
-                BotCommand("reports",    "◍ Reports to admins"),
-                BotCommand("rules",      "◎ Group rules"),
-                BotCommand("notes",      "⫶ Saved notes"),
-                BotCommand("filters",    "⬪ Custom filters"),
-                BotCommand("welcome",    "◍ Welcome control"),
-                BotCommand("nightmode",  "⬢ Night mode"),
-                BotCommand("disable",    "⫶ Disable commands"),
-                BotCommand("backup",     "◍ Chat backup"),
-                BotCommand("ask",        "⦿ AI ask — Videl"),
-                BotCommand("weather",    "◎ Weather etc."),
+                BotCommand("start","Start"),
+                BotCommand("help","Help"),
+                BotCommand("ping","Ping"),
+                BotCommand("logs","Owner logs (start/stop/error)"),
+                BotCommand("sysinfo","System info"),
+                BotCommand("uptime","Uptime"),
             ])
-            LOGGER.info("Bot commands set — elite group help")
-        except Exception as e:
-            LOGGER.warning(f"Could not set bot commands: {e}")
+        except: pass
 
-        # Assistant FIRST (before PyTgCalls)
+        # Startup log to LOGGER_ID (Rich)
         try:
-            if not assistant.is_connected:
-                await assistant.start()
-            am = await assistant.get_me()
-            ASSISTANT_USERNAME = am.username or ""
-            LOGGER.info(f"Assistant started: @{ASSISTANT_USERNAME}")
+            from videl.utils.db import _db
+            await log_startup(bot, me, assistant_username=assistant_username, mongo_ok=bool(_db is not None))
         except Exception as e:
-            LOGGER.error(
-                "◍ ᴀssɪsᴛᴀɴᴛ ғᴀɪʟᴇᴅ —\n"
-                "STRING_SESSION is invalid or not a Pyrogram session for this API_ID/API_HASH.\n"
-                f"Error: {e}"
-            )
-            raise SystemExit(1) from e
-
-        # PyTgCalls AFTER assistant is connected
-        try:
-            await call_py.start()
-            LOGGER.info("PyTgCalls started")
-        except Exception as e:
-            LOGGER.error(f"◍ ᴘʏᴛɢᴄᴀʟʟs ғᴀɪʟᴇᴅ: {e} ◍")
-            raise SystemExit(1) from e
-
-        # Block middleware
-        try:
-            from videl.utils.decorators import register_block_middleware
-            register_block_middleware()
-            LOGGER.info("Block middleware registered")
-        except Exception as e:
-            LOGGER.warning(f"Block middleware load failed: {e}")
+            LOGGER.debug(f"log_startup skip: {e}")
 
         # Load modules
         for mod in ALL_MODULES:
             try:
                 importlib.import_module(f"videl.modules.{mod}")
-                LOGGER.info(f"Loaded module: {mod}")
+                LOGGER.info(f"Loaded {mod}")
             except Exception as e:
-                LOGGER.error(f"Failed to load module {mod}: {e}")
+                LOGGER.error(f"Failed {mod}: {e}")
+                try:
+                    await log_error(bot, f"load {mod}", e)
+                except: pass
 
-        # Stream-end handler
+        LOGGER.info("Videl unified running — bot + webapp + Flask idle")
+        # idle with shutdown log
         try:
-            import videl.core.call  # noqa: F401
-        except Exception as e:
-            LOGGER.error(f"Failed to load call handler: {e}")
-
-        # Owner / logger notify (same loop)
-        try:
-            await _notify_owner(me, ASSISTANT_USERNAME)
-        except Exception as e:
-            LOGGER.warning(f"Startup notify failed: {e}")
-
-        # Watchdog
-        try:
-            from videl.core.watcher import watchdog
-            asyncio.create_task(watchdog())
-            LOGGER.info("Watchdog started")
-        except Exception as e:
-            LOGGER.warning(f"Watchdog failed: {e}")
-
-        LOGGER.info("Videl is running")
-        # Keep process alive on the same loop the clients were started on
-        try:
-            # Kurigram/Pyrogram idle may be sync or async depending on version
-            result = idle()
-            if hasattr(result, "__await__"):
-                await result
+            r = idle()
+            if hasattr(r, "__await__"):
+                await r
         except TypeError:
-            # Some builds expect no call from async context — just wait forever
             await asyncio.Event().wait()
+        finally:
+            try:
+                await log_shutdown(bot, "idle exit")
+            except: pass
+            LOGGER.info("Bot idle exited — shutting down")
+            try:
+                await bot.stop()
+            except: pass
+            try:
+                from videl import assistant as _assis
+                await _assis.stop()
+            except: pass
 
-    try:
-        asyncio.get_event_loop().run_until_complete(_boot())
-    except RuntimeError:
-        # Python 3.10+ may need a fresh loop in some environments
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(_boot())
+    def _run():
+        try:
+            asyncio.get_event_loop().run_until_complete(_boot())
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(_boot())
+        except Exception as e:
+            LOGGER.error(f"boot fail: {e} — health+webapp still alive")
+            try:
+                # try log to channel if bot was up
+                import asyncio as _a
+                _a.run(log_error(bot, "boot", e))
+            except: pass
+            while True:
+                time.sleep(3600)
 
-    # ── Graceful shutdown ─────────────────────────────────────────────────────
-    try:
-        bot.stop()
-    except Exception:
-        pass
-
-    try:
-        assistant.stop()
-    except Exception:
-        pass
-
-    LOGGER.info("✧ videl stopped ✧")
-
-            
+    _run()
