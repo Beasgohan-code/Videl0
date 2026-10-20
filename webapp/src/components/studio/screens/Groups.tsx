@@ -4,6 +4,11 @@ import { useStudio } from "../StudioProvider";
 import {
   AlertCircle,
   Check,
+  Download,
+  FileJson,
+  RotateCcw,
+  Upload,
+  X,
   ExternalLink,
   HeartPulse,
   Inbox as InboxIcon,
@@ -24,7 +29,15 @@ import {
   Users,
 } from "lucide-react";
 import { BOT_COMMANDS } from "@/lib/commands";
-import { downloadCsv } from "@/lib/csv";
+import { downloadCsv, downloadJson } from "@/lib/csv";
+import {
+  backupChanges,
+  backupFileName,
+  backupIsEmpty,
+  backupSummary,
+  parseBackupFile,
+  type BackupChanges,
+} from "@/lib/group-backup";
 import {
   BLACKLIST_MODES,
   BULK_LIMIT,
@@ -64,7 +77,7 @@ import {
   type PresetId,
 } from "@/lib/group-admin";
 
-type Tab = "protection" | "community" | "moderation" | "members" | "commands" | "inbox" | "audit";
+type Tab = "protection" | "community" | "moderation" | "members" | "commands" | "inbox" | "audit" | "backup";
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "protection", label: "Protection" },
@@ -74,6 +87,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "commands", label: "Commands" },
   { id: "inbox", label: "Inbox" },
   { id: "audit", label: "History" },
+  { id: "backup", label: "Backup" },
 ];
 
 const COMMAND_CATEGORIES = [
@@ -164,6 +178,11 @@ export default function GroupsPage() {
     "settings", "preset", "automation", "commands", "blacklist", "warn", "join_request", "report",
   ]);
   const [commandQuery, setCommandQuery] = useState("");
+  const [backupPreview, setBackupPreview] = useState<{ document: Record<string, unknown>; changes: BackupChanges } | null>(null);
+  const [backupBusy, setBackupBusy] = useState(false);
+  const [backupNote, setBackupNote] = useState("");
+  const [restorableId, setRestorableId] = useState<string | null>(null);
+  const backupInput = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -380,6 +399,130 @@ export default function GroupsPage() {
       return false;
     } finally {
       setSaving(null);
+    }
+  }
+
+  async function exportBackup() {
+    if (!active || backupBusy) return;
+    setBackupBusy(true);
+    setError("");
+    setBackupNote("");
+    try {
+      const response = await fetch(`/api/groups/${active.id}/backup`, { cache: "no-store" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.ok || !data.backup) {
+        throw new Error(
+          response.status === 501
+            ? "Group backups need the updated bot backend. Redeploy Render, then retry."
+            : errorHint(String(data.error || "The backup could not be exported"), response.status),
+        );
+      }
+      downloadJson(backupFileName(active.id), data.backup);
+      setBackupNote(
+        `Downloaded ${(data.backup.blacklist ?? []).length} blacklist word${
+          (data.backup.blacklist ?? []).length === 1 ? "" : "s"
+        } and every setting for this group.`,
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "The backup could not be exported");
+    } finally {
+      setBackupBusy(false);
+    }
+  }
+
+  async function previewBackup(file: File) {
+    if (!active) return;
+    setBackupBusy(true);
+    setError("");
+    setBackupNote("");
+    setBackupPreview(null);
+    try {
+      const parsed = parseBackupFile(await file.text());
+      if (!parsed.ok) throw new Error(parsed.error);
+      const response = await fetch(`/api/groups/${active.id}/backup`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ document: parsed.document, dry_run: true }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.ok) {
+        throw new Error(
+          response.status === 501
+            ? "Group backups need the updated bot backend. Redeploy Render, then retry."
+            : errorHint(String(data.error || "That backup could not be read"), response.status),
+        );
+      }
+      setBackupPreview({ document: parsed.document, changes: backupChanges(data.changes) });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "That backup could not be read");
+    } finally {
+      setBackupBusy(false);
+      if (backupInput.current) backupInput.current.value = "";
+    }
+  }
+
+  async function applyBackup() {
+    if (!active || !backupPreview || backupBusy) return;
+    setBackupBusy(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/groups/${active.id}/backup`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ document: backupPreview.document, dry_run: false }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.ok) {
+        throw new Error(
+          response.status === 501
+            ? "Group backups need the updated bot backend. Redeploy Render, then retry."
+            : errorHint(String(data.error || "The backup was not applied"), response.status),
+        );
+      }
+      if (data.settings && typeof data.settings === "object") mergeSettings(data.settings as GroupSettings);
+      if (data.automation && typeof data.automation === "object") {
+        setDetail((current) => (current ? { ...current, automation: data.automation } : current));
+      }
+      setRestorableId(typeof data.backup_id === "string" ? data.backup_id : null);
+      setBackupPreview(null);
+      setBackupNote(
+        data.empty
+          ? "That backup already matches this group — nothing was changed."
+          : "Backup applied. The previous state was saved, so it can be restored from this tab.",
+      );
+      if (tab === "audit") void loadAudit(active.id, auditKind);
+      void loadDetail(active.id, { silent: true });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "The backup was not applied");
+    } finally {
+      setBackupBusy(false);
+    }
+  }
+
+  async function restoreSaved() {
+    if (!active || !restorableId || backupBusy) return;
+    if (!window.confirm("Restore the configuration that was replaced by the last import?")) return;
+    setBackupBusy(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/groups/${active.id}/backup`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ backup_id: restorableId }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.ok) throw new Error(errorHint(String(data.error || "The restore failed"), response.status));
+      if (data.settings && typeof data.settings === "object") mergeSettings(data.settings as GroupSettings);
+      if (data.automation && typeof data.automation === "object") {
+        setDetail((current) => (current ? { ...current, automation: data.automation } : current));
+      }
+      setRestorableId(null);
+      setBackupNote("Previous configuration restored.");
+      void loadDetail(active.id, { silent: true });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "The restore failed");
+    } finally {
+      setBackupBusy(false);
     }
   }
 
@@ -1261,6 +1404,93 @@ export default function GroupsPage() {
                     );
                   })}
                   {!groupCommands.length && <p className="ios-caption">The command catalog has not been generated yet.</p>}
+                </div>
+              )}
+
+              {tab === "backup" && (
+                <div className="mt-3 space-y-3">
+                  <p className="ios-caption">
+                    A backup holds this group&apos;s configuration only: locks, greetings, rules, automation, blacklist
+                    words and switched-off commands. Warnings, notes and member identities are never included, so the
+                    file is safe to move between groups. The file stays on your device until you upload it.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() => void exportBackup()}
+                      disabled={backupBusy}
+                      className="ios-btn ios-btn-primary text-xs disabled:opacity-40"
+                    >
+                      {backupBusy ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                      Download backup
+                    </button>
+                    <button
+                      onClick={() => backupInput.current?.click()}
+                      disabled={backupBusy}
+                      className="ios-btn ios-btn-glass text-xs disabled:opacity-40"
+                    >
+                      <Upload size={14} /> Choose a backup file
+                    </button>
+                    <input
+                      ref={backupInput}
+                      type="file"
+                      accept="application/json,.json"
+                      className="sr-only"
+                      aria-label="Choose a group backup JSON file"
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        if (file) void previewBackup(file);
+                      }}
+                    />
+                  </div>
+                  {backupNote && (
+                    <p role="status" className="flex items-start gap-2 rounded-xl border border-emerald-300/20 bg-emerald-300/5 p-3 text-xs text-emerald-100">
+                      <Check size={14} className="mt-0.5 shrink-0" /> {backupNote}
+                    </p>
+                  )}
+                  {restorableId && (
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-white/[0.03] p-3 text-xs">
+                      <span>Undo the last import and put back the configuration it replaced.</span>
+                      <button onClick={() => void restoreSaved()} disabled={backupBusy} className="ios-btn ios-btn-glass text-xs disabled:opacity-40">
+                        <RotateCcw size={14} /> Restore previous
+                      </button>
+                    </div>
+                  )}
+                  {backupPreview && (
+                    <div className="rounded-xl border border-white/10 bg-white/[0.03] p-3">
+                      <h3 className="flex items-center gap-2 text-sm font-semibold">
+                        <FileJson size={15} /> Review before applying
+                      </h3>
+                      {backupIsEmpty(backupPreview.changes) ? (
+                        <p className="ios-caption mt-2">This file matches the group already. Applying it would change nothing.</p>
+                      ) : (
+                        <ul className="mt-2 space-y-1.5 text-xs">
+                          {backupSummary(backupPreview.changes).map((row) => (
+                            <li key={row.label} className="flex flex-wrap gap-x-2">
+                              <span className="font-medium">{row.label}</span>
+                              <span className="text-[var(--ios-label-secondary)]">{row.detail}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                          onClick={() => void applyBackup()}
+                          disabled={backupBusy || backupIsEmpty(backupPreview.changes)}
+                          className="ios-btn ios-btn-primary text-xs disabled:opacity-40"
+                        >
+                          {backupBusy ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                          Apply to this group
+                        </button>
+                        <button onClick={() => setBackupPreview(null)} className="ios-btn ios-btn-glass text-xs">
+                          <X size={14} /> Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                  <p className="ios-caption">
+                    Importing can only change the settings listed above. It never sends a Telegram message, and every
+                    import is written to this group&apos;s history with the group id that produced the file.
+                  </p>
                 </div>
               )}
 

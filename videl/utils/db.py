@@ -49,6 +49,7 @@ def start_mongo() -> bool:
         except Exception:
             pass
         _db = _client[db_name]
+        ensure_indexes(_db)
         logger.info(f"◍ ᴍᴏɴɢᴏ — ᴄᴏɴɴᴇᴄᴛᴇᴅ (db={db_name}) ◍")
         return True
 
@@ -63,6 +64,42 @@ def start_mongo() -> bool:
         _client = None
         _db = None
         return False
+
+
+# ── Indexes ───────────────────────────────────────────────────────────────────
+# The panel reads one document per served group; without these, every group is
+# a collection scan and the fleet view gets slower as the bot is added to more
+# chats. Creation is idempotent, quiet and safe to call on every boot.
+
+INDEX_SPECS = {
+    "mgmt_chat_settings": [([("chat_id", 1)], {})],
+    "mgmt_warnings": [([("chat_id", 1), ("user_id", 1)], {})],
+    "mgmt_join_requests": [([("chat_id", 1), ("status", 1)], {})],
+    "mgmt_reports": [([("chat_id", 1), ("status", 1)], {})],
+    "mgmt_notes": [([("chat_id", 1)], {})],
+    "mgmt_filters": [([("chat_id", 1)], {})],
+    "blacklist": [([("chat", 1), ("trigger", 1)], {})],
+    "approved": [([("chat", 1), ("user", 1)], {})],
+    "disabled_cmds": [([("chat", 1), ("cmd", 1)], {})],
+    "backups": [([("chat", 1), ("time", -1)], {})],
+    "scheduled_posts": [([("owner_id", 1), ("status", 1), ("due_at", 1)], {})],
+    "studio_library": [([("owner_id", 1), ("key", 1)], {"unique": True})],
+}
+
+
+def ensure_indexes(db=None) -> dict:
+    """Create the query indexes once per process. Failures are not fatal."""
+    database = db if db is not None else _db
+    if database is None:
+        return {}
+    created = {}
+    for name, specs in INDEX_SPECS.items():
+        for keys, options in specs:
+            try:
+                created[f"{name}:{'+'.join(key for key, _ in keys)}"] = database[name].create_index(keys, **options)
+            except Exception:
+                logger.debug("[indexes] %s was left as-is", name, exc_info=True)
+    return created
 
 
 def get_db():

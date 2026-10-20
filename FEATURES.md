@@ -32,6 +32,13 @@ to code that actually runs:
   retention). Bot-side changes — locks, antispam, warnings, filters, blacklist
   words or its mode — are recorded too, with the acting admin when Telegram
   reports one.
+- **Group backups** — download a group's configuration as JSON (locks,
+  greetings, rules, automation, blacklist words and switched-off commands) and
+  import it into another group. Imports are previewed as a diff and applied
+  only on confirmation; the replaced state is saved so the import can be
+  undone. Warnings, notes and member identities are never written to the file.
+  The export endpoint is `/internal/chat/<id>/backup`; imports post
+  `backup_import` / `backup_restore` to the usual group endpoint.
 - **Command switches** — any of the 155 registered commands can be turned off
   for one group. A handler at group −1 refuses it before every other handler,
   so this also covers commands that never pass through the declarative router.

@@ -609,6 +609,25 @@ def _internal_chat_audit(chat_id):
         return jsonify({"ok": False, "error": "audit query failed"}), 503
 
 
+@_flask.route("/internal/chat/<int(signed=True):chat_id>/backup")
+def _internal_chat_backup(chat_id):
+    """Portable configuration export: locks, automation, blacklist, commands."""
+    if not _internal_authorized():
+        return jsonify({"ok": False, "error": "unauthorized"}), 403
+    try:
+        from videl.utils.db import get_db
+        from videl.utils.group_view import GroupView, ViewError
+        db = get_db()
+        if db is None:
+            return jsonify({"ok": False, "error": "MongoDB is not connected"}), 503
+        return jsonify(GroupView(db, _bot_api).export_group(chat_id))
+    except ViewError as error:
+        return jsonify({"ok": False, "error": str(error)}), error.status
+    except Exception:
+        LOGGER.exception("internal backup export failed")
+        return jsonify({"ok": False, "error": "backup export failed"}), 503
+
+
 @_flask.route("/internal/federation", methods=["GET"])
 def _internal_federation_list():
     if not _internal_authorized():

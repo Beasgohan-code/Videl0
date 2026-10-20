@@ -43,6 +43,7 @@ KINDS = (
     "purge",
     "join_request",
     "report",
+    "backup",
 )
 
 _CONTROL = re.compile(r"[\x00-\x1f\x7f]+")

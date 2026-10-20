@@ -48,6 +48,12 @@ PRESETS={
 }
 
 
+def _revision() -> str:
+    """Which backend wrote the file, so a stale import is obvious later."""
+    import os
+    return (os.environ.get('RENDER_GIT_COMMIT') or os.environ.get('GIT_COMMIT') or 'dev')[:12]
+
+
 def coerce_bool(value):
     return value if type(value) is bool else bool(value)
 REACTIONS=('👍','❤️','🔥','🎉','😁','🤔','👏','🙏','💯','⚡')
@@ -672,7 +678,7 @@ class GroupView:
         'welcome':'welcome','goodbye':'goodbye','rules':'rules','blacklist_add':'blacklist',
         'blacklist_remove':'blacklist','blacklist_mode':'blacklist_mode','note_delete':'note',
         'filter_delete':'filter','approved_remove':'approval','warn_reset':'warn_reset',
-        'automation':'automation','command_disable':'commands','command_enable':'commands',
+        'automation':'automation','command_disable':'commands','command_enable':'commands','backup_import':'backup','backup_restore':'backup',
         'join_request':'join_request','report_update':'report','recording':'recording','purge_history':'purge'}
 
     def log(self,cid,action,body=None,source='web'):
@@ -697,6 +703,220 @@ class GroupView:
                               before_id=before_id)
         return {'ok':True,'kind':kind or 'all','kinds':list(audit_log.KINDS),
                 'events':rows[:limit],'has_more':len(rows)>limit}
+
+    # ── portable backup ──────────────────────────────────────────────────────
+    # A backup is plain JSON the owner can keep. It is deliberately limited to
+    # settings the bot reads: locks, automation, blacklist words and disabled
+    # commands. Warnings, notes and filters stay out — they are member data,
+    # not configuration, and a file like this gets copied between groups.
+    BACKUP_FORMAT = 'videl-group-backup'
+    BACKUP_VERSION = 1
+    BACKUP_BLACKLIST_LIMIT = 300
+    BACKUP_COMMAND_LIMIT = 200
+
+    def export_group(self, chat_id):
+        cid = integer(chat_id)
+        if cid > 0:
+            raise ViewError('Group backups are group-only.', 403)
+        if self.db['served_chats'].find_one({'_id': cid}) is None:
+            raise ViewError('Choose a group already served by this bot.', 404)
+        from videl.utils.db import get_automation
+        try:
+            title = str((self.info(cid)['info'] or {}).get('title') or '')
+        except Exception:
+            title = ''
+        try:
+            blacklist = [{'trigger': str(row.get('trigger') or '')[:64],
+                          'mode': str(row.get('mode') or 'del')}
+                         for row in self.db['blacklist'].find({'chat': cid}, {'_id': 0})
+                         .limit(self.BACKUP_BLACKLIST_LIMIT)]
+        except Exception:
+            blacklist = []
+        try:
+            commands = sorted({str(name) for name in
+                               self.db['disabled_cmds'].distinct('cmd', {'chat': cid})})[:self.BACKUP_COMMAND_LIMIT]
+        except Exception:
+            commands = []
+        return {'ok': True, 'backup': {
+            'format': self.BACKUP_FORMAT,
+            'version': self.BACKUP_VERSION,
+            'exported_at': datetime.now(timezone.utc).isoformat(),
+            'group': {'id': cid, 'title': title[:120]},
+            'source_revision': _revision(),
+            'settings': self.snapshot(cid),
+            'automation': get_automation(cid),
+            'blacklist': [row for row in blacklist if row['trigger']],
+            'commands_disabled': commands,
+        }}
+
+    def _read_backup(self, payload):
+        """Accept only the documented shape; unknown keys are ignored, not applied."""
+        document = payload.get('backup') if isinstance(payload, dict) and isinstance(payload.get('backup'), dict) else payload
+        if not isinstance(document, dict):
+            raise ViewError('Upload a Videl group backup JSON file.')
+        if document.get('format') != self.BACKUP_FORMAT:
+            raise ViewError('This file is not a Videl group backup.')
+        try:
+            version = int(document.get('version'))
+        except (TypeError, ValueError):
+            version = 0
+        if version != self.BACKUP_VERSION:
+            raise ViewError(f'Backup version {version or "unknown"} is not supported by this backend.')
+        raw_settings = document.get('settings')
+        if not isinstance(raw_settings, dict):
+            raise ViewError('The backup has no settings block.')
+        settings = {}
+        for key, value in raw_settings.items():
+            if key in BOOL_SETTINGS and type(value) is bool:
+                settings[key] = value
+            elif key in INT_SETTINGS and not isinstance(value, bool):
+                try:
+                    number = int(value)
+                except (TypeError, ValueError):
+                    continue
+                low, high = INT_SETTINGS[key]
+                settings[key] = max(low, min(number, high))
+            elif key in TEXT_SETTINGS and isinstance(value, str):
+                settings[key] = value[:TEXT_SETTINGS[key]]
+            elif key in ENUM_SETTINGS and value in ENUM_SETTINGS[key]:
+                settings[key] = value
+        if not settings:
+            raise ViewError('The backup settings block contains nothing this bot can apply.')
+        automation = normalize(document.get('automation') if isinstance(document.get('automation'), dict) else {})
+        blacklist, seen = [], set()
+        for row in (document.get('blacklist') or [])[:self.BACKUP_BLACKLIST_LIMIT]:
+            if not isinstance(row, dict):
+                continue
+            trigger = str(row.get('trigger') or '').strip().casefold()[:64]
+            if not trigger or trigger in seen:
+                continue
+            seen.add(trigger)
+            mode = str(row.get('mode') or 'del')
+            blacklist.append({'trigger': trigger,
+                              'mode': mode if mode in ENUM_SETTINGS['blacklist_mode'] else 'del'})
+        commands = []
+        for item in (document.get('commands_disabled') or [])[:self.BACKUP_COMMAND_LIMIT]:
+            name = str(item or '').strip().lower()
+            if re.fullmatch(r'[a-z0-9_]{1,32}', name) and name not in commands:
+                commands.append(name)
+        return settings, automation, blacklist, commands
+
+    def _backup_changes(self, cid, settings, automation, blacklist, commands):
+        current = self.snapshot(cid)
+        changed = {key: value for key, value in settings.items() if current.get(key) != value}
+        before = {key: current.get(key) for key in changed}
+        from videl.utils.db import get_automation
+        live_automation = get_automation(cid)
+        automation_changed = [key for key in ('quiet_hours', 'escalation', 'protection')
+                              if automation.get(key) != live_automation.get(key)]
+        try:
+            live_words = {str(row.get('trigger') or '') for row in self.db['blacklist'].find({'chat': cid})}
+        except Exception:
+            live_words = set()
+        wanted_words = {row['trigger'] for row in blacklist}
+        try:
+            live_commands = {str(name) for name in self.db['disabled_cmds'].distinct('cmd', {'chat': cid})}
+        except Exception:
+            live_commands = set()
+        wanted_commands = set(commands)
+        return {
+            'settings': {'before': before, 'after': changed},
+            'automation': automation_changed,
+            'blacklist': {'add': sorted(wanted_words - live_words),
+                          'remove': sorted(live_words - wanted_words)},
+            'commands': {'disable': sorted(wanted_commands - live_commands),
+                         'enable': sorted(live_commands - wanted_commands)},
+        }
+
+    def _apply_backup(self, cid, settings, automation, blacklist, commands):
+        from videl.utils.db import disable_cmd, enable_cmd, set_automation
+        if settings:
+            self.db['mgmt_chat_settings'].update_one({'chat_id': cid}, {'$set': settings}, upsert=True)
+        set_automation(cid, quiet_hours=automation['quiet_hours'],
+                       escalation=automation['escalation'], protection=automation['protection'])
+        wanted = {row['trigger'] for row in blacklist}
+        try:
+            self.db['blacklist'].delete_many({'chat': cid, 'trigger': {'$nin': sorted(wanted)}})
+            for row in blacklist:
+                self.db['blacklist'].update_one(
+                    {'chat': cid, 'trigger': row['trigger']},
+                    {'$set': {'chat': cid, 'trigger': row['trigger'], 'mode': row['mode']}},
+                    upsert=True)
+        except Exception:
+            log.debug('blacklist restore partially failed', exc_info=True)
+        wanted_commands = set(commands)
+        try:
+            live_commands = {str(name) for name in self.db['disabled_cmds'].distinct('cmd', {'chat': cid})}
+        except Exception:
+            live_commands = set()
+        for name in sorted(wanted_commands - live_commands):
+            disable_cmd(cid, name)
+        for name in sorted(live_commands - wanted_commands):
+            enable_cmd(cid, name)
+
+    def import_group(self, chat_id, actor, body, *, source='web'):
+        """Dry-run by default: the panel previews a diff, then confirms."""
+        cid = integer(chat_id)
+        if cid > 0:
+            raise ViewError('Group backups are group-only.', 403)
+        if self.db['served_chats'].find_one({'_id': cid}) is None:
+            raise ViewError('Choose a group already served by this bot.', 404)
+        body = body if isinstance(body, dict) else {}
+        settings, automation, blacklist, commands = self._read_backup(body.get('document') or body)
+        changes = self._backup_changes(cid, settings, automation, blacklist, commands)
+        empty = not (changes['settings']['after'] or changes['automation']
+                     or changes['blacklist']['add'] or changes['blacklist']['remove']
+                     or changes['commands']['disable'] or changes['commands']['enable'])
+        if body.get('dry_run') is not False:
+            return {'ok': True, 'dry_run': True, 'empty': empty, 'changes': changes}
+        if empty:
+            return {'ok': True, 'dry_run': False, 'empty': True, 'changes': changes,
+                    'settings': self.snapshot(cid), 'backup_id': None}
+        # Keep the state being replaced: an import is a bulk change and must be
+        # reversible even when the uploaded file was made for another group.
+        from videl.utils.db import save_backup
+        previous = self.export_group(cid)['backup']
+        previous['exported_at'] = datetime.now(timezone.utc).isoformat()
+        backup_id = save_backup(cid, previous) or None
+        self._apply_backup(cid, settings, automation, blacklist, commands)
+        summary = []
+        if changes['settings']['after']:
+            summary.append(f"{len(changes['settings']['after'])} settings")
+        if changes['automation']:
+            summary.append(', '.join(changes['automation']))
+        if changes['blacklist']['add'] or changes['blacklist']['remove']:
+            summary.append(f"blacklist +{len(changes['blacklist']['add'])}/-{len(changes['blacklist']['remove'])}")
+        if changes['commands']['disable'] or changes['commands']['enable']:
+            summary.append(f"commands +{len(changes['commands']['disable'])}/-{len(changes['commands']['enable'])}")
+        audit_log.record(self.db, cid, 'backup', action='backup_import',
+                         detail='restored: ' + '; '.join(summary), actor=OWNER_ID, source=source)
+        return {'ok': True, 'dry_run': False, 'empty': False, 'changes': changes,
+                'backup_id': backup_id, 'settings': self.snapshot(cid),
+                'automation': self._automation_read(cid)}
+
+    def restore_saved(self, chat_id, actor, body, *, source='web'):
+        """Undo an import using the snapshot it stored server-side."""
+        cid = integer(chat_id)
+        if cid > 0:
+            raise ViewError('Group backups are group-only.', 403)
+        identifier = str((body or {}).get('backup_id') or '').strip()
+        if not identifier or not re.fullmatch(r'[0-9a-f]{1,32}', identifier):
+            raise ViewError('A saved backup id is required.')
+        from videl.utils.db import get_backup
+        row = get_backup(identifier)
+        if not row or int(row.get('chat') or 0) != cid:
+            raise ViewError('That saved snapshot no longer exists for this group.', 404)
+        document = row.get('data')
+        if not isinstance(document, dict):
+            raise ViewError('That saved snapshot is unreadable.', 409)
+        return self.import_group(cid, actor, {'document': document, 'dry_run': False}, source=source)
+
+    def _automation_read(self, cid):
+        from videl.utils.db import get_automation
+        try:
+            return get_automation(cid)
+        except Exception:
+            return normalize({})
 
     # ── owner inbox: reports and join requests ───────────────────────────────
     def inbox(self,cid):
@@ -869,7 +1089,8 @@ class GroupView:
     def admin(self,cid,actor,body,source='web'):
         """Typed admin actions. Every write re-reads the document afterwards."""
         action=body.get('action')
-        if action in {'automation','command_disable','command_enable','join_request','report_update'}:
+        if action in {'automation','command_disable','command_enable','join_request','report_update',
+                      'backup_import','backup_restore'}:
             return self._service(cid,body)
         result=self._admin(cid,actor,body)
         # ``protect`` is written by settings(), which records its own event.
@@ -882,6 +1103,8 @@ class GroupView:
         if action in {'command_disable','command_enable'}:return self._commands(cid,body)
         if action=='join_request':return self._join_request(cid,body)
         if action=='report_update':return self._report_update(cid,body)
+        if action=='backup_import':return self.import_group(cid,OWNER_ID,body)
+        if action=='backup_restore':return self.restore_saved(cid,OWNER_ID,body)
         raise ViewError('Unsupported group management action.')
 
     def _admin(self,cid,actor,body):
