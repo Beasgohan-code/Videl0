@@ -9,7 +9,10 @@ import time
 from datetime import timedelta
 
 import psutil
-import speedtest
+try:
+    import speedtest
+except ImportError:
+    speedtest = None  # optional — /speedtest will reply 'not installed'
 from pyrogram import filters
 from pyrogram.enums import ParseMode
 from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
@@ -27,8 +30,10 @@ from videl.utils.rich_ui import (
 
 
 def supp_markup():
+    web = (getattr(config, "WEBAPP_URL", "https://videl0-control-panel.vercel.app") or "https://videl0-control-panel.vercel.app").rstrip("/")
     return InlineKeyboardMarkup([[
-        InlineKeyboardButton(text="⫶ sᴜᴘᴘᴏʀᴛ", url=config.SUPPORT_GROUP),
+        InlineKeyboardButton(text="👑 Videl Web App", url=web),
+        InlineKeyboardButton(text="💬 Support", url=config.SUPPORT_GROUP),
     ]])
 
 
@@ -39,7 +44,7 @@ async def ping_cmd(client, message: Message) -> None:
     chat_id = message.chat.id
     start = time.perf_counter()
     try:
-        probe = await bot.send_message(chat_id, "🏓 ᴘɪɴɢɪɴɢ...")
+        probe = await bot.send_message(chat_id, "✈️ <b>Videl 👑 Studio</b> · Measuring latency…", parse_mode=ParseMode.HTML)
     except Exception:
         probe = None
     latency = round((time.perf_counter() - start) * 1000)
@@ -49,7 +54,7 @@ async def ping_cmd(client, message: Message) -> None:
     except Exception:
         uptime = "?"
     try:
-        cpu = psutil.cpu_percent(interval=0.3)
+        cpu = psutil.cpu_percent(interval=0.2)
         process = psutil.Process(os.getpid())
         ram = process.memory_info().rss / 1024 / 1024
         disk = psutil.disk_usage("/")
@@ -62,24 +67,27 @@ async def ping_cmd(client, message: Message) -> None:
         await assistant.get_me()
         pytg = f"{round((time.perf_counter() - t0) * 1000)}ms"
     except Exception:
-        pytg = "N/A"
+        pytg = "Offline"
 
     text = (
-        f"🏓 <b>ᴘᴏɴɢ</b> : <code>{latency}ms</code>\n\n"
-        f"⏱ ᴜᴘᴛɪᴍᴇ: <code>{uptime}</code>\n"
-        f"💾 ʀᴀᴍ: <code>{ram if isinstance(ram, str) else f'{ram:.1f} MB'}</code>\n"
-        f"🖥 ᴄᴘᴜ: <code>{cpu}%</code>\n"
-        f"📀 ᴅɪsᴋ: <code>{disk_str}</code>\n"
-        f"🎙 ᴘʏᴛɢᴄ: <code>{pytg}</code>"
+        f"✈️ <b>Videl 👑 Studio · Live Telemetry</b>\n\n"
+        f"<blockquote>"
+        f"⚡ <b>Bot Latency:</b> <code>{latency} ms</code>\n"
+        f"🎙 <b>Voice Engine:</b> <code>{pytg}</code>\n"
+        f"⏱ <b>Uptime:</b> <code>{uptime}</code>\n"
+        f"💾 <b>Memory:</b> <code>{ram if isinstance(ram, str) else f'{ram:.1f} MB'}</code>\n"
+        f"🖥 <b>CPU Load:</b> <code>{cpu}%</code>\n"
+        f"📀 <b>Storage:</b> <code>{disk_str}</code>"
+        f"</blockquote>"
     )
     try:
         if probe:
-            await probe.edit_text(text)
+            await probe.edit_text(text, reply_markup=supp_markup(), parse_mode=ParseMode.HTML)
         else:
-            await bot.send_message(chat_id, text)
+            await bot.send_message(chat_id, text, reply_markup=supp_markup(), parse_mode=ParseMode.HTML)
     except Exception:
         try:
-            await message.reply_text(f"🏓 Pong {latency}ms")
+            await message.reply_text(f"⚡ Videl Studio Pong: {latency}ms")
         except Exception:
             pass
 
@@ -87,6 +95,8 @@ async def ping_cmd(client, message: Message) -> None:
 # ── /speedtest ─────────────────────────────────────────────────────────────────
 
 def _run_speedtest(m):
+    if speedtest is None:
+        return None
     try:
         st = speedtest.Speedtest()
         st.get_best_server()

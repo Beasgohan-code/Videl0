@@ -1,150 +1,124 @@
-# --------------------------------------------------------------------------------
-#  Videl © 2026 | Professional Suite — Elite Features
-#  Adds: Advanced stats, federation pro, anti-spam ML stub, dashboard sync,
-#  auto-clean, backup vault, premium tier, owner console — all Richgram
-# --------------------------------------------------------------------------------
-import logging
+"""Professional product and operations commands; reports only measured values."""
+from __future__ import annotations
+
 import time
-import re
-from datetime import datetime, timezone
 from pyrogram import filters
-from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from pyrogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+
 import config
-from videl import LOGGER, bot
-from videl.utils.db import get_db
-from videl.utils.rich_ui import rich_heading, rich_kv_table, rich_note, rich_esc, rich_reply, rich_code
+from videl import bot, bot_start_time
+from videl.utils.db import (
+    get_db, get_served_chats_count, get_served_users_count,
+    get_total_plays, is_connected,
+)
+from videl.utils.rich_ui import rich_heading, rich_kv_table, rich_note, rich_reply
 
-logger = logging.getLogger(__name__)
-def _db(): return get_db()
+PLUGIN_COMMANDS = {
+    "clean": "cleanpro", "filters_pro": "filtpro", "helper_pro": "helperpro",
+    "invite": "invitepro", "language": "langpro", "notes_pro": "notespro",
+    "reminder": "remind", "rules_pro": "rulespro", "scheduler": "schedule",
+    "sticker_tools": "sticker", "telegraph2": "tgraph", "telegraph_pro": "telegraph",
+    "translate": "tr", "ytsearch": "yts",
+}
 
-# ── /professional — showcase 100 plugins + 180+ commands ──────────────────────
+
+def _dashboard_url() -> str:
+    return (getattr(config, "WEBAPP_URL", "https://videl0-control-panel.vercel.app") or "https://videl0-control-panel.vercel.app").rstrip("/")
+
+
+def _active_plugins() -> list[str]:
+    try:
+        from videl.modules.plugins_loader import LOADED
+        return sorted(LOADED)
+    except Exception:
+        return []
+
+
+def _page_markup(page: int, pages: int) -> InlineKeyboardMarkup:
+    row=[]
+    if page>0: row.append(InlineKeyboardButton("‹ Previous",callback_data=f"pro_plugins_{page-1}"))
+    if page+1<pages: row.append(InlineKeyboardButton("Next ›",callback_data=f"pro_plugins_{page+1}"))
+    return InlineKeyboardMarkup([row] if row else [[InlineKeyboardButton("Close",callback_data="pro_close")]])
+
+
 @bot.on_message(filters.command(["professional", "pro", "features"]))
 async def pro_cmd(_, message: Message):
-    db = _db()
-    plugins = 100
-    cmds = 180
-    try:
-        if db is not None:
-            # count collections for stats
-            cols = db.list_collection_names()
-            plugins = 100  # fixed suite
-    except: pass
-    await rich_reply(message,
-        rich_heading("◍ Videl Professional — Elite Suite", level=1)
+    plugins=_active_plugins()
+    uptime=max(0,int(time.time()-bot_start_time))
+    h,rem=divmod(uptime,3600); m,s=divmod(rem,60)
+    await rich_reply(
+        message,
+        rich_heading("Videl · Professional",level=1)
         + rich_kv_table([
-            ("Plugins", f"<code>{plugins} professional plugins</code>"),
-            ("Commands", f"<code>{cmds}+ management + music + anime</code>"),
-            ("Wizard", "<code>6 wizards × 5 steps = 30 steps</code>"),
-            ("Music", "<code>Full VC • Queue • Lyrics • Effects • Radio</code>"),
-            ("Anime", "<code>AniList • Character • Waifu • Wallpaper</code>"),
-            ("Modes", "<code>Admin • Guest • Inline • Callback</code>"),
-            ("Stack", "<code>Richgram • MongoDB • Flask + Next.js 3000</code>"),
-            ("Uptime", f"<code>{int(time.time() - 946684800)//86400}d legacy</code>"),
+            ("Active add-ons",f"<code>{len(plugins)}</code> curated command plugins"),
+            ("MongoDB",f"<code>{'connected' if is_connected() else 'disconnected'}</code>"),
+            ("Groups",f"<code>{get_served_chats_count()}</code>"),
+            ("Users",f"<code>{get_served_users_count()}</code>"),
+            ("Music plays",f"<code>{get_total_plays()}</code>"),
+            ("Uptime",f"<code>{h}h {m}m {s}s</code>"),
         ])
-        + rich_note("💡 <i>Tip: /wizard for setup • /inline for share • /dashboard for web panel • /pro for this view</i>"),
+        + rich_note("Production features only: music playback, moderation, group operations, utilities and owner tools. Demo/entertainment and AI commands are disabled."),
         reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("◍ 100 Plugins", callback_data="pro_plugins"), InlineKeyboardButton("⚙️ 180 Commands", callback_data="pro_cmds")],
-            [InlineKeyboardButton("🎵 Music Pro", callback_data="pro_music"), InlineKeyboardButton("🌸 Anime Pro", callback_data="pro_anime")],
-            [InlineKeyboardButton("⬪ Dashboard", url="https://videl0.onrender.com/dashboard"), InlineKeyboardButton("⚙️ Wizard", callback_data="wiz2_start_full")]
-        ])
+            [InlineKeyboardButton("Browse active tools",callback_data="pro_plugins_0")],
+            [InlineKeyboardButton("Music help",callback_data="pro_music_help"),InlineKeyboardButton("Group help",callback_data="pro_group_help")],
+            [InlineKeyboardButton("Open control panel",url=_dashboard_url())],
+        ]),
     )
 
-@bot.on_callback_query(filters.regex(r"^pro_"))
-async def pro_cb(_, cq: CallbackQuery):
-    try:
-        key = cq.data.replace("pro_", "")
-        if key == "plugins":
-            # List 100 plugins in paginated view
-            from pathlib import Path
-            plugs = sorted([p.stem for p in Path("videl/plugins").glob("*.py")]) if Path("videl/plugins").exists() else [f"plugin{i}" for i in range(100)]
-            chunk = plugs[:40]
-            txt = rich_heading("◍ 100 Plugins — Professional", level=2) + rich_kv_table([(f"<code>/{c[:12]}</code>", "<code>✅</code>") for c in chunk]) + rich_note(f"<i>Showing {len(chunk)}/100 — use /professional to return • /{chunk[0]} to test</i>")
-            await cq.message.reply_text(txt, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◍ Next 20", callback_data="pro_plugins2"), InlineKeyboardButton("◍ Close", callback_data="plug_close")]]))
-            await cq.answer()
-        elif key == "plugins2":
-            from pathlib import Path
-            plugs = sorted([p.stem for p in Path("videl/plugins").glob("*.py")])
-            chunk = plugs[40:70]
-            await cq.message.reply_text(rich_heading("◍ Plugins 40-70", level=2) + rich_kv_table([(f"<code>/{c[:12]}</code>", "<code>✅</code>") for c in chunk]), reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◍ More", callback_data="pro_plugins3")]]))
-            await cq.answer()
-        elif key == "plugins3":
-            from pathlib import Path
-            plugs = sorted([p.stem for p in Path("videl/plugins").glob("*.py")])
-            chunk = plugs[70:]
-            await cq.message.reply_text(rich_heading("◍ Plugins 70-100", level=2) + rich_kv_table([(f"<code>/{c[:12]}</code>", "<code>✅</code>") for c in chunk]), reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("◍ Done", callback_data="plug_close")]]))
-            await cq.answer()
-        elif key == "cmds":
-            await cq.message.reply_text(rich_heading("⚙️ 180 Commands", level=2) + rich_kv_table([("Moderation", "<code>20</code>"), ("Locks", "<code>15</code>"), ("Welcome", "<code>10</code>"), ("Filters/Notes", "<code>15</code>"), ("Federation", "<code>12</code>"), ("Approve", "<code>10</code>"), ("Pins", "<code>15</code>"), ("Reports", "<code>15</code>"), ("Music", "<code>20</code>"), ("Anime/Fun", "<code>30+</code>")]) + rich_note("Use /help or /wizard for categories"))
-            await cq.answer()
-        elif key == "music":
-            await cq.message.reply_text(rich_heading("🎵 Music Pro", level=2) + rich_note("Try <code>/play song</code> • <code>/queue</code> • <code>/lyrics</code> • <code>/effects</code>"), reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("▶️ Play Demo", switch_inline_query="music love")]]))
-            await cq.answer()
-        elif key == "anime":
-            await cq.message.reply_text(rich_heading("🌸 Anime Pro", level=2) + rich_note("Try <code>/anime Naruto</code> • <code>/character Gojo</code> • <code>/waifu</code>"), reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🌸 Try Anime", switch_inline_query="anime Naruto")]]))
-            await cq.answer()
-        else:
-            await cq.answer("Videl Professional • Elite Suite", show_alert=False)
-    except Exception as e:
-        try: await cq.answer(str(e)[:60])
-        except: pass
 
-# ── /statspro — deep professional stats ───────────────────────────────────────
-@bot.on_message(filters.command(["statspro", "statpro", "analytics"]))
+@bot.on_callback_query(filters.regex(r"^pro_plugins(?:_(\d+))?$"))
+async def pro_plugins_cb(_, query: CallbackQuery):
+    plugins=_active_plugins(); page=int(query.data.rsplit("_",1)[1]) if "_" in query.data and query.data.rsplit("_",1)[1].isdigit() else 0
+    size=15; pages=max(1,(len(plugins)+size-1)//size); page=min(max(0,page),pages-1)
+    subset=plugins[page*size:(page+1)*size]
+    rows=[(f"<code>/{PLUGIN_COMMANDS.get(name,name.replace('_',''))}</code>","Active") for name in subset]
+    text=rich_heading("Active professional tools",level=2)+rich_kv_table(rows or [("Status","No plugin handlers loaded")])+rich_note(f"Page {page+1}/{pages} · {len(plugins)} active add-ons; core music and moderation commands are listed in /help.")
+    await query.message.edit_text(text,reply_markup=_page_markup(page,pages))
+    await query.answer()
+
+
+@bot.on_callback_query(filters.regex(r"^pro_(music_help|group_help)$"))
+async def pro_help_cb(_, query: CallbackQuery):
+    if query.data=="pro_music_help":
+        text="<b>Music</b>\n<code>/play query</code> · <code>/vplay query</code> · <code>/cplay query</code>\n<code>/queue</code> · <code>/skip</code> · <code>/pause</code> · <code>/resume</code> · <code>/stop</code>\n<code>/seek</code> · <code>/lyrics</code> · <code>/playlist</code> · <code>/effects</code>"
+    else:
+        text="<b>Group operations</b>\n<code>/ban</code> · <code>/kick</code> · <code>/mute</code> · <code>/warn</code> · <code>/locks</code>\n<code>/welcome</code> · <code>/rules</code> · <code>/filter</code> · <code>/notes</code> · <code>/purge</code>\nUse /help for the bot's current command index."
+    await query.message.edit_text(rich_heading("Videl command guide",level=2)+rich_note(text),reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Back",callback_data="pro_plugins_0")]]))
+    await query.answer()
+
+
+@bot.on_callback_query(filters.regex(r"^pro_close$"))
+async def pro_close_cb(_, query: CallbackQuery):
+    await query.message.delete(); await query.answer()
+
+
+@bot.on_message(filters.command(["statspro","statpro"]))
 async def statspro_cmd(_, message: Message):
-    db = _db()
-    cols = []
-    docs = 0
-    try:
-        if db is not None:
-            cols = db.list_collection_names()
-            for c in cols[:10]:
-                try: docs += db[c].count_documents({})
-                except: pass
-    except: pass
-    uptime = int(time.time() - getattr(__import__('videl'), 'bot_start_time', time.time()))
-    h, r = divmod(uptime, 3600); m, s = divmod(r, 60)
-    await rich_reply(message,
-        rich_heading("📊 Videl Stats Pro — Professional", level=1)
-        + rich_kv_table([
-            ("Uptime", f"<code>{h}h {m}m {s}s</code>"),
-            ("Plugins", "<code>100 loaded</code>"),
-            ("Commands", "<code>180+ registered</code>"),
-            ("Collections", f"<code>{len(cols)} MongoDB</code>"),
-            ("Documents", f"<code>~{docs} docs</code>"),
-            ("Web", "<code>videl0.onrender.com/dashboard</code>"),
-        ])
-        + rich_note("Use <code>/professional</code> for full showcase • <code>/pro</code> alias"),
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("📊 Analytics", url="https://videl0.onrender.com/analytics"), InlineKeyboardButton("◍ Groups", url="https://videl0.onrender.com/groups")],
-            [InlineKeyboardButton("⬪ Dashboard", url="https://videl0.onrender.com/dashboard")]
-        ])
-    )
+    if not message.from_user or not config.is_owner(message.from_user.id):
+        return await rich_reply(message, rich_note("Owner only."))
+    db=get_db(); collections=0; documents=0
+    if db is not None:
+        try:
+            names=db.list_collection_names(); collections=len(names)
+            documents=sum(db[name].estimated_document_count() for name in names)
+        except Exception:
+            documents=-1
+    uptime=max(0,int(time.time()-bot_start_time)); h,rem=divmod(uptime,3600); m,s=divmod(rem,60)
+    await rich_reply(message,rich_heading("Videl · Operations",level=1)+rich_kv_table([
+        ("MongoDB",f"<code>{'connected' if is_connected() else 'disconnected'}</code>"),
+        ("Collections",f"<code>{collections}</code>" if documents>=0 else "<code>unavailable</code>"),
+        ("Documents",f"<code>{documents}</code>" if documents>=0 else "<code>unavailable</code>"),
+        ("Chats",f"<code>{get_served_chats_count()}</code>"),("Users",f"<code>{get_served_users_count()}</code>"),
+        ("Music plays",f"<code>{get_total_plays()}</code>"),("Uptime",f"<code>{h}h {m}m {s}s</code>"),
+    ])+rich_note("Counts are read from MongoDB at request time. No synthetic activity or sample metrics."),reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Open dashboard",url=_dashboard_url())]]))
 
-# ── /help pro — categorized help with 100 plugins pagination ──────────────────
-@bot.on_message(filters.command(["helppro", "helpp"]))
+
+@bot.on_message(filters.command(["helppro","helpp"]))
 async def helppro_cmd(_, message: Message):
-    await rich_reply(message,
-        rich_heading("◍ Videl Help Pro — 100 Plugins + 180 Commands", level=1)
-        + rich_kv_table([
-            ("🎵 Music", "<code>/play /queue /skip /lyrics /effects</code>"),
-            ("🛡️ Admin", "<code>/ban /mute /warn /lock /purge /pin</code>"),
-            ("👋 Greet", "<code>/welcome /goodbye /captcha /rules</code>"),
-            ("📝 Content", "<code>/filter /notes /blacklist /pollpro</code>"),
-            ("🌸 Anime", "<code>/anime /character /waifu /wallpaper</code>"),
-            ("🛠️ Tools", "<code>/weather /wiki /qrgen /paste /shortener</code>"),
-            ("🎮 Fun", "<code>/joke /truth /dare /ship /memepro</code>"),
-            ("⚙️ System", "<code>/statspro /guest /wizard /inline</code>"),
-        ])
-        + rich_note("Use <code>/professional</code> to browse all 100 plugins • <code>/wizard</code> for setup • Inline: <code>@Videl0Bot help</code>"),
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("◍ 100 Plugins", callback_data="pro_plugins"), InlineKeyboardButton("⚙️ Wizard", callback_data="wiz2_start_full")],
-            [InlineKeyboardButton("⬪ Dashboard", url="https://videl0.onrender.com/dashboard"), InlineKeyboardButton("🌸 Anime", callback_data="pro_anime")]
-        ])
-    )
-
-@bot.on_callback_query(filters.regex(r"^plug_close$"))
-async def plug_close_cb(_, cq: CallbackQuery):
-    try: await cq.message.delete()
-    except: await cq.answer("Closed", show_alert=False)
-
-LOGGER.info("◍ Professional Suite loaded — 100 plugins showcase • statspro • helppro")
+    await rich_reply(message,rich_heading("Videl · Help",level=1)+rich_kv_table([
+        ("Music","<code>/play · /queue · /skip · /pause · /resume · /stop · /lyrics</code>"),
+        ("Moderation","<code>/ban · /kick · /mute · /warn · /lock · /purge · /pin</code>"),
+        ("Community","<code>/welcome · /goodbye · /rules · /filter · /save · /get</code>"),
+        ("Utilities","<code>/weather · /wiki · /calc · /qr · /translate · /currency · /github</code>"),
+        ("Operations","<code>/stats · /statspro · /logs · /sysinfo</code>"),
+    ])+rich_note("Use /professional to browse active add-ons. Optional services may require their own API keys."),reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Browse tools",callback_data="pro_plugins_0"),InlineKeyboardButton("Dashboard",url=_dashboard_url())]]))

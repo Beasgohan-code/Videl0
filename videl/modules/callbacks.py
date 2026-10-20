@@ -66,32 +66,38 @@ def _category_html(title: str, desc: str, rows, photo: str = None) -> str:
 #
 # ──────────────────────────────────────────────────────────────────[...]
 
+def _webapp_root() -> str:
+    return (getattr(config, "WEBAPP_URL", "https://videl0-control-panel.vercel.app") or "https://videl0-control-panel.vercel.app").rstrip("/")
+
+
 _HELP_KB = InlineKeyboardMarkup([
     [
-        InlineKeyboardButton("ᴧᴅᴍɪɴ",    callback_data="help_admin"),
-        InlineKeyboardButton("ᴧ-ᴘʟᴀʏ",   callback_data="help_autoplay"),
-        InlineKeyboardButton("ɢ-ᴄᴧsᴛ",   callback_data="help_gcast"),
+        InlineKeyboardButton("🛡️ Group & Admin", callback_data="help_admin"),
+        InlineKeyboardButton("🎵 Music Play", callback_data="help_play"),
+        InlineKeyboardButton("🎚️ Audio Effects", callback_data="help_speed"),
     ],
     [
-        InlineKeyboardButton("ʙʟ-ᴄʜᴧᴛ",  callback_data="help_blchat"),
-        InlineKeyboardButton("ʙʟ-ᴜsᴇʀs", callback_data="help_blusers"),
-        InlineKeyboardButton("ᴘɪɴɢ",     callback_data="help_ping"),
+        InlineKeyboardButton("🔁 Autoplay", callback_data="help_autoplay"),
+        InlineKeyboardButton("📢 Broadcast", callback_data="help_gcast"),
+        InlineKeyboardButton("🏓 Ping & Stats", callback_data="help_ping"),
     ],
     [
-        InlineKeyboardButton("ᴘʟᴀʏ",     callback_data="help_play"),
-        InlineKeyboardButton("sᴘᴇᴇᴅ",    callback_data="help_speed"),
-        InlineKeyboardButton("ɪɴғᴏ",     callback_data="help_info"),
+        InlineKeyboardButton("🚫 Chat Block", callback_data="help_blchat"),
+        InlineKeyboardButton("🚷 User Block", callback_data="help_blusers"),
+        InlineKeyboardButton("ℹ️ Bot Info", callback_data="help_info"),
     ],
     [
-        InlineKeyboardButton("⌯ ʜᴏᴍᴇ ⌯", callback_data="go_back"),
+        InlineKeyboardButton("👑 Videl Web App", url=_webapp_root()),
+        InlineKeyboardButton("🏠 Home", callback_data="go_back"),
     ],
 ])
 
-# Reference screenshots show BOTH a Back and a Close row under every category
-# screen — matched here (Back = blue, Close = red).
 _BACK_KB = InlineKeyboardMarkup([
-    [InlineKeyboardButton("⌯ ʙᴀᴄᴋ ⌯",  callback_data="show_help")],
-    [InlineKeyboardButton("⌯ ᴄʟᴏsᴇ ⌯", callback_data="close_help")],
+    [
+        InlineKeyboardButton("⬅️ Back to Modules", callback_data="show_help"),
+        InlineKeyboardButton("👑 Web App", url=_webapp_root()),
+    ],
+    [InlineKeyboardButton("✖ Close", callback_data="close_help")],
 ])
 
 # ── Help texts ────────────────────────────────────────────────────────────[...]
@@ -420,26 +426,27 @@ async def on_callback(client, cbq: CallbackQuery) -> None:
         name = sanitize_display_name(cbq.from_user.first_name)
         photo = random.choice(config.START_PHOTOS)
         content = (
-        rich_heading('📜 ᴄʜᴏᴏsᴇ ᴀ ᴄᴀᴛᴇɢᴏʀʏ', level=3)
-        + rich_img(photo)
-        + rich_note(f'<p>❍ ʜᴇʏ <a href="tg://user?id={uid}">{rich_esc(name)}</a>, ᴘɪᴄᴋ ᴀ '
-        "ᴄᴀᴛᴇɢᴏʀʏ ʙᴇʟᴏᴡ ᴛᴏ sᴇᴇ ɪᴛs ᴄᴏᴍᴍᴀɴᴅs.</p>")
-        + rich_details(
-                "✦ ʜᴇʟᴘ ғᴇᴀᴛᴜʀᴇs ✦",
+            rich_heading("👑 Videl Studio · Command Modules", level=2)
+            + rich_img(photo)
+            + rich_note(
+                f"<p>👋 Welcome <a href=\"tg://user?id={uid}\">{rich_esc(name)}</a>! "
+                "Select a module below or open the single-URL Videl Web App Studio.</p>"
+            )
+            + rich_details(
+                "⚡ Quick Reference",
                 rich_table(
-                    ["ғᴇᴀᴛᴜʀᴇ", "ᴅᴇᴛᴀɪʟs"],
+                    ["Module", "Primary Commands"],
                     [
-                        ("✉️ ʜᴇʟᴘ ᴍᴇɴᴜ", "ᴀʟʟ ᴄᴏᴍᴍᴀɴᴅs ᴄᴀɴ ʙᴇ ᴜsᴇᴅ ᴡɪᴛʜ : /"),
+                        ("🎵 Voice Music", "/play · /vplay · /queue · /skip · /lyrics"),
+                        ("🛡️ Group Manager", "/setup · /locks · /ban · /mute · /warn"),
+                        ("👑 Web App Studio", _webapp_root()),
                     ],
                 ),
                 open=True,
             )
-        + rich_note(f"Powered by <a href='https://t.me/BeasgohanSupport'>Videl Music</a>")
-        + _support_updates_pills()
+            + _support_updates_pills()
         )
         if getattr(cbq.message, "photo", None):
-            # /start's message is a photo — can't edit its caption into a
-            # true rich message, so swap it out for one.
             try:
                 await cbq.message.delete()
             except Exception:
@@ -466,60 +473,13 @@ async def _go_back(cbq: CallbackQuery) -> None:
     await cbq.answer()
     uid  = cbq.from_user.id
     name = sanitize_display_name(cbq.from_user.first_name)
-    photo = random.choice(config.START_PHOTOS)
-
-    caption = (
-            rich_img(photo)
-            + rich_note(f"<p>❍ ʜᴇʏ <a href='tg://user?id={uid}'>{rich_esc(name)}</a>, "
-            "ᴡᴇʟᴄᴏᴍᴇ ᴀʙᴏᴀʀᴅ! ⬪</p>"
-            + f"<p>ɪ ᴀᴍ <b>{rich_esc(config.BOT_NAME)}</b> — ᴀ ғᴀsᴛ &amp; "
-              "ᴘᴏᴡᴇʀғᴜʟ ᴛᴇʟᴇɢʀᴀᴍ ᴍᴜsɪᴄ ᴘʟᴀʏᴇʀ ʙᴏᴛ ᴡɪᴛʜ sᴏᴍᴇ ᴀᴡᴇsᴏᴍᴇ "
-              "ғᴇᴀᴛᴜʀᴇs.</p>")
-            + rich_details(
-                "✦ ᴋᴇʏ ғᴇᴀᴛᴜʀᴇs ✦",
-                rich_table(
-                    ["ғᴇᴀᴛᴜʀᴇ", "ᴅᴇᴛᴀɪʟs"],
-                    [
-                        ("⬪ sᴛʀᴇᴀᴍɪɴɢ", "ᴘʟᴀʏ ᴀᴜᴅɪᴏ &amp; ᴠɪᴅᴇᴏ ɪɴ ᴠᴏɪᴄᴇ ᴄʜᴀᴛs"),
-                        ("⦿ ᴀᴜᴛᴏᴘʟᴀʏ", "ᴋᴇᴇᴘs ᴛʜᴇ ǫᴜᴇᴜᴇ ɢᴏɪɴɢ ᴀᴜᴛᴏᴍᴀᴛɪᴄᴀʟʟʏ"),
-                        ("🎚️ ᴇғғᴇᴄᴛs", "sᴘᴇᴇᴅ ᴄᴏɴᴛʀᴏʟ &amp; ʙᴀss ʙᴏᴏsᴛ"),
-                        ("⬪ ᴍᴏᴅᴇʀᴀᴛɪᴏɴ", "ʙʟᴏᴄᴋ/ᴜɴʙʟᴏᴄᴋ ᴄʜᴀᴛs &amp; ᴜsᴇʀs"),
-                    ],
-                ),
-                open=True,
-            )
-            + rich_details(
-                "✧ ᴡʜʏ ᴄʜᴏᴏsᴇ ɪᴛ? ✧",
-                "<p>⭐ sɪᴍᴘʟᴇ sʟᴀsʜ ᴄᴏᴍᴍᴀɴᴅs, ɴᴏ sᴇᴛᴜᴘ ɴᴇᴇᴅᴇᴅ.</p>"
-                "<p>◍ ᴄʟᴇᴀɴ, ʟᴏᴡ-ʟᴀɢ sᴛʀᴇᴀᴍɪɴɢ.</p>"
-                "<p>❍ ᴄʟɪᴄᴋ ʜᴇʟᴘ ʙᴇʟᴏᴡ ғᴏʀ ᴀʟʟ ᴄᴏᴍᴍᴀɴᴅs.</p>",
-                open=True,
-            )
-            + rich_note(f"Powered by <a href='https://t.me/BeasgohanSupport'>Videl Music</a>")
-            + _support_updates_pills()
-    )
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("⛩️ ᴧᴅᴅ мᴇ ʙᴧʙʏ ⛩️",
-                              url=f"{config.BOT_LINK}?startgroup=true")],
-        [
-            InlineKeyboardButton("⫶ sᴜᴘᴘᴏʀᴛ", url=config.SUPPORT_GROUP),
-            InlineKeyboardButton("⬪ Updates",  url=config.UPDATES_CHANNEL),
-        ],
-        [InlineKeyboardButton("🏩 ʜᴇʟᴘ & ᴄᴏᴍᴍᴀɴᴅs 🏩",
-                              callback_data="show_help")],
-        [
-            InlineKeyboardButton("🫧 ᴏᴡɴᴇʀ 🫧",
-                                 url=f"tg://user?id={config.OWNER_ID}"),
-            InlineKeyboardButton("🍡 sᴏᴜʀᴄᴇ 🍡",
-                                 url="https://github.com/Beasgohan-code/Videl"),
-        ],
-    ])
-
+    from videl.modules.start import _studio_private_caption, _start_kb
+    is_priv = cbq.message.chat.type == enums.ChatType.PRIVATE
+    text = _studio_private_caption(uid, name)
+    kb = _start_kb(is_private=is_priv, use_webapp_btn=False)
     chat_id = cbq.message.chat.id
-
     try:
         await cbq.message.delete()
     except Exception:
         pass
-
-    await rich_send(bot, chat_id, caption, reply_markup=kb)
+    await rich_send(bot, chat_id, text, reply_markup=kb)
