@@ -353,3 +353,9 @@ body.tg-miniapp {
 .studio-panel .ios-input:focus { border-color: #8b7bfa; box-shadow: 0 0 0 3px #8b7bfa15; }
 @media (max-width: 640px) { .studio-hero img { object-position: 70% center; opacity:.65; } .studio-hero h2 { font-size: 1.9rem; } }
 @media (prefers-reduced-motion: reduce) { *,*::before,*::after { scroll-behavior:auto!important; transition:none!important; animation:none!important; } }
+
+/* Smart Chat: subtle Telegram-style canvas without artificial messages. */
+.chat-canvas { background-color: #080e21; background-image: radial-gradient(circle at 1px 1px,rgba(129,140,248,.07) 1px,transparent 0),radial-gradient(ellipse at 85% 10%,rgba(109,40,217,.08),transparent 55%); background-size: 24px 24px,100% 100%; }
+button:not(:disabled),a { touch-action: manipulation; }
+button:focus-visible,a:focus-visible { outline: 2px solid #a5b4fc; outline-offset: 4px; }
+.studio-panel [role="log"] { scrollbar-width: thin; scrollbar-color: #373063 #080e21; }
