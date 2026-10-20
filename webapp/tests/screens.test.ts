@@ -41,3 +41,9 @@ test("scheduled publishing renders its queue states", async () => {
   assert.match(html, /Every day/);
   assert.match(html, /cancelling it stops the series/);
 });
+
+test("a warning row keeps its lapse state out of the count", async () => {
+  const { warnCaseSummary } = await import("../src/lib/group-admin");
+  assert.equal(warnCaseSummary({ user_id: 7, count: 1, total: 3, reasons: [] }), "1 of 3 still count");
+  assert.equal(warnCaseSummary({ user_id: 7, count: 2, reasons: [] }), "2 of 2 still count");
+});

@@ -57,12 +57,14 @@ def warning_entries(document) -> list[dict]:
     return entries
 
 
-def active_warnings(document, decay_days: int = 0, now: datetime | None = None) -> dict:
-    """How many warnings still count, and when the next one lapses.
+def case_file(document, decay_days: int = 0, now: datetime | None = None) -> dict:
+    """Every warning on record, with whether it still counts.
 
     Returns ``{"count", "total", "decayed", "expires_at", "entries"}``. ``total``
     is what is stored, ``count`` is what a fresh limit check would use, and
-    ``expires_at`` is the moment the active count would drop by one.
+    ``expires_at`` is the moment the active count would drop by one. Each entry
+    carries ``{reason, ts, active}``, so a moderator can see the whole history
+    rather than only the part still counting.
     """
     moment = now or datetime.now(timezone.utc)
     entries = warning_entries(document)
@@ -71,12 +73,12 @@ def active_warnings(document, decay_days: int = 0, now: datetime | None = None) 
     except (TypeError, ValueError):
         days = 0
     days = max(DECAY_RANGE[0], min(days, DECAY_RANGE[1]))
-    if days == 0 or not entries:
-        active = list(entries)
-        cut = None
-    else:
-        cut = moment - timedelta(days=days)
-        active = [entry for entry in entries if entry["ts"] is None or entry["ts"] >= cut]
+    cut = moment - timedelta(days=days) if days else None
+    annotated = [
+        {**entry, "active": cut is None or entry["ts"] is None or entry["ts"] >= cut}
+        for entry in entries
+    ]
+    active = [entry for entry in annotated if entry["active"]]
     # The next lapse is the oldest active warning that actually has a timestamp.
     stamps = sorted(entry["ts"] for entry in active if entry["ts"] is not None)
     expires_at = stamps[0] + timedelta(days=days) if (stamps and days) else None
@@ -85,8 +87,18 @@ def active_warnings(document, decay_days: int = 0, now: datetime | None = None) 
         "total": len(entries),
         "decayed": len(entries) - len(active),
         "expires_at": expires_at,
-        "entries": active,
+        "entries": annotated,
     }
+
+
+def active_warnings(document, decay_days: int = 0, now: datetime | None = None) -> dict:
+    """How many warnings still count, and when the next one lapses.
+
+    The same shape as :func:`case_file`, with ``entries`` narrowed to the ones
+    that still count — the verdict a limit check actually uses.
+    """
+    state = case_file(document, decay_days, now)
+    return {**state, "entries": [entry for entry in state["entries"] if entry["active"]]}
 
 
 def ladder_action(escalation, stage: int) -> str:

@@ -718,16 +718,25 @@ def list_warns(chat_id: int, limit: int = 100, decay_days: int = 0) -> list:
         return []
     rows = []
     for document in documents:
-        state = warning_rules.active_warnings(document, decay_days)
+        state = warning_rules.case_file(document, decay_days)
         if state["count"] <= 0:
             # Every warning has lapsed; the member is not on the list.
             continue
+        # Newest first, so the case view leads with the reason that still counts.
+        history = [
+            {"reason": entry["reason"],
+             "ts": entry["ts"].isoformat() if entry["ts"] else None,
+             "active": entry["active"]}
+            for entry in state["entries"][-20:]
+        ][::-1]
         rows.append({
             "user_id": int(document.get("user_id") or 0),
             "count": state["count"],
             "total": state["total"],
             "decayed": state["decayed"],
-            "reasons": [warn_reason_text(item) for item in (document.get("reasons") or [])][-10:],
+            "expires_at": state["expires_at"].isoformat() if state["expires_at"] else None,
+            "history": history,
+            "reasons": [entry["reason"] for entry in history if entry["reason"]][:10],
         })
     return rows
 

@@ -51,7 +51,10 @@ to code that actually runs:
   window stop counting, so a member who behaves starts fresh; warnings without
   a timestamp are kept, never assumed old. `/warnings` shows the active count,
   what lapsed and when the next one expires, and the bot and the panel's report
-  triage reach the same verdict for the same member.
+  triage reach the same verdict for the same member. Each warned member has a
+  case file: every warning on record with its date, the lapsed ones struck
+  through rather than hidden, what still counts, and when the next one lapses.
+  One button opens the group history filtered to that member.
 - **Automation** — quiet hours delete member messages inside a stored window
   (per-group UTC offset, admins and approved members exempt), scheduled
   protection windows turn chosen locks on and release only the locks they

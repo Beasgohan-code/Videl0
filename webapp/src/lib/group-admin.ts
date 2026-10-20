@@ -101,10 +101,29 @@ export type GroupsSummary = {
   average: number;
 };
 
-export type WarnRow = { user_id: number; count: number; reasons: string[] };
+/**
+ * One warning on the member's record. `active` is the shared engine's verdict:
+ * a lapsed warning stays visible in the case file but no longer counts.
+ */
+export type WarnEntry = { reason: string; ts?: string | null; active: boolean };
+export type WarnRow = {
+  user_id: number;
+  count: number;
+  total?: number;
+  decayed?: number;
+  expires_at?: string | null;
+  history?: WarnEntry[];
+  reasons: string[];
+};
 export type NoteRow = { name: string; type: string };
 export type FilterRow = { keyword: string; reply: string };
 export type BlacklistRow = { trigger: string; mode: string };
+
+/** One-line status for the warnings list; the count is what the limit checks. */
+export function warnCaseSummary(row: WarnRow): string {
+  const total = typeof row.total === "number" ? row.total : row.count;
+  return `${row.count} of ${total} still count`;
+}
 
 export type GroupCommunity = {
   warns: WarnRow[];

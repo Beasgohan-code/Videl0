@@ -67,6 +67,7 @@ import {
   textValue,
   toggleSelected,
   visibleGroups,
+  warnCaseSummary,
   type AuditEvent,
   type Group,
   type GroupDetail,
@@ -158,6 +159,8 @@ export default function GroupsPage() {
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
+  // Which member's case file is open in the warnings list.
+  const [openCase, setOpenCase] = useState<number | null>(null);
   const [picked, setPicked] = useState<number[]>([]);
   const [selectMode, setSelectMode] = useState(false);
   const [bulkPreset, setBulkPreset] = useState<PresetId>("balanced");
@@ -258,6 +261,8 @@ export default function GroupsPage() {
     void loadDetail(selected);
   }, [selected, loadDetail]);
 
+  // Applied (submitted) filters, as opposed to what is currently typed.
+  const auditFilters = useRef({ query: "", actor: "" });
   const loadAudit = useCallback(async (
     id: number,
     kind = "all",
@@ -274,9 +279,10 @@ export default function GroupsPage() {
       if (kind !== "all") query.set("kind", kind);
       if (older?.at) query.set("before", older.at);
       if (older?.id) query.set("before_id", older.id);
-      const search = filters?.query ?? auditQuery.trim();
+      if (filters) auditFilters.current = { query: filters.query, actor: filters.actor };
+      const search = auditFilters.current.query.trim();
       if (search) query.set("q", search);
-      const actor = (filters?.actor ?? auditActor).trim();
+      const actor = auditFilters.current.actor.trim();
       if (actor) query.set("actor", actor);
       const response = await fetch(`/api/groups/${id}/audit?${query.toString()}`, { cache: "no-store" });
       const data = await response.json().catch(() => ({}));
@@ -317,6 +323,17 @@ export default function GroupsPage() {
   useEffect(() => {
     if (tab === "audit" && selected !== null) void loadAudit(selected, auditKind);
   }, [tab, selected, auditKind, loadAudit]);
+
+  function showMemberHistory(userId: number) {
+    const actor = String(userId);
+    setAuditQuery("");
+    setAuditActor(actor);
+    // The audit loader reads the applied filter from a ref, so a tab switch
+    // inside the same click still sees it.
+    auditFilters.current = { query: "", actor };
+    setTab("audit");
+    if (selected !== null) void loadAudit(selected, auditKind, undefined, { query: "", actor });
+  }
 
   function submitAuditSearch() {
     if (selected === null) return;
@@ -1303,26 +1320,76 @@ export default function GroupsPage() {
                         <p className="ios-caption mt-1">Limit {community.warn_limit}. Clearing a record can unban a member who hit the limit.</p>
                         {community.warns.length === 0 && <p className="ios-caption mt-2">No member has warnings in this group.</p>}
                         <ul className="mt-2 divide-y divide-white/[0.06]">
-                          {community.warns.map((warn) => (
-                            <li key={warn.user_id} className="flex items-start justify-between gap-2 py-2 text-xs">
-                              <div className="min-w-0">
-                                <div className="font-medium">
-                                  <code>{warn.user_id}</code> · {warn.count}/{community.warn_limit}
+                          {community.warns.map((warn) => {
+                            const history = warn.history ?? [];
+                            const open = openCase === warn.user_id;
+                            return (
+                              <li key={warn.user_id} className="py-2 text-xs">
+                                <div className="flex items-start justify-between gap-2">
+                                  <div className="min-w-0">
+                                    <div className="font-medium">
+                                      <code>{warn.user_id}</code> · {warn.count}/{community.warn_limit}
+                                      {typeof warn.total === "number" && warn.total > warn.count && (
+                                        <span className="ml-1 text-[var(--ios-label-secondary)]">{warnCaseSummary(warn)}</span>
+                                      )}
+                                    </div>
+                                    <div className="mt-0.5 truncate text-[var(--ios-label-secondary)]" title={warn.reasons.join(" · ")}>
+                                      {warn.reasons.length ? warn.reasons.slice(-2).join(" · ") : "No reasons stored"}
+                                    </div>
+                                  </div>
+                                  <div className="flex shrink-0 items-center gap-1.5">
+                                    {history.length > 0 && (
+                                      <button
+                                        aria-expanded={open}
+                                        aria-label={`${open ? "Hide" : "Show"} the case for ${warn.user_id}`}
+                                        onClick={() => setOpenCase(open ? null : warn.user_id)}
+                                        className="ios-btn ios-btn-glass text-[11px]"
+                                      >
+                                        {open ? "Hide case" : "Case"}
+                                      </button>
+                                    )}
+                                    <button
+                                      aria-label={`Clear warnings for ${warn.user_id}`}
+                                      disabled={saving !== null}
+                                      onClick={() => void runAction({ action: "warn_reset", user_id: warn.user_id }, { refreshDetail: true, success: `Warnings cleared for ${warn.user_id}.` })}
+                                      className="ios-btn ios-btn-glass text-[11px]"
+                                    >
+                                      Clear
+                                    </button>
+                                  </div>
                                 </div>
-                                <div className="mt-0.5 truncate text-[var(--ios-label-secondary)]" title={warn.reasons.join(" · ")}>
-                                  {warn.reasons.length ? warn.reasons.slice(-2).join(" · ") : "No reasons stored"}
-                                </div>
-                              </div>
-                              <button
-                                aria-label={`Clear warnings for ${warn.user_id}`}
-                                disabled={saving !== null}
-                                onClick={() => void runAction({ action: "warn_reset", user_id: warn.user_id }, { refreshDetail: true, success: `Warnings cleared for ${warn.user_id}.` })}
-                                className="ios-btn ios-btn-glass shrink-0 text-[11px]"
-                              >
-                                Clear
-                              </button>
-                            </li>
-                          ))}
+                                {open && (
+                                  <div className="mt-2 space-y-2 rounded-xl bg-black/20 p-2">
+                                    <p className="ios-caption">
+                                      {warn.decayed
+                                        ? `${warn.decayed} warning${warn.decayed === 1 ? "" : "s"} lapsed and no longer count.`
+                                        : "Every warning on record still counts."}
+                                      {warn.expires_at ? ` Next lapse ${new Date(warn.expires_at).toLocaleString()}.` : ""}
+                                    </p>
+                                    <ul className="space-y-1">
+                                      {(history.length ? history : warn.reasons.map((reason) => ({ reason, ts: null, active: true }))).map((entry, index) => (
+                                        <li key={`${warn.user_id}-${index}`} className="flex items-start justify-between gap-2">
+                                          <span className={`min-w-0 break-words ${entry.active ? "" : "text-[var(--ios-label-secondary)] line-through"}`}>
+                                            {entry.reason || "No reason stored"}
+                                          </span>
+                                          <span className="shrink-0 text-[10px] text-[var(--ios-label-secondary)]">
+                                            {entry.ts ? new Date(entry.ts).toLocaleDateString() : "no date"}
+                                            {entry.active ? "" : " · lapsed"}
+                                          </span>
+                                        </li>
+                                      ))}
+                                    </ul>
+                                    <button
+                                      onClick={() => showMemberHistory(warn.user_id)}
+                                      className="ios-btn ios-btn-glass text-[11px]"
+                                    >
+                                      Open their history
+                                    </button>
+                                  </div>
+                                )}
+                              </li>
+                            );
+                          })}
                         </ul>
                       </div>
 

@@ -238,6 +238,42 @@ class ReportTriageTests(unittest.TestCase):
         self.assertIn("1/2 warnings", result["note"], "the stale warning did not push the member to the limit")
 
 
+class CaseFileTests(unittest.TestCase):
+    """The panel shows the whole case, not only the part that still counts."""
+
+    def test_every_entry_says_whether_it_still_counts(self):
+        state = warnings.case_file(document(120, 30, 2), 60, NOW)
+        self.assertEqual([entry["active"] for entry in state["entries"]], [False, True, True])
+        self.assertEqual([entry["reason"] for entry in state["entries"]], ["r0", "r1", "r2"])
+        self.assertEqual((state["count"], state["total"], state["decayed"]), (2, 3, 1))
+
+    def test_the_lapsed_entry_keeps_its_date(self):
+        state = warnings.case_file(document(400), 60, NOW)
+        self.assertEqual(state["entries"][0]["ts"], NOW - timedelta(days=400))
+        self.assertFalse(state["entries"][0]["active"])
+
+    def test_the_verdict_matches_the_engine_exactly(self):
+        for days in (0, 30, 90):
+            with self.subTest(days=days):
+                doc = document(200, 45, 3)
+                full = warnings.case_file(doc, days, NOW)
+                live = warnings.active_warnings(doc, days, NOW)
+                self.assertEqual([entry for entry in full["entries"] if entry["active"]], live["entries"])
+                self.assertEqual((full["count"], full["expires_at"]), (live["count"], live["expires_at"]))
+
+    def test_the_member_list_carries_the_case_history_newest_first(self):
+        db = mongomock.MongoClient().videl
+        db["mgmt_warnings"].insert_one(document(40, 10))
+        with patch("videl.utils.db._db", db):
+            rows = database.list_warns(CID, decay_days=30)
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual((row["count"], row["total"], row["decayed"]), (1, 2, 1))
+        self.assertEqual([item["reason"] for item in row["history"]], ["r1", "r0"])
+        self.assertEqual([item["active"] for item in row["history"]], [True, False])
+        self.assertIsNotNone(row["expires_at"])
+
+
 class StorageTests(unittest.TestCase):
     def test_resetting_a_member_clears_the_ladder_progress(self):
         db = mongomock.MongoClient().videl
