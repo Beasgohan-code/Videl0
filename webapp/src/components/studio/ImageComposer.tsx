@@ -161,10 +161,29 @@ export function ImageComposer({
     setMessage("");
   }
   const [width, height] = designSize(design.ratio);
+  const [logo, setLogo] = useState<HTMLImageElement | null>(null);
+  useEffect(() => {
+    if (!design.logoData) {
+      setLogo(null);
+      return;
+    }
+    let active = true;
+    const image = new Image();
+    image.onload = () => {
+      if (active) setLogo(image);
+    };
+    image.onerror = () => {
+      if (active) setLogo(null);
+    };
+    image.src = design.logoData;
+    return () => {
+      active = false;
+    };
+  }, [design.logoData]);
   useEffect(() => {
     const ctx = canvas.current?.getContext("2d");
-    if (ctx) paintDesign(ctx, design, photo);
-  }, [design, photo]);
+    if (ctx) paintDesign(ctx, design, photo, logo);
+  }, [design, photo, logo]);
   useEffect(() => {
     if (!photoUrl) {
       setPhoto(null);
@@ -271,7 +290,7 @@ export function ImageComposer({
     if (!cancel) change(draft);
     else {
       const ctx = canvas.current?.getContext("2d");
-      if (ctx) paintDesign(ctx, design, photo);
+      if (ctx) paintDesign(ctx, design, photo, logo);
     }
   }
   return (
@@ -735,7 +754,7 @@ export function ImageComposer({
                 };
                 start.draft = next;
                 const ctx = e.currentTarget.getContext("2d");
-                if (ctx) paintDesign(ctx, next, photo);
+                if (ctx) paintDesign(ctx, next, photo, logo);
               }}
               onPointerUp={(e) => stop(e)}
               onPointerCancel={(e) => stop(e, true)}

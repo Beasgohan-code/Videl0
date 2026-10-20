@@ -6,6 +6,9 @@
 - Image Library with 36 original, locally generated PNG assets — 24 wide covers (16:9), 6 story cards (4:5) and 6 quote cards (1:1) — plus up to 10 personal PNG/JPEG/WebP uploads stored in that browser. Regenerate the catalogue with `python scripts/create_post_assets.py`.
 - Telegram-style rich editor in Post Studio and in the bot messenger: format by selecting text (bold, italic, underline, strike, spoiler, monospace, code block, quote, lists, links), premium emoji picker, live Telegram bubble preview, Telegram HTML view and a character counter.
 - 20 customizable image layouts, layer editing, JSON design import/export and PNG download.
+- Brand kits save the palette, font, layout, logo and export footer; applying a kit restores
+  them, and the logo and footer are painted onto every PNG export. Up to 20 kits live in
+  this browser.
 - Local draft/recovery storage; downloadable plain text and native text sharing.
 - Creator Tools: Unicode-aware caption counts, Telegram UTF-16 limit checks, unique hashtags and campaign URL builder.
 - No login needed for creating or exporting. No bot telemetry or administrative tools are displayed.
