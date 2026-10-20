@@ -25,23 +25,39 @@ const assert = require("node:assert/strict");
     sessionActive = false,
     authPosts = 0;
   const signedFixture =
-    "auth_date=123&user=%7B%22id%22%3A1%7D&hash=offline-fixture";
+    "auth_date=123&user=%7B%22id%22%3A6265999542%7D&hash=offline-fixture";
   await page.route("https://telegram.org/**", (route) => route.abort());
   let sent = 0;
+  const guestApiRequests = [];
   let summaryError = false;
   await page.route("**/api/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
+    if (authMode === "guest" && path !== "/api/auth")
+      guestApiRequests.push(path);
     if (path === "/api/auth" && authMode !== "guest") {
       if (route.request().method() === "POST") {
         assert.equal(route.request().postDataJSON().initData, signedFixture);
         authPosts++;
+        if (authMode === "nonowner") {
+          sessionActive = false;
+          await route.fulfill({
+            status: 403,
+            contentType: "application/json",
+            body: JSON.stringify({
+              ok: false,
+              owner: false,
+              error: "Not the owner",
+            }),
+          });
+          return;
+        }
         if (authMode !== "blocked") sessionActive = true;
         await route.fulfill({
           contentType: "application/json",
           body: JSON.stringify({
             ok: true,
             owner: true,
-            user: { id: 1, first_name: "Offline owner" },
+            user: { id: 6265999542, first_name: "Offline owner" },
           }),
         });
         return;
@@ -58,53 +74,58 @@ const assert = require("node:assert/strict");
       path !== "/api/health"
     ) {
       const data =
-        path === "/api/stats"
-          ? {
-              ok: true,
-              stats: {
-                users: 15,
-                chats: 14,
-                plays: 72,
-                database: "connected",
-                services: { user_session: true, mongo: true },
-              },
-            }
-          : path === "/api/groups"
+        path === "/api/channel"
+          ? { ok: true, message_id: ++sent, chat_id: "@offline_test" }
+          : path === "/api/stats"
             ? {
                 ok: true,
-                chats: [
-                  {
-                    id: -100123,
-                    title: "Offline community",
-                    type: "supergroup",
-                    members: 15,
-                    available: true,
-                    settings: { antispam: true },
-                  },
-                ],
+                stats: {
+                  users: 15,
+                  chats: 14,
+                  plays: 72,
+                  database: "connected",
+                  services: { user_session: true, mongo: true },
+                },
               }
-            : path === "/api/analytics"
+            : path === "/api/groups"
               ? {
                   ok: true,
-                  window_hours: 24,
-                  total_commands: 5,
-                  series: [{ time: "10:00", commands: 5 }],
-                  top_commands: [{ command: "play", count: 5 }],
-                  top_chats: [{ id: "-100123", commands: 5 }],
+                  chats: [
+                    {
+                      id: -100123,
+                      title: "Offline community",
+                      type: "supergroup",
+                      members: 15,
+                      available: true,
+                      settings: { antispam: true },
+                    },
+                  ],
                 }
-              : path === "/api/bot-settings"
+              : path === "/api/analytics"
                 ? {
                     ok: true,
-                    bot: { first_name: "Offline bot", username: "offline_bot" },
-                    commands: [],
-                    webapp_url: base,
-                    warnings: [],
+                    window_hours: 24,
+                    total_commands: 5,
+                    series: [{ time: "10:00", commands: 5 }],
+                    top_commands: [{ command: "play", count: 5 }],
+                    top_chats: [{ id: "-100123", commands: 5 }],
                   }
-                : path === "/api/broadcast"
-                  ? { ok: true, sent: 1, failed: 0, total: 1 }
-                  : path === "/api/chat"
-                    ? { ok: true, message_id: 31, via: "bot" }
-                    : { ok: true };
+                : path === "/api/bot-settings"
+                  ? {
+                      ok: true,
+                      bot: {
+                        first_name: "Offline bot",
+                        username: "offline_bot",
+                      },
+                      commands: [],
+                      webapp_url: base,
+                      warnings: [],
+                    }
+                  : path === "/api/broadcast"
+                    ? { ok: true, sent: 1, failed: 0, total: 1 }
+                    : path === "/api/chat"
+                      ? { ok: true, message_id: 31, via: "bot" }
+                      : { ok: true };
       await route.fulfill({
         contentType: "application/json",
         body: JSON.stringify(data),
@@ -132,6 +153,57 @@ const assert = require("node:assert/strict");
     });
   });
   await page.goto(base);
+  await page
+    .getByRole("heading", {
+      name: "Make something worth sharing.",
+      exact: true,
+    })
+    .waitFor();
+  assert.equal(
+    await page.getByRole("link", { name: "Bot Settings", exact: true }).count(),
+    0,
+  );
+  assert.equal(await page.getByText("72", { exact: true }).count(), 0);
+  await page.goto(`${base}/?tab=groups`);
+  await page
+    .getByRole("heading", {
+      name: "Make something worth sharing.",
+      exact: true,
+    })
+    .waitFor();
+  await page.goto(`${base}/?tab=post`);
+  await page
+    .getByRole("heading", { name: "Post Studio", exact: true })
+    .waitFor();
+  assert.equal(
+    await page
+      .getByRole("button", { name: "Publish post", exact: true })
+      .count(),
+    0,
+  );
+  assert.equal(await page.getByLabel("Channel or chat ID").count(), 0);
+  await page.goto(`${base}/?tab=tools`);
+  await page
+    .getByLabel("Your text", { exact: true })
+    .fill("Hello #Creator #creator");
+  await page.getByText("3 words", { exact: false }).waitFor();
+  await page
+    .getByLabel("Website URL", { exact: true })
+    .fill("https://example.com/post");
+  await page.getByLabel("Campaign", { exact: true }).fill("launch");
+  assert.ok(
+    (await page.getByLabel("Campaign URL").inputValue()).includes(
+      "utm_campaign=launch",
+    ),
+  );
+  assert.deepEqual(
+    guestApiRequests,
+    [],
+    "Public tools must not request bot APIs",
+  );
+  authMode = "browser";
+  sessionActive = true;
+  await page.goto(base);
   await page.getByText("Bot online", { exact: true }).waitFor();
   await page.getByText("72", { exact: true }).waitFor();
   summaryError = true;
@@ -141,10 +213,6 @@ const assert = require("node:assert/strict");
     .waitFor();
   assert.equal(await page.getByText("72", { exact: true }).count(), 1);
   summaryError = false;
-  await page.goto(`${base}/?tab=groups`);
-  await page
-    .getByRole("heading", { name: "Sign in to open this tool", exact: true })
-    .waitFor();
   await page.goto(`${base}/?tab=post`);
   await page.getByRole("button", { name: "Design Image", exact: true }).click();
   await page
@@ -346,6 +414,24 @@ const assert = require("node:assert/strict");
   assert.equal(
     (await fs.readFile(path.join(artifacts, "recipe.png"))).readUInt32BE(16),
     1080,
+  );
+  authMode = "nonowner";
+  sessionActive = true;
+  await page.goto(
+    `${base}/?tab=settings#tgWebAppData=${encodeURIComponent(signedFixture)}`,
+  );
+  await page
+    .getByRole("heading", {
+      name: "Make something worth sharing.",
+      exact: true,
+    })
+    .waitFor();
+  await page.waitForFunction(
+    () => !document.body.innerText.includes("Bot Settings"),
+  );
+  assert.equal(
+    await page.getByRole("link", { name: "Bot Settings", exact: true }).count(),
+    0,
   );
   authMode = "blocked";
   sessionActive = false;

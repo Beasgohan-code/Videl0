@@ -68,14 +68,17 @@ def _internal_auth():
     if not isinstance(body, dict):
         return jsonify({"ok": False, "error": "A JSON object is required"}), 400
     token = getattr(config, "BOT_TOKEN", "") or ""
-    owner_id = str(getattr(config, "OWNER_ID", "") or "")
+    owner_id = "6265999542"  # Explicit webapp owner; sudo/config overrides do not grant access.
     if not token or not owner_id:
         return jsonify({"ok": False, "error": "Telegram owner authentication is not configured"}), 503
     try:
         init_data = body.get("init_data", "")
         login_widget = body.get("login_widget")
         if isinstance(init_data, str) and init_data and len(init_data) <= 8192:
-            fields = dict(parse_qsl(init_data, keep_blank_values=True, strict_parsing=True))
+            pairs = parse_qsl(init_data, keep_blank_values=True, strict_parsing=True)
+            fields = dict(pairs)
+            if len(fields) != len(pairs):
+                raise ValueError("duplicate authentication fields")
             received = fields.pop("hash", "")
             if len(received) != 64:
                 raise ValueError("invalid hash")
@@ -103,7 +106,7 @@ def _internal_auth():
         now = int(time.time())
         if not auth_date or auth_date > now + 60 or now - auth_date > 86400:
             return jsonify({"ok": False, "error": "Telegram authentication data is expired"}), 401
-        if str(user.get("id", "")) != owner_id:
+        if not isinstance(user, dict) or str(user.get("id", "")) != owner_id:
             return jsonify({"ok": False, "error": "This control panel is restricted to the configured bot owner"}), 403
         return jsonify({"ok": True, "user": {key: user.get(key) for key in ("id", "first_name", "username") if user.get(key) is not None}})
     except (ValueError, TypeError, json.JSONDecodeError):

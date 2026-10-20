@@ -19,7 +19,7 @@ export function OwnerGate({ children }: { children: React.ReactNode }) {
       </h1>
       <p className="mt-3 text-sm leading-6 text-indigo-100/55">
         Chat, group settings, broadcasts and private analytics require your
-        verified Telegram owner account. Public totals and the image designer
+        verified Telegram owner account. Post Studio and creator tools
         are available without signing in.
       </p>
       {authError && (

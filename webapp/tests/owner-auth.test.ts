@@ -70,3 +70,38 @@ test("Mini App launch data works without the SDK and is not confused with a norm
   assert.equal(telegramLaunchData(undefined, "?tab=auth", ""), "");
   assert.equal(telegramLaunchData("x".repeat(8193), "", ""), "");
 });
+
+test("owner sessions expire server-side and old static markers cannot be reused", () => {
+  const previous = process.env.WEBAPP_SECRET;
+  process.env.WEBAPP_SECRET = "expiry-test";
+  try {
+    const token = ownerMarker(1000)!;
+    const req = new Request("https://studio.example/api/stats", {
+      headers: { cookie: `videl_owner=${token}` },
+    });
+    assert.equal(validOwnerCookie(req, 1000), true);
+    assert.equal(validOwnerCookie(req, 1000 + 86400), false);
+    assert.equal(validOwnerCookie(req, 800), false);
+    const [data, signature] = token.split(".");
+    const forged = Buffer.from(
+      JSON.stringify({
+        ...JSON.parse(Buffer.from(data, "base64url").toString()),
+        sub: "1",
+      }),
+    ).toString("base64url");
+    assert.equal(
+      validOwnerCookie(
+        new Request(req.url, {
+          headers: { cookie: `videl_owner=${forged}.${signature}` },
+        }),
+        1000,
+      ),
+      false,
+    );
+    process.env.WEBAPP_SECRET = "rotated";
+    assert.equal(validOwnerCookie(req, 1000), false);
+  } finally {
+    if (previous === undefined) delete process.env.WEBAPP_SECRET;
+    else process.env.WEBAPP_SECRET = previous;
+  }
+});

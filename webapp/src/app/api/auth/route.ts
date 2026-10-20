@@ -1,10 +1,37 @@
 import { NextRequest } from "next/server";
-import { ownerMarker, validOwnerCookie } from "@/lib/auth";
+import { ownerMarker, validOwnerCookie, crossSiteRequest } from "@/lib/auth";
 import { backendUrl, internalSecret, unavailableBackend } from "@/lib/backend";
+
+import { OWNER_ID } from "@/lib/access";
 
 export const dynamic = "force-dynamic";
 
+function denied(error: string, status: number) {
+  const response = Response.json(
+    { ok: false, owner: false, error },
+    { status, headers: { "Cache-Control": "no-store" } },
+  );
+  if (status === 401 || status === 403) {
+    response.headers.append(
+      "Set-Cookie",
+      "videl_owner=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0",
+    );
+    response.headers.append(
+      "Set-Cookie",
+      "videl_owner_embedded=; Path=/; HttpOnly; Secure; SameSite=None; Partitioned; Max-Age=0",
+    );
+  }
+  return response;
+}
+
 export async function POST(req: NextRequest) {
+  if (crossSiteRequest(req))
+    return Response.json(
+      { ok: false, error: "Cross-site authentication blocked" },
+      { status: 403 },
+    );
+  if (Number(req.headers.get("content-length") || 0) > 16384)
+    return Response.json({ ok: false }, { status: 413 });
   const body = await req.json().catch(() => null);
   const initData = typeof body?.initData === "string" ? body.initData : "";
   const loginWidget =
@@ -41,12 +68,14 @@ export async function POST(req: NextRequest) {
     });
     const payload = await response.json();
     if (!response.ok || !payload.ok)
-      return Response.json(
-        {
-          ok: false,
-          error: payload.error || "Telegram owner verification failed",
-        },
-        { status: response.status || 401 },
+      return denied(
+        payload.error || "Telegram owner verification failed",
+        response.ok ? 401 : response.status,
+      );
+    if (String(payload.user?.id) !== OWNER_ID)
+      return denied(
+        "This account does not have owner access. Post Studio is available without signing in.",
+        403,
       );
     const marker = ownerMarker();
     if (!marker)
@@ -82,4 +111,22 @@ export async function GET(req: NextRequest) {
     { ok: owner, owner },
     { headers: { "Cache-Control": "no-store" } },
   );
+}
+
+export async function DELETE(req: NextRequest) {
+  if (crossSiteRequest(req))
+    return Response.json({ ok: false }, { status: 403 });
+  const response = Response.json(
+    { ok: true },
+    { headers: { "Cache-Control": "no-store" } },
+  );
+  response.headers.set(
+    "Set-Cookie",
+    "videl_owner=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0",
+  );
+  response.headers.append(
+    "Set-Cookie",
+    "videl_owner_embedded=; Path=/; HttpOnly; Secure; SameSite=None; Partitioned; Max-Age=0",
+  );
+  return response;
 }

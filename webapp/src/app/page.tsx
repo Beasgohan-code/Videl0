@@ -1,6 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
+import { useTelegram } from "@/components/TelegramProvider";
+import { canOpenSection } from "@/lib/access";
 import { useStudio } from "@/components/studio/StudioProvider";
 import { PanelBoundary } from "@/components/studio/PanelBoundary";
 import { OwnerGate } from "@/components/studio/OwnerGate";
@@ -13,6 +15,7 @@ const loading = () => (
 );
 const screens = {
   home: Home,
+  tools: dynamic(() => import("@/components/studio/screens/Tools"), { loading }),
   chat: dynamic(() => import("@/components/studio/screens/Chat"), { loading }),
   post: dynamic(() => import("@/components/studio/screens/Post"), { loading }),
   groups: dynamic(() => import("@/components/studio/screens/Groups"), {
@@ -34,6 +37,7 @@ const screens = {
 };
 export default function Studio() {
   const { tab } = useStudio();
+  const { authenticated } = useTelegram();
   const [visited, setVisited] = useState<string[]>(["home"]);
   useEffect(() => {
     setVisited((current) =>
@@ -47,7 +51,7 @@ export default function Studio() {
         {tab} panel
       </div>
       {Object.entries(screens).map(([key, Screen]) =>
-        visited.includes(key) || key === tab ? (
+        canOpenSection(key, authenticated) && (visited.includes(key) || key === tab) ? (
           <div key={key} hidden={key !== tab}>
             <PanelBoundary name={key}>
               {[

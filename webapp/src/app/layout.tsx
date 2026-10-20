@@ -6,10 +6,10 @@ import { TelegramProvider } from "@/components/TelegramProvider";
 
 export const metadata: Metadata = {
   title: "Videl 👑 Studio",
-  description: "A professional Telegram bot control panel for channel publishing, group management and live service analytics.",
+  description: "Create polished Telegram posts and custom images with a private, browser-based creative workspace.",
   openGraph: {
     title: "Videl 👑 Studio",
-    description: "Manage Videl, publish channel updates, protect groups and review live service metrics.",
+    description: "Design, format and export your next Telegram post.",
   },
   appleWebApp: {
     capable: true,

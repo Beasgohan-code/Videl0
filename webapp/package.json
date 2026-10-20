@@ -13,7 +13,6 @@
     "test:browser": "node tests/browser-smoke.cjs"
   },
   "dependencies": {
-    "@floating-ui/dom": "^1.8.0",
     "@tailwindcss/postcss": "^4.3.3",
     "@tiptap/core": "^3.32.0",
     "@tiptap/extension-link": "^3.32.0",
@@ -22,16 +21,12 @@
     "@tiptap/pm": "^3.32.0",
     "@tiptap/react": "^3.32.0",
     "@tiptap/starter-kit": "^3.32.0",
-    "clsx": "^2.1.0",
     "entities": "^8.1.0",
-    "framer-motion": "^11.0.0",
     "lucide-react": "^0.460.0",
     "next": "^16.4.2",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
-    "recharts": "^2.12.0",
-    "sanitize-html": "^2.18.1",
-    "tailwind-merge": "^2.3.0"
+    "sanitize-html": "^2.18.1"
   },
   "devDependencies": {
     "@types/jsdom": "^30.0.0",

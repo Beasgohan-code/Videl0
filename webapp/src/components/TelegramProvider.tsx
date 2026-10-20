@@ -21,6 +21,7 @@ type TelegramContextValue = {
   authenticated: boolean | null;
   authError: string;
   retryAuth: () => Promise<void>;
+  logout: () => Promise<void>;
 };
 const TelegramContext = createContext<TelegramContextValue>({
   available: false,
@@ -28,6 +29,7 @@ const TelegramContext = createContext<TelegramContextValue>({
   authenticated: null,
   authError: "",
   retryAuth: async () => {},
+  logout: async () => {},
 });
 declare global {
   interface Window {
@@ -44,8 +46,12 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
   });
   const alive = useRef(false);
   const inFlight = useRef(false);
-  const retryAuth = useCallback(async () => {
-    if (inFlight.current) return;
+  const rerun = useRef(false);
+  const retryAuth = useCallback(async (): Promise<void> => {
+    if (inFlight.current) {
+      rerun.current = true;
+      return;
+    }
     inFlight.current = true;
     const tg = window.Telegram?.WebApp;
     let initData = telegramLaunchData(
@@ -69,7 +75,7 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
         signal: AbortSignal.timeout(10000),
       });
       const existing = await session.json();
-      if (session.ok && existing.owner === true) {
+      if (!initData && session.ok && existing.owner === true) {
         if (alive.current)
           setValue((v) => ({
             ...v,
@@ -137,6 +143,31 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
         }));
     } finally {
       inFlight.current = false;
+      if (rerun.current && alive.current) {
+        rerun.current = false;
+        queueMicrotask(() => void retryAuth());
+      }
+    }
+  }, []);
+  const logout = useCallback(async () => {
+    try {
+      const response = await fetch("/api/auth", {
+        method: "DELETE",
+        credentials: "same-origin",
+      });
+      if (!response.ok) throw new Error("Sign out failed. Please retry.");
+      setValue({
+        available: false,
+        user: null,
+        authenticated: false,
+        authError: "",
+      });
+      window.location.assign("/");
+    } catch (error) {
+      setValue((v) => ({
+        ...v,
+        authError: error instanceof Error ? error.message : "Sign out failed",
+      }));
     }
   }, []);
   useEffect(() => {
@@ -175,7 +206,7 @@ export function TelegramProvider({ children }: { children: React.ReactNode }) {
     };
   }, [retryAuth]);
   return (
-    <TelegramContext.Provider value={{ ...value, retryAuth }}>
+    <TelegramContext.Provider value={{ ...value, retryAuth, logout }}>
       {children}
     </TelegramContext.Provider>
   );

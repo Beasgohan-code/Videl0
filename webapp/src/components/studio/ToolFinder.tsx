@@ -14,6 +14,8 @@ import {
   Settings,
   KeyRound,
 } from "lucide-react";
+import { useTelegram } from "@/components/TelegramProvider";
+import { canOpenSection } from "@/lib/access";
 import { useStudio, type Section } from "./StudioProvider";
 const tools: {
   tab: Section;
@@ -24,7 +26,7 @@ const tools: {
   {
     tab: "home",
     title: "Home",
-    description: "Live music, group and user totals",
+    description: "Your creative workspace",
     icon: Home,
   },
   {
@@ -70,6 +72,12 @@ const tools: {
     icon: Settings,
   },
   {
+    tab: "tools",
+    title: "Creator tools",
+    description: "Caption counter, hashtags and campaign links",
+    icon: Palette,
+  },
+  {
     tab: "auth",
     title: "Owner sign-in",
     description: "Verify or retry your owner session",
@@ -78,13 +86,16 @@ const tools: {
 ];
 export function ToolFinder() {
   const { open } = useStudio();
+  const { authenticated } = useTelegram();
   const dialog = useRef<HTMLDialogElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
   const [index, setIndex] = useState(0);
-  const matches = tools.filter((t) =>
-    `${t.title} ${t.description}`.toLowerCase().includes(query.toLowerCase()),
-  );
+  const matches = tools
+    .filter((t) => canOpenSection(t.tab, authenticated))
+    .filter((t) =>
+      `${t.title} ${t.description}`.toLowerCase().includes(query.toLowerCase()),
+    );
   function show() {
     setQuery("");
     setIndex(0);

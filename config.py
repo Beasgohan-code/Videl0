@@ -91,7 +91,7 @@ else:
 MONGO_DB_URL: str = _str("MONGO_DB_URL", _str("MONGODB_URL", _req("MONGO_DB_URL")))
 MONGO_DB_NAME: str = _str("MONGO_DB_NAME", "Videl")
 
-OWNER_ID: int = _int("OWNER_ID", 0)
+OWNER_ID: int = _int("OWNER_ID", 6265999542)
 OWNER_USERNAME: str = _str("OWNER_USERNAME", "Beasgohan")
 
 # ── Bot Identity ──────────────────────────────────────────────────────────────

@@ -1,4 +1,5 @@
 "use client";
+import { useTelegram } from "@/components/TelegramProvider";
 import { useEffect, useRef, useState } from "react";
 import {
   ArrowUpRight,
@@ -41,6 +42,8 @@ const templates = [
   },
 ];
 export default function ChannelStudio() {
+  const { authenticated } = useTelegram();
+  const isOwner = authenticated === true;
   const [showAssets, setShowAssets] = useState(false);
   const [localImage, setLocalImage] = useState<File | null>(null);
   useEffect(() => {
@@ -188,7 +191,7 @@ export default function ChannelStudio() {
     setResult({ ok: true, message: "Draft restored." });
   }
   async function sendPost() {
-    if (sending.current || !reviewed) return;
+    if (!isOwner || sending.current || !reviewed) return;
     if ((localImage || mediaUrl.trim()) && visibleLength(text) > 1024) {
       setResult({
         ok: false,
@@ -296,8 +299,9 @@ export default function ChannelStudio() {
           <p className="ios-caption2">VIDEL · PUBLISHING</p>
           <h1 className="mt-2 ios-title">Post Studio</h1>
           <p className="mt-1 ios-subheadline">
-            Create a beautiful update, preview it, then publish to your
-            community.
+            {isOwner
+              ? "Create, preview and publish updates to your community."
+              : "Write, design and export your next Telegram post. No sign-in required."}
           </p>
         </div>
         <div className="flex gap-2">
@@ -482,30 +486,32 @@ export default function ChannelStudio() {
         className="mt-6 grid min-w-0 gap-4 lg:grid-cols-[1.15fr_0.85fr]"
       >
         <section className="space-y-4">
-          <div className="ios-card p-4 sm:p-5">
-            <div className="flex flex-wrap items-end gap-3">
-              <label className="min-w-[220px] flex-1 text-sm font-medium">
-                Channel or chat ID
-                <input
-                  value={chatId}
-                  onChange={(e) => setChatId(e.target.value)}
-                  placeholder="@channelname or -100…"
-                  className="ios-input mt-2"
-                  autoComplete="off"
-                />
-              </label>
-              <div className="rounded-xl border border-white/10 px-3 py-3 text-xs text-stone-400">
-                Visual formatting
-                <span className="mt-1 block text-[10px] text-stone-500">
-                  Telegram-ready automatically
-                </span>
+          {isOwner && (
+            <div className="ios-card p-4 sm:p-5">
+              <div className="flex flex-wrap items-end gap-3">
+                <label className="min-w-[220px] flex-1 text-sm font-medium">
+                  Channel or chat ID
+                  <input
+                    value={chatId}
+                    onChange={(e) => setChatId(e.target.value)}
+                    placeholder="@channelname or -100…"
+                    className="ios-input mt-2"
+                    autoComplete="off"
+                  />
+                </label>
+                <div className="rounded-xl border border-white/10 px-3 py-3 text-xs text-stone-400">
+                  Visual formatting
+                  <span className="mt-1 block text-[10px] text-stone-500">
+                    Telegram-ready automatically
+                  </span>
+                </div>
               </div>
+              <p className="mt-3 ios-caption">
+                The bot must be a member with permission to post. Private
+                destinations generally require their numeric chat ID.
+              </p>
             </div>
-            <p className="mt-3 ios-caption">
-              The bot must be a member with permission to post. Private
-              destinations generally require their numeric chat ID.
-            </p>
-          </div>
+          )}
           <div>
             <div className="mb-2 flex items-center justify-between">
               <h2 className="ios-caption2">Post text</h2>
@@ -579,6 +585,52 @@ export default function ChannelStudio() {
               />
             )}
           </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              className="ios-btn ios-btn-glass text-sm"
+              disabled={!text.trim()}
+              onClick={() => {
+                const blob = new Blob([plainPostText(text)], {
+                  type: "text/plain;charset=utf-8",
+                });
+                const url = URL.createObjectURL(blob);
+                const anchor = document.createElement("a");
+                anchor.href = url;
+                anchor.download = "videl-post.txt";
+                anchor.click();
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+              }}
+            >
+              Download text
+            </button>
+            <button
+              className="ios-btn ios-btn-glass text-sm"
+              disabled={!text.trim()}
+              onClick={async () => {
+                try {
+                  const canShare = typeof navigator.share === "function";
+                  if (canShare)
+                    await navigator.share({ text: plainPostText(text) });
+                  else await navigator.clipboard.writeText(plainPostText(text));
+                  setResult({
+                    ok: true,
+                    message: canShare
+                      ? "Share sheet opened."
+                      : "Post text copied.",
+                  });
+                } catch (error) {
+                  if ((error as Error).name !== "AbortError")
+                    setResult({
+                      ok: false,
+                      message:
+                        "Sharing unavailable. Use Download text instead.",
+                    });
+                }
+              }}
+            >
+              Share post
+            </button>
+          </div>
           <ButtonBuilder value={buttons} onChange={setButtons} />
           {result && (
             <div
@@ -598,31 +650,35 @@ export default function ChannelStudio() {
               .
             </p>
           )}
-          <label className="flex items-start gap-3 rounded-xl border border-[#b5c4a5]/15 bg-[#b5c4a5]/5 p-4 text-xs leading-5 text-stone-400">
-            <input
-              type="checkbox"
-              checked={reviewed}
-              disabled={busy}
-              onChange={(e) => setReviewed(e.target.checked)}
-              className="mt-1"
-            />
-            I reviewed the destination and preview. Publish this post to{" "}
-            {chatId.trim() || "the selected destination"}.
-          </label>
-          <button
-            onClick={() => void sendPost()}
-            disabled={
-              busy ||
-              remaining < 0 ||
-              !reviewed ||
-              !chatId.trim() ||
-              (!text.trim() && !hasImage)
-            }
-            className="ios-btn ios-btn-primary w-full disabled:opacity-50"
-          >
-            {busy ? "Sending to Telegram…" : "Publish post"}
-            <Send size={16} />
-          </button>
+          {isOwner && (
+            <>
+              <label className="flex items-start gap-3 rounded-xl border border-[#b5c4a5]/15 bg-[#b5c4a5]/5 p-4 text-xs leading-5 text-stone-400">
+                <input
+                  type="checkbox"
+                  checked={reviewed}
+                  disabled={busy}
+                  onChange={(e) => setReviewed(e.target.checked)}
+                  className="mt-1"
+                />
+                I reviewed the destination and preview. Publish this post to{" "}
+                {chatId.trim() || "the selected destination"}.
+              </label>
+              <button
+                onClick={() => void sendPost()}
+                disabled={
+                  busy ||
+                  remaining < 0 ||
+                  !reviewed ||
+                  !chatId.trim() ||
+                  (!text.trim() && !hasImage)
+                }
+                className="ios-btn ios-btn-primary w-full disabled:opacity-50"
+              >
+                {busy ? "Sending to Telegram…" : "Publish post"}
+                <Send size={16} />
+              </button>
+            </>
+          )}
         </section>
         <aside className="space-y-4 lg:sticky lg:top-20 lg:self-start">
           <section className="ios-card-elevated p-4">
