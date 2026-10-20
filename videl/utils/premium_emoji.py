@@ -72,6 +72,10 @@ def _telegram_path(api, emoji_id: str) -> str:
     path = (result or {}).get("file_path") if isinstance(result, dict) else None
     if not path or not str(path).startswith("documents/"):
         raise EmojiError("Telegram did not return a downloadable emoji file.", 502)
+    if str(path).lower().endswith((".webm", ".tgs")):
+        # Animated stickers have no still image the browser can paint; the
+        # fallback character is the correct rendering rather than a broken box.
+        raise EmojiError("This animated premium emoji has no still artwork.", 404)
     return str(path)
 
 

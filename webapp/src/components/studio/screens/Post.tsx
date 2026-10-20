@@ -597,6 +597,7 @@ export default function ChannelStudio() {
               disabled={busy}
               value={text}
               onChange={setText}
+              limit={limit}
               placeholder="Write a Telegram announcement…"
             />
           </div>
