@@ -161,5 +161,64 @@ class AlertTests(unittest.TestCase):
         self.assertFalse(scheduled_posts._alert({"_id": JOB, "payload": {}}, "failed", "x"))
 
 
+class DuplicateTests(unittest.TestCase):
+    """A copy is a new job, so it can follow any finished outcome safely."""
+
+    def setUp(self):
+        self.db = mongomock.MongoClient().videl
+        self.store = self.db["scheduled_posts"]
+        self.patch_collection = patch.object(scheduled_posts, "_collection", lambda: self.store)
+        self.patch_collection.start()
+        self.store.insert_one({"_id": JOB, "owner_id": scheduled_posts.OWNER_ID, "status": "sent",
+                               "method": "sendMessage", "payload": {"chat_id": "@x", "text": "hello"},
+                               "due_at": datetime.now(UTC) - timedelta(hours=2),
+                               "created_at": datetime.now(UTC) - timedelta(hours=3),
+                               "message_id": 9, "finished_at": datetime.now(UTC) - timedelta(hours=2)})
+
+    def tearDown(self):
+        self.patch_collection.stop()
+
+    def test_a_copy_keeps_the_payload_and_gets_a_new_identity(self):
+        result = scheduled_posts.duplicate_job(JOB)
+        copy = self.store.find_one({"_id": result["job_id"]})
+        self.assertNotEqual(result["job_id"], JOB)
+        self.assertEqual(copy["status"], "pending")
+        self.assertEqual(copy["payload"], {"chat_id": "@x", "text": "hello"})
+        self.assertEqual(copy["method"], "sendMessage")
+        self.assertEqual(copy["duplicated_from"], JOB)
+        self.assertNotIn("message_id", copy)
+        self.assertIsNone(copy.get("finished_at"))
+        due = copy["due_at"].replace(tzinfo=UTC)
+        self.assertGreater(due, datetime.now(UTC) + timedelta(minutes=50))
+        # The original is untouched, so a copy can never rewrite history.
+        self.assertEqual(self.store.find_one({"_id": JOB})["status"], "sent")
+
+    def test_an_explicit_time_is_honoured_and_a_naive_one_refused(self):
+        when = (datetime.now(UTC) + timedelta(days=2)).isoformat()
+        result = scheduled_posts.duplicate_job(JOB, when)
+        stored = self.store.find_one({"_id": result["job_id"]})["due_at"].replace(tzinfo=UTC)
+        # Mongomock keeps milliseconds, so compare to the same precision.
+        self.assertEqual(stored, datetime.fromisoformat(when).replace(microsecond=stored.microsecond))
+        with self.assertRaises(ValueError):
+            scheduled_posts.duplicate_job(JOB, "2030-01-01T10:00:00")
+        with self.assertRaises(ValueError):
+            scheduled_posts.duplicate_job(JOB, (datetime.now(UTC) + timedelta(days=91)).isoformat())
+
+    def test_a_job_still_in_the_queue_is_not_copied(self):
+        self.store.update_one({"_id": JOB}, {"$set": {"status": "pending"}})
+        with self.assertRaises(ValueError):
+            scheduled_posts.duplicate_job(JOB)
+        self.store.update_one({"_id": JOB}, {"$set": {"status": "sending"}})
+        with self.assertRaises(ValueError):
+            scheduled_posts.duplicate_job(JOB)
+        self.assertEqual(self.store.count_documents({}), 1)
+
+    def test_an_unknown_job_and_a_bad_id_are_refused(self):
+        with self.assertRaises(ValueError):
+            scheduled_posts.duplicate_job("22222222-2222-4222-8222-222222222222")
+        with self.assertRaises(ValueError):
+            scheduled_posts.duplicate_job("not-a-uuid")
+
+
 if __name__ == "__main__":
     unittest.main()

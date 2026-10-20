@@ -229,6 +229,23 @@ def _internal_scheduled_retry():
         return jsonify({"ok": False, "error": "The schedule could not be requeued"}), 503
 
 
+@_flask.route("/internal/scheduled-posts/duplicate", methods=["POST"])
+def _internal_scheduled_duplicate():
+    if not _internal_authorized():
+        return jsonify({"ok": False, "error": "unauthorized"}), 403
+    from videl.utils.scheduled_posts import duplicate_job
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or not body.get("id"):
+        return jsonify({"ok": False, "error": "A job ID is required"}), 400
+    try:
+        return jsonify(duplicate_job(body.get("id"), body.get("schedule_at"))), 200
+    except (ValueError, TypeError, AttributeError) as error:
+        return jsonify({"ok": False, "error": str(error)}), 409
+    except Exception:
+        LOGGER.exception("scheduled duplicate failed")
+        return jsonify({"ok": False, "error": "The copy could not be queued"}), 503
+
+
 @_flask.route("/internal/channel-post", methods=["POST"])
 def _internal_channel_post():
     if not _internal_authorized():

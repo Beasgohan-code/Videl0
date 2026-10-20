@@ -70,7 +70,9 @@ to code that actually runs:
   handles alone: the job returns to the queue for the interval Telegram asked
   for, up to three times, and the monitor shows each automatic attempt. A
   terminal failure is posted once to the log channel with the chat, job id and
-  the reason Telegram gave.
+  the reason Telegram gave. A finished post can be copied into a new job at a
+  time you pick (an hour ahead by default) — the copy is a fresh post, so the
+  original is never resent, and a job still in the queue has to settle first.
 
 Boundaries: quiet hours only see messages delivered to the bot while it runs,
 join requests are recorded from that point onward, and audit rows cover panel

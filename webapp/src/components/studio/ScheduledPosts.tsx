@@ -20,6 +20,9 @@ export function ScheduledPosts({chatId,text,mediaUrl,buttons,hasLocalImage,revie
  useEffect(()=>setZone(Intl.DateTimeFormat().resolvedOptions().timeZone),[]);
  const request=useRef<{fingerprint:string;id:string}|null>(null);
  const [date,setDate]=useState(""),[jobs,setJobs]=useState<Job[]>([]),[notice,setNotice]=useState(""),[busy,setBusy]=useState(false);
+ // A copy is a brand-new post: it needs its own time, never the original's.
+ const [copyFor,setCopyFor]=useState(""),[copyWhen,setCopyWhen]=useState("");
+ function localSlot(when:Date){const shifted=new Date(when.getTime()-when.getTimezoneOffset()*60000);return shifted.toISOString().slice(0,16)}
  async function refresh(){const r=await fetch("/api/schedules",{cache:"no-store"});const data=await r.json();if(!r.ok||!data.ok)throw new Error(data.error||"Queue unavailable");setJobs(data.jobs)}
  async function run(action:()=>Promise<void>){if(busy)return;setBusy(true);setNotice("");try{await action()}catch(e){setNotice((e as Error).message)}finally{setBusy(false)}}
  const counts=jobs.reduce<Record<string,number>>((total,job)=>{total[job.status]=(total[job.status]??0)+1;return total},{});
@@ -44,7 +47,7 @@ export function ScheduledPosts({chatId,text,mediaUrl,buttons,hasLocalImage,revie
    const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error||"Schedule unconfirmed. Refresh before retrying.");
    setNotice(`Schedule ${data.status}: ${data.job_id}`);await refresh();
  })}>Schedule reviewed post</button><button disabled={busy||disabled} className="ios-btn ios-btn-glass text-xs" onClick={()=>void run(refresh)}>Refresh scheduled posts</button></div>
- <p className="ios-caption">A Telegram rate limit is retried automatically and shows as Queued with the interval it is waiting for. Any other failure is final and waits for you — a duplicate post is worse than a missing one. Editing the studio does not change an already scheduled snapshot.</p>
+ <p className="ios-caption">A Telegram rate limit is retried automatically and shows as Queued with the interval it is waiting for. Any other failure is final and waits for you — a duplicate post is worse than a missing one. Editing the studio does not change an already scheduled snapshot. A finished post can be copied as a new post at a time you choose; the original is never resent.</p>
  {jobs.length>0&&<div className="flex flex-wrap gap-1.5">{Object.entries(counts).map(([status,value])=><span key={status} data-tone={status==="sent"?"good":status==="failed"?"bad":status==="unconfirmed"||status==="missed"?"warn":"neutral"} className="ios-pill text-[10px]">{STATUS_COPY[status]??status} · {value}</span>)}</div>}
  {notice&&<p role="status" className="text-xs">{notice}</p>}
  {ordered.map(job=><div key={job.id} className="space-y-2 rounded-xl bg-white/[0.035] p-3">
@@ -55,7 +58,19 @@ export function ScheduledPosts({chatId,text,mediaUrl,buttons,hasLocalImage,revie
    <p className="truncate text-xs">{job.text.replace(/<[^>]+>/g,"")}</p>
    <div className="flex flex-wrap gap-2">
    {job.status==="pending"&&<button className="ios-pill" disabled={busy||disabled} onClick={()=>void run(async()=>{if(!window.confirm("Cancel this scheduled post?"))return;const response=await fetch("/api/schedules",{method:"DELETE",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:job.id})});const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error||"Cancellation unconfirmed; refresh.");await refresh()})}>Cancel scheduled post</button>}
+   {job.status!=="pending"&&job.status!=="sending"&&<button className="ios-pill" disabled={busy||disabled} onClick={()=>{setCopyFor(job.id);setCopyWhen(localSlot(new Date(Date.now()+3600000)))}}>Send a new copy</button>}
    {job.status==="failed"&&<button className="ios-pill" disabled={busy||disabled} onClick={()=>void run(async()=>{if(!window.confirm("Requeue this rejected post? Telegram refused it, so nothing was delivered."))return;const response=await fetch("/api/schedules/retry",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:job.id})});const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error||"Requeue unconfirmed; refresh.");setNotice(`Requeued for ${new Date(data.scheduled_at).toLocaleString()}.`);await refresh()})}>Retry rejected post</button>}
    </div>
+   {copyFor===job.id&&<div className="flex flex-wrap items-end gap-2 rounded-xl border border-white/10 p-2">
+     <label className="text-[11px]">Copy time<input aria-label="Copy time" type="datetime-local" className="ios-input mt-1" value={copyWhen} disabled={busy||disabled} onChange={e=>setCopyWhen(e.target.value)}/></label>
+     <button className="ios-pill" disabled={busy||disabled||!copyWhen} onClick={()=>void run(async()=>{
+       const instant=new Date(copyWhen);if(!Number.isFinite(instant.getTime()))throw new Error("Choose a valid time.");
+       if(!window.confirm(`Queue a new copy of this post to ${job.chat_id} at ${instant.toLocaleString()}? The original is not affected.`))return;
+       const response=await fetch("/api/schedules/duplicate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:job.id,schedule_at:instant.toISOString()})});
+       const data=await response.json();if(!response.ok||!data.ok)throw new Error(data.error||"Copy unconfirmed; refresh.");
+       setNotice(`Copy queued for ${new Date(data.scheduled_at).toLocaleString()}.`);setCopyFor("");await refresh()
+     })}>Queue copy</button>
+     <button className="ios-pill" disabled={busy} onClick={()=>setCopyFor("")}>Dismiss</button>
+   </div>}
  </div>)}</section>
 }

@@ -120,6 +120,45 @@ def retry_job(identifier, when=None):
     return {'ok': True, 'job_id': identifier, 'status': 'pending', 'scheduled_at': due.isoformat()}
 
 
+def duplicate_job(identifier, when=None):
+    """Queue a fresh copy of a post that has already finished.
+
+    A copy is a *new* job, so it may follow any outcome — including ``sent`` —
+    without ever resending the original. A job still waiting or in flight is
+    refused: copy after it settles, or the group would get two posts at once.
+    """
+    identifier = str(uuid.UUID(str(identifier)))
+    col = _collection()
+    now = datetime.now(timezone.utc)
+    doc = col.find_one({'_id': identifier, 'owner_id': OWNER_ID})
+    if not doc:
+        raise ValueError('This scheduled post no longer exists')
+    if doc.get('status') in {'pending', 'sending'}:
+        raise ValueError('This post is still in the queue; cancel it or wait for it to finish')
+    due = now + timedelta(hours=1)
+    if when is not None:
+        try:
+            due = datetime.fromisoformat(str(when).replace('Z','+00:00'))
+        except (TypeError, ValueError):
+            raise ValueError('Use an ISO date with a timezone') from None
+        if due.tzinfo is None:
+            raise ValueError('Scheduling requires an explicit timezone')
+        due = due.astimezone(timezone.utc)
+        if not now + timedelta(seconds=60) <= due <= now + timedelta(days=90):
+            raise ValueError('Choose a time from 1 minute to 90 days ahead')
+    method = doc.get('method')
+    if method not in {'sendMessage', 'sendPhoto'}:
+        raise ValueError('This post cannot be copied')
+    payload = json.loads(json.dumps(doc.get('payload') or {}))
+    fresh = str(uuid.uuid4())
+    digest = hashlib.sha256(json.dumps([method,payload,due.isoformat()],sort_keys=True).encode()).hexdigest()
+    col.insert_one({'_id': fresh, 'owner_id': OWNER_ID, 'status': 'pending', 'method': method,
+                    'payload': payload, 'due_at': due, 'created_at': now, 'fingerprint': digest,
+                    'duplicated_from': identifier, 'attempts': 0})
+    return {'ok': True, 'job_id': fresh, 'status': 'pending', 'scheduled_at': due.isoformat(),
+            'duplicated_from': identifier}
+
+
 def cancel_job(identifier):
     identifier = str(uuid.UUID(str(identifier)))
     result = _collection().update_one({'_id':identifier,'owner_id':OWNER_ID,'status':'pending'},
