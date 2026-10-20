@@ -193,7 +193,7 @@ Telegram rendering rule, not a Videl guarantee.
 Both `POST /internal/group-view` (text and replies) and
 `POST /internal/inbox-media` (captions) now accept sanitized Telegram HTML. The
 server whitelists `b,strong,i,em,u,ins,s,strike,del,code,pre,blockquote,a,
-tg-spoiler,tg-emoji,span`, strips `on*` handlers, only allows `https/http/tg`
+tg-spoiler,tg-emoji`, strips `on*` handlers, only allows `https/http/tg`
 links, validates emoji IDs, and enforces the 4096/1024 visible UTF-16 limits.
 Unrecognised tags are shown literally instead of being sent. Invalid HTML is
 rejected before any Telegram call.

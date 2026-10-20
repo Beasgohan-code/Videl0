@@ -26,8 +26,8 @@ export function telegramHtml(node:RichNode):string{
  if(node.type==="codeBlock")return `<pre>${escapeText(children.map(c=>c.text||"").join(""))}</pre>`;
  return text;
 }
-const allowedTags=["b","strong","i","em","u","s","del","code","pre","blockquote","tg-spoiler","a","tg-emoji","span"];
-export function cleanTelegramHtml(value:string){return sanitizeHtml(value,{allowedTags,allowedAttributes:{a:["href"],"tg-emoji":["emoji-id"],span:["data-spoiler"]},allowedSchemes:["https","http","tg"],allowProtocolRelative:false})}
+const allowedTags=["b","strong","i","em","u","s","del","code","pre","blockquote","tg-spoiler","a","tg-emoji"];
+export function cleanTelegramHtml(value:string){return sanitizeHtml(value,{allowedTags,allowedAttributes:{a:["href"],"tg-emoji":["emoji-id"]},allowedSchemes:["https","http","tg"],allowProtocolRelative:false})}
 export function editorHtml(value:string){return cleanTelegramHtml(value).replace(/\n/g,"<br>").replace(/<tg-spoiler>/g,'<span data-spoiler="true">').replace(/<\/tg-spoiler>/g,"</span>").replace(/<tg-emoji[^>]*emoji-id="([0-9]+)"[^>]*>(.*?)<\/tg-emoji>/g,'<tg-emoji emoji-id="$1">$2</tg-emoji>')}
 export function previewHtml(value:string){return cleanTelegramHtml(value).replace(/\n/g,"<br>").replace(/<tg-spoiler>/g,'<span class="post-spoiler">').replace(/<\/tg-spoiler>/g,"</span>").replace(/<tg-emoji[^>]*emoji-id="([^"]+)"[^>]*>(.*?)<\/tg-emoji>/g,'<span class="tg-premium-emoji" data-emoji-id="$1" title="Premium emoji $1">$2</span>')}
 export function chatPreviewHtml(value:string){if(!value) return ""; let html=cleanTelegramHtml(value); html=html.replace(/\n/g,"<br>"); html=html.replace(/<tg-spoiler>/g,'<span class="post-spoiler">').replace(/<\/tg-spoiler>/g,'</span>'); html=html.replace(/<tg-emoji[^>]*emoji-id="([^"]+)"[^>]*>(.*?)<\/tg-emoji>/g,'<span class="tg-premium-emoji">$2</span>'); return html;}

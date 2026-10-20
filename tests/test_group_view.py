@@ -163,6 +163,9 @@ class GroupViewerTests(unittest.TestCase):
         self.assertIn('<b>Launch</b>',sent['text'])
         self.assertNotIn('onclick',sent['text']);self.assertNotIn('javascript:',sent['text'])
         self.assertIn('&lt;script&gt;',view.rich_text('&lt;script&gt; <i>safe</i>',100)[0])
+        # Telegram HTML has no <span>; it must never be forwarded as markup.
+        self.assertEqual(view.rich_text('<span data-spoiler="true">note</span> <i>safe</i>',100)[0],
+                         '&lt;span data-spoiler=&quot;true&quot;&gt;note&lt;/span&gt; <i>safe</i>')
 
     def test_invalid_premium_emoji_id_is_rejected(self):
         for bad in ['<tg-emoji emoji-id="abc">🔥</tg-emoji>','<tg-emoji>🔥</tg-emoji>']:

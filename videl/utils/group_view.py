@@ -64,7 +64,7 @@ def snapshot(message):
         'deleted':False}
 
 
-_ALLOWED_RICH={'b','strong','i','em','u','ins','s','strike','del','code','pre','blockquote','a','tg-spoiler','tg-emoji','span'}
+_ALLOWED_RICH={'b','strong','i','em','u','ins','s','strike','del','code','pre','blockquote','a','tg-spoiler','tg-emoji'}
 _RICH_TAG=re.compile(r'</?\s*([a-zA-Z][a-zA-Z0-9-]*)([^>]*)>')
 
 
@@ -102,7 +102,7 @@ def rich_text(text,limit=4096):
             return '<a>'
         return f'<{name}>'
     text=_RICH_TAG.sub(replace,text)
-    text=re.sub(r'<(?!/?(?:b|strong|i|em|u|ins|s|strike|del|code|pre|blockquote|a|tg-spoiler|tg-emoji|span)(?:\s|>))','&lt;',text)
+    text=re.sub(r'<(?!/?(?:b|strong|i|em|u|ins|s|strike|del|code|pre|blockquote|a|tg-spoiler|tg-emoji)(?:\s|>))','&lt;',text)
     plain=_html.unescape(re.sub(r'<[^>]+>','',text))
     if not plain.strip():
         raise ViewError('Formatted messages need visible text outside the tags.')
