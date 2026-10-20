@@ -362,7 +362,8 @@ def _internal_channel_post():
             return jsonify({"ok": False, "error": "Scheduled images need a persistent HTTPS URL, not a local upload"}), 400
         try:
             from videl.utils.scheduled_posts import enqueue
-            return jsonify(enqueue(method, payload, body["schedule_at"], body.get("request_id"))), 200
+            return jsonify(enqueue(method, payload, body["schedule_at"], body.get("request_id"),
+                                   body.get("repeat"))), 200
         except ValueError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
         except Exception:

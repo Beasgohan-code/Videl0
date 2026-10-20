@@ -32,6 +32,7 @@ class ScheduledPostTests(unittest.TestCase):
     def test_claimed_job_sends_once_and_sets_sent_status(self):
         col=Mock();doc={'_id':'job','method':'sendMessage','payload':{'chat_id':'-1001','text':'Hi'}}
         col.find_one_and_update.return_value=doc
+        col.find.return_value=[]  # no stale repeating series to skip
         with patch.object(scheduling,'_collection',return_value=col),patch.object(scheduling,'call_bot_api',return_value=(200,{'ok':True,'result':{'message_id':42}})) as send:
             scheduling.dispatch_one()
         self.assertEqual(col.find_one_and_update.call_args.args[0]['status'],'pending')
@@ -41,6 +42,7 @@ class ScheduledPostTests(unittest.TestCase):
 
     def test_unknown_delivery_never_requeues(self):
         col=Mock();col.find_one_and_update.return_value={'_id':'job','method':'sendMessage','payload':{}}
+        col.find.return_value=[]
         with patch.object(scheduling,'_collection',return_value=col),patch.object(scheduling,'call_bot_api',return_value=(None,{'ok':False})) as send:
             scheduling.dispatch_one()
         send.assert_called_once()

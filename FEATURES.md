@@ -73,6 +73,12 @@ to code that actually runs:
   the reason Telegram gave. A finished post can be copied into a new job at a
   time you pick (an hour ahead by default) — the copy is a fresh post, so the
   original is never resent, and a job still in the queue has to settle first.
+  A schedule can repeat **daily or weekly** at the same UTC hour: one record
+  carries the series, moving itself to the next occurrence after each accepted
+  delivery, so the monitor shows a single line with a delivered count. A
+  failure stops the series and waits for the owner; a series that fell more
+  than a day behind skips the missed copies (and says how many) instead of
+  sending them in a burst. Cancelling a repeating post stops it.
 
 Boundaries: quiet hours only see messages delivered to the bot while it runs,
 join requests are recorded from that point onward, and audit rows cover panel

@@ -161,6 +161,95 @@ class AlertTests(unittest.TestCase):
         self.assertFalse(scheduled_posts._alert({"_id": JOB, "payload": {}}, "failed", "x"))
 
 
+class RepeatTests(unittest.TestCase):
+    """A daily or weekly post keeps one record and advances its own clock."""
+
+    def setUp(self):
+        self.db = mongomock.MongoClient().videl
+        self.store = self.db["scheduled_posts"]
+        self.patch_collection = patch.object(scheduled_posts, "_collection", lambda: self.store)
+        self.patch_collection.start()
+        self.api = patch.object(scheduled_posts, "call_bot_api",
+                                return_value=(200, {"ok": True, "result": {"message_id": 5}}))
+        self.telegram = self.api.start()
+        self.alerts = []
+        self.patch_alert = patch.object(scheduled_posts, "_alert",
+                                        side_effect=lambda job, state, reason: self.alerts.append(state))
+        self.patch_alert.start()
+
+    def tearDown(self):
+        self.patch_alert.stop()
+        self.api.stop()
+        self.patch_collection.stop()
+
+    def queued(self, repeat, hours_ago=0):
+        # Enqueue in the future (the only time the queue accepts), then the test
+        # moves the record back to pretend the clock has passed.
+        due = datetime.now(UTC) + timedelta(hours=2)
+        return scheduled_posts.enqueue("sendMessage", {"chat_id": "@x", "text": "note"},
+                                       due.isoformat(), JOB, repeat)
+
+    def test_a_daily_post_advances_instead_of_finishing(self):
+        result = self.queued("daily")
+        self.store.update_one({"_id": result["job_id"]}, {"$set": {"due_at": datetime.now(UTC) - timedelta(minutes=1)}})
+        scheduled_posts.dispatch_one()
+        row = self.store.find_one({"_id": result["job_id"]})
+        self.assertEqual(row["status"], "pending")
+        self.assertEqual(row["sent_count"], 1)
+        self.assertEqual(row["message_id"], 5)
+        self.assertGreater(row["due_at"].replace(tzinfo=UTC), datetime.now(UTC) + timedelta(hours=23))
+        self.assertIsNone(row["finished_at"])
+        self.assertEqual(self.alerts, [])
+
+    def test_a_weekly_post_waits_a_week(self):
+        result = self.queued("weekly")
+        self.store.update_one({"_id": result["job_id"]}, {"$set": {"due_at": datetime.now(UTC) - timedelta(minutes=1)}})
+        scheduled_posts.dispatch_one()
+        row = self.store.find_one({"_id": result["job_id"]})
+        self.assertGreater(row["due_at"].replace(tzinfo=UTC), datetime.now(UTC) + timedelta(days=6))
+
+    def test_an_unknown_repeat_is_refused(self):
+        with self.assertRaises(ValueError):
+            self.queued("hourly")
+        self.assertEqual(self.store.count_documents({}), 0)
+
+    def test_a_stale_series_skips_ahead_instead_of_dying(self):
+        result = self.queued("daily")
+        self.store.update_one({"_id": result["job_id"]},
+                              {"$set": {"due_at": datetime.now(UTC) - timedelta(days=3, hours=2)}})
+        scheduled_posts.dispatch_one()
+        row = self.store.find_one({"_id": result["job_id"]})
+        self.assertEqual(row["status"], "pending")
+        self.assertGreater(row["due_at"].replace(tzinfo=UTC), datetime.now(UTC))
+        self.assertEqual(row["skipped"], 4)
+        self.assertIn("skipped", row["error"])
+        self.telegram.assert_not_called()
+
+    def test_a_failed_series_stops_and_asks_for_a_decision(self):
+        result = self.queued("daily")
+        self.store.update_one({"_id": result["job_id"]}, {"$set": {"due_at": datetime.now(UTC) - timedelta(minutes=1)}})
+        self.telegram.return_value = (400, {"ok": False, "description": "chat not found"})
+        scheduled_posts.dispatch_one()
+        row = self.store.find_one({"_id": result["job_id"]})
+        self.assertEqual(row["status"], "failed")
+        self.assertFalse(row.get("sent_count"), "a rejected delivery is not a send")
+        self.assertEqual(self.alerts, ["failed"])
+
+    def test_the_monitor_reports_the_series_state(self):
+        result = self.queued("daily")
+        job = [row for row in scheduled_posts.list_jobs() if row["id"] == result["job_id"]][0]
+        self.assertEqual(job["repeat"], "daily")
+        self.assertEqual(job["sent_count"], 0)
+
+    def test_a_one_shot_job_stays_one_shot(self):
+        result = self.queued(None)
+        self.store.update_one({"_id": result["job_id"]}, {"$set": {"due_at": datetime.now(UTC) - timedelta(minutes=1)}})
+        scheduled_posts.dispatch_one()
+        row = self.store.find_one({"_id": result["job_id"]})
+        self.assertEqual(row["status"], "sent")
+        self.assertNotIn("repeat", row)
+
+
 class DuplicateTests(unittest.TestCase):
     """A copy is a new job, so it can follow any finished outcome safely."""
 

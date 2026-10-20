@@ -37,4 +37,7 @@ test("scheduled publishing renders its queue states", async () => {
   assert.match(html, /Schedule reviewed post/);
   // Copying a finished post creates a new job, so the promise is stated up front.
   assert.match(html, /A finished post can be copied as a new post/);
+  // Repeating is offered as part of the queue, with the series rule stated.
+  assert.match(html, /Every day/);
+  assert.match(html, /cancelling it stops the series/);
 });

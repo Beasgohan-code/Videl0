@@ -22,6 +22,8 @@ OWNER_ID = 6265999542
 MAX_RATE_LIMITED_RETRIES = 3
 MIN_RETRY_SECONDS = 5
 MAX_RETRY_SECONDS = 3600
+# A repeat keeps its wall-clock UTC time, so a daily note stays at the same hour.
+REPEAT_INTERVALS = {'daily': timedelta(days=1), 'weekly': timedelta(days=7)}
 log = logging.getLogger(__name__)
 
 
@@ -32,7 +34,15 @@ def _collection():
     return db['scheduled_posts']
 
 
-def enqueue(method, payload, scheduled_at, request_id):
+def _repeat_interval(repeat):
+    if repeat in (None, '', 'none'):
+        return None
+    if repeat not in REPEAT_INTERVALS:
+        raise ValueError('Repeat must be once, daily or weekly')
+    return REPEAT_INTERVALS[repeat]
+
+
+def enqueue(method, payload, scheduled_at, request_id, repeat=None):
     now = datetime.now(timezone.utc)
     if method not in {'sendMessage', 'sendPhoto'}:
         raise ValueError('Unsupported scheduled method')
@@ -44,8 +54,10 @@ def enqueue(method, payload, scheduled_at, request_id):
     if due.tzinfo is None:
         raise ValueError('Scheduling requires an explicit timezone')
     due = due.astimezone(timezone.utc)
+    repeat = None if repeat in (None, '', 'none') else repeat
+    _repeat_interval(repeat)
     # Serialize a stable identity, allowing a retry to discover an existing job.
-    digest = hashlib.sha256(json.dumps([method,payload,due.isoformat()],sort_keys=True).encode()).hexdigest()
+    digest = hashlib.sha256(json.dumps([method,payload,due.isoformat(),repeat],sort_keys=True).encode()).hexdigest()
     col = _collection()
     existing = col.find_one({'_id':identifier, 'owner_id':OWNER_ID})
     if existing:
@@ -56,6 +68,8 @@ def enqueue(method, payload, scheduled_at, request_id):
         raise ValueError('Choose a time from 1 minute to 90 days ahead')
     document = {'_id':identifier,'owner_id':OWNER_ID,'status':'pending','method':method,
                 'payload':payload,'due_at':due,'created_at':now,'fingerprint':digest}
+    if repeat:
+        document['repeat'] = repeat
     try:
         col.insert_one(document)
     except DuplicateKeyError:
@@ -63,7 +77,8 @@ def enqueue(method, payload, scheduled_at, request_id):
         if not existing or existing.get('fingerprint') != digest:
             raise ValueError('Conflicting schedule request') from None
         return {'ok':True,'job_id':identifier,'status':existing['status'],'scheduled_at':due.isoformat()}
-    return {'ok':True,'job_id':identifier,'status':'pending','scheduled_at':due.isoformat()}
+    return {'ok':True,'job_id':identifier,'status':'pending','scheduled_at':due.isoformat(),
+            'repeat':repeat}
 
 
 def _stamp(value):
@@ -81,6 +96,10 @@ def list_jobs():
              # How many times a rate limit pushed this job back into the queue.
              'attempts':int(doc.get('attempts') or 0),
              # Why a job stopped, when the dispatcher recorded a reason.
+             'repeat':doc.get('repeat'),
+             # How many times a series has actually delivered.
+             'sent_count':int(doc.get('sent_count') or 0),
+             'skipped':int(doc.get('skipped') or 0),
              'error':str(doc.get('error') or '')[:160] or None,
              'finished_at':_stamp(doc.get('finished_at'))} for doc in docs]
 
@@ -152,9 +171,12 @@ def duplicate_job(identifier, when=None):
     payload = json.loads(json.dumps(doc.get('payload') or {}))
     fresh = str(uuid.uuid4())
     digest = hashlib.sha256(json.dumps([method,payload,due.isoformat()],sort_keys=True).encode()).hexdigest()
-    col.insert_one({'_id': fresh, 'owner_id': OWNER_ID, 'status': 'pending', 'method': method,
-                    'payload': payload, 'due_at': due, 'created_at': now, 'fingerprint': digest,
-                    'duplicated_from': identifier, 'attempts': 0})
+    copy = {'_id': fresh, 'owner_id': OWNER_ID, 'status': 'pending', 'method': method,
+            'payload': payload, 'due_at': due, 'created_at': now, 'fingerprint': digest,
+            'duplicated_from': identifier, 'attempts': 0}
+    if doc.get('repeat') in REPEAT_INTERVALS:
+        copy['repeat'] = doc['repeat']
+    col.insert_one(copy)
     return {'ok': True, 'job_id': fresh, 'status': 'pending', 'scheduled_at': due.isoformat(),
             'duplicated_from': identifier}
 
@@ -201,11 +223,37 @@ def _alert(job, state, reason):
         return False
 
 
+def _skip_missed_series(col, now):
+    """A repeat that fell more than a day behind skips ahead instead of dying.
+
+    One missed daily note is not a reason to end the series, but it is also not
+    a reason to send three copies at once: jump to the next upcoming occurrence.
+    """
+    stale = col.find({'owner_id':OWNER_ID, 'status':'pending',
+                      'due_at':{'$lt':now-timedelta(days=1)},
+                      'repeat':{'$in':list(REPEAT_INTERVALS)}})
+    for doc in stale:
+        interval = REPEAT_INTERVALS[doc['repeat']]
+        due = doc['due_at']
+        # Some stores hand back naive datetimes; the queue always speaks UTC.
+        if due.tzinfo is None:
+            due = due.replace(tzinfo=timezone.utc)
+        hops = 0
+        while due <= now and hops < 400:
+            due += interval
+            hops += 1
+        col.update_one({'_id':doc['_id'], 'status':'pending'},
+                       {'$set':{'due_at':due,
+                                'skipped':int(doc.get('skipped') or 0)+hops,
+                                'error':f'{hops} occurrence(s) skipped while the bot was offline'}})
+
+
 def dispatch_one():
     """At most one send per tick. Catch-up >24h is marked missed, never sent."""
     col, now = _collection(), datetime.now(timezone.utc)
     col.update_many({'owner_id':OWNER_ID,'status':'sending','claimed_at':{'$lt':now-timedelta(minutes=10)}},
                     {'$set':{'status':'unconfirmed','finished_at':now}})
+    _skip_missed_series(col, now)
     col.update_many({'owner_id':OWNER_ID,'status':'pending','due_at':{'$lt':now-timedelta(days=1)}},
                     {'$set':{'status':'missed','finished_at':now}})
     doc = col.find_one_and_update({'owner_id':OWNER_ID,'status':'pending','due_at':{'$lte':now}},
@@ -233,6 +281,15 @@ def dispatch_one():
         reason = ''
         if accepted:
             update['message_id'] = result['result']['message_id']
+            interval = REPEAT_INTERVALS.get(doc.get('repeat'))
+            if interval:
+                # A series is never "finished": the same record carries its next
+                # occurrence, so the monitor shows one line per recurring post.
+                update.update({'status':'pending','due_at':doc['due_at']+interval,
+                               'finished_at':None,'claimed_at':None,'error':None,
+                               'attempts':0,'sent_count':int(doc.get('sent_count') or 0)+1,
+                               'last_sent_at':datetime.now(timezone.utc)})
+                state = 'pending'
         else:
             # Store why, so the monitor can explain instead of showing a bare state.
             description = str(result.get('description') or '').strip()[:160]
