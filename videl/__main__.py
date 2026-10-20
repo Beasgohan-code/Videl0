@@ -34,12 +34,17 @@ def _internal_authorized():
     return bool(expected) and hmac.compare_digest(supplied, expected)
 
 
-def _bot_api(method, payload):
+def _bot_api(method, payload, files=None):
     token = getattr(config, "BOT_TOKEN", "") or ""
     if not token:
         return None, {"ok": False, "description": "Bot token is not configured"}
     try:
-        response = requests.post(f"https://api.telegram.org/bot{token}/{method}", json=payload, timeout=8)
+        if files:
+            import json
+            data = {key: json.dumps(value) if isinstance(value, (dict, list)) else value for key, value in payload.items()}
+            response = requests.post(f"https://api.telegram.org/bot{token}/{method}", data=data, files=files, timeout=(5, 18))
+        else:
+            response = requests.post(f"https://api.telegram.org/bot{token}/{method}", json=payload, timeout=8)
         try:
             result = response.json()
         except ValueError:
@@ -158,13 +163,32 @@ def _internal_channel_post():
         return jsonify({"ok": False, "error": "unauthorized"}), 403
     import json
     from urllib.parse import urlparse
-    body = request.get_json(silent=True)
+    if request.content_length and request.content_length > 4400000:
+        return jsonify({"ok": False, "error": "Image upload is too large (4 MB maximum)"}), 413
+    upload = request.files.get("image")
+    image_data = None
+    image_mime = None
+    if upload is not None:
+        from io import BytesIO
+        from PIL import Image, UnidentifiedImageError
+        image_data = upload.stream.read(4 * 1024 * 1024 + 1)
+        if len(image_data) > 4 * 1024 * 1024:
+            return jsonify({"ok": False, "error": "Use an image under 4 MB"}), 413
+        try:
+            with Image.open(BytesIO(image_data)) as image:
+                image_mime = {"JPEG": "image/jpeg", "PNG": "image/png", "WEBP": "image/webp"}.get(image.format)
+                if not image_mime or image.width * image.height > 25000000:
+                    raise ValueError("Unsupported image type or dimensions")
+                image.verify()
+        except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError):
+            return jsonify({"ok": False, "error": "Upload a valid PNG, JPEG or WebP under 25 megapixels"}), 400
+    body = request.form.to_dict() if request.mimetype == "multipart/form-data" else request.get_json(silent=True)
     if not isinstance(body, dict):
         return jsonify({"ok": False, "error": "A JSON object is required"}), 400
     chat_id = str(body.get("chat_id", "")).strip()
     text = str(body.get("text", "")).strip()
     media_url = str(body.get("media_url", "")).strip()
-    if not chat_id or len(chat_id) > 128 or not text and not media_url or len(text) > 65536:
+    if not chat_id or len(chat_id) > 128 or not text and not media_url and image_data is None or len(text) > 65536:
         return jsonify({"ok": False, "error": "A channel ID and post text or media are required"}), 400
     parse_mode = body.get("parse_mode", "HTML")
     if parse_mode not in ("HTML", "Markdown", "MarkdownV2"):
@@ -175,7 +199,12 @@ def _internal_channel_post():
         return jsonify({"ok": False, "error": "Post text is limited to 4096 visible characters"}), 400
     method = "sendMessage"
     payload = {"chat_id": chat_id, "parse_mode": parse_mode}
-    if media_url:
+    if image_data is not None:
+        if text_length > 1024:
+            return jsonify({"ok": False, "error": "Image captions allow 1024 visible characters"}), 400
+        method = "sendPhoto"
+        payload["caption"] = text
+    elif media_url:
         parsed = urlparse(media_url)
         if parsed.scheme != "https" or not parsed.netloc or len(media_url) > 2048:
             return jsonify({"ok": False, "error": "Media URL must be a valid HTTPS URL"}), 400
@@ -207,7 +236,11 @@ def _internal_channel_post():
             payload["reply_markup"] = {"inline_keyboard": keyboard}
         except (ValueError, TypeError, AttributeError) as exc:
             return jsonify({"ok": False, "error": f"Invalid button layout: {exc}"}), 400
-    status, result = _bot_api(method, payload)
+    if image_data is not None:
+        extension = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}[image_mime]
+        status, result = _bot_api(method, payload, files={"photo": (f"videl-post.{extension}", image_data, image_mime)})
+    else:
+        status, result = _bot_api(method, payload)
     if not status or not result.get("ok"):
         return jsonify({"ok": False, "error": result.get("description", "Telegram rejected the post")}), 502
     sent = result.get("result", {})
@@ -224,15 +257,16 @@ def _internal_stats():
     try:
         from videl import bot_start_time
         from videl.utils.db import (get_served_chats_count, get_served_users_count,
-                                    get_total_plays, is_connected)
+                                    get_total_plays, is_connected, read_live_totals)
         if not is_connected():
             return jsonify({"ok": False, "error": "MongoDB is not connected", "database": "disconnected"}), 503
+        totals = read_live_totals()
         return jsonify({
             "ok": True,
             "stats": {
-                "users": get_served_users_count(),
-                "chats": get_served_chats_count(),
-                "plays": get_total_plays(),
+                "users": totals["users"],
+                "chats": totals["chats"],
+                "plays": totals["plays"],
                 "uptime": max(0, int(time.time() - bot_start_time)),
                 "bot_username": getattr(config, "BOT_USERNAME", "Videl0Bot"),
                 "bot_name": getattr(config, "BOT_NAME", "Videl Studio"),

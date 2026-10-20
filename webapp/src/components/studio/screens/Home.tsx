@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { ArrowUpRight, Users, FileText, Clock3, Shield, Send, Zap, Settings2, MessageCircle, Crown, Activity } from "lucide-react";
 import { useTelegram } from "@/components/TelegramProvider";
 import { useStudio, Section } from "@/components/studio/StudioProvider";
-type Metrics={users?:number;chats?:number;plays?:number};
+type Metrics={users?:number;chats?:number;plays?:number;uptime?:number};
 type Analytics={recent_events?:{command:string;chat_id:string;at:string|null}[];top_chats?:{id:string;commands:number}[]};
 const actions:{tab:Section;label:string;icon:typeof Send;color:string}[]=[
  {tab:"post",label:"Create Post",icon:FileText,color:"from-fuchsia-500 to-violet-600"},
@@ -14,20 +14,22 @@ const actions:{tab:Section;label:string;icon:typeof Send;color:string}[]=[
  {tab:"settings",label:"Bot Settings",icon:Settings2,color:"from-blue-500 to-violet-600"},
 ];
 export default function Home(){
- const telegram=useTelegram();const {open}=useStudio();
+ const telegram=useTelegram();const {open}=useStudio();const [refreshTick,refresh]=useState(0);
+ const [measured,setMeasured]=useState<string|null>(null);
  const [stats,setStats]=useState<Metrics|null>(null);const [analytics,setAnalytics]=useState<Analytics|null>(null);
  const [health,setHealth]=useState<{status?:string;bot_status?:string;uptime?:number}|null>(null);const [error,setError]=useState("");const [loaded,setLoaded]=useState(false);
  useEffect(()=>{let active=true;async function load(){
-   const results=await Promise.allSettled([fetch("/api/stats",{cache:"no-store"}),fetch("/api/analytics",{cache:"no-store"}),fetch("/api/health",{cache:"no-store"})].map(async promise=>{const r=await promise;return {ok:r.ok,status:r.status,data:await r.json()}}));
+   const results=await Promise.allSettled([fetch("/api/summary",{cache:"no-store"}),fetch("/api/analytics",{cache:"no-store"}),fetch("/api/health",{cache:"no-store"})].map(async promise=>{const r=await promise;return {ok:r.ok,status:r.status,data:await r.json()}}));
    if(!active)return;
    const [s,a,h]=results;
-   if(s.status==="fulfilled"&&s.value.ok){setStats(s.value.data.stats??s.value.data);setError("")}else{setStats(null);setError(s.status==="fulfilled"&&s.value.status===401?"Sign in with Telegram to see your private community data.":"Live data is unavailable. Your backend connection needs attention.")}
+   if(s.status==="fulfilled"&&s.value.ok){setStats(s.value.data.stats??s.value.data);setMeasured(s.value.data.measured_at||null);setError("")}else{setStats(null);setMeasured(null);setError(s.status==="fulfilled"&&s.value.status===401?"Sign in with Telegram to see your private community data.":s.status==="fulfilled"?(s.value.data.error||"Live totals unavailable"):"Backend connection failed. No cached or sample totals are shown.")}
    setAnalytics(a.status==="fulfilled"&&a.value.ok?a.value.data:null);
    setHealth(h.status==="fulfilled"&&h.value.ok?h.value.data:null);setLoaded(true);
- }void load();const timer=setInterval(()=>void load(),30000);return()=>{active=false;clearInterval(timer)}},[telegram.authenticated]);
+ }void load();const timer=setInterval(()=>void load(),30000);return()=>{active=false;clearInterval(timer)}},[telegram.authenticated,refreshTick]);
  const count=(n?:number)=>typeof n==="number"?n.toLocaleString():"—";
  const online=health?.status==="ok"&&health.bot_status==="online";
- const uptime=typeof health?.uptime==="number"?`${Math.floor(health.uptime/3600)}h ${Math.floor(health.uptime%3600/60)}m`:"—";
+ const uptimeSeconds=stats?.uptime??health?.uptime;
+ const uptime=typeof uptimeSeconds==="number"?`${Math.floor(uptimeSeconds/3600)}h ${Math.floor(uptimeSeconds%3600/60)}m`:"—";
  const name=telegram.user?.first_name||"Creator";
  const hour=new Date().getHours();const greeting=hour<12?"Good Morning":hour<18?"Good Afternoon":"Good Evening";
  return <main className="mx-auto max-w-7xl py-6 sm:py-8">
@@ -44,6 +46,7 @@ export default function Home(){
    {label:"Music Plays",value:count(stats?.plays),icon:Activity,color:"text-cyan-300 bg-cyan-400/10"},
    {label:"Uptime",value:uptime,icon:Clock3,color:"text-emerald-300 bg-emerald-400/10"},
   ].map(m=><div key={m.label} className="ios-card flex items-center gap-4 p-4 sm:p-5"><span className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl ${m.color}`}><m.icon size={21}/></span><div><p className="text-xl font-bold tracking-tight sm:text-2xl">{m.value}</p><p className="mt-1 text-xs text-indigo-100/45">{m.label}</p></div></div>)}</section>
+  {measured&&<p className="mt-3 text-[10px] text-indigo-100/40">Live bot database totals · refreshed {new Date(measured).toLocaleTimeString()} · updates every 30 seconds <button onClick={()=>refresh(n=>n+1)} className="ml-2 underline underline-offset-2">Refresh now</button></p>}
   {error&&<div role="status" className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-indigo-300/15 bg-indigo-400/5 px-4 py-3 text-xs text-indigo-200/70">{error}<button className="text-indigo-200 underline underline-offset-4" onClick={()=>open("auth")}>Owner sign in →</button></div>}
   <div className="mt-5 grid gap-5 lg:grid-cols-[1.2fr_1fr]">
    <section className="ios-card p-5"><div className="flex items-center justify-between"><h2 className="text-sm font-semibold">Recent Activity</h2><button onClick={()=>open("analytics")} className="text-[11px] text-indigo-300">View all ↗</button></div><div className="mt-4 space-y-2">{analytics?.recent_events?.length?analytics.recent_events.slice(0,5).map((event,i)=><div key={`${event.at}-${i}`} className="flex items-center gap-3 rounded-xl border border-indigo-300/5 bg-indigo-400/[0.035] px-3 py-3"><span className="grid h-9 w-9 place-items-center rounded-xl bg-indigo-400/10 text-indigo-300"><Activity size={17}/></span><div className="min-w-0 flex-1"><p className="text-xs font-medium">/{event.command}</p><p className="mt-1 truncate text-[10px] text-indigo-100/35">{event.chat_id} · {event.at?new Date(event.at).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}):"Time unavailable"}</p></div><span className="rounded-md bg-indigo-400/10 px-2 py-1 text-[9px] text-indigo-200">Command</span></div>):<div className="flex min-h-48 flex-col items-center justify-center gap-3 text-center"><Activity size={28} className="text-indigo-300/25"/><p className="text-sm text-indigo-100/50">Your activity starts here</p><p className="max-w-60 text-xs leading-5 text-indigo-100/30">{stats?"Real command events appear as your community uses Videl.":"Sign in to load your community’s recent activity."}</p></div>}</div></section>

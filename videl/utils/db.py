@@ -265,6 +265,18 @@ def get_total_plays() -> int:
         return 0
 
 
+def read_live_totals() -> dict:
+    """Strict dashboard read: query failures must never masquerade as zero totals."""
+    db = get_db()
+    if db is None:
+        raise RuntimeError("MongoDB is not connected")
+    users = db["served_users"].count_documents({})
+    chats = db["served_chats"].count_documents({})
+    rows = list(db["play_stats"].aggregate([{"$group": {"_id": None, "total": {"$sum": "$count"}}}]))
+    plays = int(rows[0].get("total", 0)) if rows else 0
+    return {"users": users, "chats": chats, "plays": plays}
+
+
 # ── Broadcast Chats ────────────────────────────────────────────────────────────
 
 def add_broadcast_chat(chat_id: int, chat_type: str) -> None:
