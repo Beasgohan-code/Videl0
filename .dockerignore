@@ -1,0 +1,26 @@
+# Videl — chunk less: minimal Docker context
+.git
+.gitignore
+.vscode
+.github
+*.md
+!README.md
+uploads
+downloads
+logs
+data
+*.db
+videl.db
+webapp/.next
+webapp/node_modules
+webapp/out
+webapp/dist
+webapp/.vercel
+webapp/.turbo
+__pycache__
+*.pyc
+.pytest_cache
+.mypy_cache
+.venv
+.env
+.env.local

@@ -1,309 +1,678 @@
-# --------------------------------------------------------------------------------
-#  Videl © 2026 | Developed by Beasgohan-code
-#  Fork & improve freely under MIT. Keep credits.
-# --------------------------------------------------------------------------------
-
+# Videl — Render backend: Telegram bot + private Flask API.
+# Next.js frontend lives on Vercel and calls this backend over HTTPS.
 import asyncio
 import importlib
 import os
-import re
-import sys
+import signal
 import threading
 import time
-
+import logging
+import hmac
 import requests
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from pyrogram import idle
-from pyrogram.types import BotCommand
-
 import config
-from videl import LOGGER, assistant, bot, call_py
+from videl import LOGGER, bot
 from videl.modules import ALL_MODULES
-from videl.utils.rich_ui import (
-    rich_esc,
-    rich_heading,
-    rich_kv_table,
-    rich_send,
-)
 
-ASSISTANT_USERNAME: str = ""
-
-# ── Flask health + built-in Eldian-compatible download API ────────────────────
+BACKEND_PORT = int(os.getenv("PORT", str(config.PORT)))
 
 _flask = Flask(__name__)
+_BOT_LOOP = None
+_BOT_STATUS = "starting"
+
+try:
+    from videl.api.eldian_routes import register_eldian_routes
+    register_eldian_routes(_flask)
+except Exception as _eldian_exc:
+    LOGGER.warning("Could not register Eldian routes: %s", _eldian_exc)
 
 
+def _internal_authorized():
+    expected = getattr(config, "WEBAPP_SECRET", "") or ""
+    supplied = request.headers.get("X-Videl-Internal", "")
+    return bool(expected) and hmac.compare_digest(supplied, expected)
+
+
+def _bot_api(method, payload):
+    token = getattr(config, "BOT_TOKEN", "") or ""
+    if not token:
+        return None, {"ok": False, "description": "Bot token is not configured"}
+    try:
+        response = requests.post(f"https://api.telegram.org/bot{token}/{method}", json=payload, timeout=8)
+        try:
+            result = response.json()
+        except ValueError:
+            return response.status_code, {"ok": False, "description": "Telegram returned an invalid response"}
+        return response.status_code, result
+    except requests.RequestException:
+        LOGGER.exception("Telegram Bot API request failed (%s)", method)
+        return None, {"ok": False, "description": "Telegram Bot API is unreachable"}
+
+
+# ── Render backend health and service metadata ───────────────────────────
 @_flask.route("/")
-def _home():
-    return jsonify(
-        {
-            "service": "Videl Music",
-            "status": "running",
-            "api": {
-                "status": "/api/status",
-                "audio": "/api/stream_audio?url=YOUTUBE_URL",
-                "video": "/api/download?url=YOUTUBE_URL",
-                "eldian_v1": "POST /v1/track/by-video-id",
-            },
-            "credit": "Beasgohan-code · Eldian-compatible API built-in",
-        }
-    ), 200
-
+@_flask.route("/_videl_status")
+def _status_json():
+    return jsonify({
+        "service": "Videl Render backend",
+        "status": "running",
+        "bot": getattr(config, "BOT_USERNAME", "Videl0Bot"),
+        "webapp": getattr(config, "WEBAPP_URL", ""),
+        "health": "/health",
+        "api_index": "/api",
+    }), 200
 
 @_flask.route("/health")
 def _health():
-    return jsonify({"status": "ok", "service": "videl"}), 200
+    from videl import bot_start_time
+    return jsonify({"status": "ok", "service": "videl-render-backend", "bot_status": _BOT_STATUS, "uptime": max(0, int(time.time() - bot_start_time))}), 200
 
+@_flask.route("/internal/auth", methods=["POST"])
+def _internal_auth():
+    if not _internal_authorized():
+        return jsonify({"ok": False, "error": "unauthorized"}), 403
+    import hashlib
+    import json
+    from urllib.parse import parse_qsl
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify({"ok": False, "error": "A JSON object is required"}), 400
+    token = getattr(config, "BOT_TOKEN", "") or ""
+    owner_id = str(getattr(config, "OWNER_ID", "") or "")
+    if not token or not owner_id:
+        return jsonify({"ok": False, "error": "Telegram owner authentication is not configured"}), 503
+    try:
+        init_data = body.get("init_data", "")
+        login_widget = body.get("login_widget")
+        if isinstance(init_data, str) and init_data and len(init_data) <= 8192:
+            fields = dict(parse_qsl(init_data, keep_blank_values=True, strict_parsing=True))
+            received = fields.pop("hash", "")
+            if len(received) != 64:
+                raise ValueError("invalid hash")
+            data_check = "\n".join(f"{key}={value}" for key, value in sorted(fields.items()))
+            secret_key = hmac.new(b"WebAppData", token.encode(), "sha256").digest()
+            expected = hmac.new(secret_key, data_check.encode(), "sha256").hexdigest()
+            if not hmac.compare_digest(received.lower(), expected):
+                raise ValueError("invalid Mini App signature")
+            auth_date = int(fields.get("auth_date", "0"))
+            user = json.loads(fields.get("user", "{}"))
+        elif isinstance(login_widget, dict) and len(login_widget) <= 20:
+            fields = {str(key): str(value) for key, value in login_widget.items() if key != "hash" and value is not None}
+            received = str(login_widget.get("hash", ""))
+            if len(received) != 64 or not all(c in "0123456789abcdefABCDEF" for c in received):
+                raise ValueError("invalid Login Widget hash")
+            data_check = "\n".join(f"{key}={value}" for key, value in sorted(fields.items()))
+            secret_key = hashlib.sha256(token.encode()).digest()
+            expected = hmac.new(secret_key, data_check.encode(), "sha256").hexdigest()
+            if not hmac.compare_digest(received.lower(), expected):
+                raise ValueError("invalid Login Widget signature")
+            auth_date = int(fields.get("auth_date", "0"))
+            user = {key: login_widget.get(key) for key in ("id", "first_name", "username") if login_widget.get(key) is not None}
+        else:
+            return jsonify({"ok": False, "error": "Telegram authentication data is required"}), 400
+        now = int(time.time())
+        if not auth_date or auth_date > now + 60 or now - auth_date > 86400:
+            return jsonify({"ok": False, "error": "Telegram authentication data is expired"}), 401
+        if str(user.get("id", "")) != owner_id:
+            return jsonify({"ok": False, "error": "This control panel is restricted to the configured bot owner"}), 403
+        return jsonify({"ok": True, "user": {key: user.get(key) for key in ("id", "first_name", "username") if user.get(key) is not None}})
+    except (ValueError, TypeError, json.JSONDecodeError):
+        return jsonify({"ok": False, "error": "Invalid Telegram authentication data"}), 401
 
-# Register Eldian-style download routes (same process as the bot)
-try:
-    from videl.api.eldian_routes import register_eldian_routes
+@_flask.route("/internal/send-message", methods=["POST"])
+def _internal_send_message():
+    if not _internal_authorized():
+        return jsonify({"ok": False, "error": "unauthorized"}), 403
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify({"ok": False, "error": "A JSON object is required"}), 400
+    chat_id = str(body.get("chat_id", "")).strip()
+    text = body.get("text")
+    as_user = body.get("as_user") is True
+    if not chat_id or len(chat_id) > 128 or not isinstance(text, str) or not text.strip() or len(text) > 4096:
+        return jsonify({"ok": False, "error": "A chat ID and 1–4096 characters of message text are required"}), 400
+    if as_user:
+        if not getattr(config, "STRING_SESSION", ""):
+            return jsonify({"ok": False, "error": "User session is not configured on the Render backend"}), 503
+        loop = _BOT_LOOP
+        if loop is None or not loop.is_running():
+            return jsonify({"ok": False, "error": "Telegram client is not running"}), 503
+        try:
+            from videl import assistant
+            future = asyncio.run_coroutine_threadsafe(assistant.send_message(chat_id, text), loop)
+            sent = future.result(timeout=15)
+            return jsonify({"ok": True, "chat_id": str(sent.chat.id), "message_id": sent.id, "via": "user"})
+        except Exception as exc:
+            LOGGER.info("owner user-session message failed: %s", exc)
+            return jsonify({"ok": False, "error": "The user session could not send to that Telegram chat"}), 502
+    status, result = _bot_api("sendMessage", {"chat_id": chat_id, "text": text, "link_preview_options": {"is_disabled": True}})
+    if not status or not result.get("ok"):
+        return jsonify({"ok": False, "error": result.get("description", "Telegram rejected the message")}), 502
+    message = result.get("result", {})
+    return jsonify({"ok": True, "chat_id": str(message.get("chat", {}).get("id", chat_id)), "message_id": message.get("message_id"), "via": "bot"})
 
-    register_eldian_routes(_flask)
-except Exception as _api_err:
-    LOGGER.warning(f"Built-in download API not loaded: {_api_err}")
+@_flask.route("/internal/channel-post", methods=["POST"])
+def _internal_channel_post():
+    if not _internal_authorized():
+        return jsonify({"ok": False, "error": "unauthorized"}), 403
+    import json
+    from urllib.parse import urlparse
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify({"ok": False, "error": "A JSON object is required"}), 400
+    chat_id = str(body.get("chat_id", "")).strip()
+    text = str(body.get("text", "")).strip()
+    media_url = str(body.get("media_url", "")).strip()
+    if not chat_id or len(chat_id) > 128 or not text and not media_url or len(text) > 4096:
+        return jsonify({"ok": False, "error": "A channel ID and post text or media are required"}), 400
+    parse_mode = body.get("parse_mode", "HTML")
+    if parse_mode not in ("HTML", "Markdown", "MarkdownV2"):
+        return jsonify({"ok": False, "error": "Unsupported parse mode"}), 400
+    method = "sendMessage"
+    payload = {"chat_id": chat_id, "parse_mode": parse_mode}
+    if media_url:
+        parsed = urlparse(media_url)
+        if parsed.scheme != "https" or not parsed.netloc or len(media_url) > 2048:
+            return jsonify({"ok": False, "error": "Media URL must be a valid HTTPS URL"}), 400
+        if len(text) > 1024:
+            return jsonify({"ok": False, "error": "Photo captions are limited to 1024 characters"}), 400
+        method = "sendPhoto"
+        payload.update({"photo": media_url, "caption": text})
+    else:
+        payload["text"] = text
+    buttons = body.get("buttons")
+    if buttons:
+        try:
+            if isinstance(buttons, str): buttons = json.loads(buttons)
+            rows = buttons if isinstance(buttons, list) else []
+            if rows and not isinstance(rows[0], list): rows = [rows]
+            if not rows or len(rows) > 8: raise ValueError("invalid keyboard")
+            keyboard = []
+            for row in rows:
+                if not isinstance(row, list) or not row or len(row) > 8: raise ValueError("invalid row")
+                normalized = []
+                for item in row:
+                    label = str(item.get("text", "")).strip()
+                    url = str(item.get("url", item.get("href", ""))).strip()
+                    parsed = urlparse(url)
+                    if not label or len(label) > 64 or parsed.scheme not in ("https", "http") or not parsed.netloc:
+                        raise ValueError("buttons need a label and valid http(s) URL")
+                    normalized.append({"text": label, "url": url})
+                keyboard.append(normalized)
+            payload["reply_markup"] = {"inline_keyboard": keyboard}
+        except (ValueError, TypeError, AttributeError) as exc:
+            return jsonify({"ok": False, "error": f"Invalid button layout: {exc}"}), 400
+    status, result = _bot_api(method, payload)
+    if not status or not result.get("ok"):
+        return jsonify({"ok": False, "error": result.get("description", "Telegram rejected the post")}), 502
+    sent = result.get("result", {})
+    return jsonify({"ok": True, "chat_id": str(sent.get("chat", {}).get("id", chat_id)), "message_id": sent.get("message_id"), "via": "bot"})
 
+@_flask.route("/internal/stats")
+def _internal_stats():
+    # Server-to-server only: Next.js forwards the backend secret; never expose
+    # database credentials or personal records through this endpoint.
+    expected = getattr(config, "WEBAPP_SECRET", "") or ""
+    supplied = request.headers.get("X-Videl-Internal", "")
+    if not expected or not hmac.compare_digest(supplied, expected):
+        return jsonify({"ok": False, "error": "unauthorized"}), 403
+    try:
+        from videl import bot_start_time
+        from videl.utils.db import (get_served_chats_count, get_served_users_count,
+                                    get_total_plays, is_connected)
+        if not is_connected():
+            return jsonify({"ok": False, "error": "MongoDB is not connected", "database": "disconnected"}), 503
+        return jsonify({
+            "ok": True,
+            "stats": {
+                "users": get_served_users_count(),
+                "chats": get_served_chats_count(),
+                "plays": get_total_plays(),
+                "uptime": max(0, int(time.time() - bot_start_time)),
+                "bot_username": getattr(config, "BOT_USERNAME", "Videl0Bot"),
+                "bot_name": getattr(config, "BOT_NAME", "Videl Studio"),
+                "owner_username": getattr(config, "OWNER_USERNAME", "Beasgohan"),
+                "database": "connected",
+                "services": {
+                    "bot_token": bool(getattr(config, "BOT_TOKEN", "")),
+                    "user_session": bool(getattr(config, "STRING_SESSION", "")),
+                    "mongo": True,
+                    "music_api": True,
+                    "logger_channel": bool(getattr(config, "LOGGER_ID", 0)),
+                },
+            },
+        }), 200
+    except Exception as exc:
+        LOGGER.exception("internal stats query failed")
+        return jsonify({"ok": False, "error": "database query failed"}), 503
 
-def _run_flask() -> None:
-    port = int(os.getenv("PORT", str(config.PORT)))
-    LOGGER.info(f"Binding health+API server on 0.0.0.0:{port}")
-    _flask.run(host="0.0.0.0", port=port, use_reloader=False, threaded=True)
+@_flask.route("/internal/chats")
+def _internal_chats():
+    expected = getattr(config, "WEBAPP_SECRET", "") or ""
+    supplied = request.headers.get("X-Videl-Internal", "")
+    if not expected or not hmac.compare_digest(supplied, expected):
+        return jsonify({"ok": False, "error": "unauthorized"}), 403
+    try:
+        from videl.utils.db import get_db
+        db = get_db()
+        if db is None:
+            return jsonify({"ok": False, "error": "MongoDB is not connected"}), 503
+        ids = [doc.get("_id") for doc in db["served_chats"].find({}, {"_id": 1}).limit(100)]
+        setting_keys = ("lock_links", "lock_media", "lock_stickers", "antispam", "lock_forwards", "welcome_enabled")
+        settings = {int(doc["chat_id"]): {k: bool(doc.get(k, False)) for k in setting_keys}
+                    for doc in db["mgmt_chat_settings"].find({"chat_id": {"$in": ids}})}
+        from concurrent.futures import ThreadPoolExecutor
+        def enrich(chat_id):
+            if not getattr(config, "BOT_TOKEN", ""):
+                return {"id": chat_id, "title": f"Telegram chat {chat_id}", "type": "unknown", "members": None, "available": False}
+            _, chat = _bot_api("getChat", {"chat_id": chat_id})
+            _, members = _bot_api("getChatMemberCount", {"chat_id": chat_id})
+            valid_chat = bool(chat and chat.get("ok"))
+            result = chat.get("result", {}) if valid_chat else {}
+            return {
+                "id": chat_id,
+                "title": result.get("title") or result.get("username") or f"Telegram chat {chat_id}",
+                "username": result.get("username"),
+                "type": result.get("type", "unknown"),
+                "members": members.get("result") if members and members.get("ok") else None,
+                "available": valid_chat,
+            }
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            rows = list(pool.map(enrich, ids[:25]))
+        for row in rows:
+            try: row["settings"] = settings.get(int(row["id"]), {})
+            except (TypeError, ValueError): row["settings"] = {}
+        return jsonify({"ok": True, "chats": rows, "truncated": len(ids) > 25})
+    except Exception:
+        LOGGER.exception("internal group list query failed")
+        return jsonify({"ok": False, "error": "group query failed"}), 503
 
+@_flask.route("/internal/analytics")
+def _internal_analytics():
+    expected = getattr(config, "WEBAPP_SECRET", "") or ""
+    supplied = request.headers.get("X-Videl-Internal", "")
+    if not expected or not hmac.compare_digest(supplied, expected):
+        return jsonify({"ok": False, "error": "unauthorized"}), 403
+    try:
+        from datetime import datetime, timedelta, timezone
+        from collections import Counter
+        from videl.utils.db import get_db
+        db=get_db()
+        if db is None:
+            return jsonify({"ok": False, "error": "MongoDB is not connected"}), 503
+        now=datetime.now(timezone.utc)
+        since=now-timedelta(hours=24)
+        event_filter={"at":{"$gte":since}}
+        total=db["command_events"].count_documents(event_filter)
+        events=list(db["command_events"].find(event_filter,{"_id":0,"at":1,"command":1,"chat_id":1,"user_id":1}).sort("at",1).limit(20000))
+        hours=[]
+        for offset in range(23,-1,-1):
+            hour=(now.replace(minute=0,second=0,microsecond=0)-timedelta(hours=offset))
+            hours.append({"time":hour.strftime("%H:%M"),"commands":0})
+        by_hour={point["time"]:point for point in hours}
+        chats=Counter(); commands=Counter(); users=set()
+        for event in events:
+            dt=event.get("at")
+            if dt is None: continue
+            if dt.tzinfo is None: dt=dt.replace(tzinfo=timezone.utc)
+            bucket=dt.astimezone(timezone.utc).strftime("%H:00")
+            if bucket in by_hour: by_hour[bucket]["commands"]+=1
+            if event.get("chat_id") is not None: chats[str(event["chat_id"])]+=1
+            if event.get("command"): commands[event["command"]]+=1
+            if event.get("user_id") is not None: users.add(str(event["user_id"]))
+        recent_raw = list(db["command_events"].find({}, {"_id": 0, "at": 1, "command": 1, "chat_id": 1}).sort("at", -1).limit(12))
+        recent_events = []
+        for item in recent_raw:
+            dt = item.get("at")
+            if dt is not None and dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            recent_events.append({
+                "command": item.get("command", "command"),
+                "chat_id": str(item.get("chat_id", "")),
+                "at": dt.isoformat() if dt else None,
+            })
+        return jsonify({
+            "ok":True,
+            "window_hours":24,
+            "total_commands":total,
+            "active_users":len(users),
+            "series":hours,
+            "top_chats":[{"id":chat_id,"commands":count} for chat_id,count in chats.most_common(10)],
+            "top_commands":[{"command":command,"count":count} for command,count in commands.most_common(10)],
+            "recent_events":recent_events,
+            "truncated":total>len(events),
+        })
+    except Exception:
+        LOGGER.exception("internal analytics query failed")
+        return jsonify({"ok":False,"error":"analytics query failed"}),503
 
-# ── Keep-Alive ────────────────────────────────────────────────────────────────
+@_flask.route("/internal/chat-settings", methods=["POST"])
+def _internal_chat_settings():
+    expected = getattr(config, "WEBAPP_SECRET", "") or ""
+    supplied = request.headers.get("X-Videl-Internal", "")
+    if not expected or not hmac.compare_digest(supplied, expected):
+        return jsonify({"ok": False, "error": "unauthorized"}), 403
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify({"ok": False, "error": "A JSON object is required"}), 400
+    try:
+        chat_id = int(body.get("chat_id"))
+        settings = body.get("settings")
+        allowed = {"lock_links", "lock_media", "lock_stickers", "antispam", "lock_forwards", "welcome_enabled"}
+        if not isinstance(settings, dict) or not settings or set(settings) - allowed or any(not isinstance(v, bool) for v in settings.values()):
+            return jsonify({"ok": False, "error": "Only boolean protection and automation settings may be changed"}), 400
+        from videl.utils.db import get_db
+        db = get_db()
+        if db is None:
+            return jsonify({"ok": False, "error": "MongoDB is not connected"}), 503
+        if db["served_chats"].find_one({"_id": chat_id}) is None:
+            return jsonify({"ok": False, "error": "Chat is not in Videl's served group list"}), 404
+        db["mgmt_chat_settings"].update_one({"chat_id": chat_id}, {"$set": settings}, upsert=True)
+        return jsonify({"ok": True, "chat_id": chat_id, "settings": settings})
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "chat_id must be an integer"}), 400
+    except Exception:
+        LOGGER.exception("internal group settings update failed")
+        return jsonify({"ok": False, "error": "settings update failed"}), 503
 
-def _keep_alive() -> None:
-    url = os.getenv("RENDER_EXTERNAL_URL", f"http://0.0.0.0:{config.PORT}")
+@_flask.route("/internal/broadcast", methods=["POST"])
+def _internal_broadcast():
+    if not _internal_authorized():
+        return jsonify({"ok": False, "error": "unauthorized"}), 403
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify({"ok": False, "error": "A JSON object is required"}), 400
+    text = str(body.get("text", "")).strip()
+    scope = str(body.get("scope", "chats")).strip()
+    if scope not in ("chats", "users", "all"):
+        return jsonify({"ok": False, "error": "Invalid broadcast audience"}), 400
+    if not text or len(text) > 4096:
+        return jsonify({"ok": False, "error": "Broadcast text (1–4096 chars) is required"}), 400
+    try:
+        from videl.utils.db import get_db
+        db = get_db()
+        if db is None:
+            return jsonify({"ok": False, "error": "MongoDB is not connected"}), 503
+        targets = []
+        if scope in ("chats", "all"):
+            targets.extend(doc.get("_id") for doc in db["served_chats"].find({}, {"_id": 1}).limit(60))
+        if scope in ("users", "all"):
+            targets.extend(doc.get("_id") for doc in db["served_users"].find({}, {"_id": 1}).limit(60))
+        unique_targets = [t for t in dict.fromkeys(targets) if t is not None][:60]
+        if not unique_targets:
+            return jsonify({"ok": False, "error": "No served recipients recorded in MongoDB yet"}), 404
+        sent, failed = 0, 0
+        for chat_id in unique_targets:
+            status, res = _bot_api("sendMessage", {"chat_id": chat_id, "text": text, "parse_mode": "HTML"})
+            if status and res.get("ok"):
+                sent += 1
+            else:
+                failed += 1
+        return jsonify({"ok": True, "sent": sent, "failed": failed, "total": len(unique_targets)})
+    except Exception:
+        LOGGER.exception("internal broadcast failed")
+        return jsonify({"ok": False, "error": "broadcast execution failed"}), 503
+
+@_flask.route("/internal/bot-settings", methods=["GET", "POST"])
+def _internal_bot_settings():
+    if not _internal_authorized():
+        return jsonify({"ok": False, "error": "unauthorized"}), 403
+    if request.method == "GET":
+        _, me_res = _bot_api("getMe", {})
+        _, cmd_res = _bot_api("getMyCommands", {})
+        _, menu_res = _bot_api("getChatMenuButton", {})
+        return jsonify({
+            "ok": True,
+            "bot": me_res.get("result") if me_res and me_res.get("ok") else {
+                "username": getattr(config, "BOT_USERNAME", "Videl0Bot"),
+                "first_name": getattr(config, "BOT_NAME", "Videl Studio"),
+            },
+            "commands": cmd_res.get("result", []) if cmd_res and cmd_res.get("ok") else [],
+            "menu_button": menu_res.get("result", {}) if menu_res and menu_res.get("ok") else {},
+            "webapp_url": getattr(config, "WEBAPP_URL", ""),
+        })
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify({"ok": False, "error": "A JSON object is required"}), 400
+    action = str(body.get("action", "")).strip()
+    if action == "set_menu_button":
+        from urllib.parse import urlparse
+        url = str(body.get("webapp_url") or getattr(config, "WEBAPP_URL", "")).strip()
+        text = str(body.get("button_text") or "Videl Studio").strip()[:32]
+        parsed = urlparse(url)
+        if parsed.scheme != "https" or not parsed.netloc:
+            return jsonify({"ok": False, "error": "WebApp URL must be a valid HTTPS URL"}), 400
+        status, res = _bot_api("setChatMenuButton", {
+            "menu_button": {"type": "web_app", "text": text, "web_app": {"url": url}}
+        })
+        if not status or not res.get("ok"):
+            return jsonify({"ok": False, "error": res.get("description", "Failed to update menu button")}), 502
+        return jsonify({"ok": True, "webapp_url": url, "button_text": text})
+    if action == "sync_commands":
+        default_cmds = [
+            {"command": "start", "description": "Launch Videl Studio & Web App"},
+            {"command": "help", "description": "Explore Videl command modules"},
+            {"command": "play", "description": "Stream music in voice chat"},
+            {"command": "vplay", "description": "Stream HD video in voice chat"},
+            {"command": "queue", "description": "View current playback queue"},
+            {"command": "skip", "description": "Skip to next track"},
+            {"command": "locks", "description": "Configure group protection locks"},
+            {"command": "stats", "description": "View live bot & database metrics"},
+            {"command": "ping", "description": "Check Videl latency & uptime"},
+        ]
+        status, res = _bot_api("setMyCommands", {"commands": default_cmds})
+        if not status or not res.get("ok"):
+            return jsonify({"ok": False, "error": res.get("description", "Failed to sync commands")}), 502
+        return jsonify({"ok": True, "synced": len(default_cmds)})
+    return jsonify({"ok": False, "error": "Unsupported bot-settings action"}), 400
+
+@_flask.route("/api")
+@_flask.route("/api/")
+def _api_index():
+    return jsonify({
+        "ok": True,
+        "service": "videl-render-backend",
+        "health": "/health",
+        "webapp": getattr(config, "WEBAPP_URL", ""),
+        "note": "Owner operations are available only through the authenticated Vercel control panel.",
+    }), 200
+
+def _log_all_urls_console():
+    try:
+        LOGGER.info("Flask Render backend routes:")
+        for rule in _flask.url_map.iter_rules():
+            methods = ",".join(sorted(rule.methods - {"HEAD", "OPTIONS"}))
+            LOGGER.info("  • %-32s [%s]", rule.rule, methods)
+    except Exception:
+        LOGGER.debug("Flask route map logging failed", exc_info=True)
+
+def _run_flask():
+    LOGGER.info("Videl Render backend listening on 0.0.0.0:%s", BACKEND_PORT)
+    _log_all_urls_console()
+    _flask.run(host="0.0.0.0", port=BACKEND_PORT, use_reloader=False, threaded=True)
+
+def _keep_alive():
+    # keep-alive ping self (Render free tier sleep prevention)
+    url = os.getenv("RENDER_EXTERNAL_URL", f"http://127.0.0.1:{os.getenv('PORT', config.PORT)}")
+    # use public URL if available, else localhost
+    public = os.getenv("RENDER_EXTERNAL_URL", "https://videl0.onrender.com")
+    target = public if public.startswith("http") else url
     while True:
         try:
-            requests.get(url, timeout=10)
-            LOGGER.info(f"Keep-alive ping sent → {url}")
-        except Exception as e:
-            LOGGER.warning(f"Keep-alive ping failed: {e}")
+            requests.get(target + "/health", timeout=10)
+        except: pass
         time.sleep(300)
 
-
-# ── Startup notification ──────────────────────────────────────────────────────
-
-
-async def _notify_owner(me, assistant_username: str) -> None:
-    """Notify logger group + send DM to owner when bot starts."""
-    content = (
-        rich_heading("◍ Vɪᴅᴇʟ sᴛᴀʀᴛᴇᴅ ◍", level=3)
-        + rich_kv_table([
-            ("Bot", f"@{rich_esc(me.username or 'N/A')}"),
-            ("Assistant", f"@{rich_esc(assistant_username)}"),
-            ("Owner", str(config.OWNER_ID)),
-        ])
-    )
-
-    # Logger group (if set)
-    if config.LOGGER_ID:
-        try:
-            await rich_send(bot, config.LOGGER_ID, content)
-        except Exception as e:
-            LOGGER.warning(f"Logger notification error: {e}")
-
-    # Owner DM
-    try:
-        await bot.send_message(
-            config.OWNER_ID,
-            (
-                f"◍ <b>{config.BOT_NAME}</b> — ᴏɴʟɪɴᴇ ⫶\n\n"
-                f"• Bot: @{me.username or 'N/A'}\n"
-                f"• Assistant: @{assistant_username or 'N/A'}\n"
-                f"• ID: <code>{me.id}</code>\n\n"
-                f"<i>All systems ready. Have fun!</i>"
-            ),
-        )
-        LOGGER.info(f"Startup DM sent to owner {config.OWNER_ID}")
-    except Exception as e:
-        LOGGER.warning(f"Owner DM notification error: {e}")
-
-# ── Main ──────────────────────────────────────────────────────────────────────
-
 if __name__ == "__main__":
-
-    # 1. MongoDB
+    # Mongo
     try:
         from videl.utils.db import start_mongo
-        ok = start_mongo()
-        if ok:
-            LOGGER.info("MongoDB ready.")
-        else:
-            LOGGER.warning("MongoDB not connected — continuing without DB.")
+        start_mongo()
     except Exception as e:
-        LOGGER.warning(f"MongoDB startup error: {e} — continuing without DB.")
+        LOGGER.warning(f"mongo: {e}")
 
-    # 2. Flask
     threading.Thread(target=_run_flask, daemon=True).start()
-    LOGGER.info(f"Flask health server on port {config.PORT}")
-
-    # 3. Keep-alive ping
     threading.Thread(target=_keep_alive, daemon=True).start()
-    LOGGER.info("Keep-alive thread started")
+    LOGGER.info(f"Render backend health on {BACKEND_PORT} — Vercel frontend URL: {getattr(config, 'WEBAPP_URL', 'not configured')}")
 
-    # ── 4–12. Start clients in correct order on ONE event loop ───────────────
-    # Order matters:
-    #   1) bot Client
-    #   2) assistant Client
-    #   3) PyTgCalls (bound to assistant)
-    # Mixing sync starts + run_until_complete on different loops causes:
-    #   "belongs to an event loop that is not running"
+    missing = [k for k in ("API_ID","API_HASH","BOT_TOKEN","MONGO_DB_URL") if not os.getenv(k)]
+    if missing:
+        LOGGER.warning(f"Missing env: {missing} — bot in health-only mode, webapp still serves")
 
-    async def _boot() -> None:
-        global ASSISTANT_USERNAME
+    # ── Bot with full logs (start/stop/error/other) ──────────────────────
+    async def _boot():
+        # setup shutdown/error hooks inside event loop
+        import signal as _sig
+        from videl.utils.logger import log_startup, log_shutdown, log_error, setup_async_error_handler
 
-        # Bot
-        for attempt in range(10):
+        loop = asyncio.get_running_loop()
+        global _BOT_LOOP, _BOT_STATUS
+        _BOT_LOOP = loop
+        setup_async_error_handler(bot, loop)
+
+        # graceful shutdown handler
+        _shutting = False
+        def _sig_handler(sig, frame):
+            nonlocal _shutting
+            if _shutting: return
+            _shutting = True
+            LOGGER.info(f"Signal {sig} — shutting down...")
             try:
-                await bot.start()
-                LOGGER.info("Bot client started")
-                break
-            except Exception as e:
-                if "FLOOD_WAIT" in str(e):
-                    m = re.search(r"(\d+)", str(e))
-                    wait = min(int(m.group(1)) + 5 if m else 300, 1800)
-                    LOGGER.warning(f"FLOOD_WAIT — sleeping {wait}s (attempt {attempt + 1}/10)")
-                    await asyncio.sleep(wait)
-                else:
-                    LOGGER.error(f"Bot start failed: {e}")
-                    raise SystemExit(1) from e
-        else:
-            LOGGER.error("Bot failed to start after 10 attempts")
-            raise SystemExit(1)
+                # schedule async log_shutdown
+                asyncio.run_coroutine_threadsafe(log_shutdown(bot, f"signal {sig}"), loop)
+            except: pass
+
+        try:
+            for s in (_sig.SIGINT, _sig.SIGTERM):
+                signal.signal(s, _sig_handler)
+        except Exception:
+            pass  # not in main thread on some runners
+
+        # Start bot
+        try:
+            await bot.start()
+        except Exception as e:
+            _BOT_STATUS = "failed"
+            LOGGER.error(f"bot.start fail: {e}")
+            try:
+                await log_error(bot, "bot.start", e, "startup")
+            except: pass
+            # keep Flask backend alive even if the bot client fails
+            LOGGER.info("Bot failed — health and backend API remain available")
+            while True:
+                await asyncio.sleep(3600)
+            return
 
         me = await bot.get_me()
-        LOGGER.info(f"Bot: @{me.username}")
+        _BOT_STATUS = "online"
+        LOGGER.info(f"Bot @{me.username} started")
 
-        # Bot commands — elite group help better than Rose/GroupHelp + music
+        # assistant (userbot) optional
+        assistant_username = ""
         try:
+            from videl import assistant as _assis
+            if config.STRING_SESSION:
+                await _assis.start()
+                am = await _assis.get_me()
+                assistant_username = am.username or str(am.id)
+                LOGGER.info(f"Assistant @{assistant_username} started")
+            else:
+                LOGGER.info("No STRING_SESSION — assistant disabled")
+        except Exception as e:
+            LOGGER.warning(f"assistant fail: {e}")
+            try:
+                await log_error(bot, "assistant.start", e)
+            except: pass
+
+        # bot commands + WebApp menu button (single Vercel URL)
+        try:
+            from pyrogram.types import BotCommand
             await bot.set_bot_commands([
-                BotCommand("start",      "◍ Vɪᴅᴇʟ — Start"),
-                BotCommand("help",       "⬪ Help — all modules"),
-                BotCommand("play",       "⬪ Play music in VC"),
-                BotCommand("vplay",      "⬪ Play video in VC"),
-                BotCommand("cplay",      "⬪ Play in channel"),
-                BotCommand("pause",      "ɪɪ Pause"),
-                BotCommand("resume",     "▷ Resume"),
-                BotCommand("skip",       "‣‣ Skip"),
-                BotCommand("stop",       "⬩ Stop & clear"),
-                BotCommand("queue",      "⫶ Queue"),
-                BotCommand("lyrics",     "◍ Lyrics"),
-                BotCommand("ping",       "⦿ Ping & stats"),
-                BotCommand("ban",        "◍ Ban — elite admin"),
-                BotCommand("mute",       "⦿ Mute / tmute"),
-                BotCommand("warn",       "⬪ Warn with limit"),
-                BotCommand("admins",     "◎ Admin list"),
-                BotCommand("locks",      "◍ Elite locks — 32 types"),
-                BotCommand("approve",    "◎ Approve bypass"),
-                BotCommand("captcha",    "𖦹 Captcha verification"),
-                BotCommand("blacklist",  "⬢ Blocklist words"),
-                BotCommand("fban",       "⬪ Federation ban"),
-                BotCommand("reports",    "◍ Reports to admins"),
-                BotCommand("rules",      "◎ Group rules"),
-                BotCommand("notes",      "⫶ Saved notes"),
-                BotCommand("filters",    "⬪ Custom filters"),
-                BotCommand("welcome",    "◍ Welcome control"),
-                BotCommand("nightmode",  "⬢ Night mode"),
-                BotCommand("disable",    "⫶ Disable commands"),
-                BotCommand("backup",     "◍ Chat backup"),
-                BotCommand("ask",        "⦿ AI ask — Videl"),
-                BotCommand("weather",    "◎ Weather etc."),
+                BotCommand("start", "Launch Videl Studio & Web App"),
+                BotCommand("help", "Explore Videl command modules"),
+                BotCommand("play", "Stream audio in voice chat"),
+                BotCommand("vplay", "Stream HD video in voice chat"),
+                BotCommand("queue", "View active playback queue"),
+                BotCommand("setup", "Interactive Group Manager Wizard"),
+                BotCommand("locks", "Configure group protection shields"),
+                BotCommand("ping", "Check latency & live telemetry"),
+                BotCommand("stats", "System & MongoDB diagnostics"),
+                BotCommand("logs", "Owner error & runtime logs"),
             ])
-            LOGGER.info("Bot commands set — elite group help")
-        except Exception as e:
-            LOGGER.warning(f"Could not set bot commands: {e}")
-
-        # Assistant FIRST (before PyTgCalls)
+        except Exception:
+            pass
         try:
-            if not assistant.is_connected:
-                await assistant.start()
-            am = await assistant.get_me()
-            ASSISTANT_USERNAME = am.username or ""
-            LOGGER.info(f"Assistant started: @{ASSISTANT_USERNAME}")
-        except Exception as e:
-            LOGGER.error(
-                "◍ ᴀssɪsᴛᴀɴᴛ ғᴀɪʟᴇᴅ —\n"
-                "STRING_SESSION is invalid or not a Pyrogram session for this API_ID/API_HASH.\n"
-                f"Error: {e}"
-            )
-            raise SystemExit(1) from e
+            webapp_root = (getattr(config, "WEBAPP_URL", "") or "").strip().rstrip("/")
+            if webapp_root.startswith("https://"):
+                _bot_api("setChatMenuButton", {
+                    "menu_button": {"type": "web_app", "text": "👑 Videl Studio", "web_app": {"url": webapp_root}}
+                })
+        except Exception:
+            pass
 
-        # PyTgCalls AFTER assistant is connected
+        # Startup log to LOGGER_ID (Rich)
         try:
-            await call_py.start()
-            LOGGER.info("PyTgCalls started")
+            from videl.utils.db import _db
+            await log_startup(bot, me, assistant_username=assistant_username, mongo_ok=bool(_db is not None))
         except Exception as e:
-            LOGGER.error(f"◍ ᴘʏᴛɢᴄᴀʟʟs ғᴀɪʟᴇᴅ: {e} ◍")
-            raise SystemExit(1) from e
-
-        # Block middleware
-        try:
-            from videl.utils.decorators import register_block_middleware
-            register_block_middleware()
-            LOGGER.info("Block middleware registered")
-        except Exception as e:
-            LOGGER.warning(f"Block middleware load failed: {e}")
+            LOGGER.debug(f"log_startup skip: {e}")
 
         # Load modules
         for mod in ALL_MODULES:
             try:
                 importlib.import_module(f"videl.modules.{mod}")
-                LOGGER.info(f"Loaded module: {mod}")
+                LOGGER.info(f"Loaded {mod}")
             except Exception as e:
-                LOGGER.error(f"Failed to load module {mod}: {e}")
+                LOGGER.error(f"Failed {mod}: {e}")
+                try:
+                    await log_error(bot, f"load {mod}", e)
+                except: pass
 
-        # Stream-end handler
         try:
-            import videl.core.call  # noqa: F401
-        except Exception as e:
-            LOGGER.error(f"Failed to load call handler: {e}")
+            from videl.plugins.runtime import restore_pending_reminders
+            restored = await restore_pending_reminders()
+            LOGGER.info("Restored %s pending MongoDB reminders", restored)
+        except Exception:
+            LOGGER.exception("Pending reminders could not be restored")
 
-        # Owner / logger notify (same loop)
+        LOGGER.info("Videl bot + Render API are running; Vercel hosts the web control panel")
+        # idle with shutdown log
         try:
-            await _notify_owner(me, ASSISTANT_USERNAME)
-        except Exception as e:
-            LOGGER.warning(f"Startup notify failed: {e}")
-
-        # Watchdog
-        try:
-            from videl.core.watcher import watchdog
-            asyncio.create_task(watchdog())
-            LOGGER.info("Watchdog started")
-        except Exception as e:
-            LOGGER.warning(f"Watchdog failed: {e}")
-
-        LOGGER.info("Videl is running")
-        # Keep process alive on the same loop the clients were started on
-        try:
-            # Kurigram/Pyrogram idle may be sync or async depending on version
-            result = idle()
-            if hasattr(result, "__await__"):
-                await result
+            r = idle()
+            if hasattr(r, "__await__"):
+                await r
         except TypeError:
-            # Some builds expect no call from async context — just wait forever
             await asyncio.Event().wait()
+        finally:
+            _BOT_STATUS = "stopping"
+            try:
+                await log_shutdown(bot, "idle exit")
+            except: pass
+            LOGGER.info("Bot idle exited — shutting down")
+            try:
+                await bot.stop()
+            except: pass
+            try:
+                from videl import assistant as _assis
+                await _assis.stop()
+            except: pass
 
-    try:
-        asyncio.get_event_loop().run_until_complete(_boot())
-    except RuntimeError:
-        # Python 3.10+ may need a fresh loop in some environments
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(_boot())
+    def _run():
+        try:
+            asyncio.get_event_loop().run_until_complete(_boot())
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(_boot())
+        except Exception as e:
+            LOGGER.error(f"boot fail: {e} — health and backend API remain alive")
+            try:
+                # try log to channel if bot was up
+                import asyncio as _a
+                _a.run(log_error(bot, "boot", e))
+            except: pass
+            while True:
+                time.sleep(3600)
 
-    # ── Graceful shutdown ─────────────────────────────────────────────────────
-    try:
-        bot.stop()
-    except Exception:
-        pass
-
-    try:
-        assistant.stop()
-    except Exception:
-        pass
-
-    LOGGER.info("✧ videl stopped ✧")
-
-            
+    _run()

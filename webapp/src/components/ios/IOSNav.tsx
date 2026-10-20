@@ -1,63 +1,30 @@
 "use client";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { Home, LayoutDashboard, Radio, MessageCircle, Settings, Shield } from "lucide-react";
-
+import { useStudio } from "@/components/studio/StudioProvider";
+import { BarChart3, Home, MessageCircle, Radio, Send, Settings2, Shield, Zap, Crown } from "lucide-react";
 const tabs = [
-  { href: "/", label: "Home", icon: Home },
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/dashboard/channel", label: "Studio", icon: Radio },
-  { href: "/dashboard/chat", label: "Chat", icon: MessageCircle },
+  {href:"/",label:"Home",icon:Home},
+  {href:"/chat",label:"Smart Chat",icon:MessageCircle},
+  {href:"/post",label:"Post Studio",icon:Radio},
+  {href:"/groups",label:"Group Manager",icon:Shield},
+  {href:"/automation",label:"Automation",icon:Zap},
+  {href:"/analytics",label:"Analytics",icon:BarChart3},
+  {href:"/broadcast",label:"Broadcast",icon:Send},
+  {href:"/settings",label:"Bot Settings",icon:Settings2},
 ];
-
-export function IOSNav() {
-  const path = usePathname();
-  return (
-    <nav className="sticky top-0 z-40 border-b border-[var(--ios-separator)] bg-[rgba(0,0,0,0.6)] backdrop-blur-[20px] -mx-4 px-4 lg:-mx-6 lg:px-6">
-      <div className="mx-auto max-w-6xl flex items-center justify-between h-[56px]">
-        <Link href="/" className="flex items-center gap-3">
-          <div className="h-8 w-8 rounded-[10px] bg-white text-black flex items-center justify-center font-bold text-[14px]">◍</div>
-          <div className="leading-none">
-            <div className="text-[16px] font-bold tracking-[-0.02em]">Videl</div>
-            <div className="text-[11px] text-[var(--ios-label-secondary)] font-medium tracking-wide">PERFECT • CYBER DARK</div>
-          </div>
-        </Link>
-        <div className="hidden md:flex items-center gap-1 ios-tabbar">
-          {tabs.map(t => {
-            const active = path === t.href || (t.href !== "/" && path.startsWith(t.href));
-            return (
-              <Link key={t.href} href={t.href} className={`ios-tab ${active ? "active" : ""}`}>
-                <t.icon size={14} /> {t.label}
-              </Link>
-            );
-          })}
-        </div>
-        <div className="flex items-center gap-2">
-          <a href="https://t.me/Videl0Bot" target="_blank" className="ios-pill ios-pill-blue hidden sm:inline-flex">⬪ Open in TG</a>
-          <div className="h-8 w-8 rounded-full bg-[var(--ios-fill)] flex items-center justify-center text-[12px]">◎</div>
-        </div>
-      </div>
-    </nav>
-  );
+function selected(path:string, href:string) {
+  if(href==="/") return path==="/" || path==="/dashboard";
+  if(href==="/post") return path==="/post" || path==="/dashboard/channel";
+  if(href==="/chat") return path==="/chat" || path==="/dashboard/chat";
+  return path===href;
 }
-
-export function IOSTabBar() {
-  const path = usePathname();
-  return (
-    <div className="fixed bottom-0 inset-x-0 z-40 md:hidden">
-      <div className="mx-auto max-w-[420px] p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
-        <div className="ios-glass rounded-[28px] flex items-center justify-around p-2 shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
-          {tabs.map(t => {
-            const active = path === t.href;
-            return (
-              <Link key={t.href} href={t.href} className={`flex flex-col items-center gap-1 py-2 px-4 rounded-[16px] transition ${active ? "bg-white text-black" : "text-[var(--ios-label-secondary)]"}`}>
-                <t.icon size={18} strokeWidth={active ? 2.5 : 2} />
-                <span className="text-[10px] font-semibold tracking-wide">{t.label}</span>
-              </Link>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  );
+export function IOSNav(){
+ const {tab}=useStudio(); const path=tab==="home"?"/":`/${tab}`;
+ return <><aside className="fixed inset-y-0 left-0 z-50 hidden w-60 flex-col border-r border-indigo-300/10 bg-[#080b1a]/95 px-4 py-7 lg:flex">
+  <Link href="/" className="flex items-center gap-3 px-3"><span className="grid h-11 w-11 place-items-center rounded-2xl bg-gradient-to-br from-blue-500 to-violet-600 shadow-lg shadow-indigo-600/25"><Crown size={23}/></span><span className="text-xl font-bold">Videl <span className="text-amber-300">👑</span><span className="mt-1 block text-[10px] font-medium uppercase tracking-[.25em] text-indigo-200/45">Telegram Studio</span></span></Link>
+  <p className="mb-3 mt-10 px-3 text-[10px] font-semibold uppercase tracking-[.2em] text-white/30">Workspace</p>
+  <nav aria-label="Main navigation" className="space-y-2">{tabs.map(t=><Link key={t.href} href={t.href==="/"?"/":`/?tab=${t.href.slice(1)}`} aria-current={selected(path,t.href)?"page":undefined} className={`flex items-center gap-3 rounded-xl border px-4 py-3 text-sm transition ${selected(path,t.href)?"border-indigo-400/30 bg-gradient-to-r from-blue-500/25 to-violet-500/15 text-white shadow-lg shadow-indigo-950/30":"border-transparent text-indigo-100/50 hover:bg-white/5 hover:text-white"}`}><t.icon size={18}/>{t.label}</Link>)}</nav>
+  <div className="mt-auto rounded-2xl border border-indigo-300/10 bg-indigo-400/5 p-4"><p className="text-sm font-semibold">Your community. Connected.</p><p className="mt-2 text-xs leading-5 text-white/40">One studio for your Telegram operations.</p><Link href="/?tab=auth" className="mt-3 block text-xs text-indigo-300">Owner sign in →</Link></div>
+ </aside><header className="flex h-16 items-center justify-between border-b border-indigo-200/10"><Link href="/" className="text-sm font-semibold tracking-wide">Videl 👑 <span className="font-normal text-indigo-200/40">/ Studio</span></Link><Link href="/?tab=auth" className="ios-btn ios-btn-glass text-xs"><Shield size={14}/> Owner access</Link></header></>;
 }
+export function IOSTabBar(){const {tab}=useStudio(); const path=tab==="home"?"/":`/${tab}`;return <nav aria-label="Mobile navigation" className="fixed inset-x-0 bottom-0 z-40 border-t border-indigo-300/15 bg-[#080b1a]/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl lg:hidden"><div className="flex overflow-x-auto px-2 py-2">{tabs.map(t=><Link key={t.href} href={t.href==="/"?"/":`/?tab=${t.href.slice(1)}`} aria-current={selected(path,t.href)?"page":undefined} className={`flex min-w-[76px] flex-1 flex-col items-center gap-1 rounded-xl px-2 py-2 ${selected(path,t.href)?"bg-indigo-400/15 text-indigo-200":"text-white/45"}`}><t.icon size={18}/><span className="whitespace-nowrap text-[9px]">{t.label}</span></Link>)}</div></nav>}

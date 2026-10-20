@@ -1,46 +1,15 @@
-# --------------------------------------------------------------------------------
-#  Videl © 2026 | Developed by Beasgohan-code
-#  Fork & improve freely under MIT. Keep credits.
-# --------------------------------------------------------------------------------
-
+"""Curated production modules; demo, entertainment and AI modules are excluded."""
 ALL_MODULES = [
-    "autoplay",
-    "bot",
+    # Telegram voice-chat music. These are the real PyTgCalls handlers, not the
+    # retired simulated music_pro adapter.
+    "play", "cplay", "autoplay", "smartqueue", "playlist", "effects",
+    "seek", "pause", "resume", "skip", "stop", "lyrics", "downloader",
     "block",
-    "effects",
-    "play",
-    "pause",
-    "resume",
-    "skip",
-    "stats",
-    "stop",
-    "misc",
-    "ping",
-    "broadcast",
-    "callbacks",
-    "start",
-    "seek",
-    "admin",
-    "playlist",
-    "smartqueue",
-    "locks",
-    "locks_elite",
-    "cplay",
-    "lyrics",
-    # ── Videl0 Perfect — full-stack (ai + utils + fun) ──
-    "ai",
-    "utils_extra",
-    "fun",
-    # ── Elite Group Help — better than Rose / GroupHelp ──
-    "federation",
-    "blocklist",
-    "approve",
-    "captcha",
-    "extra_group",
-    # ── Premium Costume — emoji packs + sticker per event ──
-    "costume",
-    # ── Videl0 Expansion — downloader + owner utils + AI pro (professional) ──
-    "downloader",
-    "owner_utils",
-    "ai_pro",
+    # MongoDB-backed group management and distinct moderation features.
+    "management_core", "federation", "blocklist", "approve", "wizard",
+    # General operations, owner diagnostics and live command telemetry.
+    "bot", "callbacks", "start", "misc", "ping", "broadcast",
+    "utils_extra", "analytics", "logs", "owner_utils",
+    # Curated, implemented professional utility commands.
+    "plugins_loader", "professional",
 ]

@@ -19,7 +19,7 @@ from flask import Flask, Response, jsonify, request, send_file
 logger = logging.getLogger(__name__)
 
 _API_DIR = Path("downloads") / "api"
-_API_KEY = (os.environ.get("ELDIAN_API_KEY") or os.environ.get("API_KEY") or "").strip()
+_API_KEY = (os.environ.get("ELDIAN_API_KEY") or os.environ.get("WEBAPP_SECRET") or "").strip()
 
 
 def _extract_id(value: str) -> str | None:
@@ -132,16 +132,20 @@ def _ydl_download(video_id: str, video: bool = False) -> Path:
 
 
 def _require_key_if_set() -> tuple[bool, str | None]:
-    """If ELDIAN_API_KEY is configured, require X-API-Key header."""
-    if not _API_KEY:
-        return True, None
+    """Require X-API-Key header when configured, or loopback-only when unset."""
+    import hmac
+    key = (os.environ.get("ELDIAN_API_KEY") or os.environ.get("WEBAPP_SECRET") or _API_KEY or "").strip()
+    if not key:
+        if request.remote_addr in ("127.0.0.1", "::1"):
+            return True, None
+        return False, "API key is not configured for external access"
     got = (
         request.headers.get("X-API-Key")
         or request.args.get("api_key")
         or request.args.get("api")
         or ""
     ).strip()
-    if got != _API_KEY:
+    if not got or not hmac.compare_digest(got, key):
         return False, "Invalid or missing API key"
     return True, None
 

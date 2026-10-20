@@ -1,12 +1,8 @@
 """
-◍ Vɪᴅᴇʟ — Perfect Production Config
-   Single source of truth for BOTH videl/ (Pyrogram) and bot/ (aiogram)
-   Cyber Dark • Kurigram + aiogram 3.31 • Supabase • Dropbox • Vercel • AI
+Videl runtime configuration shared by the Pyrogram bot and Render API.
+The Next.js control panel is deployed separately on Vercel.
 
-   Usage:
-     import config  (root)
-     from bot.config import *  (re-exports — kept for compat)
-
+Usage: import config (root module).
    Env: copy sample.env → .env and fill required fields.
 """
 from __future__ import annotations
@@ -128,21 +124,13 @@ def is_privileged(uid: int, chat_admins: list[int] | None = None) -> bool:
         return True
     return False
 
-# ── Database — Supabase (primary for dashboard) + MongoDB (compat) ───────────
-SUPABASE_URL: str = _str("SUPABASE_URL", "")
-SUPABASE_KEY: str = _str("SUPABASE_KEY", "")
-SUPABASE_SERVICE_KEY: str = _str("SUPABASE_SERVICE_KEY", SUPABASE_KEY)
-# Supabase project: hanre-studio / gnfgnwkxomwomgmyvzlq — used by webapp dashboard
-
-# ── Storage — Dropbox ─────────────────────────────────────────────────────────
-DROPBOX_ACCESS_TOKEN: str = _str("DROPBOX_ACCESS_TOKEN", "")
-DROPBOX_BACKUP_FOLDER: str = _str("DROPBOX_BACKUP_FOLDER", "/Videl0/backups")
+# ── Database — MongoDB only ─────────────────────────────────────────────────
 
 # ── Deploy — Vercel + Keep-Alive ────────────────────────────────────────────
 VERCEL_TOKEN: str = _str("VERCEL_TOKEN", "")
 VERCEL_PROJECT_ID: str = _str("VERCEL_PROJECT_ID", "")
 VERCEL_TEAM_ID: str = _str("VERCEL_TEAM_ID", "")
-WEBAPP_URL: str = _str("WEBAPP_URL", "https://hosting-bot-dashboard.vercel.app")
+WEBAPP_URL: str = _str("WEBAPP_URL", "https://videl-studio.vercel.app")
 WEBHOOK_URL: str = _str("WEBHOOK_URL", "")
 WEBHOOK_SECRET: str = _str("WEBHOOK_SECRET", "videl0-webhook")
 
@@ -152,27 +140,11 @@ KEEPALIVE_URL: str = _str("KEEPALIVE_URL", "")
 WATCHDOG_INTERVAL: int = _int("WATCHDOG_INTERVAL", 300)
 ENV: str = _str("ENV", "production")
 
-# ── AI Providers — multi-fallback ───────────────────────────────────────────
-OPENAI_API_KEY: str = _str("OPENAI_API_KEY", "")
-GROQ_API_KEY: str = _str("GROQ_API_KEY", "")
-GEMINI_API_KEY: str = _str("GEMINI_API_KEY", "")
-MISTRAL_API_KEY: str = _str("MISTRAL_API_KEY", "")
-AI_DEFAULT_MODEL: str = _str("AI_DEFAULT_MODEL", "gpt-4o-mini")
-AI_SYSTEM_PROMPT: str = _str(
-    "AI_SYSTEM_PROMPT",
-    "You are Videl — cyber dark perfect assistant. Help with music, admin, utilities. Be concise warm. Use small caps (◍ ⬪ ⫶) when requested.",
-)
-AI_MAX_HISTORY: int = _int("AI_MAX_HISTORY", 20)
-AI_MAX_TOKENS: int = _int("AI_MAX_TOKENS", 1200)
-
 # ── Music & External APIs ─────────────────────────────────────────────────────
-# Eldian = primary (fixes Render bot-check), Shruti = fallback, yt-dlp = last
-ELDIAN_API_URL: str = _str("ELDIAN_API_URL", "https://eldian-music-api-production.up.railway.app")
-ELDIAN_API_KEY: str = _str("ELDIAN_API_KEY", "")
-SHRUTI_API_URL: str = _str("SHRUTI_API_URL", _str("YT_API_URL", "https://api.shrutibots.site"))
-SHRUTI_API_KEY: str = _str("SHRUTI_API_KEY", _str("YT_API_KEY", "ShrutiBotsLaL92ySOXsj4xl4k34Jv"))
-YT_API_URL: str = SHRUTI_API_URL
-YT_API_KEY: str = SHRUTI_API_KEY
+# Official Eldian API is opt-in: self-host the vendored service or provide a trusted URL+key.
+# Built-in Eldian routes on the local Flask server are used by default.
+ELDIAN_API_URL: str = _str("ELDIAN_API_URL", f"http://127.0.0.1:{PORT}")
+ELDIAN_API_KEY: str = _str("ELDIAN_API_KEY", _str("WEBAPP_SECRET", ""))
 SPOTIFY_CLIENT_ID: str = _str("SPOTIFY_CLIENT_ID", "")
 SPOTIFY_CLIENT_SECRET: str = _str("SPOTIFY_CLIENT_SECRET", "")
 GENIUS_API_KEY: str = _str("GENIUS_API_KEY", "")
@@ -205,8 +177,7 @@ DEFAULT_WARN_LIMIT: int = _int("DEFAULT_WARN_LIMIT", 3)
 DEFAULT_FLOOD_LIMIT: int = _int("DEFAULT_FLOOD_LIMIT", 5)
 DEFAULT_FLOOD_WINDOW: int = _int("DEFAULT_FLOOD_WINDOW", 6)
 RATE_LIMIT_CMDS: int = _int("RATE_LIMIT_CMDS", 8)
-WEBAPP_SECRET: str = _str("WEBAPP_SECRET", "videl0-super-secret")
-ENCRYPTION_KEY: str = _str("ENCRYPTION_KEY", "")
+WEBAPP_SECRET: str = _str("WEBAPP_SECRET", "")
 
 # ── Aesthetic ─────────────────────────────────────────────────────────────────
 CYBER_DARK: bool = _bool("CYBER_DARK", True)
@@ -217,15 +188,13 @@ ENABLE_PAID_BROADCAST: bool = _bool("ENABLE_PAID_BROADCAST", True)
 ENABLE_CHECKLIST: bool = _bool("ENABLE_CHECKLIST", True)
 ENABLE_DIRECT_MESSAGES: bool = _bool("ENABLE_DIRECT_MESSAGES", True)
 
-# ── Help Map (for /help) ──────────────────────────────────────────────────────
+# ── Help Map (only currently curated professional commands) ────────────────
 COMMANDS_HELP: dict[str, list[str]] = {
-    "◍ ɢᴇɴᴇʀᴀʟ": ["/start", "/help", "/ping", "/stats", "/id", "/info", "/about", "/repo"],
-    "⬪ ᴍᴜsɪᴄ": ["/play", "/vplay", "/playforce", "/queue", "/skip", "/stop", "/pause", "/resume", "/seek", "/shuffle", "/lyrics", "/song", "/playlist", "/autoplay"],
-    "⫶ ᴀɪ ᴄʜᴀᴛ": ["/ask", "/gpt", "/ai", "/imagine", "/draw", "/summarize", "/translate", "/tts", "/vision", "/clearhistory"],
-    "◎ ᴜᴛɪʟɪᴛʏ": ["/weather", "/news", "/qr", "/shorten", "/calc", "/define", "/wiki", "/carbon", "/removebg", "/sticker", "/steal", "/pdf", "/paste", "/git", "/pinterest", "/speedtest", "/tagall", "/afk"],
-    "⬢ ᴀᴅᴍɪɴ": ["/ban", "/unban", "/kick", "/mute", "/unmute", "/pin", "/unpin", "/purge", "/warn", "/warns", "/del", "/lock", "/unlock", "/slowmode", "/setwelcome", "/welcome"],
-    "⬩ ᴏᴡɴᴇʀ": ["/broadcast", "/gban", "/ungban", "/gbans", "/block", "/unblock", "/addsudo", "/rmsudo", "/sudolist", "/backup", "/eval", "/exec", "/logs", "/activevc"],
-    "𖦹 ғᴜɴ": ["/8ball", "/dice", "/flip", "/ship", "/joke", "/meme", "/quote", "/truth", "/dare", "/roast"],
+    "General": ["/start", "/help", "/ping", "/stats", "/id", "/repo"],
+    "Music": ["/play", "/vplay", "/cplay", "/queue", "/skip", "/pause", "/resume", "/stop", "/lyrics", "/playlist", "/autoplay"],
+    "Group moderation": ["/ban", "/unban", "/kick", "/mute", "/unmute", "/warn", "/warnings", "/lock", "/unlock", "/purge", "/setrules", "/rules"],
+    "Utilities": ["/calc", "/define", "/translate", "/currency", "/userinfo", "/notes", "/remind", "/poll"],
+    "Owner": ["/broadcast", "/logs", "/sysinfo", "/uptime"],
 }
 
 # ── Validate critical ─────────────────────────────────────────────────────────

@@ -1,9 +1,8 @@
 # --------------------------------------------------------------------------------
 #  Videl © 2026 | Developed by Beasgohan-code — Owner Utils ✦ Perfect
-#  Professional owner-only utilities using external repos fully:
-#  - psutil (system stats), aiofiles (logs), GitPython (updates), supabase & pymongo
+#  Owner-only operational commands using the configured MongoDB and runtime.
 #  Commands: /sysinfo, /logs, /restart, /update, /shell, /eval, /active, /broadcast_pro
-#  Security: OWNER_ID + SUDO_USERS only, logged to LOG_CHANNEL_ID, watchdog protected
+#  Owner access is checked against OWNER_ID and SUDO_USERS.
 # --------------------------------------------------------------------------------
 from __future__ import annotations
 
@@ -23,7 +22,12 @@ from pyrogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup
 from pyrogram.enums import ParseMode
 
 import config
-from videl import bot, LOGGER, userbot
+from videl import bot, LOGGER
+# compat: old code used `userbot` alias for assistant
+try:
+    from videl import userbot
+except ImportError:
+    from videl import assistant as userbot
 from videl.utils.formatters import sc, sb, short
 from videl.utils.rich_ui import (
     rich_heading,
@@ -32,9 +36,7 @@ from videl.utils.rich_ui import (
     rich_note,
     rich_code,
     rich_pre,
-    rich_details,
     rich_button,
-    rich_img,
     rich_send,
     rich_edit,
     rich_esc,
@@ -107,7 +109,6 @@ async def sysinfo_handler(_, m: Message):
     py_ver = platform.python_version()
     plat = platform.platform()
     body = _hdr(pe("hex","⬢") + " " + sc("system info") + " • " + pe("circle","⦿") + " " + sc("live"), 2)
-    body += rich_img("https://files.catbox.moe/f084wg.png")
     body += rich_kv_table([
         (pe("diamond","⬪") + " " + sc("uptime"), f"<code>{up_str}</code>"),
         (pe("hex","⬢") + " " + sc("python"), f"<code>{py_ver}</code>"),
@@ -117,7 +118,6 @@ async def sysinfo_handler(_, m: Message):
         (pe("pin","📌") + " " + sc("disk"), f"<code>{disk}</code>"),
         (pe("spark","𖦹") + " " + sc("bot"), f"<code>{sb('videl perfect')} • @Videl0Bot</code>"),
     ], headers=[pe("check","✅") + " " + sc("host"), sc("value")])
-    body += rich_details(sc("external repos"), sc("kurigram • pytgcalls • yt-dlp • psutil • aiofiles • Supabase • Dropbox • Vercel"))
     body += "<p>" + rich_button(pe("target","◎") + " " + sc("logs"), callback_data="owner:logs") + " " + rich_button(pe("fire","🔥") + " " + sc("restart"), callback_data="owner:restart") + "</p>"
     await rich_send(bot, m.chat.id, body)
     _log_to_channel(f"ℹ️ /sysinfo by {m.from_user.id} in {m.chat.id}")
@@ -156,9 +156,8 @@ async def logs_handler(_, m: Message):
             caption = _hdr(pe("target","◎") + " " + sc("logs") + f" • {size_kb:.0f} KB", 2) + rich_note(pe("line","⫶") + f" <code>{rich_esc(str(log_file))}</code> • {size_kb:.1f} KB<br>" + pe("small","⬩") + " " + sc("full log attached as document"))
             await bot.send_document(m.chat.id, document=str(log_file), caption=caption, parse_mode=ParseMode.HTML, reply_to_message_id=m.id)
         else:
-            async with asyncio.to_thread(lambda: log_file.read_text(encoding="utf-8", errors="ignore")) as content:
-                pass
-            content = log_file.read_text(encoding="utf-8", errors="ignore")[-3000:]
+            content = await asyncio.to_thread(log_file.read_text, encoding="utf-8", errors="ignore")
+            content = content[-3000:]
             body = _hdr(pe("pin","📌") + " " + sc("recent logs") + f" • {size_kb:.0f} KB", 2)
             body += rich_pre(content[-2000:], "log")
             await rich_send(bot, m.chat.id, body)
@@ -329,17 +328,12 @@ async def broadcast_pro_handler(_, m: Message):
     if not text and m.reply_to_message:
         text = m.reply_to_message.text or m.reply_to_message.caption or ""
     if not text:
-        return await rich_send(bot, m.chat.id, _hdr(sc("broadcast"),3) + rich_note("<code>/broadcast_pro &lt;text&gt;</code> — reply to message to broadcast that<br>" + pe("small","⬩") + " " + sc("sends to all known chats via Supabase")))
-    from bot.database import db as aiogram_db  # aiogram DB has videl_chats
-    chats = []
+        return await rich_send(bot, m.chat.id, _hdr(sc("broadcast"),3) + rich_note("<code>/broadcast_pro &lt;text&gt;</code> — reply to message to broadcast that<br>" + pe("small","⬩") + " " + sc("sends to all known chats via MongoDB")))
+    from videl.utils.db import get_served_chats
     try:
-        if getattr(aiogram_db, "use_supabase", False):
-            r = aiogram_db.supabase.table("videl_chats").select("id").execute()
-            chats = [c["id"] for c in (r.data or [])]
-        elif getattr(aiogram_db, "_sqlite", None):
-            cur = aiogram_db._sqlite.execute("SELECT id FROM videl_chats")
-            chats = [row[0] for row in cur.fetchall()]
+        chats = await asyncio.to_thread(get_served_chats)
     except Exception as e:
+        chats = []
         LOGGER.warning(f"broadcast gather chats fail: {e}")
 
     if not chats:

@@ -1,14 +1,24 @@
 # --------------------------------------------------------------------------------
 #  Videl © 2026 | Developed by Beasgohan-code
-#  Fork & improve freely under MIT. Keep credits.
+#  Proper: resilient imports — never crash Render on missing optional deps
 # --------------------------------------------------------------------------------
 
 import logging
 import time
 
+# Kurigram is the maintained client, imported through its pyrogram namespace.
 from pyrogram import Client
 from pyrogram.enums import ParseMode
-from pytgcalls import PyTgCalls
+_TG_IMPL = "kurigram"
+
+# PyTgCalls: optional — if ntgcalls missing, bot still runs (VC disabled)
+try:
+    from pytgcalls import PyTgCalls
+except Exception as _e:  # ImportError or native load failure
+    PyTgCalls = None
+    _PYTG_ERR = str(_e)
+else:
+    _PYTG_ERR = None
 
 import config
 
@@ -45,4 +55,7 @@ assistant = Client(
 )
 
 # ── PyTgCalls ─────────────────────────────────────────────────────────────────
-call_py = PyTgCalls(assistant)
+if PyTgCalls:
+    call_py = PyTgCalls(assistant)
+else:
+    call_py = None

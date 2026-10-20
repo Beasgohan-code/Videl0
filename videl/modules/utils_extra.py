@@ -60,14 +60,11 @@ async def shorten_handler(_, m: Message):
 async def calc_handler(_, m: Message):
     expr=" ".join(m.command[1:]) if len(m.command)>1 else ""
     if not expr: return await m.reply_text(f"◍ /calc <{sc('expression')}> ◍  — {sc('e.g.')} <code>2*(3+5)</code>")
-    # safe eval: only math allowed
     try:
-        import math as _math
-        allowed={"abs":abs,"round":round,"min":min,"max":max,"pow":pow,"sum":sum,
-                 "sin":_math.sin,"cos":_math.cos,"tan":_math.tan,"sqrt":_math.sqrt,"log":_math.log,"pi":_math.pi,"e":_math.e}
-        res=eval(expr, {"__builtins__": None}, allowed)
+        from videl.plugins.runtime import safe_calculate
+        res=safe_calculate(expr.replace("^","**"))
         await m.reply_text(f"⫶ {sc('calc')} ⫶\n<code>{html.escape(expr)}</code> ⬪ <code>{res}</code> ◍")
-    except Exception as e: await m.reply_text(f"◍ {sc('calc error')}: {e} ◍")
+    except Exception as e: await m.reply_text(f"◍ {sc('calc error')}: {html.escape(str(e))} ◍")
 
 @bot.on_message(filters.command(["wiki","wikipedia"]) & ~filters.forwarded)
 async def wiki_handler(_, m: Message):
@@ -117,28 +114,5 @@ async def carbon_handler(_, m: Message):
                     return
         raise RuntimeError("carbonara fail")
     except Exception as e: await m.reply_text(f"◍ {sc('carbon failed')}: {e} ◍")
-
-@bot.on_message(filters.command(["afk"]) & ~filters.forwarded)
-async def afk_handler(_, m: Message):
-    reason=" ".join(m.command[1:]) if len(m.command)>1 else sc("afk")
-    try:
-        from videl.utils.db import set_afk
-        set_afk(m.from_user.id, reason)
-    except: pass
-    await m.reply_text(f"◎ {sc(m.from_user.first_name.lower())} {sc('is now afk')}: {html.escape(reason)} ◎")
-
-# auto-afk watcher (simple)
-@bot.on_message(filters.group(0) & ~filters.forwarded)
-async def _afk_watcher(_, m: Message):
-    if not m.from_user: return
-    try:
-        from videl.utils.db import get_afk, clear_afk
-        afk=get_afk(m.from_user.id) if hasattr(__import__('videl.utils.db',fromlist=['get_afk']),'get_afk') else None
-        if afk:
-            # user returned
-            try: clear_afk(m.from_user.id)
-            except: pass
-            await m.reply_text(f"◍ {sc(m.from_user.first_name.lower())} {sc('is back')}: {html.escape(afk)} ◍")
-    except: pass
 
 LOGGER.info("⬪ ᴜᴛɪʟs — ᴘᴇʀғᴇᴄᴛ ◍")
