@@ -27,19 +27,20 @@ _flask = Flask(__name__)
 _next_proc = None
 
 # ── Bot health + API index ───────────────────────────────────────────────
-@_flask.route("/")
-def _home():
+# FIXED: "/" now serves Telegram Mini App (Next.js), NOT JSON — perfect for BotFather
+@_flask.route("/_videl_status")
+def _status_json():
     return jsonify({
         "service": "Videl Unified",
         "status": "running",
         "bot": getattr(config, "BOT_USERNAME", "Videl0Bot"),
-        "webapp": f"{request.host_url.rstrip('/')}/dashboard",
+        "webapp": f"{request.host_url.rstrip('/')}/",
+        "miniapp_url": f"{request.host_url.rstrip('/')}/",
+        "dashboard": f"{request.host_url.rstrip('/')}/dashboard",
         "endpoints": {
             "health": "/health",
             "api": "/api",
             "dashboard": "/dashboard",
-            "chat": "/chat",
-            "post": "/post",
         }
     }), 200
 
@@ -64,6 +65,7 @@ def _api_index():
             "/api/analytics": "analytics series",
         },
         "webapp": ["/", "/dashboard", "/dashboard/channel", "/dashboard/chat", "/chat", "/post"],
+        "miniapp": "/  ← USE THIS FOR BOTFATHER MINI APP URL",
         "note": "All on ONE Render URL — https://videl0.onrender.com"
     }), 200
 
@@ -144,18 +146,41 @@ def _proxy_catchall(path=""):
         return jsonify({"ok": False, "error": "Webapp starting — Next.js on :3000 not ready yet", "hint": "wait 20s, refresh /dashboard"}), 503
     return jsonify({"ok": False, "error": "not found", "path": full}), 404
 
+# ── MINI APP ROOT — THE MOST IMPORTANT FIX FOR TELEGRAM ───────────────────
+# This is what BotFather should point to — serves Next.js Home as Mini App
+@_flask.route("/", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
+def _home_miniapp():
+    proxied = _proxy_to_next("/")
+    if proxied is not None:
+        return proxied
+    # Fallback while Next.js boots
+    return jsonify({
+        "ok": True,
+        "service": "Videl Mini App",
+        "message": "WebApp building — refresh in 15s",
+        "miniapp_url": f"{request.host_url.rstrip('/')}/",
+        "dashboard": f"{request.host_url.rstrip('/')}/dashboard",
+        "health": f"{request.host_url.rstrip('/')}/health",
+        "note": "If you see this JSON, Next.js is still building. Wait 20s and refresh."
+    }), 503
+
 # Also proxy bare /api subpaths that Flask didn't match (already above)
 @_flask.route("/<path:path>", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
 def _fallback_proxy(path):
-    # Only proxy known webapp prefixes, else 404 to avoid infinite loop with Flask's own /
-    if path.startswith(("_next/", "dashboard/", "auth/", "api/", "chat", "post")):
+    # Proxy ALL webapp paths — including "/" already handled above
+    # Prioritize Next.js for these prefixes
+    if path.startswith(("_next/", "dashboard/", "auth/", "api/", "chat", "post", "groups", "analytics", "automation", "settings")):
         proxied = _proxy_to_next(f"/{path}")
         if proxied is not None:
             return proxied
         # if Next not ready yet
-        if path.startswith(("chat", "post", "dashboard", "_next")):
+        if path.startswith(("chat", "post", "dashboard", "_next", "groups", "analytics")):
             return jsonify({"ok": False, "error": "Webapp starting — Next.js on :3000 booting", "hint": "refresh in 15s"}), 503
-    return jsonify({"ok": False, "error": "not found", "path": f"/{path}", "see": "/api"}), 404
+    # Also try to proxy unknown paths to Next.js (for client-side routing)
+    proxied = _proxy_to_next(f"/{path}")
+    if proxied is not None:
+        return proxied
+    return jsonify({"ok": False, "error": "not found", "path": f"/{path}", "see": "/api", "hint": "Try / or /dashboard for Mini App"}), 404
 
 def _log_all_urls_console():
     """Log ALL URLs to console on startup"""

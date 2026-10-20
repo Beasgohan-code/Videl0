@@ -293,3 +293,37 @@ body {
 .tg-preview-light {
   background: #E7EBF0;
 }
+
+/* ── Telegram Mini App — Perfect Polish ──────────────────────────────────── */
+:root {
+  --tg-viewport-height: 100vh;
+  --tg-viewport-stable-height: 100vh;
+}
+html:has(.tg-viewport) {
+  height: var(--tg-viewport-height);
+}
+body.tg-miniapp {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  background: var(--tg-theme-bg-color, var(--ios-bg));
+  overscroll-behavior: none;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+/* Telegram native haptics — prevent double-tap zoom */
+.tg-miniapp * {
+  touch-action: manipulation;
+}
+/* Perfect scrollbar for Mini App */
+.tg-miniapp ::-webkit-scrollbar { width: 0; height: 0; }
+.tg-miniapp {
+  scrollbar-width: none;
+}
+/* Smooth native feel */
+.tg-miniapp .ios-card {
+  transition: transform 0.15s var(--ios-spring), background 0.2s ease;
+}
+.tg-miniapp .ios-card:active {
+  transform: scale(0.985);
+}
