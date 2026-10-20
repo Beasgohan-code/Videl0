@@ -322,7 +322,9 @@ export function PostAssetLibrary({
       )}
       {tab === "collection" && !filtered.length && (
         <p role="status" className="rounded-xl border border-white/10 p-6 text-sm text-stone-400">
-          No images match your search. Try another category.
+          {category === FAVOURITES
+            ? "No favourites yet — tap the star on any image to keep it here."
+            : "No images match your search. Try another category."}
         </p>
       )}
       <p className="mt-4 flex items-center gap-2 text-[10px] leading-5 text-stone-500">

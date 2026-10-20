@@ -62,7 +62,8 @@ export function IOSNav() {
   const telegram = useTelegram();
   const visible = tabs.filter((item) => canOpenSection(item.tab, telegram.authenticated));
   const groupOf = (section: Section) =>
-    groups.find((group) => group.tabs.includes(section))?.label ?? "";
+    groups.find((group) => group.tabs.includes(section))?.label ??
+    (section === "auth" ? "System" : "");
   return (
     <>
       <aside className="fixed inset-y-0 left-0 z-50 hidden w-60 flex-col border-r border-indigo-300/10 bg-[#080b1a]/95 px-4 py-7 lg:flex">
