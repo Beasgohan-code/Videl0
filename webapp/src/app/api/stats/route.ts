@@ -1,15 +1,13 @@
-import { supabase } from "@/lib/supabase";
-
-export async function GET() {
-  if (!supabase) return Response.json({ users:0, chats:0, commands:0, note:"supabase not configured" });
+import { ownerRequired } from "@/lib/auth";
+import { backendUrl, internalSecret, unavailableBackend } from "@/lib/backend";
+export const dynamic = "force-dynamic";
+export async function GET(req: Request) {
+  const denied = ownerRequired(req); if (denied) return denied;
+  const backend = backendUrl(); const secret = internalSecret();
+  if (!backend || !secret) return unavailableBackend();
   try {
-    const [u,c,s] = await Promise.all([
-      supabase.from("videl_users").select("id", { count:"exact", head:true }),
-      supabase.from("videl_chats").select("id", { count:"exact", head:true }),
-      supabase.from("videl_stats").select("id", { count:"exact", head:true }),
-    ]);
-    return Response.json({ stats: { users: u.count ?? 0, chats: c.count ?? 0, commands: s.count ?? 0 } });
-  } catch (e:any) {
-    return Response.json({ error: String(e), users:0, chats:0, commands:0 }, { status: 500 });
-  }
+    const response = await fetch(`${backend}/internal/stats`, { headers: { "X-Videl-Internal": secret }, cache: "no-store", signal: AbortSignal.timeout(5000) });
+    const payload = await response.json();
+    return Response.json(payload, { status: response.status, headers: { "Cache-Control": "no-store" } });
+  } catch { return Response.json({ ok: false, error: "Videl backend is unreachable" }, { status: 503 }); }
 }
