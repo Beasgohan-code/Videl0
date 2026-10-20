@@ -14,6 +14,8 @@ export type GroupCounts = {
   notes: number;
   blacklist: number;
   approved: number;
+  /** Join requests still waiting in the inbox; absent on older payloads. */
+  pending_joins?: number;
 };
 
 export type HealthIssue = { code: string; message: string; advisory?: boolean };

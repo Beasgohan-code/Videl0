@@ -85,6 +85,16 @@ class HealthTests(unittest.TestCase):
                                         "explicit": {}})
         self.assertIn("no_protection", [issue["code"] for issue in health["issues"]])
 
+    def test_pending_join_requests_reach_the_health_reasons(self):
+        health = group_health.evaluate({"available": True, "bot_admin": True,
+                                        "settings": {"lock_links": True, "antispam": True},
+                                        "counts": {"pending_joins": 3},
+                                        "automation": {"quiet_hours": {"enabled": True}}})
+        codes = [issue["code"] for issue in health["issues"]]
+        self.assertIn("pending_joins", codes)
+        self.assertIn("3 join requests", health["issues"][-1]["message"])
+        self.assertTrue(health["attention"], "waiting work must reach the queue even when the score is high")
+
     def test_a_configured_group_is_healthy(self):
         settings = {"lock_links": True, "lock_media": True, "antispam": True, "captcha_enabled": True}
         health = group_health.evaluate({"available": True, "bot_admin": True, "settings": settings, "members": 900})
@@ -648,12 +658,16 @@ class InternalRouteTests(unittest.TestCase):
         return {"X-Videl-Internal": "test-secret"}
 
     def test_chat_list_reports_health_automation_and_summary(self):
+        self.db["mgmt_join_requests"].insert_one({"chat_id": CID, "user": 55, "status": "pending"})
+        self.db["mgmt_join_requests"].insert_one({"chat_id": CID, "user": 56, "status": "approved"})
         response = self.client.get("/internal/chats", headers=self.headers())
         payload = response.get_json()
         self.assertTrue(payload["ok"])
         row = next(item for item in payload["chats"] if item["id"] == CID)
         self.assertIn("health", row)
         self.assertIn("quiet_hours", row["automation"])
+        self.assertEqual(row["counts"]["pending_joins"], 1, "answered requests are not waiting work")
+        self.assertIn("pending_joins", [issue["code"] for issue in row["health"]["issues"]])
         self.assertEqual(payload["summary"]["total"], 2)
         self.assertIn("attention", payload["summary"])
 

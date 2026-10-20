@@ -65,6 +65,11 @@ def evaluate(row: dict) -> dict:
     if (counts.get("warns") or 0) and not (counts.get("blacklist") or 0):
         deduct(6, "warns_without_blacklist", "Members have warnings but no blacklisted word is configured.")
 
+    pending_joins = counts.get("pending_joins") or 0
+    if pending_joins:
+        noun = "request" if pending_joins == 1 else "requests"
+        deduct(5, "pending_joins", f"{pending_joins} join {noun} waiting for review in the inbox.")
+
     automation = normalize(row.get("automation"))
     if not automation["quiet_hours"]["enabled"] and isinstance(members, int) and members >= 1000:
         issues.append({
@@ -74,10 +79,13 @@ def evaluate(row: dict) -> dict:
         })
 
     score = max(0, min(score, MAX_SCORE))
+    pending = int(pending_joins)
+    # A waiting join request is work, not a health failure: the score stays
+    # high, but the queue must still surface it so it is not forgotten.
     return {
         "score": score,
         "issues": issues,
-        "attention": score < ATTENTION_BELOW or not row.get("available", False),
+        "attention": score < ATTENTION_BELOW or not row.get("available", False) or pending > 0,
     }
 
 

@@ -20,8 +20,8 @@ The owner panel manages the served fleet from one screen, and every control maps
 to code that actually runs:
 
 - **Group Manager** — per-group drill-down with health (derived from stored
-  settings and the last Telegram read), an aggregate "needs attention" queue
-  ranked worst-first with the recorded reasons, protection
+  settings, waiting join requests and the last Telegram read), an aggregate
+  "needs attention" queue ranked worst-first with the recorded reasons, protection
   presets, greetings, rules, captcha, warnings, notes, filters, blacklist,
   approvals, join-request triage, report triage and a per-group audit trail
   (filterable, CSV export, 180-day retention).

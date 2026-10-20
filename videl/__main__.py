@@ -423,11 +423,19 @@ def _internal_chats():
                 continue
         documents = {int(doc["chat_id"]): doc for doc in db["mgmt_chat_settings"].find({"chat_id": {"$in": int_ids}})}
         cached = {int(doc["_id"]): doc for doc in db["mgmt_chat_info"].find({"_id": {"$in": int_ids}})}
-        warns_by_chat, notes_by_chat, blacklist_by_chat, approved_by_chat = {}, {}, {}, {}
-        for name, target in (("mgmt_warnings", warns_by_chat), ("mgmt_notes", notes_by_chat), ("blacklist", blacklist_by_chat), ("approved", approved_by_chat)):
+        warns_by_chat, notes_by_chat, blacklist_by_chat, approved_by_chat, pending_by_chat = {}, {}, {}, {}, {}
+        for name, target, extra in (
+            ("mgmt_warnings", warns_by_chat, {}),
+            ("mgmt_notes", notes_by_chat, {}),
+            ("blacklist", blacklist_by_chat, {}),
+            ("approved", approved_by_chat, {}),
+            # Only pending requests matter: answered rows are history, not work.
+            ("mgmt_join_requests", pending_by_chat, {"status": "pending"}),
+        ):
             field = "chat" if name in {"blacklist", "approved"} else "chat_id"
+            match = {field: {"$in": int_ids}, **extra}
             try:
-                for row in db[name].aggregate([{"$match": {field: {"$in": int_ids}}}, {"$group": {"_id": f"${field}", "total": {"$sum": 1}}}]):
+                for row in db[name].aggregate([{"$match": match}, {"$group": {"_id": f"${field}", "total": {"$sum": 1}}}]):
                     target[int(row["_id"])] = int(row["total"])
             except Exception:
                 LOGGER.debug("group summary aggregation failed for %s", name, exc_info=True)
@@ -519,6 +527,7 @@ def _internal_chats():
                 "notes": notes_by_chat.get(chat_id, 0),
                 "blacklist": blacklist_by_chat.get(chat_id, 0),
                 "approved": approved_by_chat.get(chat_id, 0),
+                "pending_joins": pending_by_chat.get(chat_id, 0),
             }
             row["warn_limit"] = row["settings"]["warn_threshold"]
             row["explicit"] = {key: value for key, value in (documents.get(chat_id) or {}).items()
