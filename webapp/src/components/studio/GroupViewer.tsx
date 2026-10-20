@@ -66,6 +66,27 @@ export default function GroupViewer() {
   },[]);
   useEffect(()=>{if(tab!=='chat')return;void loadGroups();const timer=setInterval(()=>{if(document.visibilityState==='visible')void loadGroups();},15000);return()=>clearInterval(timer);},[loadGroups,tab]);
   useEffect(()=>()=>{localUrls.current.forEach(url=>URL.revokeObjectURL(url));localUrls.current.clear();},[]);
+  // Messenger keyboard habits: Escape closes overlays, "/" jumps to search.
+  useEffect(()=>{
+    function onKey(event:KeyboardEvent){
+      const target=event.target as HTMLElement|null;
+      const typing=!!target&&(target.tagName==='INPUT'||target.tagName==='TEXTAREA'||target.isContentEditable);
+      if(event.key==='Escape'){
+        if(confirm)setConfirm(null);
+        else if(pollOpen)setPollOpen(false);
+        else if(forwardOpen)setForwardOpen(false);
+        else if(detailsOpen)setDetailsOpen(false);
+        else if(searchOpen)setSearchOpen(false);
+        return;
+      }
+      if(event.key==='/'&&!typing&&tab==='chat'&&!event.metaKey&&!event.ctrlKey){
+        event.preventDefault();setSearchOpen(true);
+        requestAnimationFrame(()=>document.querySelector<HTMLInputElement>('[aria-label="Search recorded messages"]')?.focus());
+      }
+    }
+    window.addEventListener('keydown',onKey);
+    return()=>window.removeEventListener('keydown',onKey);
+  },[confirm,pollOpen,forwardOpen,detailsOpen,searchOpen,tab]);
   useEffect(()=>{
     if(!selectedGroup||tab!=='chat'){setChatInfo(null);return;}
     const controller=new AbortController();const cid=selectedGroup;
