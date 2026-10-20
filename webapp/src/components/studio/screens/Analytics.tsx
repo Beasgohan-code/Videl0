@@ -80,7 +80,7 @@ export default function AnalyticsPage() {
     <main className="mx-auto max-w-6xl py-5 sm:py-8">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="ios-caption2">VIDEL · TELEMETRY</p>
+          <p className="ios-caps text-[11px]">Videl · Telemetry</p>
           <h1 className="mt-2 ios-title">Analytics</h1>
           <p className="mt-1 ios-subheadline">
             Observed command activity from MongoDB · rolling 24-hour window.
@@ -118,7 +118,7 @@ export default function AnalyticsPage() {
           ["Commands · 24h", analytics?.total_commands],
         ].map(([label, value]) => (
           <div key={String(label)} className="ios-card p-4 sm:p-5">
-            <div className="ios-caption2">{label}</div>
+            <div className="ios-caps text-[10px]">{label}</div>
             <div className="mt-2 text-2xl font-semibold">
               {typeof value === "number" ? value.toLocaleString() : "—"}
             </div>

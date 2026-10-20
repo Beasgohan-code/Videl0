@@ -225,6 +225,7 @@ body {
   font-feature-settings: "smcp" 1, "c2sc" 1;
   letter-spacing: 0.09em;
   font-weight: 600;
+  text-transform: lowercase;
 }
 .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; font-variant-ligatures: none; }
 

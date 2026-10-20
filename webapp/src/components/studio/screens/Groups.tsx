@@ -129,7 +129,7 @@ export default function GroupsPage({
     <main className="mx-auto max-w-6xl py-5 sm:py-8">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="ios-caption2">VIDEL · COMMUNITY</p>
+          <p className="ios-caps text-[11px]">Videl · Community</p>
           <h1 className="mt-2 ios-title">
             {automation ? "Automation" : "Group Manager"}
           </h1>

@@ -45,7 +45,7 @@ export default function Broadcast() {
   }
   return (
     <main className="mx-auto max-w-4xl py-8">
-      <p className="ios-caption2">VIDEL · COMMUNITY REACH</p>
+      <p className="ios-caps text-[11px]">Videl · Community reach</p>
       <h1 className="ios-title mt-2">Broadcast</h1>
       <p className="ios-subheadline mt-2">
         Send an announcement to recipients recorded in MongoDB.

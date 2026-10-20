@@ -175,7 +175,7 @@ export default function Home() {
     <main className="mx-auto max-w-7xl py-6 sm:py-8">
       <header className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[.24em] text-indigo-300/60">
+          <p className="ios-caps text-[11px] text-indigo-300/60">
             Your community, connected
           </p>
           <h1 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">
@@ -206,7 +206,7 @@ export default function Home() {
         />
         <div className="absolute inset-0 bg-gradient-to-r from-[#0a102a] via-[#0a102a]/90 to-[#0a102a]/5" />
         <div className="relative z-10 max-w-xl">
-          <span className="inline-flex items-center gap-2 rounded-full border border-indigo-300/20 bg-indigo-500/15 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-indigo-200">
+          <span className="ios-caps inline-flex items-center gap-2 rounded-full border border-indigo-300/20 bg-indigo-500/15 px-3 py-1 text-[11px] font-semibold text-indigo-200">
             <Crown size={12} /> Videl Studio
           </span>
           <h2 className="mt-5 text-3xl font-bold leading-tight tracking-tight sm:text-[42px]">
@@ -220,12 +220,14 @@ export default function Home() {
             Manage, chat, post, automate — all in one powerful Telegram
             workspace.
           </p>
-          <button
-            onClick={() => open("post")}
-            className="ios-btn ios-btn-primary mt-5 text-sm"
-          >
-            Create something <ArrowUpRight size={16} />
-          </button>
+          <div className="mt-5 flex flex-wrap gap-2">
+            <button onClick={() => open("post")} className="ios-btn ios-btn-primary text-sm">
+              Create something <ArrowUpRight size={16} />
+            </button>
+            <button onClick={() => open("guide")} className="ios-btn ios-btn-glass text-sm">
+              Browse commands
+            </button>
+          </div>
         </div>
         <span className="absolute bottom-6 right-6 hidden text-right text-xs italic leading-5 text-white/70 md:block">
           Built for creators.

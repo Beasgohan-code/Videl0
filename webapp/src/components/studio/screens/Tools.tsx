@@ -27,7 +27,7 @@ export default function Tools() {
   }
   return (
     <main className="mx-auto max-w-5xl py-8">
-      <p className="ios-caption2">SMALL TOOLS, BETTER POSTS</p>
+      <p className="ios-caps text-[11px]">Small tools, better posts</p>
       <h1 className="ios-title mt-3">Creator Tools</h1>
       <p className="mt-3 text-sm text-indigo-100/50">
         Private by design. Your text and links are processed on this device.

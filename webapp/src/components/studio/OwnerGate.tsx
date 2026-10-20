@@ -9,7 +9,7 @@ export function OwnerGate({ children }: { children: React.ReactNode }) {
   return (
     <section className="mx-auto my-10 max-w-xl rounded-3xl border border-indigo-300/15 bg-indigo-400/5 p-6 sm:p-9">
       <ShieldCheck className="text-indigo-300" size={30} />
-      <p className="mt-5 text-[10px] uppercase tracking-[.2em] text-indigo-200/50">
+      <p className="ios-caps mt-5 text-[11px] text-indigo-200/50">
         PRIVATE WORKSPACE
       </p>
       <h1 className="mt-2 text-2xl font-semibold">

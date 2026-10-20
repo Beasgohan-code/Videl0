@@ -62,7 +62,7 @@ export default function AuthPage() {
         <span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-gradient-to-br from-blue-400 to-indigo-600 text-white">
           <ShieldCheck size={25} />
         </span>
-        <p className="mt-5 ios-caption2">SECURE OWNER ACCESS</p>
+        <p className="ios-caps mt-5 text-[11px]">Secure owner access</p>
         <h1 className="mt-2 ios-title">
           {telegram.authenticated
             ? "Owner access verified"
