@@ -6,6 +6,7 @@ import { canOpenSection } from "@/lib/access";
 import { useStudio } from "@/components/studio/StudioProvider";
 import { PanelBoundary } from "@/components/studio/PanelBoundary";
 import { OwnerGate } from "@/components/studio/OwnerGate";
+import { BackendStatus } from "@/components/studio/BackendStatus";
 import { ToolFinder } from "@/components/studio/ToolFinder";
 import Home from "@/components/studio/screens/Home";
 const loading = () => (
@@ -46,6 +47,7 @@ export default function Studio() {
   }, [tab]);
   return (
     <div className="studio-panel">
+      {authenticated && <BackendStatus />}
       {tab !== 'chat' && <ToolFinder />}
       <div className="sr-only" aria-live="polite">
         {tab} panel

@@ -61,7 +61,12 @@ def _health():
     from videl import bot_start_time
     from videl.core.watcher import watchdog_status
     maintenance = watchdog_status()
-    return jsonify({"status": "ok", "service": "videl-render-backend", "bot_status": _BOT_STATUS, "uptime": max(0, int(time.time() - bot_start_time)), "watchdog": {key: maintenance[key] for key in ("running", "healthy", "last_tick")}}), 200
+    try:
+        from videl.utils.db import is_connected
+        database = "connected" if is_connected() else "disconnected"
+    except Exception:
+        database = "unknown"
+    return jsonify({"status": "ok", "service": "videl-render-backend", "bot_status": _BOT_STATUS, "database": database, "uptime": max(0, int(time.time() - bot_start_time)), "watchdog": {key: maintenance[key] for key in ("running", "healthy", "last_tick")}}), 200
 
 @_flask.route("/internal/auth", methods=["POST"])
 def _internal_auth():

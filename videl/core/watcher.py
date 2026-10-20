@@ -88,11 +88,20 @@ async def _auto_leave_idle_vcs():
 
 
 async def _check_database():
-    from videl.utils.db import get_mongo_client
+    from videl.utils.db import get_mongo_client, start_mongo
+
     client = get_mongo_client()
-    if client is None:
-        raise RuntimeError("Database not configured")
-    await asyncio.to_thread(client.admin.command, "ping")
+    if client is not None:
+        try:
+            await asyncio.to_thread(client.admin.command, "ping")
+            return
+        except Exception:
+            LOGGER.warning("[watchdog] Mongo ping failed; reconnecting")
+    # A dropped or never-established connection used to stay dead until the
+    # process restarted, so every /internal/* route answered 503 and the web
+    # app showed a backend error. Reconnect here instead.
+    if not await asyncio.to_thread(start_mongo):
+        raise RuntimeError("Database reconnect failed")
 
 
 async def _dispatch_scheduled():

@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { ownerMarker, validOwnerCookie, crossSiteRequest } from "@/lib/auth";
-import { backendUrl, internalSecret, unavailableBackend } from "@/lib/backend";
+import { backendUrl, internalSecret, unavailableBackend, callBackend } from "@/lib/backend";
 
 import { OWNER_ID } from "@/lib/access";
 
@@ -56,21 +56,22 @@ export async function POST(req: NextRequest) {
     );
   if (!backend || !secret) return unavailableBackend();
   try {
-    const response = await fetch(`${backend}/internal/auth`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Videl-Internal": secret,
-      },
-      body: JSON.stringify(authPayload),
-      cache: "no-store",
-      signal: AbortSignal.timeout(7000),
-    });
-    const payload = await response.json();
-    if (!response.ok || !payload.ok)
+    // Render cold starts can take far longer than Telegram's own latency; two
+    // attempts with a long budget avoid a false "backend unreachable" on login.
+    const result = await callBackend(
+      "/internal/auth",
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(authPayload) },
+      { timeoutMs: 20000, attempts: 2 },
+    );
+    const payload = (result.payload || {}) as { ok?: boolean; error?: string; user?: { id?: number | string } };
+    if (!result.ok)
       return denied(
-        payload.error || "Telegram owner verification failed",
-        response.ok ? 401 : response.status,
+        result.code === "WAKING"
+          ? "The bot backend is starting (Render cold start). Wait a few seconds and sign in again."
+          : result.code === "REJECTED"
+            ? "The backend rejected the shared secret. Set the same WEBAPP_SECRET in Vercel and Render, then redeploy both."
+            : payload.error || "Telegram owner verification failed",
+        result.code === "WAKING" ? 503 : result.status === 200 ? 401 : result.status,
       );
     if (String(payload.user?.id) !== OWNER_ID)
       return denied(

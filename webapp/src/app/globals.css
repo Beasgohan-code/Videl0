@@ -153,6 +153,53 @@ body {
   color: #70E293;
   border-color: rgba(48,209,88,0.2);
 }
+.ios-pill-amber {
+  background: rgba(255,159,10,0.12);
+  color: #FFC15E;
+  border-color: rgba(255,159,10,0.24);
+}
+
+/* Backend wake-up strip — never a red error wall for a Render cold start */
+.backend-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 auto 10px;
+  max-width: 760px;
+  padding: 9px 12px;
+  border-radius: 14px;
+  backdrop-filter: blur(20px);
+  animation: backend-strip-in 220ms ease-out;
+}
+.backend-strip-waking {
+  background: rgba(255,159,10,0.1);
+  border: 0.5px solid rgba(255,159,10,0.24);
+  color: #FFD79A;
+}
+.backend-strip-down {
+  background: rgba(255,69,58,0.1);
+  border: 0.5px solid rgba(255,69,58,0.26);
+  color: #FFB4AE;
+}
+.backend-strip-icon { display: flex; align-items: center; justify-content: center; flex: none; }
+.backend-strip-action,
+.backend-strip-close {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  border-radius: 9px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 5px 9px;
+  color: inherit;
+  background: rgba(255,255,255,0.09);
+  transition: background 150ms ease;
+}
+.backend-strip-action:hover, .backend-strip-close:hover { background: rgba(255,255,255,0.16); }
+.backend-strip-close { padding: 5px; background: transparent; opacity: 0.7; }
+@keyframes backend-strip-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .backend-strip { animation: none; } }
 
 /* ── Typography ───────────────────────────────────────────────────────────── */
 .ios-title-large {
