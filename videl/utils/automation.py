@@ -213,17 +213,3 @@ def describe_quiet(quiet) -> str:
     sign = "+" if offset >= 0 else "-"
     zone = f"UTC{sign}{abs(offset) // 60:02d}:{abs(offset) % 60:02d}"
     return f"Members' messages are removed from {config['start']} to {config['end']} ({zone})."
-
-
-def describe_protection(protection, tz_offset: int = 0) -> str:
-    """A sentence the panel can show without inventing its own wording."""
-    config = normalize_protection(protection)
-    if not config["locks"]:
-        return "No locks are picked, so the window has nothing to apply."
-    names = ", ".join(key.removeprefix("lock_").replace("_", " ") for key in config["locks"])
-    if not config["enabled"]:
-        return f"Off. When on, it applies {len(config['locks'])} locks {config['start']}–{config['end']}."
-    offset = int(tz_offset or 0)
-    sign = "+" if offset >= 0 else "-"
-    zone = f"UTC{sign}{abs(offset) // 60:02d}:{abs(offset) % 60:02d}"
-    return f"{config['start']}–{config['end']} ({zone}) applies {names}."

@@ -16,12 +16,10 @@ from datetime import datetime, timezone
 
 from videl.utils import audit as audit_log
 from videl.utils.automation import in_protection_window, normalize_protection, normalize_protection_state
-from videl.utils.moderation import LOCK_TYPES
 
 LOGGER = logging.getLogger(__name__)
 
 MAX_CHATS = 500
-LOCK_KEYS = tuple("lock_forwards" if kind == "forward" else f"lock_{kind}" for kind in LOCK_TYPES)
 
 
 def lock_label(key: str) -> str:

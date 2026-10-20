@@ -414,6 +414,12 @@ export default function AutomationScreen() {
                       Locks turn themselves on inside the window and off when it closes. Only the locks this window
                       switched on are released — a lock you set by hand is left alone.
                     </p>
+                    {!active.automation?.protection && (
+                      <p className="mt-1 text-xs text-amber-200">
+                        This backend does not report the window yet. Quiet hours and the ladder still save; the window
+                        needs the updated Render deploy.
+                      </p>
+                    )}
                   </div>
                   <button
                     type="button"
