@@ -17,6 +17,7 @@ import {
   parseDesign,
   designDocument,
 } from "@/lib/image-design";
+import { designLibrary } from "@/lib/design-library";
 const presets = [
   {
     name: "Editorial",
@@ -61,6 +62,8 @@ export function ImageComposer({
   onAttach: (file: File) => void;
   disabled?: boolean;
 }) {
+  const [libraryOpen, setLibraryOpen] = useState(false);
+  const [category, setCategory] = useState("All");
   const canvas = useRef<HTMLCanvasElement>(null);
   const upload = useRef<HTMLInputElement>(null);
   const importInput = useRef<HTMLInputElement>(null);
@@ -317,6 +320,91 @@ export function ImageComposer({
           </button>
         </div>
       </header>
+      <div className="border-b border-white/10 px-5 py-4">
+        <button
+          aria-expanded={libraryOpen}
+          onClick={() => setLibraryOpen((v) => !v)}
+          className="ios-btn ios-btn-glass text-xs"
+        >
+          {libraryOpen ? "Close design library" : "Browse 8 editable layouts"}
+        </button>
+        <span className="ml-3 text-[10px] text-stone-500">
+          Every word, color and position stays editable.
+        </span>
+        {libraryOpen && (
+          <div className="mt-4">
+            <div className="mb-4 flex flex-wrap gap-2">
+              {["All", "Announcement", "Event", "Community", "Editorial"].map(
+                (c) => (
+                  <button
+                    key={c}
+                    aria-pressed={category === c}
+                    onClick={() => setCategory(c)}
+                    className={`rounded-lg border px-3 py-2 text-[11px] ${category === c ? "border-[#b5c4a5]/50 bg-[#b5c4a5]/10" : "border-white/10 text-stone-400"}`}
+                  >
+                    {c}
+                  </button>
+                ),
+              )}
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              {designLibrary
+                .filter((r) => category === "All" || r.category === category)
+                .map((r) => (
+                  <button
+                    key={r.id}
+                    aria-label={`Apply layout ${r.name}`}
+                    onClick={() => {
+                      if (
+                        !window.confirm(
+                          "Replace the current layout, text and colors? Save an editable design first to keep it. Your photo will stay attached.",
+                        )
+                      )
+                        return;
+                      change(r.design);
+                      setLibraryOpen(false);
+                    }}
+                    className="overflow-hidden rounded-xl border border-white/10 text-left"
+                  >
+                    <div
+                      className="flex aspect-[16/9] flex-col justify-center p-5"
+                      style={{
+                        background: r.design.background,
+                        color: r.design.color,
+                        fontFamily: r.design.font,
+                        backgroundImage:
+                          r.design.pattern === "dots"
+                            ? `radial-gradient(${r.design.accent}44 1px,transparent 1px)`
+                            : r.design.pattern === "grid"
+                              ? `linear-gradient(${r.design.accent}22 1px,transparent 1px),linear-gradient(90deg,${r.design.accent}22 1px,transparent 1px)`
+                              : `radial-gradient(circle at 90% 30%,${r.design.accent}44,transparent 65%)`,
+                        backgroundSize:
+                          r.design.pattern === "dots"
+                            ? "12px 12px"
+                            : r.design.pattern === "grid"
+                              ? "22px 22px"
+                              : "100% 100%",
+                      }}
+                    >
+                      <span className="text-[8px] uppercase tracking-[.14em] opacity-60">
+                        {r.design.label}
+                      </span>
+                      <span className="mt-3 whitespace-pre-line text-xl leading-tight">
+                        {r.design.title}
+                      </span>
+                    </div>
+                    <div className="bg-white/[.02] p-3">
+                      <span className="text-xs font-medium">{r.name}</span>
+                      <p className="mt-1 text-[10px] text-stone-500">
+                        {r.description} · {r.category}
+                      </p>
+                    </div>
+                  </button>
+                ))}
+            </div>
+          </div>
+        )}
+      </div>
       <div className="grid lg:grid-cols-[300px_minmax(0,1fr)]">
         <div className="order-2 space-y-4 border-t border-white/10 p-5 lg:order-1 lg:border-t-0 lg:border-r">
           <label className="block text-xs text-stone-400">
@@ -551,6 +639,21 @@ export function ImageComposer({
               onChange={(e) => change({ geometry: e.target.checked })}
             />{" "}
             Background geometry (without photo)
+          </label>
+          <label className="block text-xs text-stone-400">
+            Background pattern
+            <select
+              aria-label="Background pattern"
+              value={design.pattern}
+              onChange={(e) =>
+                change({ pattern: e.target.value as ImageDesign["pattern"] })
+              }
+              className="ios-input mt-2"
+            >
+              <option value="rings">Editorial rings</option>
+              <option value="grid">Architectural grid</option>
+              <option value="dots">Dot paper</option>
+            </select>
           </label>
         </div>
         <div className="order-1 min-w-0 p-4 sm:p-6 lg:order-2">

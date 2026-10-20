@@ -52,6 +52,65 @@ const assert = require("node:assert/strict");
       });
       return;
     }
+    if (
+      authMode !== "guest" &&
+      path !== "/api/summary" &&
+      path !== "/api/health"
+    ) {
+      const data =
+        path === "/api/stats"
+          ? {
+              ok: true,
+              stats: {
+                users: 15,
+                chats: 14,
+                plays: 72,
+                database: "connected",
+                services: { user_session: true, mongo: true },
+              },
+            }
+          : path === "/api/groups"
+            ? {
+                ok: true,
+                chats: [
+                  {
+                    id: -100123,
+                    title: "Offline community",
+                    type: "supergroup",
+                    members: 15,
+                    available: true,
+                    settings: { antispam: true },
+                  },
+                ],
+              }
+            : path === "/api/analytics"
+              ? {
+                  ok: true,
+                  window_hours: 24,
+                  total_commands: 5,
+                  series: [{ time: "10:00", commands: 5 }],
+                  top_commands: [{ command: "play", count: 5 }],
+                  top_chats: [{ id: "-100123", commands: 5 }],
+                }
+              : path === "/api/bot-settings"
+                ? {
+                    ok: true,
+                    bot: { first_name: "Offline bot", username: "offline_bot" },
+                    commands: [],
+                    webapp_url: base,
+                    warnings: [],
+                  }
+                : path === "/api/broadcast"
+                  ? { ok: true, sent: 1, failed: 0, total: 1 }
+                  : path === "/api/chat"
+                    ? { ok: true, message_id: 31, via: "bot" }
+                    : { ok: true };
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify(data),
+      });
+      return;
+    }
     const body =
       path === "/api/summary" && summaryError
         ? { ok: false, error: "Summary temporarily offline" }
@@ -82,6 +141,10 @@ const assert = require("node:assert/strict");
     .waitFor();
   assert.equal(await page.getByText("72", { exact: true }).count(), 1);
   summaryError = false;
+  await page.goto(`${base}/?tab=groups`);
+  await page
+    .getByRole("heading", { name: "Sign in to open this tool", exact: true })
+    .waitFor();
   await page.goto(`${base}/?tab=post`);
   await page.getByRole("button", { name: "Design Image", exact: true }).click();
   await page
@@ -204,6 +267,86 @@ const assert = require("node:assert/strict");
     1,
     "Signed launch data must authenticate even without the Telegram SDK",
   );
+  authMode = "browser";
+  sessionActive = true;
+  for (const [tab, heading] of [
+    ["chat", "Smart Chat"],
+    ["groups", "Group Manager"],
+    ["automation", "Automation"],
+    ["analytics", "Analytics"],
+    ["broadcast", "Broadcast"],
+    ["settings", "Settings & services"],
+  ]) {
+    await page.goto(`${base}/?tab=${tab}`);
+    await page.getByRole("heading", { name: heading, exact: true }).waitFor();
+  }
+  await page.goto(`${base}/?tab=groups`);
+  await page.getByRole("button", { name: /Offline community/ }).waitFor();
+  await page.getByLabel("Search served groups").fill("missing-group");
+  assert.equal(
+    await page.getByRole("button", { name: /Offline community/ }).count(),
+    0,
+  );
+  await page.getByLabel("Search served groups").fill("Offline");
+  await page
+    .getByRole("button", { name: "Disable Anti-Spam", exact: true })
+    .click();
+  await page
+    .getByRole("button", { name: "Enable Anti-Spam", exact: true })
+    .waitFor();
+  await page.goto(`${base}/?tab=chat`);
+  await page.getByRole("button", { name: /Offline community/ }).click();
+  await page.getByRole("button", { name: "Thank you", exact: true }).click();
+  assert.ok(
+    (await page.getByLabel("Message text").inputValue()).includes("Thanks"),
+  );
+  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await page.getByText(/Telegram accepted · #31/).waitFor();
+  await page.getByRole("button", { name: /Find a tool or jump/ }).click();
+  await page.getByLabel("Search workspace tools").fill("analytics");
+  await page.getByLabel("Search workspace tools").press("Enter");
+  await page.getByRole("heading", { name: "Analytics", exact: true }).waitFor();
+  await page
+    .getByRole("dialog", { name: "Find a tool", exact: true })
+    .waitFor({ state: "hidden" });
+  downloadPromise = page.waitForEvent("download");
+  await page
+    .getByRole("button", {
+      name: "Download observed analytics · CSV",
+      exact: true,
+    })
+    .click();
+  download = await downloadPromise;
+  await download.saveAs(path.join(artifacts, "analytics.csv"));
+  assert.ok(
+    (await fs.readFile(path.join(artifacts, "analytics.csv"), "utf8")).includes(
+      '"command","play","5"',
+    ),
+  );
+  await page.goto(`${base}/?tab=post`);
+  await page.getByRole("button", { name: "Design Image", exact: true }).click();
+  await page
+    .getByRole("button", { name: "Browse 8 editable layouts", exact: true })
+    .click();
+  page.once("dialog", (dialog) => dialog.accept());
+  await page
+    .getByRole("button", { name: "Apply layout A warm welcome", exact: true })
+    .click();
+  assert.equal(
+    await page.getByLabel("Heading", { exact: true }).inputValue(),
+    "You belong here.",
+  );
+  await page
+    .getByLabel("Background pattern", { exact: true })
+    .selectOption("dots");
+  downloadPromise = page.waitForEvent("download");
+  await page.getByRole("button", { name: "Download PNG", exact: true }).click();
+  download = await downloadPromise;
+  await download.saveAs(path.join(artifacts, "recipe.png"));
+  assert.equal(
+    (await fs.readFile(path.join(artifacts, "recipe.png"))).readUInt32BE(16),
+    1080,
+  );
   authMode = "blocked";
   sessionActive = false;
   await page.goto(
@@ -221,7 +364,7 @@ const assert = require("node:assert/strict");
   );
   assert.deepEqual(errors, []);
   console.log(
-    "PASS: real Chromium PNG export, editable JSON export, keyboard movement, JSON import, mocked image publish, duplicate guard, caption limit, post recovery, design restore, 390px mobile layout, owner-session restoration, SDK-independent Mini App login, blocked-cookie diagnosis; no runtime errors.",
+    "PASS: real Chromium PNG export, editable JSON export, keyboard movement, JSON import, mocked image publish, duplicate guard, caption limit, post recovery, design restore, 390px mobile layout, owner-session restoration, SDK-independent Mini App login, blocked-cookie diagnosis, private-tool gates, all private screens, group search/toggle, chat quick replies, CSV export, tool finder, editable recipe PNG export; no runtime errors.",
   );
   await browser.close();
 })().catch((e) => {

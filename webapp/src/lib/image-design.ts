@@ -22,6 +22,7 @@ export type ImageDesign = {
   panX: number;
   panY: number;
   geometry: boolean;
+  pattern: "rings" | "grid" | "dots";
 };
 export const initialDesign: ImageDesign = {
   ratio: "landscape",
@@ -47,6 +48,7 @@ export const initialDesign: ImageDesign = {
   panX: 50,
   panY: 50,
   geometry: true,
+  pattern: "rings",
 };
 export function designSize(ratio: ImageDesign["ratio"]) {
   return ratio === "square"
@@ -117,10 +119,35 @@ export function paintDesign(
     ctx.strokeStyle = d.accent;
     ctx.globalAlpha = 0.28;
     ctx.lineWidth = 2;
-    for (let i = 0; i < 5; i++) {
-      ctx.beginPath();
-      ctx.arc(w * 0.91, h * 0.38, w * (0.16 + i * 0.035), 0, Math.PI * 2);
-      ctx.stroke();
+    if (d.pattern === "grid") {
+      const step = w * 0.055;
+      for (let x = 0; x < w; x += step) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, h);
+        ctx.stroke();
+      }
+      for (let y = 0; y < h; y += step) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(w, y);
+        ctx.stroke();
+      }
+    } else if (d.pattern === "dots") {
+      ctx.fillStyle = d.accent;
+      const step = w * 0.045;
+      for (let x = step / 2; x < w; x += step)
+        for (let y = step / 2; y < h; y += step) {
+          ctx.beginPath();
+          ctx.arc(x, y, w * 0.0015, 0, Math.PI * 2);
+          ctx.fill();
+        }
+    } else {
+      for (let i = 0; i < 5; i++) {
+        ctx.beginPath();
+        ctx.arc(w * 0.91, h * 0.38, w * (0.16 + i * 0.035), 0, Math.PI * 2);
+        ctx.stroke();
+      }
     }
     ctx.fillStyle = d.accent;
     ctx.globalAlpha = 0.08;
@@ -206,6 +233,8 @@ export function parseDesign(value: unknown): ImageDesign {
   if (input.align === "left" || input.align === "center")
     result.align = input.align;
   if (typeof input.geometry === "boolean") result.geometry = input.geometry;
+  if (["rings", "grid", "dots"].includes(String(input.pattern)))
+    result.pattern = input.pattern as ImageDesign["pattern"];
   const ranges = {
     fontSize: [24, 140],
     subtitleSize: [12, 80],

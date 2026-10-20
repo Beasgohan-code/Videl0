@@ -1,0 +1,138 @@
+import { initialDesign, type ImageDesign } from "./image-design";
+export type DesignRecipe = {
+  id: string;
+  name: string;
+  category: "Announcement" | "Event" | "Community" | "Editorial";
+  description: string;
+  design: ImageDesign;
+};
+const recipe = (
+  id: string,
+  name: string,
+  category: DesignRecipe["category"],
+  description: string,
+  patch: Partial<ImageDesign>,
+): DesignRecipe => ({
+  id,
+  name,
+  category,
+  description,
+  design: { ...initialDesign, ...patch },
+});
+/** Editable canvas recipes, not flattened cover images or remote assets. */
+export const designLibrary: DesignRecipe[] = [
+  recipe("launch", "The next chapter", "Announcement", "A bold release card", {
+    title: "Something new\nis here.",
+    subtitle: "Add your release details and a reason to be excited.",
+    label: "JUST LAUNCHED",
+    background: "#20263a",
+    accent: "#99b9df",
+    color: "#edf3fc",
+    font: "Arial",
+    pattern: "grid",
+  }),
+  recipe("meetup", "Save your seat", "Event", "Date, place, and invitation", {
+    ratio: "portrait",
+    title: "Let’s get\ntogether.",
+    subtitle: "Friday · 7 PM\nAdd venue and timezone",
+    label: "YOU’RE INVITED",
+    background: "#644434",
+    accent: "#e0b58f",
+    color: "#fff0df",
+    titleY: 30,
+    subtitleY: 72,
+    pattern: "dots",
+  }),
+  recipe(
+    "welcome",
+    "A warm welcome",
+    "Community",
+    "Make new members feel at home",
+    {
+      ratio: "square",
+      title: "You belong here.",
+      subtitle:
+        "Introduce yourself. Find your people.\nMake something great together.",
+      label: "WELCOME TO THE COMMUNITY",
+      background: "#dfdacb",
+      accent: "#7b8467",
+      color: "#2c3529",
+      titleY: 35,
+      subtitleY: 68,
+      pattern: "rings",
+    },
+  ),
+  recipe(
+    "weekly",
+    "The weekly edit",
+    "Editorial",
+    "A quieter newsletter cover",
+    {
+      title: "This week,\nworth your time.",
+      subtitle: "Your highlights, recommendations, and latest updates.",
+      label: "THE WEEKLY EDIT",
+      background: "#302a39",
+      accent: "#b8a5c7",
+      color: "#f3eaf8",
+      pattern: "grid",
+    },
+  ),
+  recipe("quote", "Words to keep", "Editorial", "A centered quote or thought", {
+    ratio: "square",
+    title: "Small steps.\nReal progress.",
+    subtitle: "Your name or community",
+    label: "A THOUGHT FOR TODAY",
+    align: "center",
+    titleX: 50,
+    titleY: 34,
+    subtitleX: 50,
+    subtitleY: 74,
+    labelX: 50,
+    background: "#233d45",
+    accent: "#a1c8c6",
+    color: "#f0fbf5",
+    fontSize: 90,
+    pattern: "dots",
+  }),
+  recipe("music", "On repeat", "Community", "Make a listening-session card", {
+    ratio: "square",
+    title: "Press play.\nStay a while.",
+    subtitle: "Add your playlist name\nand listening-session details.",
+    label: "LISTENING ROOM",
+    background: "#362d29",
+    accent: "#cfb396",
+    color: "#f5e9d5",
+    font: "Arial",
+    titleY: 28,
+    subtitleY: 73,
+    pattern: "rings",
+  }),
+  recipe("notice", "Good to know", "Announcement", "Clear important updates", {
+    title: "A quick\nheads-up.",
+    subtitle: "Keep your community informed. Add the details here.",
+    label: "IMPORTANT UPDATE",
+    background: "#eddcaa",
+    accent: "#987841",
+    color: "#3a3020",
+    font: "Arial",
+    pattern: "grid",
+  }),
+  recipe(
+    "workshop",
+    "Make space to learn",
+    "Event",
+    "Workshop or study session",
+    {
+      ratio: "portrait",
+      title: "Learn something\nnew together.",
+      subtitle: "Your topic · Your date\nAdd host, venue and timezone",
+      label: "COMMUNITY WORKSHOP",
+      background: "#29453b",
+      accent: "#b9cc9d",
+      color: "#eff5e3",
+      titleY: 30,
+      subtitleY: 72,
+      pattern: "dots",
+    },
+  ),
+];

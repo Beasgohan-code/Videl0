@@ -395,3 +395,6 @@ button:focus-visible,a:focus-visible { outline: 2px solid #a5b4fc; outline-offse
 @media(max-width:640px) { .visual-post-editor { min-height:240px; padding:16px; font-size:16px; } }
 .studio-more-dialog { position:fixed; inset:auto 0 0; margin:0 auto; padding:0; width:100%; max-width:560px; max-height:85dvh; color:#f1f5ff; border:0; background:transparent; }
 .studio-more-dialog::backdrop { background:rgba(3,7,18,.75); backdrop-filter:blur(6px); }
+
+.tool-finder { padding:0; width:min(620px,calc(100vw - 24px)); max-height:85dvh; background:transparent; border:0; color:#f1f5ff; margin:10dvh auto auto; }
+.tool-finder::backdrop { background:#030712b8; backdrop-filter:blur(8px); }
