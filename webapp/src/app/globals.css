@@ -1,21 +1,20 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+@config "../../tailwind.config.js";
 
 /* ── iOS 26 Design System — Videl Premium ────────────────────────────────── */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap');
 
 :root {
   color-scheme: dark;
   /* iOS System Colors — Dark */
-  --ios-bg: #000000;
-  --ios-bg-subtle: #0A0A0B;
-  --ios-card: #14141A;
-  --ios-card-hover: #1A1A22;
-  --ios-card-elevated: #1E1E28;
-  --ios-border: rgba(255,255,255,0.08);
-  --ios-border-strong: rgba(255,255,255,0.12);
-  --ios-label: #FFFFFF;
+  --ios-bg: #060817;
+  --ios-bg-subtle: #090D20;
+  --ios-card: #0B1023;
+  --ios-card-hover: #111831;
+  --ios-card-elevated: #11172D;
+  --ios-border: rgba(141,162,255,0.14);
+  --ios-border-strong: rgba(141,162,255,0.24);
+  --ios-label: #F6F7FF;
   --ios-label-secondary: #8E8E93;
   --ios-label-tertiary: #636366;
   --ios-separator: rgba(255,255,255,0.08);
@@ -67,7 +66,8 @@ html {
 html, body { overscroll-behavior: none; }
 
 body {
-  background: var(--ios-bg);
+  background: radial-gradient(ellipse at 10% -12%, rgba(55,79,210,0.24), transparent 38%), radial-gradient(ellipse at 92% 10%, rgba(143,49,195,0.16), transparent 30%), var(--ios-bg);
+  background-attachment: fixed;
   color: var(--ios-label);
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', system-ui, sans-serif;
   font-feature-settings: 'ss01' 1, 'ss02' 1, 'cv01' 1;
@@ -76,6 +76,13 @@ body {
   min-height: 100vh;
   min-height: 100dvh;
 }
+
+/* Cyber-dark operations theme: layered navy, indigo and electric blue. */
+.cyber-hero { position: relative; isolation: isolate; background: linear-gradient(115deg, rgba(15,24,61,.98), rgba(20,17,58,.94) 58%, rgba(37,17,61,.88)); box-shadow: 0 20px 70px rgba(8,10,34,.4), 0 0 36px rgba(83,94,255,.1) inset; }
+.hero-grid { position:absolute; inset:0; z-index:0; opacity:.23; background-image:linear-gradient(rgba(175,190,255,.12) 1px,transparent 1px),linear-gradient(90deg,rgba(175,190,255,.12) 1px,transparent 1px); background-size:32px 32px; mask-image:linear-gradient(90deg,black,transparent 85%); }
+.hero-orb { position:absolute; z-index:0; width:18rem; height:18rem; border-radius:50%; filter:blur(70px); opacity:.38; pointer-events:none; }
+.hero-orb-one { right:8%; top:-8rem; background:#514BFF; }
+.hero-orb-two { right:-2rem; bottom:-13rem; background:#C035D6; opacity:.22; }
 
 /* ── iOS Glass & Materials ────────────────────────────────────────────────── */
 .ios-glass {
@@ -86,9 +93,10 @@ body {
 }
 
 .ios-card {
-  background: var(--ios-card);
-  border: 0.5px solid var(--ios-border);
+  background: linear-gradient(145deg, rgba(19,27,56,0.96), rgba(9,13,31,0.96));
+  border: 1px solid var(--ios-border);
   border-radius: var(--ios-radius);
+  box-shadow: 0 14px 40px rgba(0,0,0,0.2), 0 0 28px rgba(65,91,220,0.04) inset;
   overflow: hidden;
   transition: all 0.3s var(--ios-spring);
 }
@@ -137,8 +145,13 @@ body {
 }
 .ios-pill-blue {
   background: rgba(10,132,255,0.12);
-  color: var(--ios-blue);
-  border-color: rgba(10,132,255,0.16);
+  color: #8DBBFF;
+  border-color: rgba(10,132,255,0.22);
+}
+.ios-pill-green {
+  background: rgba(48,209,88,0.1);
+  color: #70E293;
+  border-color: rgba(48,209,88,0.2);
 }
 
 /* ── Typography ───────────────────────────────────────────────────────────── */
@@ -177,11 +190,11 @@ body {
 }
 .ios-btn:active { transform: scale(0.96); }
 .ios-btn-primary {
-  background: var(--ios-blue);
+  background: linear-gradient(105deg, #5657F5, #248DFF 65%, #56B5FF);
   color: white;
-  box-shadow: 0 4px 12px rgba(10,132,255,0.28);
+  box-shadow: 0 7px 22px rgba(63,96,255,0.3);
 }
-.ios-btn-primary:active { background: var(--ios-blue-pressed); }
+.ios-btn-primary:active { filter: brightness(0.9); }
 .ios-btn-glass {
   background: var(--ios-fill);
   color: var(--ios-label);
@@ -293,3 +306,71 @@ body {
 .tg-preview-light {
   background: #E7EBF0;
 }
+
+/* ── Telegram Mini App — Perfect Polish ──────────────────────────────────── */
+:root {
+  --tg-viewport-height: 100vh;
+  --tg-viewport-stable-height: 100vh;
+}
+html:has(.tg-viewport) {
+  height: var(--tg-viewport-height);
+}
+body.tg-miniapp {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  background: var(--tg-theme-bg-color, var(--ios-bg));
+  overscroll-behavior: none;
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+/* Telegram native haptics — prevent double-tap zoom */
+.tg-miniapp * {
+  touch-action: manipulation;
+}
+/* Perfect scrollbar for Mini App */
+.tg-miniapp ::-webkit-scrollbar { width: 0; height: 0; }
+.tg-miniapp {
+  scrollbar-width: none;
+}
+/* Smooth native feel */
+.tg-miniapp .ios-card {
+  transition: transform 0.15s var(--ios-spring), background 0.2s ease;
+}
+.tg-miniapp .ios-card:active {
+  transform: scale(0.985);
+}
+
+/* Unified Videl Studio: midnight glass, electric borders, violet atmosphere. */
+:root { --ios-label-secondary: #929bbd; --ios-label-tertiary: #657198; --ios-blue: #6366f1; --ios-indigo: #7c5cfc; }
+.studio-panel { min-width: 0; }
+.studio-panel .ios-card { background: linear-gradient(145deg,rgba(15,22,47,.92),rgba(9,15,34,.95)); border: 1px solid rgba(118,139,255,.16); box-shadow: 0 8px 32px rgba(0,0,0,.12),inset 0 1px 0 rgba(173,186,255,.025); }
+.studio-panel .ios-card:active { transform: none; }
+.studio-panel .ios-btn-primary { background: linear-gradient(115deg,#7356f5,#4f61f1); box-shadow: 0 4px 20px #6355f52b; border: 1px solid #b4a3ff30; }
+.studio-panel .ios-title { font-size: 1.8rem; letter-spacing: -.045em; }
+.studio-hero { box-shadow: 0 0 45px #5b44ef10,inset 0 0 25px #5b44ef15; }
+.studio-panel .ios-input { background: #080e22; border-color: #7487dd26; }
+.studio-panel .ios-input:focus { border-color: #8b7bfa; box-shadow: 0 0 0 3px #8b7bfa15; }
+@media (max-width: 640px) { .studio-hero img { object-position: 70% center; opacity:.65; } .studio-hero h2 { font-size: 1.9rem; } }
+@media (prefers-reduced-motion: reduce) { *,*::before,*::after { scroll-behavior:auto!important; transition:none!important; animation:none!important; } }
+
+/* Smart Chat: subtle Telegram-style canvas without artificial messages. */
+.chat-canvas { background-color: #080e21; background-image: radial-gradient(circle at 1px 1px,rgba(129,140,248,.07) 1px,transparent 0),radial-gradient(ellipse at 85% 10%,rgba(109,40,217,.08),transparent 55%); background-size: 24px 24px,100% 100%; }
+button:not(:disabled),a { touch-action: manipulation; }
+button:focus-visible,a:focus-visible { outline: 2px solid #a5b4fc; outline-offset: 4px; }
+.studio-panel [role="log"] { scrollbar-width: thin; scrollbar-color: #373063 #080e21; }
+
+/* Post Studio has its own quiet editorial identity; no neon or cyber styling. */
+.post-workspace { --ios-blue:#b5c4a5; --ios-label-secondary:#a8aca6; --ios-label-tertiary:#70786e; color:#eeeee8; }
+.post-workspace .ios-card,.post-workspace .ios-card-elevated { background:#181e1c; border-color:rgba(203,213,192,.12); box-shadow:none; }
+.post-workspace .ios-input { background:#111715; border-color:rgba(203,213,192,.15); color:#e7ebe2; }
+.post-workspace .ios-input:focus { border-color:#a9ba99; box-shadow:0 0 0 3px #a9ba9912; }
+.post-workspace .ios-btn-primary { background:#c1cdb3; border:1px solid #d6dfca; color:#202b20; box-shadow:none; }
+.post-workspace .ios-btn-glass { background:rgba(207,216,196,.04); border-color:rgba(207,216,196,.15); color:#c5cdc0; }
+.post-workspace .ios-pill-blue { background:#c1cdb30d; color:#c7d4b9; border-color:#c1cdb326; }
+.post-workspace .ios-title,.post-serif { font-family:Georgia,'Times New Roman',serif; font-weight:400; letter-spacing:-.035em; }
+.post-workspace .ios-title { font-size:2.3rem; }
+.post-workspace .post-eyebrow { color:#99a58e; font-size:9px; font-weight:600; letter-spacing:.22em; }
+.post-editorial-banner { background:linear-gradient(110deg,#1e2923,#18211d); }
+.post-workspace .post-asset-library { border-radius:20px; padding:20px; background:#151b18; border:1px solid #c1cdb31a; }
+.post-workspace button:focus-visible,.post-workspace a:focus-visible { outline-color:#c1cdb3; }
