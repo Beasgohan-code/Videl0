@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import time
 from pyrogram import filters
-from pyrogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from pyrogram.types import CallbackQuery, InlineKeyboardMarkup, Message
+from videl.utils.bot_ui import button as InlineKeyboardButton
 
 import config
 from videl import bot, bot_start_time
@@ -11,7 +12,7 @@ from videl.utils.db import (
     get_db, get_served_chats_count, get_served_users_count,
     get_total_plays, is_connected,
 )
-from videl.utils.rich_ui import rich_heading, rich_kv_table, rich_note, rich_reply
+from videl.utils.rich_ui import rich_heading, rich_kv_table, rich_note, rich_reply, rich_edit
 
 PLUGIN_COMMANDS = {
     "clean": "cleanpro", "filters_pro": "filtpro", "helper_pro": "helperpro",
@@ -73,7 +74,7 @@ async def pro_plugins_cb(_, query: CallbackQuery):
     subset=plugins[page*size:(page+1)*size]
     rows=[(f"<code>/{PLUGIN_COMMANDS.get(name,name.replace('_',''))}</code>","Active") for name in subset]
     text=rich_heading("Active professional tools",level=2)+rich_kv_table(rows or [("Status","No plugin handlers loaded")])+rich_note(f"Page {page+1}/{pages} · {len(plugins)} active add-ons; core music and moderation commands are listed in /help.")
-    await query.message.edit_text(text,reply_markup=_page_markup(page,pages))
+    await rich_edit(query.message, text,reply_markup=_page_markup(page,pages))
     await query.answer()
 
 
@@ -83,7 +84,7 @@ async def pro_help_cb(_, query: CallbackQuery):
         text="<b>Music</b>\n<code>/play query</code> · <code>/vplay query</code> · <code>/cplay query</code>\n<code>/queue</code> · <code>/skip</code> · <code>/pause</code> · <code>/resume</code> · <code>/stop</code>\n<code>/seek</code> · <code>/lyrics</code> · <code>/playlist</code> · <code>/effects</code>"
     else:
         text="<b>Group operations</b>\n<code>/ban</code> · <code>/kick</code> · <code>/mute</code> · <code>/warn</code> · <code>/locks</code>\n<code>/welcome</code> · <code>/rules</code> · <code>/filter</code> · <code>/notes</code> · <code>/purge</code>\nUse /help for the bot's current command index."
-    await query.message.edit_text(rich_heading("Videl command guide",level=2)+rich_note(text),reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Back",callback_data="pro_plugins_0")]]))
+    await rich_edit(query.message, rich_heading("Videl command guide",level=2)+rich_note(text),reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("Back",callback_data="pro_plugins_0")]]))
     await query.answer()
 
 

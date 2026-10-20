@@ -11,11 +11,8 @@ Utility commands:
 
 import config
 from pyrogram import enums, filters
-from pyrogram.types import (
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    Message,
-)
+from pyrogram.types import InlineKeyboardMarkup, Message
+from videl.utils.bot_ui import button as InlineKeyboardButton
 
 from videl import bot
 from videl.modules.block import user_allowed

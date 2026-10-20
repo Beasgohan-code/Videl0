@@ -8,7 +8,8 @@ import random
 from pyrogram import filters
 from pyrogram.errors import ChatAdminRequired
 from pyrogram.enums import ParseMode
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
+from pyrogram.types import InlineKeyboardMarkup, Message
+from videl.utils.bot_ui import button as InlineKeyboardButton
 
 import config
 from videl import bot

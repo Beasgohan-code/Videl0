@@ -22,12 +22,8 @@ from typing import Optional
 import aiofiles
 from pyrogram import filters
 from pyrogram.enums import ParseMode
-from pyrogram.types import (
-    Message,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    CallbackQuery,
-)
+from pyrogram.types import Message, InlineKeyboardMarkup, CallbackQuery
+from videl.utils.bot_ui import button as InlineKeyboardButton
 
 import config
 from videl import bot, LOGGER

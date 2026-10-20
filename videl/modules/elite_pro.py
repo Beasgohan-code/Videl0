@@ -10,7 +10,8 @@ import re
 import asyncio
 from datetime import datetime, timezone
 from pyrogram import filters
-from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from pyrogram.types import Message, InlineKeyboardMarkup, CallbackQuery
+from videl.utils.bot_ui import button as InlineKeyboardButton
 import config
 from videl import LOGGER, bot
 from videl.utils.db import get_db

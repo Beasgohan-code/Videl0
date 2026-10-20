@@ -8,7 +8,8 @@ import random
 
 from pyrogram import enums
 from pyrogram.enums import ParseMode
-from pyrogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup
+from pyrogram.types import CallbackQuery, InlineKeyboardMarkup
+from videl.utils.bot_ui import button as InlineKeyboardButton
 
 import config
 from videl import bot, call_py

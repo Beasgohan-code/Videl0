@@ -18,7 +18,8 @@ from datetime import datetime
 from pathlib import Path
 
 from pyrogram import filters
-from pyrogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup
+from pyrogram.types import Message, InlineKeyboardMarkup
+from videl.utils.bot_ui import button as InlineKeyboardButton
 from pyrogram.enums import ParseMode
 
 import config

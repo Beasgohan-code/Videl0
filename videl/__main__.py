@@ -35,24 +35,8 @@ def _internal_authorized():
 
 
 def _bot_api(method, payload, files=None):
-    token = getattr(config, "BOT_TOKEN", "") or ""
-    if not token:
-        return None, {"ok": False, "description": "Bot token is not configured"}
-    try:
-        if files:
-            import json
-            data = {key: json.dumps(value) if isinstance(value, (dict, list)) else value for key, value in payload.items()}
-            response = requests.post(f"https://api.telegram.org/bot{token}/{method}", data=data, files=files, timeout=(5, 18))
-        else:
-            response = requests.post(f"https://api.telegram.org/bot{token}/{method}", json=payload, timeout=8)
-        try:
-            result = response.json()
-        except ValueError:
-            return response.status_code, {"ok": False, "description": "Telegram returned an invalid response"}
-        return response.status_code, result
-    except requests.RequestException:
-        LOGGER.exception("Telegram Bot API request failed (%s)", method)
-        return None, {"ok": False, "description": "Telegram Bot API is unreachable"}
+    from videl.utils.bot_api import call_bot_api
+    return call_bot_api(method, payload, files=files)
 
 
 # ── Render backend health and service metadata ───────────────────────────
@@ -493,17 +477,8 @@ def _internal_bot_settings():
             return jsonify({"ok": False, "error": res.get("description", "Failed to update menu button")}), 502
         return jsonify({"ok": True, "webapp_url": url, "button_text": text})
     if action == "sync_commands":
-        default_cmds = [
-            {"command": "start", "description": "Launch Videl Studio & Web App"},
-            {"command": "help", "description": "Explore Videl command modules"},
-            {"command": "play", "description": "Stream music in voice chat"},
-            {"command": "vplay", "description": "Stream HD video in voice chat"},
-            {"command": "queue", "description": "View current playback queue"},
-            {"command": "skip", "description": "Skip to next track"},
-            {"command": "locks", "description": "Configure group protection locks"},
-            {"command": "stats", "description": "View live bot & database metrics"},
-            {"command": "ping", "description": "Check Videl latency & uptime"},
-        ]
+        from videl.utils.bot_commands import command_menu
+        default_cmds = command_menu()
         status, res = _bot_api("setMyCommands", {"commands": default_cmds})
         if not status or not res.get("ok"):
             return jsonify({"ok": False, "error": res.get("description", "Failed to sync commands")}), 502
@@ -630,25 +605,21 @@ if __name__ == "__main__":
 
         # bot commands + WebApp menu button (single Vercel URL)
         try:
-            from pyrogram.types import BotCommand
-            await bot.set_bot_commands([
-                BotCommand("start", "Launch Videl Studio & Web App"),
-                BotCommand("help", "Explore Videl command modules"),
-                BotCommand("play", "Stream audio in voice chat"),
-                BotCommand("vplay", "Stream HD video in voice chat"),
-                BotCommand("queue", "View active playback queue"),
-                BotCommand("setup", "Interactive Group Manager Wizard"),
-                BotCommand("locks", "Configure group protection shields"),
-                BotCommand("ping", "Check latency & live telemetry"),
-                BotCommand("stats", "System & MongoDB diagnostics"),
-                BotCommand("logs", "Owner error & runtime logs"),
-            ])
+            from pyrogram.types import BotCommand, BotCommandScopeChat
+            from videl.utils.bot_commands import command_menu
+            await bot.set_bot_commands([BotCommand(**item) for item in command_menu()])
+            if config.OWNER_ID:
+                try:
+                    await bot.set_bot_commands([BotCommand(**item) for item in command_menu(owner=True)],
+                                               scope=BotCommandScopeChat(chat_id=config.OWNER_ID))
+                except Exception:
+                    LOGGER.info("Owner command menu will be available after the owner starts the bot")
         except Exception:
             pass
         try:
             webapp_root = (getattr(config, "WEBAPP_URL", "") or "").strip().rstrip("/")
             if webapp_root.startswith("https://"):
-                _bot_api("setChatMenuButton", {
+                await asyncio.to_thread(_bot_api, "setChatMenuButton", {
                     "menu_button": {"type": "web_app", "text": "👑 Videl Studio", "web_app": {"url": webapp_root}}
                 })
         except Exception:

@@ -1,17 +1,19 @@
 # --------------------------------------------------------------------------------
 #  Videl © 2026 | Developed by Beasgohan-code — Premium Costume Emoji
 #  User-supplied premium emoji IDs — NewsEmoji + tgiosicons + @rijif + SoLo_HaMiD
-#  No Premium subscription needed for the bot to SEND them — just IDs via Bot API
+#  Telegram eligibility applies: IDs alone do not grant Premium rendering.
 #  <tg-emoji emoji-id="..."> fallback uses HTML parse_mode
 # --------------------------------------------------------------------------------
 from __future__ import annotations
 import os
+import html
+import re
 import config
 
 # ── Premium toggle — env USE_PREMIUM_EMOJI=1 (default ON) ─────────────────────
 USE_PREMIUM: bool = os.getenv("USE_PREMIUM_EMOJI", "1").strip().lower() not in ("0","false","no","off")
 
-# ── Verified IDs from user (Get Emoji ID Bot) — 4 packs ───────────────────────
+# ── Existing configured IDs (validate with /emojiinfo) — 4 packs ───────────────────────
 # Pack 1: https://t.me/addemoji/NewsEmoji (NewsEmoji)
 # Pack 2: https://t.me/addemoji/tgiosicons (Telegram iOS Icons)
 # Pack 3: https://t.me/addemoji/Udif7rr7_by_fStikBot (@rijif)
@@ -99,16 +101,18 @@ PREMIUM_IDS: dict[str, str] = {
 
 # Fallback glyphs — cyber dark original
 FALLBACK: dict[str, str] = {
-    "orb":"◍","diamond":"⬪","line":"⫶","small":"⬩","spark":"𖦹",
-    "circle":"⦿","target":"◎","hex":"⬢","arrow":"➪","dash":"─",
+    "orb":"🔮","diamond":"💎","line":"⫶","small":"⬩","spark":"𖦹",
+    "circle":"👀","target":"⚙️","hex":"🛡️","arrow":"➡️","dash":"💬",
     "check":"✅","cross":"❌","warn":"⚠️","ban":"⛔️","lock":"🔒","unlock":"🔓",
     "pin":"📌","music":"🎵","right":"➡️","left":"⬅️","up":"🔼","down":"🔽",
+    "crown":"👑","shield":"🛡️","key":"🔧","stats":"📊","mic":"🎙️",
     "info":"ℹ️","globe":"🌐","link":"🔗","fire":"🔥","star":"⭐️","eyes":"👀",
 }
 
-def tg_emoji(emoji_id: str | int, fallback: str = "◍") -> str:
+def tg_emoji(emoji_id: str | int, fallback: str = "✨") -> str:
     """Return <tg-emoji> HTML if premium enabled, else fallback glyph."""
-    if not USE_PREMIUM or not emoji_id:
+    fallback = html.escape(str(fallback))
+    if not USE_PREMIUM or not re.fullmatch(r"[1-9][0-9]{0,18}", str(emoji_id)) or int(emoji_id) > 9223372036854775807:
         return fallback
     # Bot API supports <tg-emoji emoji-id="...">emoji</tg-emoji>
     return f'<tg-emoji emoji-id="{emoji_id}">{fallback}</tg-emoji>'
@@ -118,7 +122,7 @@ def pe(key: str, fallback: str | None = None) -> str:
     if key in {"orb", "diamond", "line", "small", "spark", "circle", "target", "hex", "arrow", "dash"}:
         return ""
     fid = PREMIUM_IDS.get(key, "")
-    fb = fallback if fallback is not None else FALLBACK.get(key, "◍")
+    fb = fallback if fallback is not None else FALLBACK.get(key, "✨")
     return tg_emoji(fid, fb)
 
 # ── Ready-made cyber helpers — drop-in replacements for formatters.CYBER ──

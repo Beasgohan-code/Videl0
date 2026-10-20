@@ -1,11 +1,13 @@
 # --------------------------------------------------------------------------------
 #  Videl © 2026 | Developed by Beasgohan-code — Perfected
-#  ◍ Cyber Dark Now-Playing • Clean buttons + proper progress • no ◍ spam
+#  Readable now-playing cards and semantic native playback controls
 # --------------------------------------------------------------------------------
 import asyncio, random, time
 from pyrogram.enums import ParseMode
+from pyrogram.errors import BadRequest
 from pyrogram.raw.functions.phone import CreateGroupCall
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
+from pyrogram.types import InlineKeyboardMarkup, Message
+from videl.utils.bot_ui import button as InlineKeyboardButton, visual_call
 from pytgcalls import filters as fl
 from ntgcalls import TelegramServerError
 from pytgcalls.exceptions import NoActiveGroupCall
@@ -54,45 +56,37 @@ def set_paused(c,v): _paused[c]=v
 # ── Caption ───────────────────────────────────────────────────────────────────
 def _dot(elapsed: float, total: float) -> str:
     from videl.utils.formatters import fmt_time
-    if total<=0: return "0:00  ───◍───  0:00"
-    left,right=fmt_time(elapsed), fmt_time(total)
-    slots,pos=10,int((elapsed/total)*10) if total else 0
-    pos=max(0,min(9,pos)); bar="─"*pos+"◍"+"─"*(9-pos)
-    return f"{left}  {bar}  {right}"
+    total=max(0,total);elapsed=max(0,min(elapsed,total)) if total else 0
+    filled=min(10,int(elapsed/total*10)) if total else 0
+    return f"{fmt_time(elapsed)}  {'━'*filled}{'─'*(10-filled)}  {fmt_time(total)}"
+
 
 def _now_playing_caption(song: dict, elapsed: float=0, total: float=0, chat_id: int|None=None) -> str:
-    from videl.utils.formatters import sc
     from videl.core.queue import peek_next, queue_size
-    title=short(song.get("title","?"),48); requester=song.get("requester","?")
-    kind="ᴠɪᴅᴇᴏ" if song.get("video") else "ᴀᴜᴅɪᴏ"
-    dur=song.get("duration","?")
-    if total<=0:
-        total=parse_dur(str(dur)) if dur else 0
-        if not total and song.get("duration_seconds"): total=float(song["duration_seconds"])
-    bar=_dot(elapsed,total) if total>0 else f"0:00  ───◍───  {dur}"
-    loop=get_loop(chat_id) if chat_id is not None else "off"
-    loop_tag={"off":"","one":f"  ⦿ {sc('loop one')}","all":f"  ⦿ {sc('loop queue')}"}.get(loop,"")
-    paused_tag=f"  ⏸ {sc('paused')}" if (chat_id is not None and is_paused(chat_id)) else ""
-    lines=[f"<b>{rich_esc(title)}</b>", f"<code>{kind}</code>  •  <code>{rich_esc(str(dur))}</code>{loop_tag}{paused_tag}", f"{sc('requested by')} <b>{rich_esc(requester)}</b> ◍", "", f"<code>{bar}</code>"]
+    from videl.utils.premium_emojis import pe
+    title=short(str(song.get("title","Untitled track")),60)
+    requester=str(song.get("requester","Community"))
+    duration=str(song.get("duration","Live"))
+    if total<=0: total=parse_dur(duration) or float(song.get("duration_seconds") or 0)
+    state="Paused" if chat_id is not None and is_paused(chat_id) else "Now playing"
+    lines=[f"{pe('music', '🎵')} <b>{state}</b>",f"<b>{rich_esc(title)}</b>","",f"{'Video' if song.get('video') else 'Audio'} · {rich_esc(duration)}",f"Requested by <b>{rich_esc(requester)}</b>","",f"<code>{_dot(elapsed,total)}</code>"]
     if chat_id is not None:
-        nxt=peek_next(chat_id); qn=max(queue_size(chat_id)-1,0)
-        if nxt:
-            lines+=["", f"⬪ {sc('up next')}: <b>{rich_esc(short(nxt.get('title','?'),36))}</b>"]
-            if qn>1: lines.append(f"⫶ {sc('queue')}: <code>{qn}</code>")
-        elif qn==0: lines+=["", f"⫶ {sc('queue')}: <code>0</code>"]
+        loop=get_loop(chat_id)
+        if loop!="off": lines.append(f"Repeat: {'Current track' if loop=='one' else 'Entire queue'}")
+        upcoming=peek_next(chat_id)
+        if upcoming: lines.extend(["",f"Up next: <b>{rich_esc(short(str(upcoming.get('title','Untitled track')),48))}</b>"])
+        lines.append(f"Queued tracks: <b>{max(queue_size(chat_id)-1,0)}</b>")
     return "\n".join(lines)
 
+
 def _now_playing_kb(chat_id: int|None=None, votes: int=0, votes_needed: int=0) -> InlineKeyboardMarkup:
-    from videl.utils.formatters import sc
     paused=is_paused(chat_id) if chat_id is not None else False
     loop=get_loop(chat_id) if chat_id is not None else "off"
-    mid=InlineKeyboardButton(f"▷ {sc('resume')}",callback_data="resume") if paused else InlineKeyboardButton(f"ɪɪ {sc('pause')}",callback_data="pause")
-    row1=[InlineKeyboardButton(f"↻ {sc('replay')}",callback_data="replay"), mid, InlineKeyboardButton(f"‣‣ {sc('skip')}",callback_data="skip")]
-    loop_label={"off":f"⦿ {sc('loop off')}","one":f"⦿ {sc('loop one')}","all":f"⦿ {sc('loop all')}"}.get(loop,f"⦿ {sc('loop off')}")
-    row2=[InlineKeyboardButton(loop_label,callback_data="cycle_loop"), InlineKeyboardButton(f"⬩ {sc('stop')}",callback_data="stop")]
-    rows=[row1,row2]
-    if votes_needed>0: rows.append([InlineKeyboardButton(f"⫶ {sc('vote')} {votes}/{votes_needed}",callback_data="vote_skip")])
+    rows=[[InlineKeyboardButton("Replay",callback_data="replay",icon="music"),InlineKeyboardButton("Resume" if paused else "Pause",callback_data="resume" if paused else "pause",style="success" if paused else "primary",icon="music"),InlineKeyboardButton("Skip",callback_data="skip",icon="right")],
+          [InlineKeyboardButton({"off":"Repeat: Off","one":"Repeat: Track","all":"Repeat: Queue"}.get(loop,"Repeat: Off"),callback_data="cycle_loop",icon="music"),InlineKeyboardButton("Stop playback",callback_data="stop")]]
+    if votes_needed>0: rows.append([InlineKeyboardButton(f"Vote to skip · {votes}/{votes_needed}",callback_data="vote_skip",icon="check")])
     return InlineKeyboardMarkup(rows)
+
 
 async def refresh_np_ui(chat_id:int):
     msg=_np_msg.get(chat_id); song=_np_song.get(chat_id)
@@ -101,7 +95,7 @@ async def refresh_np_ui(chat_id:int):
     elapsed=min(time.time()-start_t,total) if total else 0
     cap=_now_playing_caption(song,elapsed,total,chat_id=chat_id); kb=_now_playing_kb(chat_id)
     try:
-        if getattr(msg,"photo",None): await bot.edit_message_caption(chat_id,msg.id,caption=cap,reply_markup=kb)
+        if getattr(msg,"photo",None): await visual_call(bot.edit_message_caption,chat_id,msg.id,caption=cap,reply_markup=kb)
         else: await rich_edit(msg,cap,reply_markup=kb)
     except: pass
 
@@ -117,7 +111,7 @@ async def _update_progress(chat_id:int, msg:Message, start_t:float, total:float,
         elapsed=min(time.time()-start_t-paused_accum,total) if total else 0
         cap=_now_playing_caption(song,elapsed,total,chat_id=chat_id); kb=_now_playing_kb(chat_id)
         try:
-            if getattr(msg,"photo",None): await bot.edit_message_caption(chat_id,msg.id,caption=cap,reply_markup=kb)
+            if getattr(msg,"photo",None): await visual_call(bot.edit_message_caption,chat_id,msg.id,caption=cap,reply_markup=kb)
             else: await rich_edit(msg,cap,reply_markup=kb)
         except Exception as e:
             if "MESSAGE_NOT_MODIFIED" not in str(e): break
@@ -234,34 +228,27 @@ async def play_song(chat_id:int, message:Message, song:dict)->None:
     set_paused(chat_id,False)
     caption=_now_playing_caption(song,0,total,chat_id=chat_id); kb=_now_playing_kb(chat_id); thumb=_thumb_url(song)
     pmsg=None
+    photo_unconfirmed=False
     if thumb:
         try:
-            pmsg=await bot.send_photo(chat_id, photo=thumb, caption=caption, reply_markup=kb)
+            pmsg=await visual_call(bot.send_photo,chat_id, photo=thumb, caption=caption, reply_markup=kb)
             try:
                 if message and getattr(message,"id",None): await message.delete()
-            except: pass
-        except Exception as e:
-            LOGGER.warning(f"[NP] photo send failed ({e}) — trying download")
-            try:
-                import aiohttp, tempfile, os as _os
-                async with aiohttp.ClientSession() as sess:
-                    async with sess.get(thumb, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-                        if resp.status==200:
-                            data=await resp.read(); tmp=tempfile.NamedTemporaryFile(delete=False,suffix=".jpg")
-                            tmp.write(data); tmp.close()
-                            pmsg=await bot.send_photo(chat_id, photo=tmp.name, caption=caption, reply_markup=kb)
-                            try: _os.unlink(tmp.name)
-                            except: pass
-                            try:
-                                if message and getattr(message,"id",None): await message.delete()
-                            except: pass
-            except Exception as e2: LOGGER.warning(f"[NP] thumb download failed: {e2}")
-    if pmsg is None:
-        try:
+            except Exception: pass
+        except BadRequest:
+            LOGGER.info("[NP] Thumbnail rejected; using a text card")
+        except Exception as exc:
+            # Telegram might have accepted it: never duplicate an ambiguous send.
+            LOGGER.warning("[NP] Photo delivery unconfirmed (%s); not resending", type(exc).__name__)
+            photo_unconfirmed=True
+    if pmsg is None and not photo_unconfirmed:
+        if message is not None:
             pmsg=await rich_edit(message,caption,reply_markup=kb)
             if pmsg is None: pmsg=message
-        except: pmsg=await rich_send(bot,chat_id,caption,reply_markup=kb)
-    asyncio.create_task(_update_progress(chat_id,pmsg,time.time(),total,song))
+        else:
+            pmsg=await rich_send(bot,chat_id,caption,reply_markup=kb)
+    if pmsg is not None:
+        asyncio.create_task(_update_progress(chat_id,pmsg,time.time(),total,song))
     if config.LOGGER_ID:
         asyncio.create_task(rich_send(bot,config.LOGGER_ID,
             rich_heading(f"◍ {sc('now playing')} — {rich_esc(short(song.get('title','?'),32))}",level=3)

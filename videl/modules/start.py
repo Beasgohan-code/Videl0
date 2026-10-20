@@ -3,12 +3,11 @@
 #  Cyber-Dark Studio UI • Native Telegram Mini App + Single Vercel URL
 # --------------------------------------------------------------------------------
 import html
-import asyncio
 import time
 from pyrogram import filters
 from pyrogram.enums import ChatType, ParseMode
-from pyrogram.errors import FloodWait
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message, WebAppInfo
+from pyrogram.types import InlineKeyboardMarkup, Message, WebAppInfo
+from videl.utils.bot_ui import button as InlineKeyboardButton
 
 import config
 from videl import LOGGER, bot, bot_start_time
@@ -27,7 +26,6 @@ START_IMG = "https://iili.io/n5ClDil.jpg"
 
 
 def _btn(text: str, **kw) -> InlineKeyboardButton:
-    kw.pop("style", None)
     return InlineKeyboardButton(text, **kw)
 
 
@@ -69,12 +67,12 @@ def _start_kb(is_private: bool = True, use_webapp_btn: bool = True) -> InlineKey
             _btn("Group Setup", callback_data="wiz2_start_full"),
         ],
         [
-            _btn("Post Studio", url=f"{web}?tab=post"),
-            _btn("Group Manager", url=f"{web}?tab=groups"),
+            _btn("Post Studio", **({"web_app": WebAppInfo(url=f"{web}?tab=post")} if is_private else {"url": f"{web}?tab=post"})),
+            _btn("Group Manager", **({"web_app": WebAppInfo(url=f"{web}?tab=groups")} if is_private else {"url": f"{web}?tab=groups"})),
         ],
         [
             _btn("Music & Commands", callback_data="show_help"),
-            _btn("More Tools", callback_data="pro_plugins_0"),
+            _btn("Bot API Tools", callback_data="modern_tools_help"),
         ],
         [
             _btn("Support", url=sup),
@@ -89,14 +87,15 @@ def _studio_private_caption(uid: int, name: str) -> str:
     h, rem = divmod(uptime_s, 3600)
     m, _ = divmod(rem, 60)
     try:
-        groups = get_served_chats_count()
-        users = get_served_users_count()
-        plays = get_total_plays()
+        from videl.utils.db import read_live_totals
+        totals = read_live_totals()
+        groups, users, plays = totals["chats"], totals["users"], totals["plays"]
     except Exception:
-        groups, users, plays = 0, 0, 0
+        groups, users, plays = "Unavailable", "Unavailable", "Unavailable"
 
+    from videl.utils.rich_ui import rich_heading
     return (
-        f"<b>{bn} — Your Telegram Studio</b>\n"
+        rich_heading(f"{bn} · Telegram Studio", level=2) + "\n"
         f"<i>Your Bot. Your Groups. Your Community.</i>\n\n"
         f"Welcome, <a href='tg://user?id={uid}'><b>{name}</b></a>!\n"
         f"Manage groups, stream music, publish rich posts, chat &amp; automate — all from one unified Telegram Web App.\n\n"
@@ -117,8 +116,9 @@ def _studio_private_caption(uid: int, name: str) -> str:
 
 def _studio_group_caption(uid: int, name: str, title: str) -> str:
     bn = html.escape(getattr(config, "BOT_NAME", "Videl"))
+    from videl.utils.rich_ui import rich_heading
     return (
-        f"<b>{bn} — Community Studio</b>\n\n"
+        rich_heading(f"{bn} · Community Studio", level=2) + "\n\n"
         f"Hello <a href='tg://user?id={uid}'><b>{name}</b></a>, <b>{title}</b> is connected!\n\n"
         f"<blockquote>"
         f"• <b>Stream Music:</b> <code>/play song name</code> or <code>/vplay</code>\n"
@@ -128,36 +128,13 @@ def _studio_group_caption(uid: int, name: str, title: str) -> str:
     )
 
 
-def _photo_url() -> str:
-    photos = getattr(config, "START_PHOTOS", [])
-    return photos[0] if photos and photos[0] else START_IMG
-
-
 async def _send_start(message: Message, text: str, is_private: bool):
-    chat_id = message.chat.id
-    photo = _photo_url()
-    for use_webapp in ([True, False] if is_private else [False]):
-        kb = _start_kb(is_private=is_private, use_webapp_btn=use_webapp)
-        try:
-            return await message.reply_photo(photo=photo, caption=text, reply_markup=kb, parse_mode=ParseMode.HTML)
-        except FloodWait as fw:
-            await asyncio.sleep(fw.value + 1)
-        except Exception as e:
-            LOGGER.warning("start reply_photo (webapp=%s): %s", use_webapp, e)
-        try:
-            return await bot.send_photo(chat_id, photo=photo, caption=text, reply_markup=kb, parse_mode=ParseMode.HTML)
-        except Exception as e:
-            LOGGER.warning("start send_photo (webapp=%s): %s", use_webapp, e)
-        for fn in (
-            lambda: message.reply_text(text, reply_markup=kb, parse_mode=ParseMode.HTML, disable_web_page_preview=True),
-            lambda: message.reply(text, reply_markup=kb, parse_mode=ParseMode.HTML),
-            lambda: bot.send_message(chat_id, text, reply_markup=kb, parse_mode=ParseMode.HTML),
-        ):
-            try:
-                return await fn()
-            except Exception:
-                continue
-    return None
+    # A text/rich card is reliable even when an external welcome image is offline.
+    # Richgram handles known format/emoji rejections without retrying network failures.
+    from videl.utils.rich_ui import rich_send
+    return await rich_send(bot, message.chat.id, text,
+                           reply_markup=_start_kb(is_private=is_private),
+                           message_thread_id=getattr(message, "message_thread_id", None))
 
 
 @bot.on_message(filters.command("start") & ~filters.forwarded, group=0)

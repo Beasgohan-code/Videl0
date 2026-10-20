@@ -15,7 +15,8 @@ except ImportError:
     speedtest = None  # optional — /speedtest will reply 'not installed'
 from pyrogram import filters
 from pyrogram.enums import ParseMode
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
+from pyrogram.types import InlineKeyboardMarkup, Message
+from videl.utils.bot_ui import button as InlineKeyboardButton, visual_call
 
 import config
 from videl import bot, assistant, bot_start_time
@@ -82,9 +83,9 @@ async def ping_cmd(client, message: Message) -> None:
     )
     try:
         if probe:
-            await probe.edit_text(text, reply_markup=supp_markup(), parse_mode=ParseMode.HTML)
+            await visual_call(probe.edit_text, text=text, reply_markup=supp_markup(), parse_mode=ParseMode.HTML)
         else:
-            await bot.send_message(chat_id, text, reply_markup=supp_markup(), parse_mode=ParseMode.HTML)
+            await visual_call(bot.send_message, chat_id, text=text, reply_markup=supp_markup(), parse_mode=ParseMode.HTML)
     except Exception:
         try:
             await message.reply_text(f"⚡ Videl Studio Pong: {latency}ms")

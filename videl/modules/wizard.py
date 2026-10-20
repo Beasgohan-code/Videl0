@@ -7,12 +7,13 @@ import logging
 from datetime import datetime, timezone
 from pyrogram import filters
 from pyrogram.enums import ChatMemberStatus, ChatType
-from pyrogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from pyrogram.types import CallbackQuery, InlineKeyboardMarkup, Message
+from videl.utils.bot_ui import button as InlineKeyboardButton
 
 import config
 from videl import bot
 from videl.utils.db import get_db, set_antiflood
-from videl.utils.rich_ui import rich_heading, rich_kv_table, rich_note, rich_reply
+from videl.utils.rich_ui import rich_heading, rich_kv_table, rich_note, rich_reply, rich_edit
 
 logger = logging.getLogger(__name__)
 
@@ -150,6 +151,6 @@ async def wiz2_cb(client, cq: CallbackQuery):
     title = chat.title or (cq.from_user.first_name if cq.from_user else "Chat")
     text, kb = _wizard_panel(chat.id, title)
     try:
-        await cq.message.edit_text(text, reply_markup=kb)
+        await rich_edit(cq.message, text, reply_markup=kb)
     except Exception:
         pass

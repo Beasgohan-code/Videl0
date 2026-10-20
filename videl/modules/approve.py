@@ -5,7 +5,8 @@
 # --------------------------------------------------------------------------------
 
 from pyrogram import filters
-from pyrogram.types import Message, InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery
+from pyrogram.types import Message, InlineKeyboardMarkup, CallbackQuery
+from videl.utils.bot_ui import button as InlineKeyboardButton
 from videl import bot
 from videl.modules.block import group_allowed, user_allowed
 from videl.utils.permissions import is_user_authorized

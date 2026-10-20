@@ -27,7 +27,8 @@ from urllib.parse import quote, urlparse, urljoin
 import aiohttp
 from pyrogram import filters
 from pyrogram.enums import ChatMemberStatus
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
+from pyrogram.types import InlineKeyboardMarkup, Message
+from videl.utils.bot_ui import button as InlineKeyboardButton, visual_call
 
 import config
 from videl import LOGGER, bot
@@ -82,10 +83,15 @@ async def _send(message: Message, title: str, body: str, *, photo: str = "", but
     text = rich_heading(_esc(title), level=2) + rich_note(body)
     markup = InlineKeyboardMarkup(buttons) if buttons else None
     if photo:
+        from pyrogram.errors import BadRequest
+        from videl.utils.rich_ui import rich_caption
         try:
-            return await bot.send_photo(message.chat.id, photo, caption=text, reply_markup=markup)
-        except Exception:
-            pass
+            return await visual_call(bot.send_photo, message.chat.id, photo, caption=rich_caption(text), reply_markup=markup)
+        except BadRequest:
+            pass  # Definite rejection: a text-only reply is safe.
+        except Exception as exc:
+            log.warning("Plugin photo delivery unconfirmed (%s); not resending", type(exc).__name__)
+            return None
     return await rich_reply(message, text, reply_markup=markup)
 
 

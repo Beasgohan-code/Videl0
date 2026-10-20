@@ -7,7 +7,8 @@ import time
 
 from pyrogram import filters
 from pyrogram.enums import ParseMode
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
+from pyrogram.types import InlineKeyboardMarkup, Message
+from videl.utils.bot_ui import button as InlineKeyboardButton
 
 from videl import bot, call_py, LOGGER
 from videl.core.queue import peek_current

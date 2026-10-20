@@ -18,6 +18,7 @@
 #  Uses Videl MongoDB only — no external deps, no Flask
 # --------------------------------------------------------------------------------
 
+import html
 import asyncio
 import re
 import random
@@ -28,7 +29,8 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from pyrogram import filters
-from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from pyrogram.types import Message, InlineKeyboardMarkup, CallbackQuery
+from videl.utils.bot_ui import button as InlineKeyboardButton, visual_call
 from pyrogram.enums import ChatMemberStatus
 from pyrogram.errors import ChatAdminRequired, FloodWait, UserAdminInvalid
 
@@ -147,6 +149,7 @@ def help_keyboard():
          InlineKeyboardButton("⚙️ Settings", callback_data="mgmt_help_settings")],
         [InlineKeyboardButton("📝 Notes & filters", callback_data="mgmt_help_notes"),
          InlineKeyboardButton("🔧 Admin tools", callback_data="mgmt_help_admin")],
+        [InlineKeyboardButton("Telegram tools", callback_data="modern_tools_help")],
         [InlineKeyboardButton("🔗 Videl", url="https://t.me/VidelUpdates"),
          InlineKeyboardButton("💬 Support", url="https://t.me/VidelSupport")],
     ])
@@ -750,7 +753,7 @@ async def _send_captcha(chat_id: int, user_id: int, user_name: str):
     random.shuffle(opts)
     kb = InlineKeyboardMarkup([[InlineKeyboardButton(opt, callback_data=f"mgmt_cap_{user_id}_{opt}_{ans}") for opt in opts]])
     try:
-        m = await bot.send_message(chat_id, f"👋 Welcome {user_name}!\n{q}\nVerify in 120s or you'll be kicked.", reply_markup=kb)
+        m = await visual_call(bot.send_message, chat_id, text=f"👋 Welcome {user_name}!\n{q}\nVerify in 120s or you'll be kicked.", reply_markup=kb)
         # Save challenge
         ccol = _captcha_col()
         if ccol is not None:
@@ -909,13 +912,20 @@ async def clearrules_cmd(_, message: Message):
     await rich_reply(message, rich_note("✅ Rules cleared."))
 
 # ── Group utilities ─────────────────────────────────────────────────────────
-@bot.on_message(filters.command("poll"))
+@bot.on_message(filters.command(["poll", "quiz"]))
 async def poll_cmd(_, message: Message):
-    q = " ".join(message.command[1:]) if len(message.command) > 1 else ""
-    if not q or "|" not in q:
-        return await rich_reply(message, rich_note("❌ Usage: <code>/poll Question | Option1 | Option2 | ...</code>"))
-    parts = [p.strip() for p in q.split("|")]
-    await bot.send_poll(message.chat.id, parts[0], parts[1:])
+    from videl.utils.poll_options import build_poll
+    from videl.utils.bot_api import bot_api
+    try:
+        payload = build_poll(" ".join((message.command or [])[1:]), quiz=message.command[0].split("@", 1)[0].lower() == "quiz")
+    except ValueError as exc:
+        return await rich_reply(message, rich_heading("Poll setup", level=3) + rich_note(html.escape(str(exc))))
+    payload["chat_id"] = message.chat.id
+    if getattr(message, "message_thread_id", None):
+        payload["message_thread_id"] = message.message_thread_id
+    status, result = await bot_api("sendPoll", payload)
+    if not status or not result.get("ok"):
+        await rich_reply(message, rich_heading("Poll not confirmed", level=3) + rich_note(html.escape(str(result.get("description", "Telegram rejected this poll")))))
 
 @bot.on_message(filters.command("stickerid"))
 async def stickerid_cmd(_, message: Message):
@@ -942,12 +952,12 @@ async def help_callback(_, cq: CallbackQuery):
     key = data.replace("mgmt_help_", "mgmt_help_" if data.startswith("mgmt_help_") else data)
     txt = texts.get(data, "Select a category")
     kb = InlineKeyboardMarkup([[InlineKeyboardButton("« Back", callback_data="mgmt_help_back")]])
-    await cq.message.edit_text(txt, reply_markup=kb)
+    await rich_edit(cq.message, txt, reply_markup=kb)
     await cq.answer()
 
 @bot.on_callback_query(filters.regex(r"^mgmt_help_back$"))
 async def help_back(_, cq: CallbackQuery):
-    await cq.message.edit_text(rich_heading("📖 Videl Help", level=2) + rich_note("Select a category"), reply_markup=help_keyboard())
+    await rich_edit(cq.message, rich_heading("📖 Videl Help", level=2) + rich_note("Select a category"), reply_markup=help_keyboard())
     await cq.answer()
 
 @bot.on_message(filters.command("id"))

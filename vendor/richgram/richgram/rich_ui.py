@@ -5,7 +5,7 @@ import logging
 import re
 
 from pyrogram.enums import ParseMode
-from pyrogram.errors import MessageNotModified
+from pyrogram.errors import MessageNotModified, BadRequest
 try:
     from pyrogram.types import ReplyParameters
 except ImportError:
@@ -464,7 +464,10 @@ async def rich_send(
                 **shared,
             )
         except Exception as e:
-            logger.debug(f"[rich_send] rich delivery failed, falling back: {e}")
+            if not isinstance(e, (BadRequest, AttributeError, NotImplementedError)):
+                logger.warning("[rich_send] rich delivery unconfirmed (%s); not retrying", type(e).__name__)
+                return None
+            logger.debug("[rich_send] rich format rejected; using standard HTML")
 
     try:
         if markdown:
@@ -483,7 +486,28 @@ async def rich_send(
             **shared,
         )
     except Exception as e:
-        logger.debug(f"[rich_send] plain send failed: {e}")
+        # Only retry a definite Telegram rejection, never an ambiguous network failure.
+        if isinstance(e, BadRequest) and not markdown and ("<tg-emoji" in html_text or any(getattr(btn, "icon_custom_emoji_id", None) for row in getattr(reply_markup, "inline_keyboard", []) for btn in row)):
+            import copy
+            from pyrogram.types import InlineKeyboardMarkup
+            plain = _EMOJI_TAG_RE.sub(r"\1", _plain_fallback(html_text))
+            safe_shared = dict(shared)
+            if reply_markup is not None:
+                rows=[]
+                for row in getattr(reply_markup, "inline_keyboard", []):
+                    clean=[]
+                    for button in row:
+                        clone=copy.copy(button)
+                        clone.icon_custom_emoji_id=None
+                        clean.append(clone)
+                    rows.append(clean)
+                if rows: safe_shared["reply_markup"]=InlineKeyboardMarkup(rows)
+            try:
+                return await client.send_message(chat_id=chat_id, text=plain, parse_mode=ParseMode.HTML, link_preview_options=None, **safe_shared)
+            except Exception as fallback_error:
+                logger.warning("[rich_send] fallback delivery unconfirmed (%s)", type(fallback_error).__name__)
+                return None
+        logger.warning("[rich_send] delivery unconfirmed (%s)", type(e).__name__)
         return None
 
 
@@ -817,7 +841,10 @@ async def _rich_edit_via_client(
         except MessageNotModified:
             return None
         except Exception as e:
-            logger.debug(f"[rich_edit] rich edit_message_text failed, falling back: {e}")
+            if not isinstance(e, (BadRequest, AttributeError, NotImplementedError)):
+                logger.warning("[rich_edit] rich edit unconfirmed (%s); not retrying", type(e).__name__)
+                return None
+            logger.debug("[rich_edit] rich format rejected (%s); using HTML", type(e).__name__)
 
     try:
         if markdown:
@@ -842,7 +869,18 @@ async def _rich_edit_via_client(
     except MessageNotModified:
         return None
     except Exception as e:
-        logger.debug(f"[rich_edit] plain edit failed: {e}")
+        if isinstance(e, BadRequest) and not markdown:
+            from videl.utils.bot_ui import plain_keyboard
+            try:
+                return await app.edit_message_text(chat_id=chat_id, message_id=message_id,
+                    text=_EMOJI_TAG_RE.sub(r"\1", _plain_fallback(html_text)), parse_mode=ParseMode.HTML,
+                    reply_markup=plain_keyboard(reply_markup), link_preview_options=None, **extra)
+            except MessageNotModified:
+                return None
+            except Exception as fallback_error:
+                logger.warning("[rich_edit] fallback failed (%s)", type(fallback_error).__name__)
+                return None
+        logger.warning("[rich_edit] edit unconfirmed (%s)", type(e).__name__)
         return None
 
 
