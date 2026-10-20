@@ -21,10 +21,37 @@ const assert = require("node:assert/strict");
     errors.push(e.message);
     console.log("RUNTIME", e.message);
   });
+  let authMode = "guest",
+    sessionActive = false,
+    authPosts = 0;
+  const signedFixture =
+    "auth_date=123&user=%7B%22id%22%3A1%7D&hash=offline-fixture";
+  await page.route("https://telegram.org/**", (route) => route.abort());
   let sent = 0;
   let summaryError = false;
   await page.route("**/api/**", async (route) => {
     const path = new URL(route.request().url()).pathname;
+    if (path === "/api/auth" && authMode !== "guest") {
+      if (route.request().method() === "POST") {
+        assert.equal(route.request().postDataJSON().initData, signedFixture);
+        authPosts++;
+        if (authMode !== "blocked") sessionActive = true;
+        await route.fulfill({
+          contentType: "application/json",
+          body: JSON.stringify({
+            ok: true,
+            owner: true,
+            user: { id: 1, first_name: "Offline owner" },
+          }),
+        });
+        return;
+      }
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify({ ok: sessionActive, owner: sessionActive }),
+      });
+      return;
+    }
     const body =
       path === "/api/summary" && summaryError
         ? { ok: false, error: "Summary temporarily offline" }
@@ -158,9 +185,43 @@ const assert = require("node:assert/strict");
     path: path.join(artifacts, "mobile.png"),
     fullPage: true,
   });
+  authMode = "browser";
+  sessionActive = true;
+  await page.goto(`${base}/?tab=auth`);
+  await page
+    .getByRole("heading", { name: "Owner access verified", exact: true })
+    .waitFor();
+  authMode = "miniapp";
+  sessionActive = false;
+  await page.goto(
+    `${base}/?tab=auth#tgWebAppData=${encodeURIComponent(signedFixture)}`,
+  );
+  await page
+    .getByRole("heading", { name: "Owner access verified", exact: true })
+    .waitFor();
+  assert.equal(
+    authPosts,
+    1,
+    "Signed launch data must authenticate even without the Telegram SDK",
+  );
+  authMode = "blocked";
+  sessionActive = false;
+  await page.goto(
+    `${base}/?tab=auth#tgWebAppData=${encodeURIComponent(signedFixture)}`,
+  );
+  await page
+    .getByRole("alert")
+    .filter({ hasText: "browser blocked the owner session" })
+    .waitFor();
+  assert.equal(
+    await page
+      .getByRole("heading", { name: "Owner access verified", exact: true })
+      .count(),
+    0,
+  );
   assert.deepEqual(errors, []);
   console.log(
-    "PASS: real Chromium PNG export, editable JSON export, keyboard movement, JSON import, mocked image publish, duplicate guard, caption limit, post recovery, design restore, 390px mobile layout; no runtime errors.",
+    "PASS: real Chromium PNG export, editable JSON export, keyboard movement, JSON import, mocked image publish, duplicate guard, caption limit, post recovery, design restore, 390px mobile layout, owner-session restoration, SDK-independent Mini App login, blocked-cookie diagnosis; no runtime errors.",
   );
   await browser.close();
 })().catch((e) => {
