@@ -84,7 +84,8 @@ export function BackendStatus() {
     // A manual retry restarts this effect (see `manual` below) and skips
     // straight to the wake path.
 
-    void loop(false, 0);
+    // The first pass is a plain probe; a manual retry goes straight to wake.
+    void loop(manual > 0, 0);
 
     // Returning to the tab after a while is exactly when Render has slept.
     const onVisible = () => {
@@ -118,10 +119,7 @@ export function BackendStatus() {
       </p>
       <button
         type="button"
-        onClick={() => {
-          setState("checking");
-          setManual((value) => value + 1);
-        }}
+        onClick={() => setManual((value) => value + 1)}
         className="backend-strip-action"
         aria-label="Retry backend connection"
       >
