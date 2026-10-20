@@ -13,6 +13,8 @@ export type ReleaseCheck = {
   backendStatus: "ok" | "unreachable" | "not_configured";
   drift: "unknown" | "same" | "different";
   latencyMs: number | null;
+  /** p95 across the backend's measured internal API calls, when it reports one. */
+  p95Ms: number | null;
   checkedAt: string;
   hint: string;
 };
@@ -47,12 +49,15 @@ export function buildReleaseCheck({
   backend,
   status,
   latencyMs,
+  p95Ms = null,
   checkedAt,
 }: {
   web: string;
   backend: string | null;
   status: ReleaseCheck["backendStatus"];
   latencyMs: number | null;
+  /** p95 across the backend's measured internal API calls, when it reports one. */
+  p95Ms?: number | null;
   checkedAt: string;
 }): ReleaseCheck {
   const drift = compareRevisions(web, backend);
@@ -66,7 +71,7 @@ export function buildReleaseCheck({
           : drift === "different"
             ? "The panel and the bot backend are on different commits. Redeploy the one that is behind."
             : "The backend did not report a revision. Redeploy Render to publish one.";
-  return { web, backend, backendStatus: status, drift, latencyMs, checkedAt, hint };
+  return { web, backend, backendStatus: status, drift, latencyMs, p95Ms, checkedAt, hint };
 }
 
 /** Short badge text; never louder than the evidence allows. */

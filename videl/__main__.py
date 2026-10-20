@@ -10,7 +10,8 @@ import time
 import logging
 import hmac
 import requests
-from flask import Flask, jsonify, request
+from collections import deque
+from flask import Flask, g, jsonify, request
 from pyrogram import idle
 import config
 from videl import LOGGER, bot
@@ -21,6 +22,36 @@ BACKEND_PORT = int(os.getenv("PORT", str(config.PORT)))
 _flask = Flask(__name__)
 _BOT_LOOP = None
 _BOT_STATUS = "starting"
+
+# Rolling latency of the server-to-server API calls the panel makes. A single
+# /health round-trip is one sample; Settings asks for the distribution instead.
+_API_TIMINGS: deque = deque(maxlen=400)
+_TIMING_LOCK = threading.Lock()
+_TIMED_PREFIXES = ("/internal/", "/api/")
+
+
+@_flask.before_request
+def _start_request_timer():
+    g.videl_started = time.perf_counter()
+
+
+@_flask.after_request
+def _record_request_timing(response):
+    started = getattr(g, "videl_started", None)
+    if started is not None and request.path.startswith(_TIMED_PREFIXES):
+        with _TIMING_LOCK:
+            _API_TIMINGS.append((time.perf_counter() - started) * 1000.0)
+    return response
+
+
+def _api_latency() -> dict:
+    with _TIMING_LOCK:
+        samples = list(_API_TIMINGS)
+    if not samples:
+        return {"p95_ms": None, "samples": 0}
+    ordered = sorted(samples)
+    index = max(0, min(len(ordered) - 1, int(len(ordered) * 0.95) - 1))
+    return {"p95_ms": round(ordered[index], 1), "samples": len(ordered)}
 
 try:
     from videl.api.eldian_routes import register_eldian_routes
@@ -68,7 +99,7 @@ def _health():
     except Exception:
         database = "unknown"
     from videl import build_revision
-    return jsonify({"status": "ok", "service": "videl-render-backend", "revision": build_revision, "bot_status": _BOT_STATUS, "database": database, "uptime": max(0, int(time.time() - bot_start_time)), "watchdog": {key: maintenance[key] for key in ("running", "healthy", "last_tick")}}), 200
+    return jsonify({"status": "ok", "service": "videl-render-backend", "revision": build_revision, "bot_status": _BOT_STATUS, "database": database, "uptime": max(0, int(time.time() - bot_start_time)), "api": _api_latency(), "watchdog": {key: maintenance[key] for key in ("running", "healthy", "last_tick")}}), 200
 
 @_flask.route("/internal/auth", methods=["POST"])
 def _internal_auth():

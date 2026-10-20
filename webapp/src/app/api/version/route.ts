@@ -23,15 +23,18 @@ export async function GET(req: Request) {
     );
   }
   const result = await callBackend("/health", {}, { timeoutMs: 9000, attempts: 2 });
-  const payload = result.payload as { revision?: unknown; status?: unknown };
+  const payload = result.payload as { revision?: unknown; status?: unknown; api?: { p95_ms?: unknown } };
   const backend = backendRevision(payload.revision);
   const status = result.ok ? "ok" : "unreachable";
+  const rawP95 = Number(payload.api?.p95_ms);
+  const p95Ms = Number.isFinite(rawP95) && rawP95 >= 0 ? rawP95 : null;
   return Response.json(
     buildReleaseCheck({
       web,
       backend,
       status,
       latencyMs: result.ms,
+      p95Ms,
       checkedAt,
     }),
     { headers: { "Cache-Control": "no-store" } },

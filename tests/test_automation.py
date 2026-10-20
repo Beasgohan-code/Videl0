@@ -685,6 +685,13 @@ class InternalRouteTests(unittest.TestCase):
         bad = self.client.post("/internal/federation/fed1", headers=self.headers(), json={"action": "ban_all"})
         self.assertEqual(bad.status_code, 400)
 
+    def test_health_reports_a_measured_api_latency_not_a_guess(self):
+        self.client.get("/internal/chats", headers=self.headers())
+        payload = self.client.get("/health").get_json()
+        self.assertEqual(payload["status"], "ok")
+        self.assertGreaterEqual(payload["api"]["samples"], 1)
+        self.assertGreaterEqual(payload["api"]["p95_ms"], 0.0)
+
     def test_federation_unknown_id_is_404(self):
         self.assertEqual(self.client.get("/internal/federation/nope", headers=self.headers()).status_code, 404)
 

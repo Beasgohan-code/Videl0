@@ -166,6 +166,8 @@ test("release hints say which deployment is behind", () => {
   assert.match(drifted.hint, /different commits/);
   const same = buildReleaseCheck({ web: "abc1234", backend: "abc1234", status: "ok", latencyMs: 90, checkedAt: "2026-05-01T00:00:00Z" });
   assert.equal(driftLabel(same), "In sync");
+  assert.equal(same.p95Ms, null, "no measurement is not zero");
+  assert.equal(buildReleaseCheck({ web: "abc1234", backend: "abc1234", status: "ok", latencyMs: 90, p95Ms: 42.5, checkedAt: "2026-05-01T00:00:00Z" }).p95Ms, 42.5);
   const unknown = buildReleaseCheck({ web: "abc1234", backend: null, status: "ok", latencyMs: 50, checkedAt: "2026-05-01T00:00:00Z" });
   assert.equal(driftLabel(unknown), "Revision unknown");
   const missing = buildReleaseCheck({ web: "local", backend: null, status: "not_configured", latencyMs: null, checkedAt: "2026-05-01T00:00:00Z" });

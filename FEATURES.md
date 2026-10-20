@@ -39,7 +39,8 @@ to code that actually runs:
   bans, with ban lifting. Creating federations and issuing bans stays on the bot
   commands, where the caller is verified against Telegram.
 - **Release check** — Settings compares the Vercel commit with the backend's
-  `revision` and reports drift instead of guessing.
+  `revision` and reports drift instead of guessing, plus the measured p95 of
+  the backend's internal API calls (the last 400 requests it served).
 - **Scheduled publishing** — status counts, failure reasons and a retry that is
   only allowed for posts Telegram explicitly rejected; accepted or unconfirmed
   posts are never resent.
