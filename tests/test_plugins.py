@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 from videl.app.router import Command, Context, Parsed, Screen
 from videl.app.routes import COMMANDS
-from videl.plugins import afk, base, help as help_plugin, reminder, start
+from videl.plugins import afk, base, group, help as help_plugin, reminder, start
 
 
 def message(text="/start", *, private=True, uid=42, mid=1):
@@ -106,6 +106,31 @@ class HelpTests(unittest.IsolatedAsyncioTestCase):
         callbacks = [item.callback_data for row in markup.inline_keyboard for item in row if item.callback_data]
         self.assertIsNone(keyboard)
         self.assertFalse(any(cb.endswith(":100") for cb in callbacks))
+
+
+class GroupStatsTests(unittest.IsolatedAsyncioTestCase):
+    async def test_owner_workspace_button_is_private_and_public_stats_stays_helpful(self):
+        class Collection:
+            def count_documents(self, _query):
+                return 3
+        class Database:
+            def __getitem__(self, _name):
+                return Collection()
+
+        from vendor.richgram.richgram import rich_ui as transport
+        with patch.object(group.base, "db", return_value=Database()):
+            public = await group.stats(Context(SimpleNamespace(), message("/stats"), Parsed("stats", "")))
+            _, public_markup = transport._native_buttons(public.html)
+            public_callbacks = [item.callback_data for row in public_markup.inline_keyboard for item in row]
+            self.assertIn("help:home", public_callbacks)
+            self.assertNotIn("help:owner:0", public_callbacks)
+            self.assertNotIn("Owner workspace", public.html)
+
+            owner = await group.stats(Context(SimpleNamespace(), message("/stats", uid=6265999542), Parsed("stats", "")))
+            _, owner_markup = transport._native_buttons(owner.html)
+            owner_callbacks = [item.callback_data for row in owner_markup.inline_keyboard for item in row]
+            self.assertIn("help:owner:0", owner_callbacks)
+            self.assertIn("<footer", owner.html)
 
 
 class FakeCollection:

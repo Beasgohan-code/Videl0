@@ -15,7 +15,9 @@ from videl.plugins import base
 from videl.plugins.base import body, escape, heading, table
 from videl.utils.bot_ui import button
 from videl.utils.command_ui import usage
-from videl.utils.rich_ui import rich_heading, rich_note
+from videl.utils.rich_ui import (
+    rich_heading, rich_note, rich_hr, rich_footer, rich_button, rich_button_row,
+)
 
 
 async def pin(ctx) -> Screen:
@@ -141,10 +143,14 @@ async def stats(ctx) -> Screen:
         ("Notes stored", counts["notes"]),
         ("Bot", "@" + escape(getattr(config, "BOT_USERNAME", "Videl0Bot"))),
     ]
-    return Screen(
-        heading("Videl statistics", 3) + table(rows),
-        InlineKeyboardMarkup([[button("Owner workspace", callback_data="help:owner:0")]]),
+    next_action = (
+        rich_button("Owner workspace", callback_data="help:owner:0", style="primary")
+        if ctx.owner else rich_button("Help center", callback_data="help:home", style="primary")
     )
+    text = (heading("Videl statistics", 3) + table(rows) + rich_hr()
+            + rich_footer("Live service snapshot · refreshed when you run /stats")
+            + rich_button_row(next_action))
+    return Screen(text)
 
 
 async def invite(ctx) -> Screen:
