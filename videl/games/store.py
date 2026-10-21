@@ -492,7 +492,20 @@ def _event(code, kind, user, text, seq=None):
 
 def timeline(code, user, after=0):
     doc = settle(code)
-    _require_member(doc, user)
+    seat = _seat_of(doc, user)
+    if seat is None:
+        # A shared public room can be watched without taking a seat. A private
+        # room's code is its invitation, so an unseated reader is refused until
+        # they actually join; nothing about the board leaks either way.
+        if doc.get("visibility") != "public":
+            raise GameError("You are not seated in this room", 403)
+        query = {"room": code, "seq": {"$gt": int(after or 0)}}
+        rows = list(events().find(query).sort("seq", 1).limit(100))
+        return {"room": view(doc, None),
+                "events": [{"seq": int(row.get("seq", 0)), "kind": row.get("kind"),
+                            "user": row.get("user"), "text": row.get("text", ""),
+                            "at": _stamp(row.get("at"))} for row in rows],
+                "server_time": now().isoformat()}
     touch(code, user)
     query = {"room": code, "seq": {"$gt": int(after or 0)}}
     rows = list(events().find(query).sort("seq", 1).limit(100))

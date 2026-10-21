@@ -64,6 +64,7 @@ export function RoomView({
   const [now, setNow] = useState(() => Date.now());
   const [copied, setCopied] = useState(false);
   const seq = useRef(0);
+  const triedJoin = useRef(false);
   const feed = useRef<HTMLDivElement>(null);
 
   const apply = useCallback((next: Room, rows: RoomEvent[]) => {
@@ -80,6 +81,24 @@ export function RoomView({
         { cache: "no-store" },
       );
       const data = await response.json().catch(() => ({}));
+      if (response.status === 403 && !triedJoin.current) {
+        // A shared link is an invitation. Take the free seat if there is one,
+        // then read again: a room already in play is watchable when public,
+        // and a private one explains itself instead of showing a dead card.
+        triedJoin.current = true;
+        const join = await fetch("/api/arcade/join", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code }),
+          cache: "no-store",
+        }).catch(() => null);
+        const answer = await join?.json().catch(() => ({}));
+        if (join?.ok && answer?.room) {
+          setError("");
+          apply(answer.room as Room, []);
+        }
+        return load();
+      }
       if (!response.ok || !data.ok) {
         if (response.status === 404) {
           setError(data.error || "That room no longer exists.");
@@ -97,6 +116,7 @@ export function RoomView({
 
   useEffect(() => {
     seq.current = 0;
+    triedJoin.current = false;
     void load();
     const poll = setInterval(() => {
       if (document.visibilityState === "visible") void load();
@@ -215,6 +235,7 @@ export function RoomView({
                 <div>
                   <p className="ios-caps text-[11px] text-indigo-200/50">
                     {GAME_ICON[room.game] || "🎮"} {room.game_name} · {room.seat_count} seats
+                    {chatOnly ? " · spectating" : ""}
                   </p>
                   <h2 className="mt-1 text-xl font-semibold">
                     {room.title || `Room ${room.code}`}
@@ -386,11 +407,13 @@ export function RoomView({
                 value={text}
                 onChange={(event) => setText(event.target.value)}
                 maxLength={400}
-                placeholder="Message the room"
+                placeholder={chatOnly ? "Only players can chat" : "Message the room"}
                 aria-label="Room message"
+                disabled={chatOnly}
+                title={chatOnly ? "Join the room to chat" : undefined}
                 className="min-w-0 flex-1 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs outline-none focus:border-indigo-300/40"
               />
-              <button type="submit" disabled={busy || !text.trim()} className="ios-btn ios-btn-primary px-3" aria-label="Send message">
+              <button type="submit" disabled={chatOnly || busy || !text.trim()} className="ios-btn ios-btn-primary px-3" aria-label="Send message">
                 <Send size={14} aria-hidden />
               </button>
             </form>

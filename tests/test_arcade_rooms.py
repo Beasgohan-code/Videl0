@@ -28,8 +28,8 @@ class ArcadeRoomTests(unittest.TestCase):
         players.upsert({"id": 1, "name": "Ada"})
         players.upsert({"id": 2, "name": "Grace"})
 
-    def joined(self, game="connect4", seats=None, second=2):
-        room = store.create(1, "Ada", game, seat_count=seats)
+    def joined(self, game="connect4", seats=None, second=2, visibility="private"):
+        room = store.create(1, "Ada", game, seat_count=seats, visibility=visibility)
         store.join(room["code"], second, "Grace")
         return room["code"]
 
@@ -115,13 +115,24 @@ class ArcadeRoomTests(unittest.TestCase):
         self.assertTrue(store.timeline(code, 1)["room"]["legal"])
         self.assertEqual(store.timeline(code, 2)["room"]["legal"], [])
 
-    def test_an_outsider_cannot_move_or_read_the_chat(self):
+    def test_an_outsider_cannot_move_or_read_a_private_room(self):
         code = self.joined()
         for attempt in (lambda: store.move(code, 3, {"column": 0}),
                         lambda: store.timeline(code, 3)):
             with self.assertRaises(GameError) as caught:
                 attempt()
             self.assertEqual(caught.exception.status, 403)
+
+    def test_a_public_room_can_be_watched_but_not_played(self):
+        code = self.joined(visibility="public")
+        seen = store.timeline(code, 3)
+        self.assertEqual(seen["room"]["code"], code)
+        self.assertIsNone(seen["room"]["you"]["seat"])
+        self.assertEqual(seen["room"]["legal"], [], "a spectator gets no move hints")
+        self.assertIn("board", seen["room"]["state"])
+        with self.assertRaises(GameError) as caught:
+            store.move(code, 3, {"column": 0})
+        self.assertEqual(caught.exception.status, 403)
 
     # ── timeouts ─────────────────────────────────────────────────────────────
     def test_a_missed_turn_is_played_for_the_absent_player(self):

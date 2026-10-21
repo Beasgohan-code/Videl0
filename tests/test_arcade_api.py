@@ -134,6 +134,19 @@ class ArcadeApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 403)
         self.assertNotIn("state", response.get_json())
 
+    def test_a_shared_public_link_is_watchable_before_joining(self):
+        room = self.room(1, visibility="public")
+        code = room["code"]
+        self.client.post("/internal/arcade/join", headers=self.headers(2), json={"code": code})
+        watched = self.client.get(f"/internal/arcade/room/{code}", headers=self.headers(3))
+        self.assertEqual(watched.status_code, 200)
+        body = watched.get_json()
+        self.assertIsNone(body["room"]["you"]["seat"])
+        self.assertEqual(body["room"]["legal"], [])
+        refused = self.client.post(f"/internal/arcade/room/{code}", headers=self.headers(3),
+                                   json={"action": "move", "move": {"column": 3}})
+        self.assertEqual(refused.status_code, 403)
+
     def test_a_bad_room_code_is_a_404(self):
         response = self.client.get("/internal/arcade/room/ZZZZZZ", headers=self.headers(1))
         self.assertEqual(response.status_code, 404)
