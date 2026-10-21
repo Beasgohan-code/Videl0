@@ -75,14 +75,24 @@ class HelpTests(unittest.IsolatedAsyncioTestCase):
         for section in ("music", "manage", "tools"):
             text, keyboard = help_plugin.render_section(section, owner=False)
             self.assertIn("<table", text)
-            self.assertTrue(keyboard.inline_keyboard)
-        home, _ = help_plugin.render_section("home")
+            self.assertIsNone(keyboard)
+            self.assertIn("<tg-button-row>", text)
+        home, keyboard = help_plugin.render_section("home")
         self.assertIn("Help center", base.plain(home))
+        self.assertIsNone(keyboard)
+        self.assertIn("<tg-button-row>", home)
 
     async def test_owner_section_is_hidden_from_public_render(self):
+        from vendor.richgram.richgram import rich_ui as transport
         text, keyboard = help_plugin.render_section("home", owner=False)
-        callbacks = [item.callback_data for row in keyboard.inline_keyboard for item in row]
+        _, markup = transport._native_buttons(text)
+        callbacks = [item.callback_data for row in markup.inline_keyboard for item in row]
+        self.assertIsNone(keyboard)
         self.assertNotIn("help:owner:0", callbacks)
+        owner_text, _ = help_plugin.render_section("home", owner=True)
+        _, owner_markup = transport._native_buttons(owner_text)
+        owner_callbacks = [item.callback_data for row in owner_markup.inline_keyboard for item in row]
+        self.assertIn("help:owner:0", owner_callbacks)
 
     async def test_search_finds_a_command(self):
         ctx = Context(SimpleNamespace(), message("/commands lock"), Parsed("commands", "lock"))
@@ -90,8 +100,11 @@ class HelpTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("/lock", base.plain(screen.html))
 
     async def test_pagination_never_exceeds_pages(self):
+        from vendor.richgram.richgram import rich_ui as transport
         text, keyboard = help_plugin.render_section("music", page=99)
-        callbacks = [item.callback_data for row in keyboard.inline_keyboard for item in row if item.callback_data]
+        _, markup = transport._native_buttons(text)
+        callbacks = [item.callback_data for row in markup.inline_keyboard for item in row if item.callback_data]
+        self.assertIsNone(keyboard)
         self.assertFalse(any(cb.endswith(":100") for cb in callbacks))
 
 

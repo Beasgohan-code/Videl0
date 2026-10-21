@@ -6,14 +6,13 @@ installed, so the help center cannot drift away from the running bot.
 """
 from __future__ import annotations
 
-from pyrogram.types import InlineKeyboardMarkup
-
 from videl.app.router import Command, Screen
 from videl.plugins import base
 from videl.plugins.base import body, escape, heading, table
-from videl.utils.bot_ui import button
 from videl.utils.command_catalog import directory, visible_commands
-from videl.utils.rich_ui import rich_esc, rich_footer, rich_hr
+from videl.utils.rich_ui import (
+    rich_esc, rich_footer, rich_hr, rich_button, rich_button_row,
+)
 
 SECTION_META = {
     "music": ("Music", "Voice-chat playback, queues and playlists", "music"),
@@ -51,12 +50,14 @@ def render_section(section: str = "home", page: int = 0, *, owner: bool = False)
                      ("License", "MIT, upstream notices preserved"),
                      ("Data", "MongoDB only — nothing is sold or shared")])
         )
-        keyboard = InlineKeyboardMarkup([
-            [button("Open repository", url="https://github.com/Beasgohan-code/Videl0", style="primary")],
-            [button("Full command list", url=base.guide_url())],
-            [button("Back", callback_data="help:home")],
-        ])
-        return text, keyboard
+        actions = (
+            rich_button_row(
+                rich_button("Open repository", url="https://github.com/Beasgohan-code/Videl0", style="primary"),
+                rich_button("Full command list", url=base.guide_url()),
+            )
+            + rich_button_row(rich_button("Back to help", callback_data="help:home"))
+        )
+        return text + actions, None
 
     if section in SECTION_META:
         label, description, _ = SECTION_META[section]
@@ -66,17 +67,25 @@ def render_section(section: str = "home", page: int = 0, *, owner: bool = False)
         text += table(rows) if rows else body("No commands in this section yet.")
         text += rich_footer(f"{total} commands · page {page + 1} of {pages}")
         text += body("Admin actions check live Telegram permissions when you run them.")
-        navigation = []
-        if page:
-            navigation.append(button("Previous", callback_data=f"help:{section}:{page - 1}"))
-        if page + 1 < pages:
-            navigation.append(button("Next", callback_data=f"help:{section}:{page + 1}"))
-        rows_keyboard = ([navigation] if navigation else [])
-        rows_keyboard.append([button("Music", callback_data="help:music"), button("Groups", callback_data="help:manage")])
-        rows_keyboard.append([button("Tools", callback_data="help:tools"), button("Home", callback_data="help:home")])
+        actions = ""
+        if page or page + 1 < pages:
+            page_buttons = []
+            if page:
+                page_buttons.append(rich_button("Previous", callback_data=f"help:{section}:{page - 1}"))
+            if page + 1 < pages:
+                page_buttons.append(rich_button("Next", callback_data=f"help:{section}:{page + 1}", style="primary"))
+            actions += rich_button_row(*page_buttons)
+        actions += rich_button_row(
+            rich_button("Music", callback_data="help:music", style="primary" if section == "music" else None),
+            rich_button("Groups", callback_data="help:manage", style="primary" if section == "manage" else None),
+        )
+        actions += rich_button_row(
+            rich_button("Tools", callback_data="help:tools", style="primary" if section == "tools" else None),
+            rich_button("Help home", callback_data="help:home"),
+        )
         if owner:
-            rows_keyboard.append([button("Owner operations", callback_data="help:owner:0", style="primary")])
-        return text, InlineKeyboardMarkup(rows_keyboard)
+            actions += rich_button_row(rich_button("Owner operations", callback_data="help:owner:0", style="primary"))
+        return text + actions, None
 
     # Home
     counts = {name: len(visible_commands(owner=owner, category=meta[2])) for name, meta in SECTION_META.items()}
@@ -102,15 +111,23 @@ def render_section(section: str = "home", page: int = 0, *, owner: bool = False)
         + rich_footer("Tip: search with <code>/commands keyword</code> · buttons below open each section")
         + body("Permission checks happen when an action runs. Browsing this guide never grants access.")
     )
-    keyboard = [
-        [button("Music", callback_data="help:music", style="primary"), button("Groups", callback_data="help:manage")],
-        [button("Tools", callback_data="help:tools"), button("All commands", callback_data="cmds:all:0")],
-        [button("Full command list", url=base.guide_url())],
-        [button("Source & credits", callback_data="help:about")],
-    ]
+    actions = (
+        rich_button_row(
+            rich_button("Music", callback_data="help:music", style="primary"),
+            rich_button("Group tools", callback_data="help:manage"),
+        )
+        + rich_button_row(
+            rich_button("Telegram tools", callback_data="help:tools"),
+            rich_button("All commands", callback_data="cmds:all:0"),
+        )
+        + rich_button_row(
+            rich_button("Full command list", url=base.guide_url()),
+            rich_button("Source & credits", callback_data="help:about"),
+        )
+    )
     if owner:
-        keyboard.append([button("Owner operations", callback_data="help:owner:0", style="primary")])
-    return text, InlineKeyboardMarkup(keyboard)
+        actions += rich_button_row(rich_button("Owner operations", callback_data="help:owner:0", style="primary"))
+    return text + actions, None
 
 
 def search(query: str, *, owner: bool = False):
@@ -120,10 +137,15 @@ def search(query: str, *, owner: bool = False):
         text += table([(f"<code>/{rich_esc(item['name'])}</code>", rich_esc(item["summary"])) for item in matches])
     else:
         text += body("Nothing matched. Try /commands music or a shorter keyword.")
-    return text, InlineKeyboardMarkup([
-        [button("Music", callback_data="help:music"), button("Groups", callback_data="help:manage")],
-        [button("Home", callback_data="help:home")],
-    ])
+    actions = (
+        rich_button_row(
+            rich_button("Music", callback_data="help:music"),
+            rich_button("Groups", callback_data="help:manage"),
+            rich_button("Tools", callback_data="help:tools"),
+        )
+        + rich_button_row(rich_button("Help home", callback_data="help:home"))
+    )
+    return text + actions, None
 
 
 async def help_command(ctx) -> Screen:
