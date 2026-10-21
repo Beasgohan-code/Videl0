@@ -138,8 +138,32 @@ test("the arcade screen renders its sign-in card without a session", async () =>
   const { default: Arcade } = await import("../src/components/studio/screens/Arcade");
   const html = render(createElement(Arcade));
   assert.match(html, /Continue with Telegram/);
-  assert.match(html, /Ludo/);
+  assert.match(html, /Pull up a chair/);
+  for (const name of ["Ludo", "Connect Four", "Reversi", "Tic-tac-toe"]) {
+    assert.match(html, new RegExp(name.replace("-", "\\-")), `the lobby shows ${name}`);
+  }
+  // The three steps are the whole explanation of why a password is not needed.
+  assert.match(html, /Open Videl from the bot inside Telegram/);
+  assert.match(html, /six-character code/);
   assert.ok(!/undefined/.test(html), "no undefined leaks into the screen");
+});
+
+test("seat initials stay readable for any Telegram name", async () => {
+  const { initials } = await import("../src/lib/arcade");
+  assert.equal(initials("Ada Lovelace"), "AL");
+  assert.equal(initials("Grace"), "G");
+  assert.equal(initials("  "), "?");
+  // Two-character names keep a readable pair rather than the whole string.
+  assert.equal(initials("李 小龙"), "李小");
+});
+
+test("the clock ring never runs past the turn it belongs to", async () => {
+  const { turnFraction } = await import("../src/lib/arcade");
+  const now = Date.parse("2026-10-21T10:00:00.000Z");
+  assert.equal(turnFraction("2026-10-21T10:01:00.000Z", 60, now), 1);
+  assert.equal(turnFraction("2026-10-21T10:00:30.000Z", 60, now), 0.5);
+  assert.equal(turnFraction("2026-10-21T09:59:00.000Z", 60, now), 0);
+  assert.equal(turnFraction(null, 60, now), 0);
 });
 
 test("the arcade is open without ownership, but the group manager is not", async () => {

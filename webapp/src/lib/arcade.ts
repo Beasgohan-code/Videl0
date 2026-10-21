@@ -25,6 +25,7 @@ export type Room = {
   winner: number | "draw" | null;
   chat_id: number | null;
   title: string;
+  turn_seconds: number;
 };
 
 export type RoomEvent = {
@@ -58,21 +59,70 @@ export type GameInfo = {
 
 export type PlayerRef = { id: number; name: string };
 
+export type Stat = {
+  wins: number;
+  losses: number;
+  draws: number;
+  rating: number;
+  games: number;
+};
+
 export type Lobby = {
   ok: boolean;
   games: GameInfo[];
   public: RoomRow[];
   mine: RoomRow[];
-  me?: PlayerRef & { stats?: Record<string, { wins: number; losses: number; draws: number; rating: number; games: number }> };
+  me?: PlayerRef & { stats?: Record<string, Stat> };
   leaderboards?: Record<string, { id: number; name: string; rating: number; games: number }[]>;
 };
 
 export const GAME_ICON: Record<string, string> = {
   connect4: "🔴",
   reversi: "⚫",
-  tictactoe: "❌",
+  tictactoe: "⭕",
   ludo: "🎲",
 };
+
+/** One accent per game, used by cards, rooms, chips and the board surface. */
+export const GAME_THEME: Record<string, { accent: string; soft: string; tagline: string }> = {
+  connect4: { accent: "#fb7185", soft: "rgba(251,113,133,0.20)", tagline: "Drop, stack, connect" },
+  ludo: { accent: "#a78bfa", soft: "rgba(167,139,250,0.20)", tagline: "Four tokens, one crown" },
+  reversi: { accent: "#34d399", soft: "rgba(52,211,153,0.20)", tagline: "Flip the whole board" },
+  tictactoe: { accent: "#60a5fa", soft: "rgba(96,165,250,0.20)", tagline: "Three moves is all it takes" },
+};
+
+export function themeOf(game: string) {
+  return GAME_THEME[game] || { accent: "#818cf8", soft: "rgba(129,140,248,0.2)", tagline: "A quick game" };
+}
+
+export function initials(name: string): string {
+  const parts = String(name || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!parts.length) return "?";
+  return (parts[0][0] + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase();
+}
+
+/** CSS variables that colour a token or an avatar without color-mix(). */
+export function seatVars(seat: number): Record<string, string> {
+  const base = SEAT_COLOUR[seat] || "#6366f1";
+  const dark = SEAT_DARK[seat] || "#312e81";
+  return { "--seat": base, "--seat-dark": dark, "--seat-light": "#ffffff" };
+}
+
+export function laneVars(seat: number): Record<string, string> {
+  const base = SEAT_COLOUR[seat] || "#6366f1";
+  return { "--lane": base, "--lane-soft": `${base}33` };
+}
+
+/** How much of this turn is left, for the conic clock. 0..1 */
+export function turnFraction(deadline: string | null, total: number, now = Date.now()): number {
+  if (!deadline || !total) return 0;
+  const left = (Date.parse(deadline) - now) / 1000;
+  if (!Number.isFinite(left)) return 0;
+  return Math.max(0, Math.min(1, left / total));
+}
 
 export function playerName(room: Room, user: number | null): string {
   if (user === null) return "Videl";

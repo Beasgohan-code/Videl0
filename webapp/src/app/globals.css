@@ -861,3 +861,818 @@ html { scroll-padding-top: 5.5rem; }
 @media (prefers-reduced-motion: reduce) {
   .ios-btn:hover:not(:disabled), .ios-card-interactive:hover, .ios-card-interactive:active { transform: none; }
 }
+
+/* ── Arcade ─────────────────────────────────────────────────────────────────
+   A tabletop inside the panel: long shadows, warm table light, four accent
+   colours that match the pieces. Everything here is decoration over the same
+   server-owned state — no transform sits on the page container, so fixed
+   dialogs elsewhere keep their containing block. */
+
+.arcade-hero {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border-radius: 28px;
+  border: 1px solid rgba(141, 162, 255, 0.18);
+  padding: clamp(1.1rem, 4vw, 1.9rem);
+  background:
+    radial-gradient(120% 140% at 8% -20%, rgba(99, 102, 241, 0.42), transparent 55%),
+    radial-gradient(90% 120% at 100% 0%, rgba(217, 70, 239, 0.22), transparent 58%),
+    linear-gradient(160deg, #121a3d 0%, #15123a 55%, #241148 100%);
+  box-shadow: 0 30px 80px -40px rgba(49, 46, 129, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+.arcade-hero-grid {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  opacity: 0.3;
+  background-image:
+    linear-gradient(rgba(175, 190, 255, 0.1) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(175, 190, 255, 0.1) 1px, transparent 1px);
+  background-size: 34px 34px;
+  mask-image: linear-gradient(115deg, black, transparent 78%);
+  pointer-events: none;
+}
+.arcade-orb {
+  position: absolute;
+  z-index: 0;
+  width: 16rem;
+  height: 16rem;
+  border-radius: 50%;
+  filter: blur(68px);
+  opacity: 0.34;
+  pointer-events: none;
+}
+.arcade-orb-a { right: -3rem; top: -8rem; background: #6366f1; }
+.arcade-orb-b { right: 30%; bottom: -12rem; background: #d946ef; opacity: 0.2; }
+.arcade-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border-radius: 999px;
+  border: 1px solid rgba(165, 180, 252, 0.3);
+  background: rgba(99, 102, 241, 0.16);
+  padding: 0.28rem 0.65rem;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #c7d2fe;
+}
+.arcade-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(5, 8, 20, 0.4);
+  padding: 0.28rem 0.65rem;
+  font-size: 0.68rem;
+  color: rgba(226, 232, 240, 0.7);
+}
+.arcade-live i {
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 50%;
+  background: #34d399;
+  box-shadow: 0 0 8px #34d399;
+}
+.arcade-title {
+  margin-top: 0.85rem;
+  font-size: clamp(1.9rem, 7vw, 3.1rem);
+  font-weight: 700;
+  line-height: 1.02;
+  letter-spacing: -0.045em;
+  background: linear-gradient(100deg, #ffffff 25%, #c7d2fe 65%, #f0abfc);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.arcade-sub {
+  margin-top: 0.6rem;
+  max-width: 34rem;
+  font-size: clamp(0.85rem, 2.6vw, 1rem);
+  line-height: 1.55;
+  color: rgba(199, 210, 254, 0.72);
+}
+.arcade-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1.1rem;
+}
+.arcade-stat {
+  min-width: 6.2rem;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(8, 12, 30, 0.42);
+  padding: 0.55rem 0.8rem;
+  backdrop-filter: blur(10px);
+}
+.arcade-stat b {
+  display: block;
+  font-size: 1.25rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+}
+.arcade-stat span {
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(199, 210, 254, 0.5);
+}
+
+.arcade-section {
+  margin-top: 1.35rem;
+  border-radius: 26px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: linear-gradient(170deg, rgba(17, 24, 48, 0.72), rgba(8, 11, 26, 0.72));
+  padding: 1rem;
+}
+.arcade-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin-bottom: 0.7rem;
+}
+.arcade-section-title {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(199, 210, 254, 0.62);
+}
+.arcade-section-hint { font-size: 0.7rem; color: rgba(148, 163, 184, 0.55); }
+
+.arcade-games {
+  display: grid;
+  gap: 0.55rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+@media (min-width: 760px) { .arcade-games { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.arcade-game {
+  --accent: #6366f1;
+  --accent-soft: rgba(99, 102, 241, 0.2);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.3rem;
+  overflow: hidden;
+  border-radius: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.015));
+  padding: 0.85rem;
+  text-align: left;
+  transition: border-color 200ms var(--ios-spring), background 200ms var(--ios-spring), box-shadow 200ms var(--ios-spring);
+}
+.arcade-game::after {
+  content: "";
+  position: absolute;
+  inset: -40% -20% auto auto;
+  width: 9rem;
+  height: 9rem;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  filter: blur(26px);
+  opacity: 0.9;
+  pointer-events: none;
+}
+.arcade-game:hover { border-color: rgba(255, 255, 255, 0.18); }
+.arcade-game[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: linear-gradient(165deg, var(--accent-soft), rgba(255, 255, 255, 0.02));
+  box-shadow: 0 0 0 1px var(--accent), 0 22px 50px -30px var(--accent);
+}
+.arcade-game-icon {
+  display: grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 15px;
+  background: linear-gradient(150deg, var(--accent), rgba(255, 255, 255, 0.18));
+  box-shadow: 0 10px 24px -12px var(--accent), inset 0 1px 0 rgba(255, 255, 255, 0.4);
+  font-size: 1.15rem;
+}
+.arcade-game-name { margin-top: 0.15rem; font-size: 0.92rem; font-weight: 650; letter-spacing: -0.02em; }
+.arcade-game-meta { font-size: 0.66rem; letter-spacing: 0.04em; color: rgba(148, 163, 184, 0.75); }
+.arcade-game-note { font-size: 0.7rem; line-height: 1.3; color: rgba(203, 213, 225, 0.55); }
+
+.arcade-setup {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+  margin-top: 0.8rem;
+}
+.arcade-seg {
+  display: inline-flex;
+  gap: 2px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+  padding: 3px;
+}
+.arcade-seg button {
+  border-radius: 11px;
+  padding: 0.42rem 0.72rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: rgba(203, 213, 225, 0.62);
+  transition: all 160ms var(--ios-spring);
+}
+.arcade-seg button[aria-pressed="true"] {
+  background: linear-gradient(120deg, #4f46e5, #0ea5e9);
+  color: #fff;
+  box-shadow: 0 8px 20px -12px #4f46e5;
+}
+.arcade-create {
+  margin-left: auto;
+  min-height: 42px;
+  padding-inline: 1.1rem;
+  border-radius: 14px;
+  background: linear-gradient(105deg, #6366f1, #8b5cf6 55%, #d946ef);
+  color: #fff;
+  font-weight: 650;
+  box-shadow: 0 16px 34px -18px #8b5cf6;
+}
+@media (max-width: 560px) { .arcade-create { margin-left: 0; width: 100%; } }
+
+.arcade-invite {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.6rem;
+  border-radius: 22px;
+  border: 1px dashed rgba(165, 180, 252, 0.28);
+  background: rgba(99, 102, 241, 0.06);
+  padding: 0.85rem;
+}
+.arcade-code-input {
+  width: 100%;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(5, 8, 20, 0.6);
+  padding: 0.7rem 0.9rem;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 1.05rem;
+  letter-spacing: 0.42em;
+  text-transform: uppercase;
+  color: #e0e7ff;
+  outline: none;
+}
+.arcade-code-input:focus { border-color: rgba(129, 140, 248, 0.7); box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.16); }
+.arcade-code-input::placeholder { color: rgba(148, 163, 184, 0.35); letter-spacing: 0.35em; }
+
+.arcade-list { display: flex; flex-direction: column; gap: 0.45rem; }
+.arcade-row {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.025);
+  padding: 0.55rem 0.6rem;
+  transition: background 160ms ease, border-color 160ms ease;
+}
+.arcade-row:hover { background: rgba(255, 255, 255, 0.05); border-color: rgba(255, 255, 255, 0.12); }
+.arcade-row-icon {
+  display: grid;
+  place-items: center;
+  width: 2.4rem;
+  height: 2.4rem;
+  flex: none;
+  border-radius: 14px;
+  font-size: 1.05rem;
+  background: linear-gradient(150deg, var(--accent-soft), rgba(255, 255, 255, 0.03));
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.arcade-row-title { display: flex; align-items: center; gap: 0.45rem; font-size: 0.84rem; font-weight: 600; }
+.arcade-row-code {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.66rem;
+  letter-spacing: 0.16em;
+  color: rgba(199, 210, 254, 0.65);
+  border-radius: 7px;
+  background: rgba(99, 102, 241, 0.14);
+  padding: 0.08rem 0.32rem;
+}
+.arcade-row-meta { font-size: 0.68rem; color: rgba(148, 163, 184, 0.6); }
+.arcade-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  border-radius: 999px;
+  padding: 0.12rem 0.42rem;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.arcade-status[data-state="playing"] { background: rgba(52, 211, 153, 0.12); color: #6ee7b7; }
+.arcade-status[data-state="open"] { background: rgba(96, 165, 250, 0.14); color: #93c5fd; }
+.arcade-status[data-state="done"] { background: rgba(148, 163, 184, 0.14); color: #cbd5e1; }
+.arcade-status[data-state="abandoned"] { background: rgba(148, 163, 184, 0.1); color: #94a3b8; }
+.arcade-empty {
+  border-radius: 18px;
+  border: 1px dashed rgba(255, 255, 255, 0.1);
+  padding: 1.1rem;
+  text-align: center;
+  font-size: 0.75rem;
+  color: rgba(148, 163, 184, 0.55);
+}
+
+.arcade-podiums { display: grid; gap: 0.7rem; }
+@media (min-width: 720px) { .arcade-podiums { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.arcade-podium {
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: linear-gradient(170deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.01));
+  padding: 0.7rem;
+}
+.arcade-podium-name { display: flex; align-items: center; gap: 0.35rem; font-size: 0.72rem; font-weight: 650; }
+.arcade-podium ol { margin-top: 0.4rem; display: flex; flex-direction: column; gap: 0.22rem; font-size: 0.7rem; }
+.arcade-podium li { display: flex; justify-content: space-between; gap: 0.5rem; color: rgba(203, 213, 225, 0.6); }
+.arcade-podium li[data-me="true"] { color: #fff; }
+.arcade-podium li b { font-family: 'JetBrains Mono', ui-monospace, monospace; font-weight: 500; color: rgba(199, 210, 254, 0.8); }
+.arcade-medal { font-size: 0.7rem; }
+
+.arcade-signin {
+  display: grid;
+  gap: 0.9rem;
+  margin-top: 1.1rem;
+  border-radius: 24px;
+  border: 1px solid rgba(141, 162, 255, 0.16);
+  background: linear-gradient(165deg, rgba(30, 27, 75, 0.7), rgba(8, 11, 26, 0.8));
+  padding: 1.1rem;
+}
+@media (min-width: 760px) { .arcade-signin { grid-template-columns: 1.15fr 1fr; padding: 1.35rem; } }
+.arcade-signin-steps { display: flex; flex-direction: column; gap: 0.5rem; }
+.arcade-step { display: flex; align-items: flex-start; gap: 0.55rem; font-size: 0.78rem; line-height: 1.4; color: rgba(203, 213, 225, 0.72); }
+.arcade-step b {
+  display: grid;
+  place-items: center;
+  width: 1.35rem;
+  height: 1.35rem;
+  flex: none;
+  border-radius: 50%;
+  background: rgba(99, 102, 241, 0.22);
+  border: 1px solid rgba(165, 180, 252, 0.35);
+  font-size: 0.62rem;
+  color: #c7d2fe;
+}
+.arcade-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.4rem; }
+.arcade-tile {
+  display: grid;
+  place-items: center;
+  gap: 0.2rem;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: linear-gradient(160deg, var(--accent-soft), rgba(255, 255, 255, 0.02));
+  padding: 0.6rem 0.2rem;
+  font-size: 1.3rem;
+}
+.arcade-tile span { font-size: 0.55rem; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(203, 213, 225, 0.55); }
+
+/* The room */
+.arcade-room-bar {
+  position: sticky;
+  top: 0.4rem;
+  z-index: 25;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(7, 10, 24, 0.82);
+  backdrop-filter: blur(18px) saturate(150%);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  padding: 0.45rem;
+  box-shadow: 0 12px 30px -20px #000;
+}
+.arcade-code {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border-radius: 12px;
+  border: 1px solid rgba(165, 180, 252, 0.22);
+  background: rgba(99, 102, 241, 0.14);
+  padding: 0.35rem 0.6rem;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.78rem;
+  letter-spacing: 0.26em;
+  color: #e0e7ff;
+}
+.arcade-turn {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  border-radius: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(150deg, rgba(24, 32, 64, 0.85), rgba(9, 13, 31, 0.9));
+  padding: 0.75rem 0.9rem;
+}
+.arcade-turn[data-mine="true"] {
+  border-color: rgba(250, 204, 21, 0.5);
+  background: linear-gradient(150deg, rgba(120, 83, 20, 0.4), rgba(30, 22, 10, 0.85));
+  box-shadow: 0 0 0 1px rgba(250, 204, 21, 0.2), 0 18px 45px -30px rgba(250, 204, 21, 0.7);
+}
+.arcade-turn-title { font-size: 0.95rem; font-weight: 650; letter-spacing: -0.02em; }
+.arcade-turn-sub { font-size: 0.72rem; color: rgba(203, 213, 225, 0.55); }
+.arcade-clock {
+  --left: 1;
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 3.2rem;
+  height: 3.2rem;
+  flex: none;
+  border-radius: 50%;
+  background: conic-gradient(#facc15 calc(var(--left) * 1turn), rgba(255, 255, 255, 0.09) 0);
+  transition: background 400ms linear;
+}
+.arcade-clock::before { content: ""; position: absolute; inset: 4px; border-radius: 50%; background: #0a0f24; }
+.arcade-clock span { position: relative; font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 0.7rem; color: #fde68a; }
+.arcade-clock[data-idle="true"] { background: rgba(255, 255, 255, 0.09); }
+.arcade-clock[data-idle="true"] span { color: rgba(203, 213, 225, 0.5); }
+
+.arcade-seats { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.arcade-seat {
+  --seat: #6366f1;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  padding: 0.28rem 0.55rem 0.28rem 0.3rem;
+  font-size: 0.72rem;
+  color: rgba(226, 232, 240, 0.8);
+  transition: box-shadow 200ms var(--ios-spring), border-color 200ms var(--ios-spring);
+}
+.arcade-seat[data-turn="true"] {
+  border-color: rgba(250, 204, 21, 0.6);
+  box-shadow: 0 0 0 1px rgba(250, 204, 21, 0.3);
+}
+.arcade-seat[data-offline="true"] { opacity: 0.55; }
+.arcade-seat-avatar {
+  display: grid;
+  place-items: center;
+  width: 1.35rem;
+  height: 1.35rem;
+  border-radius: 50%;
+  /* A solid seat colour plus a highlight: no color-mix, which older WebViews
+     in Telegram would drop entirely. */
+  background: radial-gradient(circle at 30% 22%, rgba(255, 255, 255, 0.5), transparent 48%), var(--seat);
+  box-shadow: 0 0 10px -2px var(--seat), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  font-size: 0.55rem;
+  font-weight: 700;
+  color: #fff;
+}
+.arcade-seat-tag { font-size: 0.55rem; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(226, 232, 240, 0.45); }
+.arcade-seat-empty {
+  border-radius: 999px;
+  border: 1px dashed rgba(255, 255, 255, 0.16);
+  padding: 0.35rem 0.6rem;
+  font-size: 0.68rem;
+  color: rgba(148, 163, 184, 0.5);
+}
+
+.arcade-table {
+  border-radius: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  background:
+    radial-gradient(120% 100% at 50% 0%, rgba(255, 255, 255, 0.055), transparent 60%),
+    linear-gradient(180deg, rgba(15, 21, 43, 0.9), rgba(6, 9, 22, 0.95));
+  padding: clamp(0.7rem, 2.5vw, 1.15rem);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05), 0 30px 70px -50px #000;
+}
+.arcade-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.8rem; }
+.arcade-actions .ios-btn { border-radius: 13px; font-size: 0.8rem; padding: 0.58rem 0.9rem; }
+
+.arcade-result {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  border-radius: 22px;
+  border: 1px solid rgba(250, 204, 21, 0.4);
+  background: linear-gradient(120deg, rgba(250, 204, 21, 0.16), rgba(217, 70, 239, 0.12));
+  padding: 0.8rem 1rem;
+}
+.arcade-result b { display: block; font-size: 0.95rem; letter-spacing: -0.02em; }
+.arcade-result span { font-size: 0.72rem; color: rgba(253, 230, 138, 0.8); }
+.arcade-trophy {
+  display: grid;
+  place-items: center;
+  width: 2.6rem;
+  height: 2.6rem;
+  flex: none;
+  border-radius: 16px;
+  background: linear-gradient(150deg, #fde047, #f59e0b);
+  box-shadow: 0 14px 30px -14px #f59e0b, inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  font-size: 1.25rem;
+}
+
+/* Connect Four */
+.arcade-c4 {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: clamp(4px, 1vw, 9px);
+  border-radius: 24px;
+  padding: clamp(7px, 1.8vw, 14px);
+  background: linear-gradient(165deg, #1d2f78, #101a45 58%, #0a1030);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 28px 60px -34px #1d4ed8;
+}
+.arcade-c4-cell {
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(circle at 34% 28%, #0b1230, #050814 72%);
+  box-shadow: inset 0 4px 9px rgba(0, 0, 0, 0.75), inset 0 -1px 0 rgba(255, 255, 255, 0.05);
+}
+.arcade-disc {
+  position: absolute;
+  inset: 6%;
+  border-radius: 50%;
+  box-shadow: inset 0 -7px 12px rgba(0, 0, 0, 0.38), inset 0 5px 9px rgba(255, 255, 255, 0.34), 0 5px 12px rgba(0, 0, 0, 0.45);
+  animation: arcade-drop 240ms var(--ios-spring) both;
+}
+.arcade-disc-red { background: radial-gradient(circle at 32% 26%, #ffb3bd, #f43f5e 46%, #881337); }
+.arcade-disc-yellow { background: radial-gradient(circle at 32% 26%, #fff5b8, #facc15 48%, #854d0e); }
+.arcade-disc[data-win="true"] { outline: 3px solid rgba(255, 255, 255, 0.85); outline-offset: -3px; box-shadow: 0 0 22px rgba(255, 255, 255, 0.6), inset 0 0 12px rgba(255, 255, 255, 0.5); }
+@keyframes arcade-drop {
+  from { opacity: 0; transform: translateY(-30px) scale(0.9); }
+  to { opacity: 1; transform: none; }
+}
+.arcade-drops { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: clamp(4px, 1vw, 9px); margin-bottom: 0.35rem; }
+.arcade-drop-btn {
+  border-radius: 10px;
+  padding: 0.3rem 0;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(199, 210, 254, 0.4);
+  border: 1px solid transparent;
+}
+.arcade-drop-btn[data-live="true"] { color: #ddd6fe; background: rgba(129, 140, 248, 0.16); border-color: rgba(165, 180, 252, 0.25); }
+.arcade-drop-btn[data-live="true"]:hover { background: rgba(129, 140, 248, 0.3); }
+
+/* Reversi */
+.arcade-reversi {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 2px;
+  border-radius: 20px;
+  padding: clamp(6px, 1.6vw, 10px);
+  background: linear-gradient(150deg, #0f5f49, #093a30 70%, #062a23);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 28px 60px -34px #059669;
+}
+.arcade-reversi-cell {
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: 5px;
+  background: rgba(3, 40, 32, 0.4);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.035);
+}
+.arcade-reversi-cell[data-legal="true"] { background: rgba(52, 211, 153, 0.16); box-shadow: inset 0 0 0 1px rgba(110, 231, 183, 0.4); }
+.arcade-reversi-cell[data-legal="true"]::after {
+  content: "";
+  position: absolute;
+  inset: 32%;
+  border-radius: 50%;
+  border: 1px solid rgba(167, 243, 208, 0.7);
+}
+.arcade-reversi-disc {
+  position: absolute;
+  inset: 9%;
+  border-radius: 50%;
+  animation: arcade-pop 180ms var(--ios-spring) both;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
+}
+.arcade-disc-black { background: radial-gradient(circle at 32% 26%, #52607a, #111827 52%, #000); }
+.arcade-disc-white { background: radial-gradient(circle at 32% 26%, #ffffff, #e2e8f0 55%, #94a3b8); }
+@keyframes arcade-pop {
+  from { opacity: 0; transform: scale(0.55); }
+  to { opacity: 1; transform: none; }
+}
+.arcade-scorebar {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+  font-size: 0.72rem;
+  color: rgba(203, 213, 225, 0.72);
+}
+.arcade-scorebar b { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 0.85rem; }
+.arcade-scorebar-side { display: flex; align-items: center; gap: 0.35rem; }
+.arcade-scorebar-side:last-child { justify-content: flex-end; }
+.arcade-score-dot { width: 0.65rem; height: 0.65rem; border-radius: 50%; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5); }
+
+/* Tic-tac-toe */
+.arcade-ttt {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(5px, 1.4vw, 9px);
+  border-radius: 22px;
+  padding: clamp(6px, 1.6vw, 10px);
+  background: linear-gradient(150deg, rgba(96, 165, 250, 0.16), rgba(129, 140, 248, 0.08));
+  border: 1px solid rgba(147, 197, 253, 0.18);
+}
+.arcade-ttt-cell {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  border-radius: 16px;
+  background: rgba(6, 10, 26, 0.66);
+  font-size: clamp(2.3rem, 9vw, 3.4rem);
+  font-weight: 700;
+  line-height: 1;
+  transition: background 160ms ease, box-shadow 160ms ease;
+}
+.arcade-ttt-cell[data-mark="1"] { color: #7dd3fc; text-shadow: 0 0 24px rgba(56, 189, 248, 0.55); }
+.arcade-ttt-cell[data-mark="2"] { color: #fda4af; text-shadow: 0 0 24px rgba(244, 114, 182, 0.5); }
+.arcade-ttt-cell[data-win="true"] { background: rgba(255, 255, 255, 0.12); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.35); }
+.arcade-ttt-cell[data-live="true"]:hover { background: rgba(129, 140, 248, 0.2); }
+
+/* Ludo */
+.arcade-ludo {
+  position: relative;
+  width: 100%;
+  max-width: 34rem;
+  margin-inline: auto;
+  aspect-ratio: 1;
+  border-radius: 24px;
+  background: linear-gradient(160deg, #0d1533, #070c21);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 30px 70px -40px #000;
+  padding: 2.5%;
+}
+.arcade-ludo-board { position: relative; width: 100%; height: 100%; }
+.arcade-ludo-cell {
+  position: absolute;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.07);
+}
+.arcade-ludo-cell[data-safe="true"] { background: rgba(250, 204, 21, 0.22); }
+.arcade-ludo-cell[data-kind="home"] { background: var(--lane-soft, rgba(255, 255, 255, 0.1)); }
+.arcade-ludo-cell[data-kind="centre"] { background: rgba(165, 180, 252, 0.26); }
+.arcade-ludo-base {
+  position: absolute;
+  width: 28%;
+  height: 28%;
+  border-radius: 18px;
+  background: var(--lane-soft, rgba(255, 255, 255, 0.06));
+  border: 1px solid var(--lane, rgba(255, 255, 255, 0.15));
+  box-shadow: inset 0 0 30px -14px var(--lane, #000);
+}
+.arcade-ludo-token {
+  position: absolute;
+  border-radius: 50%;
+  background: radial-gradient(circle at 32% 24%, var(--seat-light, #fff), var(--seat) 52%, var(--seat-dark, #000));
+  border: 1.5px solid var(--seat-dark, #000);
+  box-shadow: 0 3px 7px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  min-width: 12px;
+  min-height: 12px;
+}
+.arcade-ludo-token[data-live="true"] { outline: 2px solid rgba(255, 255, 255, 0.9); outline-offset: 1px; animation: arcade-pulse 1.5s ease-in-out infinite; }
+@keyframes arcade-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.55), 0 3px 7px rgba(0, 0, 0, 0.55); }
+  50% { box-shadow: 0 0 0 6px rgba(255, 255, 255, 0), 0 3px 7px rgba(0, 0, 0, 0.55); }
+}
+.arcade-ludo-die {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  border-radius: 14px;
+  border: 1px solid rgba(250, 204, 21, 0.3);
+  background: rgba(250, 204, 21, 0.1);
+  padding: 0.45rem 0.7rem;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.82rem;
+  color: #fde68a;
+}
+.arcade-ludo-die b { font-size: 1.1rem; }
+
+/* Chat */
+.arcade-chat {
+  display: flex;
+  flex-direction: column;
+  min-height: 21rem;
+  max-height: 34rem;
+  border-radius: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: linear-gradient(180deg, rgba(15, 21, 43, 0.9), rgba(6, 9, 22, 0.95));
+  overflow: hidden;
+}
+.arcade-chat-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 0.6rem 0.75rem;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(199, 210, 254, 0.55);
+}
+.arcade-chat-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.7rem;
+  scrollbar-width: thin;
+}
+.arcade-bubble {
+  max-width: 86%;
+  border-radius: 15px 15px 15px 5px;
+  background: rgba(255, 255, 255, 0.06);
+  padding: 0.4rem 0.6rem;
+  font-size: 0.76rem;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.arcade-bubble[data-own="true"] {
+  align-self: flex-end;
+  border-radius: 15px 15px 5px 15px;
+  background: linear-gradient(120deg, rgba(79, 70, 229, 0.9), rgba(14, 165, 233, 0.75));
+  color: #fff;
+}
+.arcade-bubble-name { display: block; font-size: 0.6rem; letter-spacing: 0.06em; text-transform: uppercase; color: rgba(199, 210, 254, 0.5); margin-bottom: 0.1rem; }
+.arcade-bubble[data-own="true"] .arcade-bubble-name { color: rgba(255, 255, 255, 0.65); }
+.arcade-event { text-align: center; font-size: 0.66rem; color: rgba(148, 163, 184, 0.45); padding: 0.1rem 0; }
+.arcade-composer {
+  display: flex;
+  gap: 0.4rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(4, 7, 18, 0.6);
+  padding: 0.5rem;
+}
+.arcade-composer input {
+  min-width: 0;
+  flex: 1;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  padding: 0.5rem 0.7rem;
+  font-size: 0.8rem;
+  color: #f8fafc;
+  outline: none;
+}
+.arcade-composer input:focus { border-color: rgba(129, 140, 248, 0.6); }
+.arcade-composer input:disabled { opacity: 0.5; }
+.arcade-send {
+  display: grid;
+  place-items: center;
+  width: 2.4rem;
+  border-radius: 12px;
+  background: linear-gradient(120deg, #6366f1, #0ea5e9);
+  color: #fff;
+  box-shadow: 0 10px 24px -14px #6366f1;
+}
+.arcade-send:disabled { opacity: 0.4; box-shadow: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .arcade-disc, .arcade-reversi-disc, .arcade-ludo-token[data-live="true"] { animation: none; }
+  .arcade-clock { transition: none; }
+}
+
+/* The last accepted move keeps a faint ring, so a fast game stays readable. */
+.arcade-disc[data-last="true"] { box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.32), inset 0 -7px 12px rgba(0, 0, 0, 0.38), inset 0 5px 9px rgba(255, 255, 255, 0.28); }
+.arcade-reversi-cell[data-last="true"] { box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.24); }
+.arcade-ludo-board .arcade-ludo-cell { overflow: hidden; }
+
+/* House rules: available without being in the way. */
+.arcade-rules {
+  margin-top: 0.7rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  padding-top: 0.55rem;
+  font-size: 0.7rem;
+  color: rgba(148, 163, 184, 0.65);
+}
+.arcade-rules summary {
+  cursor: pointer;
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(165, 180, 252, 0.65);
+}
+.arcade-rules summary::-webkit-details-marker { display: none; }
+.arcade-rules summary::after { content: "+"; font-size: 0.8rem; line-height: 1; }
+.arcade-rules[open] summary::after { content: "–"; }
+.arcade-rules ul { margin-top: 0.4rem; display: flex; flex-direction: column; gap: 0.25rem; padding-left: 0.9rem; }
+.arcade-rules li { list-style: disc; line-height: 1.4; }

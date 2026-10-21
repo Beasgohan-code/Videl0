@@ -39,6 +39,8 @@ class ArcadeRoomTests(unittest.TestCase):
     # ── lifecycle ────────────────────────────────────────────────────────────
     def test_a_new_room_seats_its_host_and_waits(self):
         room = store.create(1, "Ada", "connect4")
+        # The panel draws its clock ring from this, so the view must carry it.
+        self.assertEqual(room["turn_seconds"], 60)
         self.assertEqual(len(room["code"]), 6)
         self.assertTrue(room["code"].isalnum())
         self.assertEqual(room["status"], "open")

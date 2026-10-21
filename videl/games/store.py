@@ -166,6 +166,9 @@ def view(doc, user=None):
         "winner": doc.get("winner"),
         "chat_id": doc.get("chat_id"),
         "title": doc.get("title") or "",
+        # The panel draws a clock ring from this, so it must not have to guess
+        # the game's turn length from a list that may be a version behind.
+        "turn_seconds": game.turn_seconds,
     }
 
 
