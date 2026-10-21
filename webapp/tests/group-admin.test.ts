@@ -7,6 +7,7 @@ import {
   applySettings,
   applySettingsToChats,
   bulkSelection,
+  conflictMessage,
   displayTitle,
   effectiveGuards,
   errorHint,
@@ -15,6 +16,7 @@ import {
   matchesQuery,
   memberLabel,
   protectionSummary,
+  nextRevision,
   toggleSelected,
   visibleGroups,
   type Group,
@@ -132,4 +134,21 @@ test("errors explain what the owner can actually do", () => {
   assert.match(errorHint("Choose a group already served by this bot."), /Add the bot/);
   assert.match(errorHint("Your account lacks the required group permission: can_delete_messages."), /permission/);
   assert.equal(errorHint("plain failure"), "plain failure");
+});
+
+test("a panel writes with the revision it read and adopts the next one", () => {
+  assert.equal(nextRevision({ revision: 4 }, null), 4);
+  assert.equal(nextRevision({ revision: 0 }, 7), 0);
+  assert.equal(nextRevision({ revision: "4" }, 3), 3);
+  assert.equal(nextRevision({ revision: -1 }, null), null);
+  assert.equal(nextRevision({ revision: 1.5 }, null), null);
+  assert.equal(nextRevision({}, 2), 2);
+  assert.equal(nextRevision(null, null), null);
+});
+
+test("a conflict names the race and says the screen reloaded", () => {
+  assert.match(conflictMessage(5), /changed this group \(revision 5\)/);
+  assert.match(conflictMessage(5), /latest values are now shown/);
+  assert.match(conflictMessage(undefined), /changed this group/);
+  assert.doesNotMatch(conflictMessage("not a number"), /revision/);
 });

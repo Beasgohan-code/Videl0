@@ -35,6 +35,11 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   }
   const incoming = body as Record<string, unknown>;
   const payload: Record<string, unknown> = { action: "backup_import" };
+  // Applying a previewed file must not silently overwrite an edit made since
+  // the preview: forward the revision only when it is a sane integer.
+  if (typeof incoming.revision === "number" && Number.isInteger(incoming.revision) && incoming.revision >= 0) {
+    payload.revision = incoming.revision;
+  }
   if (typeof incoming.backup_id === "string") {
     payload.action = "backup_restore";
     payload.backup_id = incoming.backup_id;

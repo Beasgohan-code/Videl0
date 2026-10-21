@@ -91,6 +91,8 @@ export type Group = {
   bot_admin?: boolean | null;
   automation?: Automation;
   health?: GroupHealth;
+  /** Settings revision this row was read at; absent on older backends. */
+  revision?: number;
 };
 
 export type GroupsSummary = {
@@ -137,6 +139,21 @@ export function fleetProgress(loaded: number, total: number): string | null {
   return `Showing ${loaded} of ${total} served groups`;
 }
 
+/** The revision to send with the next write, or the previous token if absent. */
+export function nextRevision(payload: unknown, fallback: number | null): number | null {
+  const value = payload && typeof payload === "object" ? (payload as { revision?: unknown }).revision : undefined;
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : fallback;
+}
+
+/**
+ * A 409 is not "the save failed": someone else's save won. Say so, and say the
+ * panel has reloaded, so the owner knows to look before toggling again.
+ */
+export function conflictMessage(known?: unknown): string {
+  const revision = typeof known === "number" && Number.isInteger(known) && known >= 0 ? ` (revision ${known})` : "";
+  return `Someone else changed this group${revision} after this page loaded. The latest values are now shown — check them before saving again.`;
+}
+
 /** One-line status for the warnings list; the count is what the limit checks. */
 export function warnCaseSummary(row: WarnRow): string {
   const total = typeof row.total === "number" ? row.total : row.count;
@@ -154,6 +171,8 @@ export type GroupCommunity = {
 };
 
 export type GroupDetail = {
+  /** Settings revision the payload was read at; the next write sends it back. */
+  revision?: number;
   automation?: Automation;
   inbox?: GroupInbox;
   chat: {

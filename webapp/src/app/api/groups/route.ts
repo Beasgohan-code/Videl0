@@ -37,12 +37,22 @@ export async function POST(req: Request) {
   const settings = (body as { settings?: unknown } | null)?.settings;
   if (chatId === null || !isSettingPatch(settings))
     return Response.json({ ok: false, error: "Invalid group settings request" }, { status: 400 });
+  // Optional: the revision the panel read. Forwarded only when it is sane, so
+  // a newer panel can avoid overwriting a concurrent edit and an older one
+  // still saves exactly as before.
+  const revision = (body as { revision?: unknown } | null)?.revision;
+  const known =
+    typeof revision === "number" && Number.isInteger(revision) && revision >= 0 ? revision : undefined;
   const result = await callBackend(
     "/internal/chat-settings",
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: chatId, settings }),
+      body: JSON.stringify({
+        chat_id: chatId,
+        settings,
+        ...(known === undefined ? {} : { revision: known }),
+      }),
     },
     { timeoutMs: 15000, attempts: 2 },
   );

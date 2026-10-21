@@ -172,11 +172,19 @@ export default function GroupViewer() {
         form.set('text',outbound);form.set('request_id',crypto.randomUUID());if(action.message_id)form.set('message_id',String(action.message_id));
         response=await fetch('/api/inbox-media',{method:'POST',body:form,signal:AbortSignal.timeout(65000)});
       }else{
+        // Protection toggles carry the revision this screen read, so a change
+        // made in another tab (or from Telegram) is refused instead of undone.
+        const guarded=action.action==='protect'&&typeof data?.revision==='number'?{revision:data.revision}:{};
         response=await fetch('/api/group-view',{method:'POST',headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({chat_id:cid,...action,...(['send','reply'].includes(action.action)?{text:outbound}:{}),request_id:crypto.randomUUID()}),signal:AbortSignal.timeout(60000)});
+          body:JSON.stringify({chat_id:cid,...action,...guarded,...(['send','reply'].includes(action.action)?{text:outbound}:{}),request_id:crypto.randomUUID()}),signal:AbortSignal.timeout(60000)});
       }
       const body=await response.json();
-      if(!response.ok || !body.ok)throw new Error(body.error || 'Action not confirmed. Check Telegram before retrying.');
+      if(!response.ok || !body.ok){
+        // A refused edit is not a failed send: reload the stored switches and
+        // let the backend's explanation stand on its own.
+        if(response.status===409)setRefresh(value=>value+1);
+        throw new Error(body.error || 'Action not confirmed. Check Telegram before retrying.');
+      }
       if(activeId.current===cid){
         // If the deployed backend cannot take HTML, outbound already fell back
         // to plain text: say so instead of silently dropping formatting.

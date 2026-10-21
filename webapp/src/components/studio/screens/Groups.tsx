@@ -67,8 +67,10 @@ import {
   textValue,
   toggleSelected,
   visibleGroups,
+  conflictMessage,
   fleetProgress,
   mergeGroupPage,
+  nextRevision,
   warnCaseSummary,
   type AuditEvent,
   type Group,
@@ -161,6 +163,9 @@ export default function GroupsPage() {
   const [detail, setDetail] = useState<GroupDetail | null>(null);
   const [detailState, setDetailState] = useState<"idle" | "loading" | "ready" | "unsupported" | "error">("idle");
   const [detailMessage, setDetailMessage] = useState("");
+  // The revision the loaded detail was read at. Every accepted write returns
+  // the next one, so the panel does not conflict with its own previous save.
+  const [revision, setRevision] = useState<number | null>(null);
   const [tab, setTab] = useState<Tab>("protection");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -256,6 +261,7 @@ export default function GroupsPage() {
       if (ticket !== detailRequest.current) return;
       if (!response.ok || !data.ok) {
         setDetail(null);
+        setRevision(null);
         setDetailState(response.status === 501 ? "unsupported" : "error");
         setDetailMessage(
           response.status === 501
@@ -272,6 +278,7 @@ export default function GroupsPage() {
         return;
       }
       setDetail(data as GroupDetail);
+      setRevision(nextRevision(data, null));
       setDetailState("ready");
     } catch (e) {
       if (ticket !== detailRequest.current) return;
@@ -402,10 +409,24 @@ export default function GroupsPage() {
       const response = await fetch("/api/groups", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chat_id: active.id, settings: { [key]: enabled } }),
+        body: JSON.stringify({
+          chat_id: active.id,
+          settings: { [key]: enabled },
+          ...(revision === null ? {} : { revision }),
+        }),
       });
       const data = await response.json().catch(() => ({}));
+      if (response.status === 409) {
+        // Put the switch back now, then reload so it shows what is stored
+        // rather than what this tab asked for.
+        mergeSettings({ [key]: !enabled });
+        void loadDetail(active.id, { silent: true });
+        setNotice("");
+        setError(String(data.error || conflictMessage(data.revision)));
+        return;
+      }
       if (!response.ok || !data.ok) throw new Error(String(data.error || "Setting update failed"));
+      setRevision(nextRevision(data, revision));
       setNotice(enabled ? "Lock enabled and saved." : "Lock disabled and saved.");
     } catch (e) {
       mergeSettings({ [key]: !enabled });
@@ -425,9 +446,13 @@ export default function GroupsPage() {
       const response = await fetch(`/api/groups/${active.id}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify(revision === null ? body : { ...body, revision }),
       });
       const data = await response.json().catch(() => ({}));
+      if (response.status === 409) {
+        void loadDetail(active.id, { silent: true });
+        throw new Error(String(data.error || conflictMessage(data.revision)));
+      }
       if (!response.ok || !data.ok) {
         const hint =
           response.status === 501
@@ -454,6 +479,7 @@ export default function GroupsPage() {
       if (data.automation && typeof data.automation === "object") {
         setDetail((current) => (current ? { ...current, automation: data.automation } : current));
       }
+      setRevision(nextRevision(data, revision));
       setNotice(options.success || "Saved to MongoDB.");
       // Keep the visible history current when the panel is open on that tab.
       if (tab === "audit") void loadAudit(active.id, auditKind);
@@ -534,9 +560,17 @@ export default function GroupsPage() {
       const response = await fetch(`/api/groups/${active.id}/backup`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ document: backupPreview.document, dry_run: false }),
+        body: JSON.stringify({
+          document: backupPreview.document,
+          dry_run: false,
+          ...(revision === null ? {} : { revision }),
+        }),
       });
       const data = await response.json().catch(() => ({}));
+      if (response.status === 409) {
+        void loadDetail(active.id, { silent: true });
+        throw new Error(String(data.error || conflictMessage(data.revision)));
+      }
       if (!response.ok || !data.ok) {
         throw new Error(
           response.status === 501
@@ -548,6 +582,7 @@ export default function GroupsPage() {
       if (data.automation && typeof data.automation === "object") {
         setDetail((current) => (current ? { ...current, automation: data.automation } : current));
       }
+      setRevision(nextRevision(data, revision));
       setRestorableId(typeof data.backup_id === "string" ? data.backup_id : null);
       setBackupPreview(null);
       setBackupNote(
@@ -573,14 +608,22 @@ export default function GroupsPage() {
       const response = await fetch(`/api/groups/${active.id}/backup`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ backup_id: restorableId }),
+        body: JSON.stringify({
+          backup_id: restorableId,
+          ...(revision === null ? {} : { revision }),
+        }),
       });
       const data = await response.json().catch(() => ({}));
+      if (response.status === 409) {
+        void loadDetail(active.id, { silent: true });
+        throw new Error(String(data.error || conflictMessage(data.revision)));
+      }
       if (!response.ok || !data.ok) throw new Error(errorHint(String(data.error || "The restore failed"), response.status));
       if (data.settings && typeof data.settings === "object") mergeSettings(data.settings as GroupSettings);
       if (data.automation && typeof data.automation === "object") {
         setDetail((current) => (current ? { ...current, automation: data.automation } : current));
       }
+      setRevision(nextRevision(data, revision));
       setRestorableId(null);
       setBackupNote("Previous configuration restored.");
       void loadDetail(active.id, { silent: true });

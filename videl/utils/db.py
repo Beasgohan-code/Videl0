@@ -1450,8 +1450,13 @@ def get_automation(chat_id: int) -> dict:
     return normalize(document.get("automation"))
 
 
-def set_automation(chat_id: int, *, quiet_hours=None, escalation=None, protection=None) -> dict:
-    """Merge one or more blocks and return the complete normalised config."""
+def set_automation(chat_id: int, *, quiet_hours=None, escalation=None, protection=None,
+                   expected=None) -> dict:
+    """Merge one or more blocks and return the complete normalised config.
+
+    ``expected`` is the settings revision the caller read; a stale one raises
+    ``settings_store.SettingsConflict`` instead of overwriting a newer edit.
+    """
     from videl.utils.automation import normalize
     col = _col(SETTINGS_COLLECTION)
     current = get_automation(chat_id)
@@ -1463,8 +1468,11 @@ def set_automation(chat_id: int, *, quiet_hours=None, escalation=None, protectio
         current["protection"] = {**current.get("protection", {}), **(protection or {})}
     current = normalize(current)
     if col is not None:
+        from videl.utils import settings_store
         try:
-            col.update_one({"chat_id": chat_id}, {"$set": {"automation": current}}, upsert=True)
+            settings_store.write(chat_id, {"automation": current}, expected=expected)
+        except settings_store.SettingsConflict:
+            raise
         except Exception as e:
             logger.error(f"[automation] set: {e}")
     return current

@@ -13,7 +13,7 @@ import time
 import uuid
 from pymongo.errors import DuplicateKeyError
 
-from videl.utils import audit as audit_log
+from videl.utils import audit as audit_log, settings_store
 from videl.utils.automation import (DECAY_RANGE, ESCALATION_ACTIONS, ESCALATION_LADDER, MUTE_RANGE,
                                     normalize, normalize_escalation, normalize_protection,
                                     normalize_quiet, parse_hhmm)
@@ -546,7 +546,8 @@ class GroupView:
         return {'ok':True,'chat_id':cid,'items':list(reversed(docs)),'has_more':has_more,
             'next_before':docs[-1]['message_id'] if docs else None,
             'is_private':cid>0,'recording':bool(settings.get('enabled')),'retention_days':days,
-            'capture_dropped':_dropped,'rich_text':True,'settings':{key:bool(protections.get(key,False)) for key in PROTECTION},
+            'capture_dropped':_dropped,'rich_text':True,'revision':self.revision(cid),
+            'settings':{key:bool(protections.get(key,False)) for key in PROTECTION},
             'visibility_note':'Only messages delivered to this bot after recording was enabled. No Telegram history import; privacy mode can limit visibility. Small photos, videos and voice messages can be viewed through the owner-only media proxy. Unobserved deletions are not synchronized.'}
 
     def info(self,chat_id):
@@ -632,6 +633,37 @@ class GroupView:
             snapshot[key]=value if value in allowed else 'del'
         return snapshot
 
+    # ── concurrent edits ─────────────────────────────────────────────────────
+    def revision(self,chat_id):
+        """Counter for owner-facing writes, so a stale panel edit is refused."""
+        return settings_store.revision(chat_id,self.db)
+
+    @staticmethod
+    def _expected(body):
+        """The revision a panel write was based on; None means "Do not check".
+
+        Bot-side callers (Telegram commands, imports) do not track revisions;
+        they still advance the counter, so an open panel notices afterwards.
+        """
+        value=body.get('revision') if isinstance(body,dict) else None
+        if value is None:return None
+        if type(value) is not int or not 0<=value<=9007199254740991:
+            raise ViewError('A settings revision must be a non-negative integer.')
+        return value
+
+    def _stale(self,error):
+        """A 409 that carries the revision the panel should reload from."""
+        conflict=ViewError(str(error),409)
+        conflict.conflict=True
+        conflict.revision=error.revision
+        return conflict
+
+    def _write_settings(self,cid,values,body=None):
+        try:
+            return settings_store.write(cid,values,expected=self._expected(body),db=self.db)
+        except settings_store.SettingsConflict as error:
+            raise self._stale(error) from None
+
     def describe(self,chat_id):
         """Everything the group manager needs, in one permission-checked read."""
         cid=integer(chat_id)
@@ -664,7 +696,7 @@ class GroupView:
         try:automation=get_automation(cid)
         except Exception:automation=normalize({})
         return {'ok':True,'chat':info,'settings':self.snapshot(cid),'presets':PRESETS,
-                'automation':automation,
+                'revision':self.revision(cid),'automation':automation,
                 'inbox':self.inbox(cid),
                 'community':{
                     'warns':warns,'warn_limit':get_warn_limit(cid),
@@ -831,10 +863,16 @@ class GroupView:
                          'enable': sorted(live_commands - wanted_commands)},
         }
 
-    def _apply_backup(self, cid, settings, automation, blacklist, commands):
+    def _apply_backup(self, cid, settings, automation, blacklist, commands, expected=None):
         from videl.utils.db import disable_cmd, enable_cmd, set_automation
+        # Check once, up front: an import writes settings and automation in two
+        # steps, so a per-write guard would conflict with its own first write.
+        try:
+            settings_store.check(cid, expected, self.db)
+        except settings_store.SettingsConflict as error:
+            raise self._stale(error) from None
         if settings:
-            self.db['mgmt_chat_settings'].update_one({'chat_id': cid}, {'$set': settings}, upsert=True)
+            settings_store.write(cid, settings, db=self.db)
         set_automation(cid, quiet_hours=automation['quiet_hours'],
                        escalation=automation['escalation'], protection=automation['protection'])
         wanted = {row['trigger'] for row in blacklist}
@@ -881,7 +919,8 @@ class GroupView:
         previous = self.export_group(cid)['backup']
         previous['exported_at'] = datetime.now(timezone.utc).isoformat()
         backup_id = save_backup(cid, previous) or None
-        self._apply_backup(cid, settings, automation, blacklist, commands)
+        self._apply_backup(cid, settings, automation, blacklist, commands,
+                           expected=self._expected(body))
         summary = []
         if changes['settings']['after']:
             summary.append(f"{len(changes['settings']['after'])} settings")
@@ -912,7 +951,10 @@ class GroupView:
         document = row.get('data')
         if not isinstance(document, dict):
             raise ViewError('That saved snapshot is unreadable.', 409)
-        return self.import_group(cid, actor, {'document': document, 'dry_run': False}, source=source)
+        request = {'document': document, 'dry_run': False}
+        if isinstance(body, dict) and 'revision' in body:
+            request['revision'] = body.get('revision')
+        return self.import_group(cid, actor, request, source=source)
 
     def _automation_read(self, cid):
         from videl.utils.db import get_automation
@@ -1107,19 +1149,27 @@ class GroupView:
                 raise ViewError('Pick at least one lock for the window to apply.')
             if parse_hhmm(protection['start'])==parse_hhmm(protection['end']):
                 raise ViewError('A protection window cannot start and end at the same minute.')
-        config=set_automation(cid,quiet_hours=quiet,escalation=escalation,protection=protection)
+        try:
+            config=set_automation(cid,quiet_hours=quiet,escalation=escalation,protection=protection,
+                                  expected=self._expected(body))
+        except settings_store.SettingsConflict as error:
+            raise self._stale(error) from None
         self.log(cid,'automation',{'quiet':quiet,'escalation':escalation,'protection':protection})
         return {'ok':True,'automation':config}
 
     def admin(self,cid,actor,body,source='web'):
         """Typed admin actions. Every write re-reads the document afterwards."""
         action=body.get('action')
-        if action in {'automation','command_disable','command_enable','join_request','report_update',
-                      'backup_import','backup_restore'}:
-            return self._service(cid,body)
-        result=self._admin(cid,actor,body)
-        # ``protect`` is written by settings(), which records its own event.
-        if action!='protect':self.log(cid,action,body,source)
+        service=action in {'automation','command_disable','command_enable','join_request','report_update',
+                           'backup_import','backup_restore'}
+        result=self._service(cid,body) if service else self._admin(cid,actor,body)
+        # ``protect`` is written by settings(), which records its own event;
+        # service actions record their own history.
+        if not service and action!='protect':self.log(cid,action,body,source)
+        if isinstance(result,dict) and result.get('ok'):
+            # The panel replaces its token after every accepted write, so the
+            # next switch does not conflict with its own previous save.
+            result.setdefault('revision',self.revision(cid))
         return result
 
     def _service(self,cid,body):
@@ -1143,34 +1193,34 @@ class GroupView:
             settings=body.get('settings')
             if not isinstance(settings,dict) or not settings or set(settings)-set(BOOL_SETTINGS) or any(type(value) is not bool for value in settings.values()):
                 raise ViewError('Only supported boolean protection settings are accepted.')
-            self.db['mgmt_chat_settings'].update_one({'chat_id':cid},{'$set':settings},upsert=True)
-            return {'ok':True,'settings':self.snapshot(cid)}
+            revision=self._write_settings(cid,settings,body)
+            return {'ok':True,'settings':self.snapshot(cid),'revision':revision}
         if action=='preset':
             name=body.get('preset')
             if name not in PRESETS:raise ViewError('Choose one of the saved presets.')
             values=PRESETS[name]['settings']
-            self.db['mgmt_chat_settings'].update_one({'chat_id':cid},{'$set':values},upsert=True)
-            return {'ok':True,'preset':name,'settings':self.snapshot(cid)}
+            revision=self._write_settings(cid,values,body)
+            return {'ok':True,'preset':name,'settings':self.snapshot(cid),'revision':revision}
         if action=='warn_limit':
             low,high=INT_SETTINGS['warn_threshold']
             value=integer(body.get('limit'),positive=True)
             if not low<=value<=high:raise ViewError(f'The warning limit must be {low}–{high}.')
-            self.db['mgmt_chat_settings'].update_one({'chat_id':cid},{'$set':{'warn_threshold':value}},upsert=True)
-            return {'ok':True,'settings':self.snapshot(cid)}
+            revision=self._write_settings(cid,{'warn_threshold':value},body)
+            return {'ok':True,'settings':self.snapshot(cid),'revision':revision}
         if action in {'welcome','goodbye'}:
             text=body.get('text')
             if not isinstance(text,str) or len(text)>TEXT_SETTINGS[f'{action}_message']:
                 raise ViewError(f'{action.title()} text must be 1–{TEXT_SETTINGS[f"{action}_message"]} characters.')
             updates={f'{action}_message':text.strip()}
             if type(body.get('enabled')) is bool:updates[f'{action}_enabled']=body['enabled']
-            self.db['mgmt_chat_settings'].update_one({'chat_id':cid},{'$set':updates},upsert=True)
-            return {'ok':True,'settings':self.snapshot(cid)}
+            revision=self._write_settings(cid,updates,body)
+            return {'ok':True,'settings':self.snapshot(cid),'revision':revision}
         if action=='rules':
             text=body.get('text')
             if text is not None and (not isinstance(text,str) or len(text)>TEXT_SETTINGS['rules']):
                 raise ViewError('Rules must be text up to 2000 characters, or empty to clear them.')
-            self.db['mgmt_chat_settings'].update_one({'chat_id':cid},{'$set':{'rules':(text or '').strip() or None}},upsert=True)
-            return {'ok':True,'settings':self.snapshot(cid)}
+            revision=self._write_settings(cid,{'rules':(text or '').strip() or None},body)
+            return {'ok':True,'settings':self.snapshot(cid),'revision':revision}
         if action in {'blacklist_add','blacklist_remove'}:
             trigger=str(body.get('trigger') or '').strip().casefold()
             if not trigger or len(trigger)>64:raise ViewError('A blacklist word between 1 and 64 characters is required.')
@@ -1182,8 +1232,8 @@ class GroupView:
         if action=='blacklist_mode':
             mode=body.get('mode')
             if mode not in ENUM_SETTINGS['blacklist_mode']:raise ViewError('Choose a supported blacklist mode.')
-            self.db['mgmt_chat_settings'].update_one({'chat_id':cid},{'$set':{'blacklist_mode':mode}},upsert=True)
-            return {'ok':True,'settings':self.snapshot(cid)}
+            revision=self._write_settings(cid,{'blacklist_mode':mode},body)
+            return {'ok':True,'settings':self.snapshot(cid),'revision':revision}
         if action=='note_delete':
             name=str(body.get('name') or '').strip().casefold()
             if not name:raise ViewError('A note name is required.')
@@ -1231,9 +1281,9 @@ class GroupView:
             if not isinstance(settings,dict) or not settings or set(settings)-PROTECTION or any(type(v) is not bool for v in settings.values()):
                 raise ViewError('Only supported boolean group protection settings are accepted.')
             self.rights(cid,actor,['can_delete_messages'])
-            self.db['mgmt_chat_settings'].update_one({'chat_id':cid},{'$set':settings},upsert=True)
+            revision=self._write_settings(cid,settings,body)
             self.log(cid,'protect',{'settings':settings})
-            return {'ok':True,'settings':settings}
+            return {'ok':True,'settings':settings,'revision':revision}
         raise ViewError('Unknown setting action.')
 
     def act(self,body,source='web'):

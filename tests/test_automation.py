@@ -713,6 +713,14 @@ class InternalRouteTests(unittest.TestCase):
         self.assertEqual(payload["summary"]["total"], 2)
         self.assertIn("attention", payload["summary"])
 
+    def test_chat_list_exposes_the_revision_a_panel_must_send_back(self):
+        # The Automation screen edits from list rows, so the token has to be
+        # there too — 0 for a group whose document predates revisions.
+        self.assertEqual(next(row for row in self.client.get("/internal/chats", headers=self.headers()).get_json()["chats"] if row["id"] == CID)["revision"], 0)
+        self.db["mgmt_chat_settings"].update_one({"chat_id": CID}, {"$set": {"revision": 4}}, upsert=True)
+        row = next(row for row in self.client.get("/internal/chats", headers=self.headers()).get_json()["chats"] if row["id"] == CID)
+        self.assertEqual(row["revision"], 4)
+
     def test_audit_endpoint_requires_secret_and_filters(self):
         self.assertEqual(self.client.get(f"/internal/chat/{CID}/audit").status_code, 403)
         # One save can write several rows in the same millisecond; the cursor

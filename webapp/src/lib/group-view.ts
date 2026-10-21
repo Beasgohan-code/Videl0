@@ -13,6 +13,8 @@ export type GroupSnapshot = {
   is_private?: boolean; recording: boolean; retention_days: number; capture_dropped: number;
   rich_text?: boolean;
   visibility_note: string; settings: Record<string, boolean>;
+  /** Present when the backend tracks concurrent edits (newer builds). */
+  revision?: number;
 };
 export const protections = [
   ["lock_links", "Block links"], ["lock_media", "Block media"],

@@ -624,6 +624,12 @@ def _internal_chats():
             }
             row = dict(row)
             row["settings"] = settings_for(chat_id)
+            try:
+                # The token a panel sends back so it cannot overwrite a newer
+                # edit (see videl/utils/settings_store.py).
+                row["revision"] = max(0, int((documents.get(chat_id) or {}).get("revision") or 0))
+            except (TypeError, ValueError):
+                row["revision"] = 0
             row["counts"] = {
                 "warns": warns_by_chat.get(chat_id, 0),
                 "notes": notes_by_chat.get(chat_id, 0),
@@ -672,7 +678,13 @@ def _internal_chat_detail(chat_id):
         payload["chat_id"] = chat_id
         return jsonify(view.act(payload))
     except ViewError as error:
-        return jsonify({"ok": False, "error": str(error)}), error.status
+        answer = {"ok": False, "error": str(error)}
+        # A stale edit is not a generic failure: tell the panel which revision
+        # to reload from so it can show the current values and let the owner retry.
+        if getattr(error, "conflict", False):
+            answer["conflict"] = True
+            answer["revision"] = getattr(error, "revision", None)
+        return jsonify(answer), error.status
     except Exception:
         LOGGER.exception("internal group detail failed")
         return jsonify({"ok": False, "error": "group detail request failed"}), 503
@@ -909,8 +921,16 @@ def _internal_chat_settings():
             return jsonify({"ok": False, "error": "Chat is not in Videl's served group list"}), 404
         from videl.utils.group_view import GroupView,ViewError
         try:
-            return jsonify(GroupView(db,_bot_api).act({'chat_id':chat_id,'action':'protect','settings':settings}))
-        except ViewError as error:return jsonify({'ok':False,'error':str(error)}),error.status
+            payload={'chat_id':chat_id,'action':'protect','settings':settings}
+            # Optional: a panel that read a revision gets the conflict check.
+            if 'revision' in body:payload['revision']=body.get('revision')
+            return jsonify(GroupView(db,_bot_api).act(payload))
+        except ViewError as error:
+            answer={'ok':False,'error':str(error)}
+            if getattr(error,'conflict',False):
+                answer['conflict']=True
+                answer['revision']=getattr(error,'revision',None)
+            return jsonify(answer),error.status
     except (TypeError, ValueError):
         return jsonify({"ok": False, "error": "chat_id must be an integer"}), 400
     except Exception:

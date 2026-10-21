@@ -108,10 +108,13 @@ def get_settings(chat_id: int) -> dict:
 
 def set_settings(chat_id: int, values: dict) -> bool:
     try:
-        target = collection(SETTINGS_COLLECTION)
-        if target is None:
+        if collection(SETTINGS_COLLECTION) is None:
             return False
-        target.update_one({"chat_id": chat_id}, {"$set": values}, upsert=True)
+        # Write through the shared store so a change made from Telegram also
+        # advances the revision an open web panel is holding.
+        from videl.utils import settings_store
+
+        settings_store.write(chat_id, values)
         return True
     except Exception:
         return False

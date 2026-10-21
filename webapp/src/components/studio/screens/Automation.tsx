@@ -17,12 +17,14 @@ import {
   DEFAULT_PROTECTION,
   ESCALATION_CHOICES,
   WINDOW_LOCKS,
+  conflictMessage,
   displayTitle,
   errorHint,
   escalationSummary,
   hhmmToMinutes,
   memberLabel,
   protectionNow,
+  nextRevision,
   quietNow,
   quietSummary,
   windowSummary,
@@ -195,9 +197,17 @@ export default function AutomationScreen() {
       const response = await fetch(`/api/groups/${active.id}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify(
+          typeof active.revision === "number" ? { ...body, revision: active.revision } : body,
+        ),
       });
       const data = await response.json().catch(() => ({}));
+      if (response.status === 409) {
+        // Another tab (or a Telegram command) saved first. Reload the rows so
+        // the draft on screen is the stored one before it is saved again.
+        await load();
+        throw new Error(String(data.error || conflictMessage(data.revision)));
+      }
       if (!response.ok || !data.ok) {
         throw new Error(
           response.status === 501
@@ -206,7 +216,13 @@ export default function AutomationScreen() {
         );
       }
       const automation = (data.automation ?? draft) as Automation;
-      setGroups((all) => all.map((group) => (group.id === active.id ? { ...group, automation } : group)));
+      setGroups((all) =>
+        all.map((group) =>
+          group.id === active.id
+            ? { ...group, automation, revision: nextRevision(data, group.revision ?? null) ?? undefined }
+            : group,
+        ),
+      );
       setDraft(automationOf({ ...active, automation }));
       setNotice(
         block === "quiet" ? "Quiet hours saved." : block === "escalation" ? "Warning ladder saved." : "Protection window saved.",

@@ -43,6 +43,14 @@ to code that actually runs:
   undone. Warnings, notes and member identities are never written to the file.
   The export endpoint is `/internal/chat/<id>/backup`; imports post
   `backup_import` / `backup_restore` to the usual group endpoint.
+- **No silent overwrites** — each group's settings carry an edit `revision`.
+  A panel write sends the revision it read and is refused with **409** (and the
+  current revision) if another tab, the Automation screen or a Telegram command
+  saved first. The panel then reloads the stored values instead of flipping the
+  switch back with no explanation; a backup import or restore is checked the
+  same way. A protection-window tick writes runtime state only, so it never
+  turns an open panel's next save into a false conflict. Bot-side writes still
+  work without a token but advance the counter, so an open panel notices them.
 - **Command switches** — any of the 155 registered commands can be turned off
   for one group. A handler at group −1 refuses it before every other handler,
   so this also covers commands that never pass through the declarative router.
