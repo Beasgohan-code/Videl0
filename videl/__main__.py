@@ -83,6 +83,13 @@ def _bot_api(method, payload, files=None):
 from videl.api.group_view_routes import register_group_view_routes
 register_group_view_routes(_flask,_internal_authorized,_bot_api)
 
+# Public arcade and the group-manager view. Both trust only a signed actor
+# assertion minted by the panel, never a user id supplied by a browser.
+from videl.api.manager_routes import register_manager_routes
+from videl.games.routes import register_arcade_routes
+register_arcade_routes(_flask,_internal_authorized,_bot_api,lambda: getattr(config,'WEBAPP_SECRET','') or '')
+register_manager_routes(_flask,_internal_authorized,_bot_api,lambda: getattr(config,'WEBAPP_SECRET','') or '')
+
 # ── Render backend health and service metadata ───────────────────────────
 @_flask.route("/")
 @_flask.route("/_videl_status")
@@ -214,6 +221,37 @@ def _internal_auth():
         return jsonify({"ok": True, "user": {key: user.get(key) for key in ("id", "first_name", "username") if user.get(key) is not None}})
     except (ValueError, TypeError, json.JSONDecodeError):
         return jsonify({"ok": False, "error": "Invalid Telegram authentication data"}), 401
+
+@_flask.route("/internal/identity", methods=["POST"])
+def _internal_identity():
+    """Who Telegram says this is. Not a grant of owner power."""
+    if not _internal_authorized():
+        return jsonify({"ok": False, "error": "unauthorized"}), 403
+    from videl.utils.telegram_auth import AuthError, public_user, verify_init_data, verify_login_widget
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify({"ok": False, "error": "A JSON object is required"}), 400
+    token = getattr(config, "BOT_TOKEN", "") or ""
+    if not token:
+        return jsonify({"ok": False, "error": "Telegram authentication is not configured"}), 503
+    try:
+        if isinstance(body.get("init_data"), str) and body.get("init_data"):
+            user = verify_init_data(body["init_data"], token)
+        elif isinstance(body.get("login_widget"), dict):
+            user = verify_login_widget(body["login_widget"], token)
+        else:
+            return jsonify({"ok": False, "error": "Telegram authentication data is required"}), 400
+    except AuthError as error:
+        return jsonify({"ok": False, "error": str(error)}), 401
+    player = public_user(user)
+    try:
+        from videl.utils import players
+        if players.upsert(player) is None:
+            LOGGER.debug("player record not stored; database unavailable")
+    except Exception:
+        LOGGER.debug("player record not stored", exc_info=True)
+    return jsonify({"ok": True, "player": player})
+
 
 @_flask.route("/internal/send-message", methods=["POST"])
 def _internal_send_message():

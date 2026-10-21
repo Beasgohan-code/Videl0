@@ -1,8 +1,10 @@
 # Plan: public games with live chat, Telegram sign-up, and a group manager
 
-Status: **proposal, nothing built yet.** This document is the design and the
-delivery order; every path below is a real file in this repository unless it is
-marked *new*.
+Status: **partly shipped.** The identity layer, the four games (Connect Four,
+Reversi, Tic-tac-toe, Ludo), server-authoritative rooms with chat and timeouts,
+the arcade screen, and the group-manager backend are in the repository and
+tested. The group-manager screen, presence-based SSE and voice remain. Where
+this document and the code differ, the code and its tests are the truth.
 
 ## Verdict first
 
@@ -145,18 +147,26 @@ Two players may not hold the same seat; leaving mid-game is a forfeit after a
 | Game | Players | Turn timer | Why this one |
 | --- | --- | --- | --- |
 | **Connect Four** | 2 | 60 s live / 24 h async | Rules fit in 200 lines, provably testable, instantly understood |
-| **Reversi** | 2 | 60 s / 24 h | Zero content, deep play, works asynchronously |
-| **Quiz Rush** | 2–8 | 10 s per question | Party mode for group rooms; bundled questions, no external API |
+| **Reversi** | 2 | 90 s / 24 h | Zero content, deep play, works asynchronously |
+| **Tic-tac-toe** | 2 | 45 s / 24 h | The fastest complete game; a whole room can be played in a minute |
+| **Ludo** | 2–4 | 45 s / 24 h | The game people ask for by name: a shared board, more than two seats, and chance that keeps every seat in it |
 
 Deliberately **not** in v1: anything needing a dictionary (word games), real
 physics, or licensed content. A bundled word list is a licensing and quality
 problem, not a UI problem.
 
-Quiz has one non-obvious rule: **the answer never reaches the client before the
-reveal.** `state` for a live question contains the prompt and the four options;
-the correct index is written only into the `reveal` event after every player
-answers or the timer expires. A player who reads the network tab learns nothing
-early.
+Ludo ships with two simplifications, stated to the player in the room rather
+than discovered mid-game: tokens may stack on one square (no blocking), and the
+first player home wins the room instead of play continuing for second place.
+The board is the classic 52-square ring with eight safe squares (the four start
+squares and four stars), a six to leave the base, an extra turn on a six, and
+three consecutive sixes forfeiting the turn. Every rule lives in
+`videl/games/ludo.py`; the panel only draws it.
+
+A future **Quiz Rush** keeps one non-obvious rule: **the answer never reaches
+the client before the reveal.** `state` for a live question would contain the
+prompt and the four options; the correct index is written only into the
+`reveal` event after every player answers or the timer expires.
 
 ### 2.3 Timeouts without a timer thread
 
@@ -481,14 +491,16 @@ videl/utils/telegram_auth.py      verification extracted from _internal_auth
 videl/utils/players.py            player upsert, stats, Elo, leaderboards
 videl/utils/chat_admins.py        cache + sweep
 videl/utils/manager.py            scope allowlist, actor plumbing, focused describe
-videl/games/base.py               Room, move validation, settle(), view projection
+videl/games/registry.py           Game base class, validation, view projection
 videl/games/connect4.py
 videl/games/reversi.py
-videl/games/quiz.py
-videl/games/store.py              Mongo CAS, codes, TTL, events
-videl/games/routes.py             /internal/arcade/*, /stream/room/*
-videl/games/quiz_pack.json        120 bundled questions
-videl/api/identity_routes.py      /internal/identity
+videl/games/tictactoe.py
+videl/games/ludo.py               2–4 seats, ring, bases, home columns
+videl/games/store.py              Mongo CAS, codes, TTL, events, chat, sweep
+videl/games/routes.py             /internal/arcade/*  (polling; SSE stays future)
+videl/api/actor.py                signed actor assertion
+videl/api/manager_routes.py       /internal/manager/*
+videl/__main__.py                 /internal/identity + route registration
 videl/__main__.py                 (edit) register blueprints, sweep in watchdog
 videl/core/watcher.py             (edit) _sync_admins tick
 videl/utils/group_view.py         (edit) actor + scope — §3.4
@@ -498,15 +510,16 @@ videl/utils/group_view.py         (edit) actor + scope — §3.4
 
 ```
 webapp/src/app/api/session/route.ts               sign in / who am I
-webapp/src/app/api/manager/…                      proxy (ownerRequired → playerRequired)
-webapp/src/app/api/arcade/…                       lobby, create, join, ticket
+webapp/src/app/api/manager/…                      player-scoped proxy
+webapp/src/app/api/arcade/…                       lobby, create, join, room
+webapp/src/lib/player-auth.ts                     player cookie + actor assertion
 webapp/src/lib/player.ts                          session client, retry, sign-out
-webapp/src/lib/arcade.ts                          typed room API + reducer
+webapp/src/lib/arcade.ts                          typed room API + Ludo geometry
+webapp/src/lib/game-api.ts                        backend answer passthrough (409 kept)
 webapp/src/components/studio/screens/Arcade.tsx   lobby + room host
 webapp/src/components/studio/RoomView.tsx         board, chat, presence
-webapp/src/components/studio/screens/Manager.tsx  Your groups + group card
-webapp/src/lib/access.ts                          add "arcade", "manager"
-webapp/src/app/page.tsx                           register both screens
+webapp/src/lib/access.ts                          "arcade" is public
+webapp/src/app/page.tsx                           register the screen
 ```
 
 ---

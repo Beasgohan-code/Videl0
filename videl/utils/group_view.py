@@ -486,9 +486,16 @@ async def _worker():
 
 
 class GroupView:
-    def __init__(self,db,api):
+    #: Actions that stay with the bot owner even though a group admin could
+    #: otherwise reach them. Importing a backup overwrites protection state;
+    #: recording starts capturing member messages; purging destroys evidence.
+    OWNER_ONLY={'backup_import','backup_restore','recording','purge_history'}
+
+    def __init__(self,db,api,actor=OWNER_ID,scope='owner'):
         if db is None:raise ViewError('MongoDB is not connected.',503)
         self.db=db;self.api=api
+        self.actor=int(actor)
+        self.scope='admin' if scope=='admin' else 'owner'
 
     def call(self,method,payload):
         status,body=self.api(method,payload)
@@ -505,9 +512,10 @@ class GroupView:
             return cid,{'status':'bot_dm'}
         if cid==0 or self.db['served_chats'].find_one({'_id':cid}) is None:
             raise ViewError('Choose a group already served by this bot.',404)
-        actor=self.call('getChatMember',{'chat_id':cid,'user_id':OWNER_ID})
+        actor=self.call('getChatMember',{'chat_id':cid,'user_id':self.actor})
         if actor.get('status') not in {'creator','administrator'}:
-            raise ViewError('The owner account must currently be a group administrator to view or manage it.',403)
+            who='You must' if self.scope=='admin' else 'The owner account must'
+            raise ViewError(f'{who} currently be a group administrator to view or manage it.',403)
         return cid,actor
 
     def rights(self,cid,actor,required):
@@ -695,7 +703,7 @@ class GroupView:
         except Exception:warns=[]
         try:automation=get_automation(cid)
         except Exception:automation=normalize({})
-        return {'ok':True,'chat':info,'settings':self.snapshot(cid),'presets':PRESETS,
+        return {'ok':True,'scope':self.scope,'chat':info,'settings':self.snapshot(cid),'presets':PRESETS,
                 'revision':self.revision(cid),'automation':automation,
                 'inbox':self.inbox(cid),
                 'community':{
@@ -721,7 +729,7 @@ class GroupView:
         try:detail=audit_detail(action,body)
         except Exception:detail=''
         try:audit_log.record(self.db,cid,self.AUDIT_KINDS.get(action,'settings'),action=action,
-            detail=detail,actor=OWNER_ID,source=source)
+            detail=detail,actor=self.actor,source=source)
         except Exception:log.debug('audit record failed',exc_info=True)
 
     def events(self,chat_id,*,limit=40,kind=None,before=None,before_id=None,query=None,actor=None):
@@ -1289,6 +1297,8 @@ class GroupView:
     def act(self,body,source='web'):
         cid,actor=self.access(body.get('chat_id'))
         action=body.get('action')
+        if self.scope!='owner' and action in self.OWNER_ONLY:
+            raise ViewError('Only the bot owner can do that.',403)
         if action in {'recording','purge_history','protect'}:return self.settings(cid,actor,body)
         if action in {'settings','preset','warn_limit','welcome','goodbye','rules','blacklist_add','blacklist_remove','blacklist_mode','note_delete','filter_delete','approved_remove','warn_reset','automation','command_disable','command_enable','join_request','report_update'}:
             return self.admin(cid,actor,body,source)

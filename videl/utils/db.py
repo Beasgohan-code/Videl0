@@ -84,6 +84,14 @@ INDEX_SPECS = {
     "backups": [([("chat", 1), ("time", -1)], {})],
     "scheduled_posts": [([("owner_id", 1), ("status", 1), ("due_at", 1)], {})],
     "studio_library": [([("owner_id", 1), ("key", 1)], {"unique": True})],
+    # Arcade: one document per room, one per event. The manager reads admins by
+    # user, and players by rating.
+    "game_rooms": [([("visibility", 1), ("status", 1), ("updated_at", -1)], {}),
+                   ([("seats.user", 1), ("status", 1)], {})],
+    "game_events": [([("room", 1), ("seq", 1)], {"unique": True}),
+                    ([("expires_at", 1)], {"expireAfterSeconds": 0})],
+    "players": [([("stats.connect4.rating", -1)], {})],
+    "chat_admins": [([("user", 1)], {}), ([("chat", 1)], {})],
 }
 
 

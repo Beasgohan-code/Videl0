@@ -109,6 +109,20 @@ async def _dispatch_scheduled():
     await asyncio.to_thread(dispatch_one)
 
 
+async def _sweep_arcade():
+    """Abandon rooms nobody came back to. Deadlines themselves settle lazily."""
+    from videl.games import store
+    await asyncio.to_thread(store.sweep)
+
+
+async def _sync_chat_admins():
+    """Refresh a small slice of the admin cache so group lists open fast."""
+    from videl.utils.bot_api import call_bot_api
+    from videl.utils.chat_admins import sweep
+    from videl.utils.db import get_db
+    await asyncio.to_thread(sweep, get_db(), call_bot_api, limit=5)
+
+
 async def _check_bot():
     if not getattr(bot, "is_connected", False):
         raise RuntimeError("Telegram transport disconnected")
@@ -153,7 +167,8 @@ async def watchdog():
         await asyncio.gather(*(_run_check(name, job) for name, job in (
             ("database", _check_database), ("telegram", _check_bot),
             ("captcha", _check_captcha), ("idle_calls", _auto_leave_idle_vcs),
-            ("scheduled_posts", _dispatch_scheduled), ("protection_windows", _apply_protection_windows))))
+            ("scheduled_posts", _dispatch_scheduled), ("arcade", _sweep_arcade),
+            ("chat_admins", _sync_chat_admins), ("protection_windows", _apply_protection_windows))))
         if time.monotonic()-last_cleanup >= CLEANUP_INTERVAL or not last_cleanup:
             await _run_check("downloads", _cleanup_downloads)
             if await _run_check("retention", _cleanup_database):
