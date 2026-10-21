@@ -22,6 +22,10 @@ BACKEND_PORT = int(os.getenv("PORT", str(config.PORT)))
 _flask = Flask(__name__)
 _BOT_LOOP = None
 _BOT_STATUS = "starting"
+# Why the bot is not running, when it failed to start. Shown on /health so the
+# owner can diagnose from the panel instead of hunting Render logs. Redacted.
+_BOT_ERROR = ""
+_BOT_ONLINE_AT = None
 
 # Rolling latency of the server-to-server API calls the panel makes. A single
 # /health round-trip is one sample; Settings asks for the distribution instead.
@@ -88,6 +92,18 @@ def _status_json():
         "revision": __import__("videl").build_revision,
     }), 200
 
+def _health_text(value) -> str:
+    """Error text that is safe to publish: no token, no long credentials."""
+    text = str(value or "").strip()
+    token = str(getattr(config, "BOT_TOKEN", "") or "")
+    if token and token in text:
+        text = text.replace(token, "<redacted>")
+    # Bot and database errors occasionally echo a secret-looking run of
+    # characters. Nothing a human needs to read is 32+ characters long.
+    text = re.sub(r"[A-Za-z0-9_-]{32,}", "<redacted>", text)
+    return text[:240]
+
+
 @_flask.route("/health")
 def _health():
     from videl import bot_start_time
@@ -99,7 +115,23 @@ def _health():
     except Exception:
         database = "unknown"
     from videl import build_revision
-    return jsonify({"status": "ok", "service": "videl-render-backend", "revision": build_revision, "bot_status": _BOT_STATUS, "database": database, "uptime": max(0, int(time.time() - bot_start_time)), "api": _api_latency(), "watchdog": {key: maintenance[key] for key in ("running", "healthy", "last_tick")}}), 200
+    # "status" stays "ok" while the HTTP API answers: uptime monitors must not
+    # flap because Telegram is down. ``degraded`` names the parts that are not
+    # working, so the panel can say what is wrong instead of only that it is.
+    reasons = []
+    if _BOT_STATUS != "online":
+        reasons.append("Telegram bot is " + _BOT_STATUS)
+    if database == "disconnected":
+        reasons.append("MongoDB is disconnected")
+    if not maintenance.get("running"):
+        reasons.append("Maintenance watchdog is not running")
+    return jsonify({"status": "ok", "service": "videl-render-backend", "revision": build_revision,
+                    "bot_status": _BOT_STATUS, "bot_error": _BOT_ERROR or None,
+                    "bot_online_at": _BOT_ONLINE_AT, "degraded": bool(reasons),
+                    "degraded_reasons": reasons, "database": database,
+                    "uptime": max(0, int(time.time() - bot_start_time)),
+                    "api": _api_latency(),
+                    "watchdog": {key: maintenance[key] for key in ("running", "healthy", "last_tick")}}), 200
 
 @_flask.route("/internal/auth", methods=["POST"])
 def _internal_auth():
@@ -974,7 +1006,7 @@ if __name__ == "__main__":
         from videl.utils.logger import log_startup, log_shutdown, log_error, setup_async_error_handler
 
         loop = asyncio.get_running_loop()
-        global _BOT_LOOP, _BOT_STATUS
+        global _BOT_LOOP, _BOT_STATUS, _BOT_ERROR, _BOT_ONLINE_AT
         _BOT_LOOP = loop
         setup_async_error_handler(bot, loop)
 
@@ -1001,6 +1033,7 @@ if __name__ == "__main__":
             await bot.start()
         except Exception as e:
             _BOT_STATUS = "failed"
+            _BOT_ERROR = _health_text(e) or type(e).__name__
             LOGGER.error(f"bot.start fail: {e}")
             try:
                 await log_error(bot, "bot.start", e, "startup")
@@ -1013,6 +1046,8 @@ if __name__ == "__main__":
 
         me = await bot.get_me()
         _BOT_STATUS = "online"
+        _BOT_ERROR = ""
+        _BOT_ONLINE_AT = int(time.time())
         LOGGER.info(f"Bot @{me.username} started")
 
         # assistant (userbot) optional

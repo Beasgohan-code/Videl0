@@ -37,6 +37,12 @@ export async function GET(req: Request) {
       bot_status: body.bot_status || "unknown",
       database: body.database || "unknown",
       uptime: body.uptime ?? null,
+      // "The API answers" and "the bot works" are different facts. Pass both
+      // through, with the backend's own diagnosis, so the panel can say why.
+      degraded: body.degraded === true,
+      degraded_reasons: Array.isArray(body.degraded_reasons) ? body.degraded_reasons : [],
+      bot_error: typeof body.bot_error === "string" ? body.bot_error : null,
+      bot_online_at: typeof body.bot_online_at === "number" ? body.bot_online_at : null,
       watchdog: body.watchdog ?? null,
       latency_ms: result.ms,
       attempts: result.attempts,

@@ -30,6 +30,7 @@ import {
   driftLabel,
   webRevision,
 } from "../src/lib/release";
+import { backendTone, healthCaption, healthProblems } from "../src/lib/health";
 import { GET as auditGET } from "../src/app/api/groups/[id]/audit/route";
 import { GET as federationGET } from "../src/app/api/federation/route";
 import { POST as federationPOST } from "../src/app/api/federation/[id]/route";
@@ -315,4 +316,27 @@ test("the ladder preview shows every rung a member will pass through", () => {
   assert.equal(actionCopy("mute", 4), "mute 4h");
   assert.equal(actionCopy("kick"), "remove");
   assert.equal(actionCopy("none"), "nothing");
+});
+
+test("a reachable API with a broken bot is reported as degraded, not online", () => {
+  // The panel used to say "Online" whenever /health answered, even when the
+  // bot had failed to start. Separate the two facts.
+  assert.deepEqual(healthProblems({ ok: true, bot_status: "failed", degraded_reasons: ["Telegram bot is failed"] }),
+    ["Telegram bot is failed"]);
+  assert.deepEqual(healthProblems({ ok: true, bot_status: "online", degraded: false, degraded_reasons: [] }), []);
+  // An older backend without `degraded_reasons` is still read honestly.
+  assert.deepEqual(healthProblems({ ok: true, bot_status: "failed" }), ["Telegram bot is failed"]);
+  assert.deepEqual(healthProblems({ ok: true, bot_status: "online", database: "disconnected" }),
+    ["MongoDB is disconnected"]);
+  assert.equal(healthProblems({ ok: false }).length, 0, "an unreachable backend has no part-diagnosis");
+  assert.equal(backendTone({ ok: true, bot_status: "failed" }), "warn");
+  assert.equal(backendTone({ ok: true, bot_status: "online", database: "connected" }), "good");
+  assert.equal(backendTone(null), "bad");
+});
+
+test("the backend caption never claims a bot is up before it is", () => {
+  const caption = healthCaption({ ok: true, bot_status: "failed", database: "connected", uptime: 3670 });
+  assert.match(caption, /bot failed/);
+  assert.match(caption, /uptime 1h 1m/);
+  assert.match(healthCaption(null), /unavailable/i);
 });

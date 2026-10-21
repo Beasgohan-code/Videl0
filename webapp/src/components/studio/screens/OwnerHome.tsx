@@ -80,6 +80,9 @@ export default function Home() {
     status?: string;
     bot_status?: string;
     uptime?: number;
+    degraded?: boolean;
+    degraded_reasons?: string[];
+    bot_error?: string | null;
   } | null>(null);
   const [error, setError] = useState("");
   const [loaded, setLoaded] = useState(false);
@@ -162,6 +165,13 @@ export default function Home() {
   const count = (n?: number) =>
     typeof n === "number" ? n.toLocaleString() : "—";
   const online = health?.status === "ok" && health.bot_status === "online";
+  // "Reachable" is not "working": name the part that is down, during the outage
+  // itself rather than only in Settings.
+  const degraded = health?.status === "ok" && !online;
+  const degradedReason = [
+    ...(health?.degraded_reasons ?? []),
+    ...(health?.bot_error ? [`Last start error: ${health.bot_error}`] : []),
+  ].join(" · ");
   const uptimeSeconds = stats?.uptime ?? health?.uptime;
   const uptime =
     typeof uptimeSeconds === "number"
@@ -186,16 +196,19 @@ export default function Home() {
           </p>
         </div>
         <span
-          className={`flex items-center gap-2 rounded-full border px-3 py-2 text-xs ${online ? "border-emerald-400/20 bg-emerald-400/5 text-emerald-300" : "border-indigo-300/15 bg-indigo-300/5 text-indigo-200/60"}`}
+          title={degradedReason || undefined}
+          className={`flex items-center gap-2 rounded-full border px-3 py-2 text-xs ${online ? "border-emerald-400/20 bg-emerald-400/5 text-emerald-300" : degraded ? "border-amber-300/20 bg-amber-300/5 text-amber-200" : "border-indigo-300/15 bg-indigo-300/5 text-indigo-200/60"}`}
         >
           <span
-            className={`h-1.5 w-1.5 rounded-full ${online ? "bg-emerald-400 shadow-[0_0_8px_#34d399]" : "bg-indigo-300/50"}`}
+            className={`h-1.5 w-1.5 rounded-full ${online ? "bg-emerald-400 shadow-[0_0_8px_#34d399]" : degraded ? "bg-amber-300" : "bg-indigo-300/50"}`}
           />
           {online
             ? "Bot online"
-            : loaded
-              ? "Connection not confirmed"
-              : "Connecting…"}
+            : degraded
+              ? "Bot offline · panel up"
+              : loaded
+                ? "Connection not confirmed"
+                : "Connecting…"}
         </span>
       </header>
       <section className="studio-hero relative overflow-hidden rounded-3xl border border-indigo-400/25 p-6 sm:p-8">

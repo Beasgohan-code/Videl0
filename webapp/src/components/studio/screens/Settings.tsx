@@ -5,6 +5,7 @@ import { BotControls } from "@/components/BotControls";
 import { BackendStatusChip } from "@/components/studio/BackendStatus";
 import { AlertTriangle, ArrowUpRight, Database, GitCompare, Globe2, RefreshCw, ShieldCheck, Settings2 } from "lucide-react";
 import { driftLabel, type ReleaseCheck } from "@/lib/release";
+import { healthCaption, healthProblems } from "@/lib/health";
 
 function ReleasePanel(){
  const [check,setCheck]=useState<ReleaseCheck|null>(null);const [loading,setLoading]=useState(true);const [note,setNote]=useState("");
@@ -21,7 +22,7 @@ function ReleasePanel(){
 }
 
 type Stats = { ok?: boolean; database?: string; services?: Record<string, boolean>; stats?: { database?: string; services?: Record<string, boolean> }; error?: string };
-type Health = { ok?: boolean; status?: string; bot_status?: string; database?: string; service?: string; uptime?: number; error?: string; hint?: string; code?: string };
+type Health = { ok?: boolean; status?: string; bot_status?: string; database?: string; service?: string; uptime?: number; error?: string; hint?: string; code?: string; degraded?: boolean; degraded_reasons?: string[]; bot_error?: string | null; bot_online_at?: number | null };
 const serviceLabels: Record<string,string> = { bot_token:"Telegram bot", user_session:"User session", mongo:"MongoDB", music_api:"Eldian music API", logger_channel:"Log channel" };
 export default function SettingsPage(){
  const [stats,setStats]=useState<Stats|null>(null);const [health,setHealth]=useState<Health|null>(null);const [error,setError]=useState("");const [loading,setLoading]=useState(true);
@@ -37,7 +38,17 @@ export default function SettingsPage(){
    <div className="ios-card p-5"><div className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-xl bg-blue-400/10 text-blue-200"><Database size={19}/></span><div><h2 className="font-semibold">Database</h2><p className="ios-caption">Live backend connection</p></div></div><div className="mt-5 flex items-center justify-between rounded-xl bg-white/[0.035] p-4"><span className="text-sm">MongoDB</span><span className={`ios-pill ${stats?.database==="connected"?"ios-pill-green":""}`}>{stats?.database||"Unavailable"}</span></div><p className="mt-3 ios-caption">Videl reads and writes application data to MongoDB. This panel does not expose database URLs or credentials.</p></div>
    <div className="ios-card p-5"><div className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-xl bg-purple-400/10 text-purple-200"><ShieldCheck size={19}/></span><div><h2 className="font-semibold">Connected services</h2><p className="ios-caption">Configuration presence only</p></div></div><div className="mt-4 divide-y divide-white/[0.07]">{Object.entries(serviceLabels).map(([key,label])=>{const configured=Boolean(stats?.services?.[key]);return <div key={key} className="flex items-center justify-between gap-3 py-3"><span className="text-sm">{label}</span><span className={`text-xs ${configured?"text-[#30D158]":"text-[var(--ios-label-tertiary)]"}`}>{stats?configured?"Configured":"Not configured":"—"}</span></div>})}</div></div>
   </section>
-  <section className="mt-4 ios-card p-5"><div className="flex items-center gap-3"><Globe2 size={19}/><div><h2 className="font-semibold">Deployment status</h2><p className="ios-caption">Frontend on Vercel · bot/API backend on Render</p></div></div><div className="mt-4 grid gap-3 sm:grid-cols-2"><div className="rounded-xl bg-white/[0.035] p-4"><div className="text-sm font-medium">Web control panel</div><div className="mt-2 text-xs text-[var(--ios-label-secondary)]">Vercel deployment status is managed in your Vercel project settings.</div></div><div className="rounded-xl bg-white/[0.035] p-4"><div className="flex items-center justify-between gap-2"><span className="text-sm font-medium">Videl bot backend</span><BackendStatusChip health={health}/></div><div className="mt-2 text-xs text-[var(--ios-label-secondary)]">{health?.ok?`API reachable · bot ${health.bot_status||"status unknown"}${health.database?" · DB "+health.database:""}${typeof health.uptime==="number"?` · uptime ${Math.floor(health.uptime/3600)}h ${Math.floor(health.uptime%3600/60)}m`:""}`:"Health check unavailable"}</div></div></div><p className="mt-4 flex items-start gap-2 ios-caption"><Settings2 size={14} className="mt-0.5 shrink-0"/>Set secrets in Render or Vercel environment settings as appropriate. Never paste bot tokens into the UI.</p></section>
+  <section className="mt-4 ios-card p-5"><div className="flex items-center gap-3"><Globe2 size={19}/><div><h2 className="font-semibold">Deployment status</h2><p className="ios-caption">Frontend on Vercel · bot/API backend on Render</p></div></div><div className="mt-4 grid gap-3 sm:grid-cols-2"><div className="rounded-xl bg-white/[0.035] p-4"><div className="text-sm font-medium">Web control panel</div><div className="mt-2 text-xs text-[var(--ios-label-secondary)]">Vercel deployment status is managed in your Vercel project settings.</div></div><div className="rounded-xl bg-white/[0.035] p-4"><div className="flex items-center justify-between gap-2"><span className="text-sm font-medium">Videl bot backend</span><BackendStatusChip health={health}/></div><div className="mt-2 text-xs text-[var(--ios-label-secondary)]">{healthCaption(health)}</div></div></div>{health?.ok && healthProblems(health).length > 0 && (
+   <div role="status" className="mt-4 rounded-xl border border-amber-300/20 bg-amber-300/5 p-3 text-xs text-amber-100">
+     <div className="flex items-center gap-2 font-medium"><AlertTriangle size={14} className="shrink-0"/> The panel works, but the bot is not fully running</div>
+     <ul className="mt-2 list-disc space-y-1 pl-5">
+       {healthProblems(health).map((reason) => <li key={reason}>{reason}</li>)}
+     </ul>
+     {health.bot_error && <p className="mt-2 break-words font-mono text-[11px] opacity-80">Last start error: {health.bot_error}</p>}
+     <p className="mt-2 opacity-80">Open the Render service logs for the full trace. The token is never shown here.</p>
+   </div>
+ )}
+ <p className="mt-4 flex items-start gap-2 ios-caption"><Settings2 size={14} className="mt-0.5 shrink-0"/>Set secrets in Render or Vercel environment settings as appropriate. Never paste bot tokens into the UI.</p></section>
   <ReleasePanel />
   <div className="mt-5 flex flex-wrap gap-2"><Link href="/" className="ios-btn ios-btn-glass text-sm">Control room <ArrowUpRight size={15}/></Link><Link href="/?tab=analytics" className="ios-btn ios-btn-glass text-sm">Analytics <ArrowUpRight size={15}/></Link></div>
  </main>;

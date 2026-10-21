@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CloudOff, LoaderCircle, RefreshCw, Server, X } from "lucide-react";
+import { healthProblems } from "@/lib/health";
 
 type Probe = {
   state: "ready" | "waking" | "down" | "skip";
@@ -15,6 +16,9 @@ type Health = {
   bot_status?: string;
   database?: string;
   status?: string;
+  degraded?: boolean;
+  degraded_reasons?: string[];
+  bot_error?: string | null;
 };
 
 async function probeBackend(wake: boolean): Promise<Probe> {
@@ -140,14 +144,25 @@ export function BackendStatus() {
 /** Small inline chip used inside Settings. */
 export function BackendStatusChip({ health }: { health: Health | null }) {
   if (!health) return <span className="ios-pill">Unknown</span>;
-  if (health.ok && health.database === "disconnected")
-    return <span className="ios-pill ios-pill-amber">Database reconnecting</span>;
-  if (health.ok)
+  if (health.ok) {
+    const problems = healthProblems(health);
+    // The API answering is not the bot working: say which is true.
+    if (health.bot_status && health.bot_status !== "online")
+      return (
+        <span className="ios-pill ios-pill-amber" title={problems.join(" · ")}>
+          Bot {health.bot_status === "starting" ? "starting" : "offline"} · API up
+        </span>
+      );
+    if (health.database === "disconnected")
+      return <span className="ios-pill ios-pill-amber">Database reconnecting</span>;
+    if (problems.length)
+      return <span className="ios-pill ios-pill-amber" title={problems.join(" · ")}>Running with issues</span>;
     return (
       <span className="ios-pill ios-pill-green">
         <Server size={11} /> Online
       </span>
     );
+  }
   return (
     <span className="ios-pill ios-pill-amber">
       {health.code === "BACKEND_WAKING" ? "Starting…" : "Offline"}

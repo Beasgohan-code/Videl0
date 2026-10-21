@@ -67,6 +67,12 @@ to code that actually runs:
 - **Release check** — Settings compares the Vercel commit with the backend's
   `revision` and reports drift instead of guessing, plus the measured p95 of
   the backend's internal API calls (the last 400 requests it served).
+- **Honest health** — `/health` keeps `status: "ok"` while the HTTP API answers,
+  so an uptime monitor does not flap when Telegram is down, and adds `degraded`
+  with one reason per broken part (bot, MongoDB, watchdog) plus a redacted
+  `bot_error` from the last failed start. The panel shows that reason on the
+  control room and in Settings instead of only "connection not confirmed"; the
+  bot token and other long credentials are stripped before the text is served.
 - **Scheduled publishing** — status counts, failure reasons and a retry that is
   only allowed for posts Telegram explicitly rejected; accepted or unconfirmed
   posts are never resent. A rate limit (HTTP 429) is the one failure the queue
@@ -82,6 +88,11 @@ to code that actually runs:
   failure stops the series and waits for the owner; a series that fell more
   than a day behind skips the missed copies (and says how many) instead of
   sending them in a burst. Cancelling a repeating post stops it.
+
+Retention: activity counters, delivered reminders and finished (`sent` or
+`cancelled`) scheduled-post rows are pruned at the configured window. Failed and
+unconfirmed sends are kept, because they are the records someone will come back
+to read.
 
 Boundaries: quiet hours only see messages delivered to the bot while it runs,
 join requests are recorded from that point onward, and audit rows cover panel

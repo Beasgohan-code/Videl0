@@ -780,6 +780,52 @@ class InternalRouteTests(unittest.TestCase):
         self.assertGreaterEqual(payload["api"]["samples"], 1)
         self.assertGreaterEqual(payload["api"]["p95_ms"], 0.0)
 
+    def test_health_names_what_is_not_running(self):
+        # The HTTP API answering is not the same as the bot working. Keep the
+        # status "ok" for uptime monitors, but say which part is down.
+        backend = self.backend
+        previous = (backend._BOT_STATUS, backend._BOT_ERROR, backend._BOT_ONLINE_AT)
+        try:
+            backend._BOT_STATUS = "failed"
+            backend._BOT_ERROR = "AUTH_KEY_UNRESTRICTED"
+            backend._BOT_ONLINE_AT = None
+            payload = self.client.get("/health").get_json()
+            self.assertEqual(payload["status"], "ok")
+            self.assertIs(payload["degraded"], True)
+            self.assertIn("Telegram bot is failed", payload["degraded_reasons"])
+            self.assertEqual(payload["bot_error"], "AUTH_KEY_UNRESTRICTED")
+
+            backend._BOT_STATUS = "online"
+            backend._BOT_ERROR = ""
+            backend._BOT_ONLINE_AT = 1792500000
+            payload = self.client.get("/health").get_json()
+            # The test process runs no watchdog, so that reason stays; the bot
+            # reason and the stale start error must be gone.
+            self.assertNotIn("Telegram bot is failed", payload["degraded_reasons"])
+            self.assertIsNone(payload["bot_error"])
+            self.assertEqual(payload["bot_online_at"], 1792500000)
+            with patch("videl.core.watcher.watchdog_status",
+                       return_value={"running": True, "healthy": True, "last_tick": 1792500000}):
+                healthy = self.client.get("/health").get_json()
+            self.assertIs(healthy["degraded"], False)
+            self.assertEqual(healthy["degraded_reasons"], [])
+        finally:
+            backend._BOT_STATUS, backend._BOT_ERROR, backend._BOT_ONLINE_AT = previous
+
+    def test_a_start_error_is_published_without_the_bot_token(self):
+        import config
+        backend = self.backend
+        try:
+            text = f"Unauthorized: bot {config.BOT_TOKEN} was rejected; session abcdefghijklmnopqrstuvwxyz012345"
+            published = backend._health_text(text)
+            self.assertNotIn(config.BOT_TOKEN, published)
+            self.assertNotIn("abcdefghijklmnopqrstuvwxyz012345", published)
+            self.assertIn("Unauthorized", published)
+            self.assertLessEqual(len(backend._health_text("x" * 900)), 240)
+            self.assertEqual(backend._health_text(None), "")
+        finally:
+            pass
+
     def test_federation_unknown_id_is_404(self):
         self.assertEqual(self.client.get("/internal/federation/nope", headers=self.headers()).status_code, 404)
 

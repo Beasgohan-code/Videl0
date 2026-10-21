@@ -1040,6 +1040,12 @@ def cleanup_old_data(days: int = 30, *, apply: bool = False) -> dict:
         "user_activity": {"last_active": {"$type": "number", "$lt": cutoff}},
         "plugin_reminders": {"status": "sent", "sent_at": {
             "$type": "date", "$lt": datetime.fromtimestamp(cutoff, timezone.utc)}},
+        # Queue bookkeeping only. A delivered or cancelled post already exists
+        # in Telegram; the row is how the monitor lists it, not the post.
+        # Failures and unconfirmed sends are kept until the owner clears them,
+        # because they are the records someone will actually want to read.
+        "scheduled_posts": {"status": {"$in": ["sent", "cancelled"]}, "finished_at": {
+            "$type": "date", "$lt": datetime.fromtimestamp(cutoff, timezone.utc)}},
     }
     stats = {"ok": True, "applied": apply, "retention_days": days, "counts": {}, "errors": []}
     for name, query in filters.items():
