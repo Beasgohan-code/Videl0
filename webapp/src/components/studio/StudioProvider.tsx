@@ -15,6 +15,7 @@ export const sections = [
   "broadcast",
   "settings",
   "auth",
+  "arcade",
 ] as const;
 export type Section = (typeof sections)[number];
 const legacy: Record<string, Section> = {
@@ -33,6 +34,8 @@ const legacy: Record<string, Section> = {
   "/broadcast": "broadcast",
   "/settings": "settings",
   "/auth": "auth",
+  "/arcade": "arcade",
+  "/play": "arcade",
 };
 const StudioContext = createContext<{
   tab: Section;

@@ -17,6 +17,7 @@ import {
   BookOpen,
   Command as CommandIcon,
   SearchX,
+  Gamepad2,
 } from "lucide-react";
 import { EmptyState } from "./ui";
 import { useTelegram } from "@/components/TelegramProvider";
@@ -50,6 +51,12 @@ const tools: Tool[] = [
     title: "Creator tools",
     description: "Caption counter, hashtags, campaign links and Markdown",
     icon: Palette,
+  },
+  {
+    tab: "arcade",
+    title: "Arcade",
+    description: "Play Ludo, Connect Four, Reversi or Tic-tac-toe with a room code",
+    icon: Gamepad2,
   },
   {
     tab: "chat",

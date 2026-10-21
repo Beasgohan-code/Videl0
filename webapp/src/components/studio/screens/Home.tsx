@@ -7,6 +7,7 @@ import {
   ArrowUpRight,
   BookOpen,
   Images,
+  Gamepad2,
 } from "lucide-react";
 import { useTelegram } from "@/components/TelegramProvider";
 import { POST_ASSETS } from "@/lib/post-assets";
@@ -45,6 +46,9 @@ export default function Home() {
         </button>
         <button onClick={() => open("guide")} className="ios-btn ios-btn-glass">
           <BookOpen size={16} aria-hidden /> Browse the command guide
+        </button>
+        <button onClick={() => open("arcade")} className="ios-btn ios-btn-glass">
+          <Gamepad2 size={16} aria-hidden /> Play in the arcade
         </button>
       </div>
 

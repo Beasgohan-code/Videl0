@@ -39,6 +39,7 @@ const screens = {
     loading,
   }),
   auth: dynamic(() => import("@/components/studio/screens/Auth"), { loading }),
+  arcade: dynamic(() => import("@/components/studio/screens/Arcade"), { loading }),
 };
 export default function Studio() {
   const { tab } = useStudio();
