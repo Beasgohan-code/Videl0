@@ -28,7 +28,7 @@ export function ScheduledPosts({chatId,text,mediaUrl,buttons,hasLocalImage,revie
  const [copyFor,setCopyFor]=useState(""),[copyWhen,setCopyWhen]=useState("");
  function localSlot(when:Date){const shifted=new Date(when.getTime()-when.getTimezoneOffset()*60000);return shifted.toISOString().slice(0,16)}
  async function refresh(){const r=await fetch("/api/schedules",{cache:"no-store"});const data=await r.json();if(!r.ok||!data.ok)throw new Error(data.error||"Queue unavailable");setJobs(data.jobs);setLoaded(true)}
- async function run(action:()=>Promise<void>){if(busy)return;setBusy(true);setNotice("");try{await action()}catch(e){setNoticeOk(false);setNotice((e as Error).message)}finally{setBusy(false)}}
+ async function run(action:()=>Promise<void>){if(busy)return;setBusy(true);setNotice("");try{await action()}catch(e){setNoticeOk(false);setNotice((e as Error).message);setLoaded(true)}finally{setBusy(false)}}
  // The queue is the point of this panel: read it once it is on screen instead of
  // waiting for someone to press Refresh.
  useEffect(()=>{void run(refresh)},[]);

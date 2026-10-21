@@ -825,6 +825,32 @@ p { text-wrap: pretty; }
   .studio-panel select { font-size: 16px; }
 }
 
+/* Long error strings, IDs and pasted links wrap inside their box instead of
+   forcing a horizontal scrollbar on a phone. */
+.ios-callout-body, .ios-state-hint, .ios-state-title { overflow-wrap: anywhere; }
+
+/* Keyboard hints read as keys, not as body text. */
+kbd {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85em;
+  padding: 0.08em 0.38em;
+  border-radius: 5px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* Anchors and deep links land below the sticky search bar, not under it. */
+html { scroll-padding-top: 5.5rem; }
+:target { scroll-margin-top: 5.5rem; }
+::selection { background: rgba(99, 102, 241, 0.35); color: #fff; }
+
+/* A panel settles in once; the motion is decorative, so it can be turned off. */
+/* Opacity only: a transform here would become the containing block for fixed
+   dialogs rendered inside a screen. */
+@keyframes ios-panel-in { from { opacity: 0; } }
+.ios-page { animation: ios-panel-in 200ms ease-out both; }
+@media (prefers-reduced-motion: reduce) { .ios-page { animation: none; } }
+
 /* The backend strip is the first thing a phone user taps; give it real targets. */
 @media (max-width: 640px) {
   .backend-strip-action, .backend-strip-close { min-height: 40px; min-width: 40px; justify-content: center; padding: 0 10px; }
