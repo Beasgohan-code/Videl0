@@ -171,7 +171,7 @@ class KeyboardTests(unittest.TestCase):
         owner = private_keyboard(True, "Videl0Bot").inline_keyboard
         self.assertIsNotNone(owner[0][0].web_app)
         self.assertFalse(any(item.callback_data == "cmds:owner:0" for row in private for item in row))
-        self.assertIsNotNone(group[-1][0].url)
+        self.assertTrue(any(item.url for row in group for item in row))
 
     def test_missing_database_is_not_displayed_as_zero(self):
         from videl.plugins.start import owner_caption

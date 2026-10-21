@@ -117,6 +117,8 @@ class OnboardingTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('&lt;Visitor&gt;',text)
         group=general.member_caption('Visitor',False)
         self.assertNotIn('this private chat',group);self.assertIn('Start a voice chat',group)
+        self.assertIn('/tagall [message]',group)
+        self.assertIn('up to 50 members',group)
 
     async def test_private_setup_never_queries_group_membership(self):
         app=client();message=NS(chat=NS(type=ChatType.PRIVATE,id=42))
