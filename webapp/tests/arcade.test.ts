@@ -139,7 +139,7 @@ test("the arcade screen renders its sign-in card without a session", async () =>
   const html = render(createElement(Arcade));
   assert.match(html, /Continue with Telegram/);
   assert.match(html, /Pull up a chair/);
-  for (const name of ["Ludo", "Connect Four", "Reversi", "Tic-tac-toe"]) {
+  for (const name of ["Ludo", "Checkers", "Connect Four", "Reversi", "Tic-tac-toe"]) {
     assert.match(html, new RegExp(name.replace("-", "\\-")), `the lobby shows ${name}`);
   }
   // The three steps are the whole explanation of why a password is not needed.
@@ -171,4 +171,79 @@ test("the arcade is open without ownership, but the group manager is not", async
   assert.equal(canOpenSection("arcade", null), true);
   assert.equal(canOpenSection("groups", null), false);
   assert.equal(canOpenSection("arcade", true), true);
+});
+
+
+test("a pasted invite is understood as a code, a link or a Telegram payload", async () => {
+  const { codeFromLink, inviteLink, telegramInvite } = await import("../src/lib/arcade");
+  assert.equal(codeFromLink("k7m2qx"), "K7M2QX", "a typed code, lower case");
+  assert.equal(codeFromLink("  K7M2QX  "), "K7M2QX", "whitespace from a chat bubble");
+  assert.equal(codeFromLink("https://videl-studio.vercel.app/play/K7M2QX"), "K7M2QX");
+  assert.equal(codeFromLink("https://videl-studio.vercel.app/?tab=arcade&room=K7M2QX"), "K7M2QX");
+  assert.equal(codeFromLink("https://t.me/Videl0Bot?startapp=K7M2QX"), "K7M2QX");
+  assert.equal(codeFromLink("https://example.com/play/K7M2QX"), "K7M2QX", "any host");
+  assert.equal(codeFromLink("open the arcade"), "", "a sentence is not a room");
+  assert.equal(codeFromLink("HELLO"), "HELLO", "a four-letter word is still a code shape");
+  assert.equal(codeFromLink(""), "");
+
+  // The canon of an invite: a real page, and Telegram's own door.
+  assert.equal(inviteLink("k7m2qx", "https://videl.example/"), "https://videl.example/play/K7M2QX");
+  assert.equal(inviteLink("K7M2QX"), "/play/K7M2QX");
+  assert.equal(telegramInvite("k7m2qx"), "https://t.me/Videl0Bot?startapp=K7M2QX");
+});
+
+test("checkers chains are only the ones the server already offered", async () => {
+  const { chainLanding, chainsFrom, isDarkSquare, checkerSeat, isCrowned, seatColour } =
+    await import("../src/lib/arcade");
+  const legal = [
+    { from: 21, to: [35, 49], via: [28, 42], captures: 2 },
+    { from: 21, to: [30], via: [25], captures: 1 },
+    { from: 19, to: [28], via: null, captures: 0 },
+  ];
+  assert.equal(chainsFrom(legal, 21).length, 2);
+  assert.equal(chainsFrom(legal, 17).length, 0, "a piece with no move offers nothing");
+  assert.deepEqual(chainLanding(legal, 21, 49)?.to, [35, 49], "a tap sends the whole chain");
+  assert.equal(chainLanding(legal, 21, 42), undefined, "an intermediate square is not a landing");
+  assert.equal(chainLanding(legal, 21, 7), undefined, "an invented destination is refused");
+
+  // The board itself: play happens on the dark squares, on row*8+col.
+  assert.equal(isDarkSquare(0), false);
+  assert.equal(isDarkSquare(1), true);
+  assert.equal(isDarkSquare(10), true);
+  assert.equal(isDarkSquare(16), false, "row 2, column 0 is a light square");
+  assert.equal(isDarkSquare(8), true);
+  assert.equal(checkerSeat(0), null);
+  assert.equal(checkerSeat(1), 0);
+  assert.equal(checkerSeat(2), 1);
+  assert.equal(checkerSeat(4), 1);
+  assert.equal(isCrowned(3), true);
+  assert.equal(isCrowned(2), false);
+
+  // Checkers plays bone against ink, not the ludo palette.
+  assert.equal(seatColour("checkers", 0), "#f4e4bf");
+  assert.equal(seatColour("checkers", 1), "#3b4266");
+  assert.equal(seatColour("ludo", 0), "#ef4444");
+});
+
+test("every table has its own art, and every game has its terms", async () => {
+  const { GAME_ART, GAME_ICON, GAME_TERMS, GAME_THEME } = await import("../src/lib/arcade");
+  const games = Object.keys(GAME_THEME);
+  assert.deepEqual(games.sort(), ["checkers", "connect4", "ludo", "reversi", "tictactoe"]);
+  for (const game of games) {
+    assert.match(GAME_ART[game], /^\/arcade\/[a-z0-9]+\.jpg$/, `${game} has local art`);
+    assert.ok(GAME_ICON[game], `${game} has a glyph for when the art does not load`);
+    assert.ok(GAME_TERMS[game]?.length, `${game} explains its own rules`);
+  }
+});
+
+test("the invite page renders the code before anyone signs in", async () => {
+  const { InviteRoom } = await import("../src/components/arcade/InviteRoom");
+  const html = render(createElement(InviteRoom, { code: "K7M2QX" }));
+  assert.match(html, /A chair is waiting/);
+  for (const character of ["K", "7", "M", "2", "Q", "X"]) {
+    assert.match(html, new RegExp(`>${character}<`), "the code is readable without a session");
+  }
+  assert.match(html, /https:\/\/t\.me\/Videl0Bot\?startapp=K7M2QX/);
+  assert.match(html, /Copy link/);
+  assert.ok(!/undefined/.test(html), "no undefined leaks into the invite");
 });

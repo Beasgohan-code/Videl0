@@ -7,6 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from videl.games import GAMES
+from videl.games.checkers import Checkers
 from videl.games.connect4 import ConnectFour
 from videl.games.ludo import HOME_PROGRESS, Ludo
 from videl.games.registry import GameError, run_length
@@ -16,7 +17,7 @@ from videl.games.tictactoe import TicTacToe
 
 class RegistryTests(unittest.TestCase):
     def test_every_listed_game_describes_itself(self):
-        self.assertEqual(set(GAMES), {"connect4", "reversi", "tictactoe", "ludo"})
+        self.assertEqual(set(GAMES), {"checkers", "connect4", "reversi", "tictactoe", "ludo"})
         for key, game in GAMES.items():
             described = game.describe()
             self.assertEqual(described["key"], key)
@@ -218,3 +219,81 @@ class LudoTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CheckersTests(unittest.TestCase):
+    """Draughts, where the arguing is about which capture counts."""
+
+    def setUp(self):
+        self.game = Checkers()
+        self.state = self.game.new(2)
+
+    def board(self, **pieces):
+        """A board from square numbers: ``board(f21=1, f26=2)``."""
+        cells = [0] * 64
+        for key, value in pieces.items():
+            cells[int(key[1:])] = value
+        state = self.state
+        return dict(state, board=cells)
+
+    def test_a_new_board_has_twelve_men_each_and_no_kings(self):
+        board = self.state["board"]
+        self.assertEqual(sum(1 for cell in board if cell == 1), 12)
+        self.assertEqual(sum(1 for cell in board if cell == 2), 12)
+        self.assertFalse(any(cell in (3, 4) for cell in board))
+        self.assertEqual(len(self.game.legal(self.state, 0)), 7,
+                         "seven opening moves, because the edge men cannot go left")
+
+    def test_a_man_moves_one_square_forward_only(self):
+        state = self.game.apply(self.state, 0, {"from": 17, "to": [26]})
+        self.assertEqual(state["board"][17], 0)
+        self.assertEqual(state["board"][26], 1)
+        with self.assertRaises(GameError):
+            self.game.apply(self.state, 0, {"from": 17, "to": [35]})
+
+    def test_a_capture_is_compulsory_and_the_longest_chain_wins(self):
+        # Two rival men in a row: a double capture must be taken in one move.
+        state = self.board(f21=1, f28=2, f42=2, f62=2, f63=2)
+        rows = self.game.legal(state, 0)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["to"], [35, 49])
+        self.assertEqual(rows[0]["captures"], 2)
+        with self.assertRaises(GameError) as caught:
+            self.game.apply(state, 0, {"from": 21, "to": [35]})
+        self.assertIn("capture", str(caught.exception).lower(), "a short chain is refused")
+
+    def test_a_man_crowned_by_a_capture_stops_there(self):
+        # 49 -> 56 captures? no: a quiet step crowns; a capturing step onto the
+        # last row also crowns and must end the chain even with a jump available.
+        state = self.board(f42=1, f49=2, f63=2, f0=2)
+        row = self.game.legal(state, 0)
+        this = [r for r in row if r["from"] == 42]
+        self.assertTrue(this)
+        moved = self.game.apply(state, 0, {"from": 42, "to": [56]})
+        self.assertEqual(moved["board"][56], 3, "a man on the last row is a king")
+        self.assertTrue(moved["last"]["crowned"])
+
+    def test_a_king_flies_and_lands_past_the_captured_piece(self):
+        state = self.board(f56=3, f42=2, f7=2)
+        rows = self.game.legal(state, 0)
+        lands = {row["to"][0] for row in rows}
+        self.assertEqual(lands, {35, 28, 21, 14},
+                         "a king may land anywhere beyond the captured piece")
+        moved = self.game.apply(state, 0, {"from": 56, "to": [21]})
+        self.assertEqual(moved["board"][42], 0)
+        self.assertEqual(moved["board"][21], 3)
+
+    def test_a_side_with_no_move_loses(self):
+        # One rival man in the corner, boxed in by our piece on its only square.
+        state = self.board(f46=1, f37=1, f55=2, f17=1)
+        self.assertEqual(self.game.legal(dict(state, turn=1), 1), [],
+                         "the corner man has nowhere to go")
+        moved = self.game.apply(state, 0, {"from": 17, "to": [26]})
+        self.assertEqual(moved["board"][55], 2, "the rival still has a man")
+        self.assertEqual(moved["winner"], 0, "but no move, so the game is over")
+
+    def test_the_server_can_play_a_timeout_for_an_absent_player(self):
+        state = self.board(f21=1, f28=2, f42=2, f62=2, f63=2)
+        played = self.game.auto(state)
+        self.assertEqual(played["board"][28], 0, "the forced chain was taken")
+        self.assertNotEqual(played["turn"], state["turn"])

@@ -6,7 +6,7 @@ so the backend never has to trust a user id chosen by a browser.
 from flask import jsonify, request
 
 from videl.api.actor import ActorError, require_actor
-from videl.games import store
+from videl.games import GAMES, store
 from videl.games.registry import GameError
 from videl.utils import players
 from videl.utils.chat_admins import check as admin_check
@@ -42,8 +42,8 @@ def register_arcade_routes(app, authorized, api, secret):
                 payload["ok"] = True
                 payload["me"] = players.public(players.get(user))
                 payload["leaderboards"] = {
-                    game: players.leaderboard(game, 5)
-                    for game in ("connect4", "reversi", "tictactoe")
+                    game.key: players.leaderboard(game.key, 5)
+                    for game in GAMES.values() if game.seats == (2,)
                 }
                 return jsonify(payload)
             body = request.get_json(silent=True)

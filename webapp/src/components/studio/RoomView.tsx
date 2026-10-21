@@ -23,17 +23,20 @@ import {
 } from "lucide-react";
 import {
   GAME_ICON,
+  GAME_TERMS,
   LUDO_HOME,
   LUDO_RING,
   LUDO_SAFE,
-  SEAT_COLOUR,
   countdown,
   initials,
   isMyTurn,
   laneVars,
   ludoTokenCell,
+  inviteLink,
   playerName,
+  seatColour,
   seatVars,
+  telegramInvite,
   themeOf,
   turnFraction,
   winnerText,
@@ -42,6 +45,7 @@ import {
   type Room,
   type RoomEvent,
 } from "@/lib/arcade";
+import { CheckersBoard } from "./boards/CheckersBoard";
 import { Callout } from "./ui";
 
 /**
@@ -71,7 +75,7 @@ export function RoomView({
   const [text, setText] = useState("");
   const [now, setNow] = useState(() => Date.now());
   const [skew, setSkew] = useState(0);
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<"" | "link" | "code">("");
   const seq = useRef(0);
   const triedJoin = useRef(false);
   const feed = useRef<HTMLDivElement>(null);
@@ -193,15 +197,41 @@ export function RoomView({
   const online = seats.filter((seat) => seat.online).length;
   const current = room?.seats.find((seat) => seat.seat === room.turn);
 
+  /* One invite, three ways to hand it over: the share sheet, the clipboard,
+     then the link printed in the notice. The link is a real page that opens in
+     Chrome, so a friend without Telegram can still see the table. */
   const share = useCallback(async () => {
     if (!room) return;
-    const link = `${window.location.origin}/?tab=arcade&room=${room.code}`;
+    const link = inviteLink(room.code, window.location.origin);
+    const text = `${room.game_name} on Videl — ${room.seat_count} seats, code ${room.code}. Take a chair:`;
+    const sheet = (navigator as Navigator & {
+      share?: (data: ShareData) => Promise<void>;
+    }).share;
+    if (sheet) {
+      try {
+        await sheet.call(navigator, { title: `${room.game_name} · ${room.code}`, text, url: link });
+        return;
+      } catch {
+        /* dismissed — fall through to the clipboard instead of scolding */
+      }
+    }
     try {
-      await navigator.clipboard.writeText(link);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
+      await navigator.clipboard.writeText(`${text} ${link}`);
+      setCopied("link");
+      setTimeout(() => setCopied(""), 1800);
     } catch {
       setError(`Copy this link: ${link}`);
+    }
+  }, [room]);
+
+  const copyCode = useCallback(async () => {
+    if (!room) return;
+    try {
+      await navigator.clipboard.writeText(room.code);
+      setCopied("code");
+      setTimeout(() => setCopied(""), 1800);
+    } catch {
+      setError(`The room code is ${room.code}`);
     }
   }, [room]);
 
@@ -233,13 +263,13 @@ export function RoomView({
           <ArrowLeft size={15} aria-hidden /> Arcade
         </button>
         <button
-          onClick={share}
+          onClick={() => void copyCode()}
           className="arcade-code"
-          title="Copy the room link"
-          aria-label={`Room code ${code}. Copy link`}
+          title="Copy the room code"
+          aria-label={`Room code ${code}. Copy code`}
         >
           {code}
-          {copied ? <Check size={12} aria-hidden /> : <Copy size={12} aria-hidden />}
+          {copied === "code" ? <Check size={12} aria-hidden /> : <Copy size={12} aria-hidden />}
         </button>
         {room ? (
           <span className="arcade-live ml-auto hidden sm:inline-flex">
@@ -254,8 +284,19 @@ export function RoomView({
             <DoorOpen size={14} aria-hidden /> Leave
           </button>
         ) : null}
-        <button onClick={share} className="ios-btn ios-btn-glass px-3 py-1.5 text-xs" aria-label="Share room link">
-          <Link2 size={14} aria-hidden /> <span className="hidden sm:inline">Share</span>
+        <a
+          href={telegramInvite(code)}
+          target="_blank"
+          rel="noreferrer"
+          className="ios-btn ios-btn-glass px-3 py-1.5 text-xs"
+          aria-label="Open this table in Telegram"
+          title="Open the table in Telegram"
+        >
+          <Send size={13} aria-hidden /> <span className="hidden sm:inline">Telegram</span>
+        </a>
+        <button onClick={() => void share()} className="ios-btn ios-btn-glass px-3 py-1.5 text-xs" aria-label="Copy an invite link">
+          <Link2 size={14} aria-hidden />{" "}
+          <span className="hidden sm:inline">{copied === "link" ? "Sent" : "Invite"}</span>
         </button>
       </div>
 
@@ -282,9 +323,15 @@ export function RoomView({
                   {room.title || room.game_name} · {room.code}
                 </span>
               </div>
-              <button onClick={() => void send({ action: "rematch" })} disabled={busy} className="ios-btn ios-btn-primary px-3 py-2 text-xs">
-                <RotateCcw size={14} aria-hidden /> Rematch
-              </button>
+              {room.you.is_host ? (
+                <button onClick={() => void send({ action: "rematch" })} disabled={busy} className="ios-btn ios-btn-primary px-3 py-2 text-xs">
+                  <RotateCcw size={14} aria-hidden /> Rematch
+                </button>
+              ) : (
+                <span className="text-[10px] text-indigo-100/45">
+                  the host can start a rematch
+                </span>
+              )}
             </div>
           ) : null}
 
@@ -317,7 +364,7 @@ export function RoomView({
                     className="arcade-seat"
                     data-turn={room.status === "playing" && room.turn === seat.seat}
                     data-offline={!seat.online}
-                    style={{ "--seat": SEAT_COLOUR[seat.seat] || "#6366f1" } as CSSProperties}
+                    style={{ "--seat": seatColour(room.game, seat.seat) } as CSSProperties}
                   >
                     <span className="arcade-seat-avatar" aria-hidden>
                       {initials(seat.name)}
@@ -383,13 +430,13 @@ export function RoomView({
                     <DoorOpen size={15} aria-hidden /> Take a seat
                   </button>
                 ) : null}
-                {room.status === "done" ? (
+                {room.status === "done" && room.you.is_host ? (
                   <button onClick={() => void send({ action: "rematch" })} disabled={busy} className="ios-btn ios-btn-primary">
                     <RotateCcw size={15} aria-hidden /> Rematch
                   </button>
                 ) : null}
-                <button onClick={share} className="ios-btn ios-btn-glass">
-                  <Copy size={14} aria-hidden /> {copied ? "Link copied" : "Invite"}
+                <button onClick={() => void share()} className="ios-btn ios-btn-glass">
+                  <Copy size={14} aria-hidden /> {copied === "link" ? "Invite copied" : "Invite"}
                 </button>
                 {room.you.is_host
                   ? seats
@@ -518,25 +565,7 @@ export function RoomView({
 }
 
 function HouseRules({ game }: { game: string }) {
-  const rules: Record<string, string[]> = {
-    ludo: [
-      "A six leaves the base and earns another roll.",
-      "Three sixes in a row forfeit the turn.",
-      "Landing on a rival sends it home — except on the eight safe squares.",
-      "Tokens may share a square. First player home wins the table.",
-    ],
-    connect4: [
-      "Discs fall to the lowest free cell in a column.",
-      "Four in a row wins — across, down or diagonally.",
-    ],
-    reversi: [
-      "A move must bracket at least one rival disc; those discs flip.",
-      "If a player has no legal move the turn passes; two passes end the game.",
-      "Most discs on the board wins.",
-    ],
-    tictactoe: ["Three in a row wins.", "A full board is a draw."],
-  };
-  const rows = rules[game];
+  const rows = GAME_TERMS[game];
   if (!rows) return null;
   return (
     <details className="arcade-rules">
@@ -605,6 +634,10 @@ function Board({
 
   if (room.game === "ludo") {
     return <LudoBoard room={room} myTurn={myTurn} busy={busy} onMove={onMove} />;
+  }
+
+  if (room.game === "checkers") {
+    return <CheckersBoard room={room} myTurn={myTurn} busy={busy} onMove={onMove} />;
   }
 
   if (room.game === "reversi") {

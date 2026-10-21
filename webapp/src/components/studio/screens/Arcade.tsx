@@ -18,8 +18,11 @@ import {
 } from "lucide-react";
 import { usePlayerSession } from "@/lib/player";
 import {
+  GAME_ART,
   GAME_ICON,
   GAME_THEME,
+  codeFromLink,
+  inviteLink,
   themeOf,
   type GameInfo,
   type Lobby,
@@ -151,10 +154,10 @@ export default function Arcade() {
         <Hero
           kicker="Arcade"
           title="Pull up a chair."
-          subtitle="Ludo for four, a two-minute duel, or a slow game that waits for you. Rooms live on the server, so closing the app never loses your turn."
+          subtitle="Five boards, one to four chairs each. Rooms live on the server, so closing the app never loses your turn — or your clock."
           stats={[
-            { value: "4", label: "games" },
-            { value: "2–4", label: "players" },
+            { value: String(FALLBACK_GAMES.length), label: "boards" },
+            { value: "2–4", label: "chairs" },
             { value: "∞", label: "rematches" },
           ]}
         />
@@ -195,15 +198,17 @@ export default function Arcade() {
             </div>
           </div>
           <div>
-            <div className="arcade-tiles">
+            <div className="arcade-minis">
               {FALLBACK_GAMES.map((entry) => (
                 <div
                   key={entry.key}
-                  className="arcade-tile"
+                  className="arcade-mini"
                   style={{ "--accent-soft": themeOf(entry.key).soft } as CSSProperties}
                   aria-hidden
                 >
-                  {GAME_ICON[entry.key]}
+                  {GAME_ART[entry.key] ? (
+                    <img src={GAME_ART[entry.key]} alt="" loading="lazy" decoding="async" />
+                  ) : null}
                   <span>{entry.name}</span>
                 </div>
               ))}
@@ -251,7 +256,7 @@ export default function Arcade() {
           <span className="arcade-section-title">Choose a table</span>
           <span className="arcade-section-hint">{chosen ? `${chosen.turn_seconds}s a turn` : ""}</span>
         </div>
-        <div className="arcade-games" role="group" aria-label="Games">
+        <div className="arcade-gallery" role="group" aria-label="Games">
           {games.map((entry) => {
             const theme = themeOf(entry.key);
             const active = game === entry.key;
@@ -263,26 +268,46 @@ export default function Arcade() {
                   setSeats(entry.seats[0]);
                 }}
                 aria-pressed={active}
-                className="arcade-game"
+                className="arcade-plate"
                 style={{ "--accent": theme.accent, "--accent-soft": theme.soft } as CSSProperties}
               >
-                <span className="arcade-game-icon" aria-hidden>
-                  {GAME_ICON[entry.key] || "🎮"}
+                <span className="arcade-plate-art" aria-hidden>
+                  {GAME_ART[entry.key] ? (
+                    <img
+                      src={GAME_ART[entry.key]}
+                      alt=""
+                      loading="lazy"
+                      decoding="async"
+                      width={720}
+                      height={393}
+                    />
+                  ) : null}
+                  <span className="arcade-plate-glow" />
                 </span>
-                <span className="arcade-game-name">{entry.name}</span>
-                <span className="arcade-game-meta">
-                  {entry.seats.join("–")} players · {entry.turn_seconds}s
+                <span className="arcade-plate-body">
+                  <span className="arcade-plate-name">
+                    <span className="arcade-plate-glyph" aria-hidden>
+                      {GAME_ICON[entry.key] || "◍"}
+                    </span>
+                    {entry.name}
+                  </span>
+                  <span className="arcade-plate-meta">
+                    {entry.seats.length > 1
+                      ? `${entry.seats[0]}–${entry.seats[entry.seats.length - 1]} players`
+                      : `${entry.seats[0]} players`}{" "}
+                    · {entry.turn_seconds}s turn
+                  </span>
+                  <span className="arcade-plate-note">{theme.tagline}</span>
                 </span>
-                <span className="arcade-game-note">{theme.tagline}</span>
                 {active ? (
-                  <span
-                    className="absolute right-2.5 top-2.5 grid h-5 w-5 place-items-center rounded-full"
-                    style={{ background: theme.accent, color: "#0b1023" }}
-                    aria-hidden
-                  >
+                  <span className="arcade-plate-check" aria-hidden>
                     <Check size={13} strokeWidth={3} />
                   </span>
-                ) : null}
+                ) : (
+                  <span className="arcade-plate-open" aria-hidden>
+                    <Plus size={12} /> table
+                  </span>
+                )}
               </button>
             );
           })}
@@ -345,13 +370,13 @@ export default function Arcade() {
               <Wifi size={12} aria-hidden /> Have an invitation?
             </span>
           </span>
-          <span className="arcade-section-hint">Six characters, no dashes</span>
+          <span className="arcade-section-hint">A code, or paste the whole link</span>
         </div>
         <form
           className="arcade-invite"
           onSubmit={async (event) => {
             event.preventDefault();
-            const value = code.trim().toUpperCase();
+            const value = codeFromLink(code);
             if (!value) return;
             const data = await call("/api/arcade/join", { code: value });
             if (data?.room?.code) {
@@ -364,9 +389,16 @@ export default function Arcade() {
             <span className="ios-caps block text-[10px] text-indigo-100/45">Room code</span>
             <input
               value={code}
-              onChange={(event) => setCode(event.target.value.toUpperCase().slice(0, 8))}
-              placeholder="K7M2QX"
-              maxLength={8}
+              onChange={(event) => setCode(event.target.value.slice(0, 120))}
+              onPaste={(event) => {
+                const found = codeFromLink(event.clipboardData.getData("text"));
+                if (found) {
+                  event.preventDefault();
+                  setCode(found);
+                }
+              }}
+              placeholder="K7M2QX or a link"
+              maxLength={120}
               className="arcade-code-input mt-1"
               aria-label="Room code"
               autoComplete="off"
@@ -376,7 +408,7 @@ export default function Arcade() {
           </label>
           <button
             type="submit"
-            disabled={busy || code.trim().length < 4}
+            disabled={busy || codeFromLink(code).length < 4}
             className="ios-btn ios-btn-glass min-h-[44px]"
           >
             <LogIn size={16} aria-hidden /> Take a seat
@@ -609,6 +641,7 @@ function Leaderboards({ lobby, me }: { lobby: Lobby | null; me: number }) {
 }
 
 const FALLBACK_GAMES: GameInfo[] = [
+  { key: "checkers", name: "Checkers", seats: [2], turn_seconds: 75, summary: "Draughts with forced chains." },
   { key: "connect4", name: "Connect Four", seats: [2], turn_seconds: 60, summary: "Line up four discs." },
   { key: "ludo", name: "Ludo", seats: [2, 3, 4], turn_seconds: 45, summary: "Race four tokens home." },
   { key: "reversi", name: "Reversi", seats: [2], turn_seconds: 90, summary: "Flank and flip." },

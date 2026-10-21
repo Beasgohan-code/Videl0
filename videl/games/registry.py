@@ -46,7 +46,7 @@ class Game:
         which keeps the timeout behaviour testable.
         """
         options = [option for option in self.legal(state, state["turn"])
-                   if "column" in option or "cell" in option or "token" in option]
+                   if any(key in option for key in ("column", "cell", "token", "to"))]
         if not options:
             return self.pass_turn(state)
         return self.apply(state, state["turn"], options[0])

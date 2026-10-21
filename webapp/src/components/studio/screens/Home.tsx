@@ -10,6 +10,7 @@ import {
   Gamepad2,
 } from "lucide-react";
 import { useTelegram } from "@/components/TelegramProvider";
+import { GAME_ART } from "@/lib/arcade";
 import { POST_ASSETS } from "@/lib/post-assets";
 import { useStudio } from "../StudioProvider";
 const OwnerHome = dynamic(() => import("./OwnerHome"));
@@ -58,19 +59,22 @@ export default function Home() {
         aria-label="Open the arcade"
       >
         <span className="arcade-home-dice" aria-hidden>
-          🎲
+          {/* The table itself, at thumbnail size: the same art the lobby uses. */}
+          <img src={GAME_ART.ludo} alt="" loading="lazy" decoding="async" />
         </span>
         <span className="min-w-0 flex-1">
           <span className="arcade-home-title">The arcade is open</span>
           <span className="arcade-home-copy">
-            Ludo for two to four, Connect Four, Reversi and Tic-tac-toe. Make a
-            room, send the six-character code, and the server keeps the board.
+            Five boards, real chairs: Ludo for two to four, Checkers, Connect
+            Four, Reversi and Tic-tac-toe. Make a room, send the six-character
+            code or the invite link, and the server keeps the board.
           </span>
           <span className="arcade-home-games" aria-hidden>
-            <i>🎲 Ludo</i>
-            <i>🔴 Connect Four</i>
-            <i>⚫ Reversi</i>
-            <i>⭕ Tic-tac-toe</i>
+            <i>◈ Ludo</i>
+            <i>♛ Checkers</i>
+            <i>◍ Connect Four</i>
+            <i>◐ Reversi</i>
+            <i>✕ Tic-tac-toe</i>
           </span>
         </span>
         <ArrowUpRight size={18} aria-hidden className="arcade-home-arrow" />

@@ -77,7 +77,7 @@ class ArcadeApiTests(unittest.TestCase):
         body = self.client.get("/internal/arcade", headers=self.headers(2)).get_json()
         self.assertEqual(body["ok"], True)
         self.assertEqual({game["key"] for game in body["games"]},
-                         {"connect4", "reversi", "tictactoe", "ludo"})
+                         {"checkers", "connect4", "reversi", "tictactoe", "ludo"})
         self.assertEqual(len(body["public"]), 1)
         self.assertEqual(body["public"][0]["game"], "connect4")
         self.assertEqual(body["me"]["id"], 2)

@@ -114,7 +114,14 @@ class EnqueueZoneTests(unittest.TestCase):
         self.addCleanup(self.patch.stop)
 
     def due(self):
-        return (datetime.now(UTC) + timedelta(hours=2)).isoformat()
+        # A fixed 09:30 tomorrow in Kolkata. "Now + two hours" made this suite
+        # depend on the hour it ran: after 10:00 local the instant drifted more
+        # than the three-hour sanity window away from the 09:00 anchor, and the
+        # test failed for a reason that had nothing to do with timezones.
+        zone = ZoneInfo("Asia/Kolkata")
+        local = (datetime.now(zone) + timedelta(days=1)).replace(
+            hour=9, minute=30, second=0, microsecond=0)
+        return local.astimezone(UTC).isoformat()
 
     def test_a_zone_is_stored_and_an_unknown_zone_is_refused(self):
         row = scheduled_posts.enqueue("sendMessage", {"chat_id": "@x", "text": "hi"},

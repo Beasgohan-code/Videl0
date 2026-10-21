@@ -1,7 +1,7 @@
 # Plan: public games with live chat, Telegram sign-up, and a group manager
 
-Status: **partly shipped.** The identity layer, the four games (Connect Four,
-Reversi, Tic-tac-toe, Ludo), server-authoritative rooms with chat and timeouts,
+Status: **partly shipped.** The identity layer, the five games (Checkers,
+Connect Four, Reversi, Tic-tac-toe, Ludo), server-authoritative rooms with chat and timeouts,
 the arcade screen, and the group-manager backend are in the repository and
 tested. The group-manager screen, presence-based SSE and voice remain. Where
 this document and the code differ, the code and its tests are the truth.
@@ -149,11 +149,21 @@ Two players may not hold the same seat; leaving mid-game is a forfeit after a
 | **Connect Four** | 2 | 60 s live / 24 h async | Rules fit in 200 lines, provably testable, instantly understood |
 | **Reversi** | 2 | 90 s / 24 h | Zero content, deep play, works asynchronously |
 | **Tic-tac-toe** | 2 | 45 s / 24 h | The fastest complete game; a whole room can be played in a minute |
+| **Checkers** | 2 | 75 s / 24 h | Draughts with the two rules that decide real games: compulsory captures and the longest chain; kings fly |
 | **Ludo** | 2–4 | 45 s / 24 h | The game people ask for by name: a shared board, more than two seats, and chance that keeps every seat in it |
 
 Deliberately **not** in v1: anything needing a dictionary (word games), real
 physics, or licensed content. A bundled word list is a licensing and quality
 problem, not a UI problem.
+
+Checkers is the same bargain as Ludo: the panel draws and offers, the engine
+decides. Captures are compulsory and the **longest** chain is the only legal
+one; a man crowned on the eighth row ends its move there; kings fly the full
+diagonal and may land anywhere beyond the captured piece; a side with no legal
+reply loses (which is also how the corner trap resolves). The server sends the
+complete chains — `{from, to: [...], via: [...]}` — so a tap can only ever send
+a move that already existed, and a double jump is one tap rather than a
+half-finished chain the client has to remember.
 
 Ludo ships with two simplifications, stated to the player in the room rather
 than discovered mid-game: tokens may stack on one square (no blocking), and the
@@ -167,6 +177,22 @@ A future **Quiz Rush** keeps one non-obvious rule: **the answer never reaches
 the client before the reveal.** `state` for a live question would contain the
 prompt and the four options; the correct index is written only into the
 `reveal` event after every player answers or the timer expires.
+
+### 2.2a The invite is an address, not a tab
+
+A room is shared as `https://videl-studio.vercel.app/play/CODE`, which is its
+own route (`webapp/src/app/play/[code]/page.tsx`) rather than `/?tab=arcade`.
+A link pasted into a group has to open in whatever browser the reader has,
+without the panel first deciding which tab it is on, and the code has to be in
+the preview. The page paints the invitation immediately (the room code, the
+art, one Telegram button) and only swaps to the table when `/api/session` says
+this browser already holds a player cookie. `?tab=arcade&room=CODE` still
+works for in-app navigation, and pasting any of the three shapes — a bare code,
+a `/play/` link, or a `t.me/...?startapp=` payload — into the join field is
+accepted by `codeFromLink()`.
+
+The art in `webapp/public/arcade/` is original to this repository, generated
+for the lobby and the invite page; nothing is loaded from a third-party CDN.
 
 ### 2.3 Timeouts without a timer thread
 

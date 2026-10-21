@@ -77,18 +77,58 @@ export type Lobby = {
 };
 
 export const GAME_ICON: Record<string, string> = {
-  connect4: "🔴",
-  reversi: "⚫",
-  tictactoe: "⭕",
-  ludo: "🎲",
+  checkers: "♛",
+  connect4: "◍",
+  reversi: "◐",
+  tictactoe: "✕",
+  ludo: "◈",
+};
+
+/**
+ * One piece of original art per table, drawn for this arcade and served from
+ * /public/arcade. A card without its image still reads, because the accent
+ * and the name carry it — the art is the invitation, not the information.
+ */
+export const GAME_ART: Record<string, string> = {
+  checkers: "/arcade/checkers.jpg",
+  connect4: "/arcade/connect4.jpg",
+  reversi: "/arcade/reversi.jpg",
+  tictactoe: "/arcade/tictactoe.jpg",
+  ludo: "/arcade/ludo.jpg",
 };
 
 /** One accent per game, used by cards, rooms, chips and the board surface. */
 export const GAME_THEME: Record<string, { accent: string; soft: string; tagline: string }> = {
+  checkers: { accent: "#f5c451", soft: "rgba(245,196,81,0.20)", tagline: "Crown a man, own the board" },
   connect4: { accent: "#fb7185", soft: "rgba(251,113,133,0.20)", tagline: "Drop, stack, connect" },
   ludo: { accent: "#a78bfa", soft: "rgba(167,139,250,0.20)", tagline: "Four tokens, one crown" },
   reversi: { accent: "#34d399", soft: "rgba(52,211,153,0.20)", tagline: "Flip the whole board" },
   tictactoe: { accent: "#60a5fa", soft: "rgba(96,165,250,0.20)", tagline: "Three moves is all it takes" },
+};
+
+/** Terms someone actually needs to know one board and no manual. */
+export const GAME_TERMS: Record<string, string[]> = {
+  checkers: [
+    "Captures are compulsory, and the longest chain is the only one allowed.",
+    "A man crowned on the eighth row ends its move there.",
+    "Kings fly the whole diagonal and may land anywhere past a captured piece.",
+    "A side with no legal move loses.",
+  ],
+  connect4: [
+    "Discs fall to the lowest free cell in a column.",
+    "Four in a row wins — across, down or diagonally.",
+  ],
+  reversi: [
+    "A move must bracket at least one rival disc; those discs flip.",
+    "No legal move passes the turn; two passes end the game. Most discs wins.",
+  ],
+  tictactoe: ["Three in a row wins.", "A full board is a draw."],
+  ludo: [
+    "A six leaves the base and earns another roll.",
+    "Three sixes in a row forfeit the turn.",
+    "Landing on a rival sends it home — except on the eight safe squares.",
+    "Tokens may share a square. First player home wins the table.",
+  ],
 };
 
 export function themeOf(game: string) {
@@ -102,6 +142,12 @@ export function initials(name: string): string {
     .filter(Boolean);
   if (!parts.length) return "?";
   return (parts[0][0] + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase();
+}
+
+/** The colour that seat plays, which depends on the board it is sitting at. */
+export function seatColour(game: string, seat: number): string {
+  if (game === "checkers") return CHECKERS_COLOUR[seat] || CHECKERS_COLOUR[0];
+  return SEAT_COLOUR[seat] || "#6366f1";
 }
 
 /** CSS variables that colour a token or an avatar without color-mix(). */
@@ -163,11 +209,35 @@ export function describeEvent(room: Room, event: RoomEvent): string {
   return event.text;
 }
 
-/** The shareable room link keeps the panel and the room in one URL. */
-export function roomLink(code: string, chatId?: number | null): string {
-  const params = new URLSearchParams({ tab: "arcade", room: code });
-  if (chatId) params.set("group", String(chatId));
-  return `/?${params.toString()}`;
+/** The invite link opens a real page in a real browser, not a panel tab. */
+export function inviteLink(code: string, origin = ""): string {
+  return `${origin.replace(/\/+$/, "")}/play/${String(code).toUpperCase()}`;
+}
+
+/** Telegram's own door: tapping this opens the Mini App with the room seated. */
+export function telegramInvite(code: string, bot = "Videl0Bot"): string {
+  return `https://t.me/${bot}?startapp=${String(code).toUpperCase()}`;
+}
+
+/**
+ * A pasted invite is a link, a Telegram payload or a bare code. All three mean
+ * the same thing, so the join field accepts all three instead of scolding.
+ */
+export function codeFromLink(value: string): string {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  const bare = text.toUpperCase();
+  if (/^[A-Z2-9]{4,8}$/.test(bare)) return bare;
+  const page = text.match(/\/play\/([A-Za-z2-9]{4,8})/i);
+  if (page) return page[1].toUpperCase();
+  const param = text.match(/[?&](?:room|startapp)=([A-Za-z2-9]{4,8})/i);
+  if (param) return param[1].toUpperCase();
+  return "";
+}
+
+/** A shareable sentence that survives being pasted into a group chat. */
+export function inviteMessage(gameName: string, code: string, origin = ""): string {
+  return `${gameName} on Videl — tap to take the other chair: ${inviteLink(code, origin)}`;
 }
 
 // ── Ludo geometry ───────────────────────────────────────────────────────────
@@ -198,6 +268,8 @@ export const LUDO_HOME: Record<number, [number, number][]> = {
 
 export const LUDO_BASE: [number, number][] = [[1.4, 1.4], [1.4, 10.4], [10.4, 10.4], [10.4, 1.4]];
 export const SEAT_COLOUR = ["#ef4444", "#22c55e", "#eab308", "#3b82f6"];
+/** Checkers plays bone against ink, the way a wooden board is actually set. */
+export const CHECKERS_COLOUR = ["#f4e4bf", "#3b4266"];
 export const SEAT_DARK = ["#7f1d1d", "#14532d", "#713f12", "#1e3a8a"];
 
 export function colourOf(start: number): number {
@@ -225,4 +297,46 @@ export function ludoTokenCell(
   }
   const [row, col] = LUDO_RING[(start + progress) % LUDO_RING.length];
   return { row, col, kind: "ring" };
+}
+
+
+// ── Checkers geometry ───────────────────────────────────────────────────────
+/** One legal move the server offered: where from, and every landing in order. */
+export type Chain = {
+  from: number;
+  to: number[];
+  via: (number | null)[];
+  captures: number;
+};
+
+/** The chains that start on one square. */
+export function chainsFrom(legal: Record<string, unknown>[], square: number): Chain[] {
+  return (legal as unknown as Chain[]).filter(
+    (entry) => entry && Number(entry.from) === square && Array.isArray(entry.to),
+  );
+}
+
+/** The exact chain that ends on `target`, so a tap sends what the server expects. */
+export function chainLanding(legal: Record<string, unknown>[], from: number, target: number): Chain | undefined {
+  return chainsFrom(legal, from).find(
+    (entry) => Number(entry.to[entry.to.length - 1]) === target,
+  );
+}
+
+/** Dark squares are the ones you can stand on. */
+export function isDarkSquare(index: number): boolean {
+  const row = Math.floor(index / 8);
+  const col = index % 8;
+  return (row + col) % 2 === 1;
+}
+
+/** Who owns a cell, as a seat index, or null. 1/2 men, 3/4 kings. */
+export function checkerSeat(cell: number): number | null {
+  if (cell === 1 || cell === 3) return 0;
+  if (cell === 2 || cell === 4) return 1;
+  return null;
+}
+
+export function isCrowned(cell: number): boolean {
+  return cell === 3 || cell === 4;
 }
