@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertCircle, Check, Globe2, Loader2, RefreshCw, Search, ShieldOff, Users } from "lucide-react";
 import { errorHint } from "@/lib/group-admin";
+import { Callout, EmptyState, LoadingState, PageHeader } from "../ui";
 
 type FedChat = { id: number; title: string };
 type FedBan = { user: number | null; reason: string; by: number | null; at: string | null };
@@ -126,31 +127,30 @@ export default function FederationsScreen() {
   }
 
   return (
-    <main className="mx-auto max-w-6xl py-5 sm:py-8">
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="ios-caps text-[11px]">Videl · Community</p>
-          <h1 className="mt-2 ios-title">Federations</h1>
-          <p className="mt-1 ios-subheadline">
-            Shared ban lists across groups. Creating a federation and issuing a ban stay on the bot commands.
-          </p>
-        </div>
-        <button onClick={() => void load()} disabled={loading || saving} className="ios-btn ios-btn-glass text-sm">
-          <RefreshCw size={16} className={loading ? "animate-spin" : ""} /> Refresh
-        </button>
-      </header>
+    <main className="ios-page">
+      <PageHeader
+        eyebrow="Videl · Community"
+        title="Federations"
+        subtitle="Shared ban lists across groups. Creating a federation and issuing a ban stay on the bot commands."
+        actions={
+          <button onClick={() => void load()} disabled={loading || saving} className="ios-btn ios-btn-glass text-sm">
+            <RefreshCw size={16} className={loading ? "animate-spin" : ""} aria-hidden /> Refresh
+          </button>
+        }
+      />
 
       {error && (
-        <div role="status" className="mt-4 flex items-start gap-2 rounded-2xl border border-amber-300/20 bg-amber-300/5 p-4 text-sm text-amber-100">
-          <AlertCircle size={18} className="mt-0.5 shrink-0" />
-          <span className="flex-1">{error}</span>
-          <button onClick={() => setError("")} className="text-xs underline">Dismiss</button>
-        </div>
+        <Callout tone="warn" className="mt-4" title="That federation change did not go through" icon={<AlertCircle size={18} aria-hidden />}>
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <span className="min-w-0 flex-1">{error}</span>
+            <button onClick={() => setError("")} className="text-xs underline underline-offset-2">Dismiss</button>
+          </div>
+        </Callout>
       )}
       {notice && !error && (
-        <div role="status" className="mt-4 flex items-start gap-2 rounded-2xl border border-emerald-300/20 bg-emerald-300/5 p-3 text-sm text-emerald-100">
-          <Check size={16} className="mt-0.5 shrink-0" /> {notice}
-        </div>
+        <Callout tone="success" className="mt-4" icon={<Check size={16} aria-hidden />}>
+          {notice}
+        </Callout>
       )}
 
       <div className="mt-6 grid gap-4 lg:grid-cols-[0.8fr_1.2fr]">
@@ -172,12 +172,14 @@ export default function FederationsScreen() {
             />
           </div>
           <div className="mt-3 space-y-2">
-            {loading && <p className="ios-caption p-3">Loading federations…</p>}
+            {loading && <LoadingState label="Loading federations" rows={3} className="p-1" />}
             {!loading && !list.length && (
-              <div className="rounded-xl bg-white/[0.03] p-4 text-sm text-[var(--ios-label-secondary)]">
-                No federation exists yet. Create one in a group with <code>/newfed &lt;name&gt;</code>, then add groups
-                with <code>/joinfed</code>.
-              </div>
+              <EmptyState
+                compact
+                icon={<Globe2 size={19} />}
+                title="No federation yet"
+                hint={<>Create one in a group with <code className="mono">/newfed &lt;name&gt;</code>, then add groups with <code className="mono">/joinfed</code>.</>}
+              />
             )}
             {visible.map((row) => (
               <button
@@ -204,15 +206,11 @@ export default function FederationsScreen() {
 
         <section className="ios-card p-4 sm:p-5">
           {!selected ? (
-            <div className="rounded-xl bg-white/[0.03] p-4 text-sm text-[var(--ios-label-secondary)]">
-              Select a federation to review its groups and bans.
-            </div>
+            <EmptyState compact icon={<Globe2 size={19} />} title="Nothing selected" hint="Select a federation to review its groups and bans." />
           ) : detailLoading && !detail ? (
-            <p className="ios-caption flex items-center gap-2"><Loader2 size={14} className="animate-spin" /> Reading federation…</p>
+            <LoadingState label="Reading federation" rows={4} className="p-1" />
           ) : !detail ? (
-            <div className="rounded-xl bg-white/[0.03] p-4 text-sm text-[var(--ios-label-secondary)]">
-              This federation could not be read.
-            </div>
+            <EmptyState compact title="This federation could not be read" hint="Refresh to try again; its stored records may still be intact." />
           ) : (
             <>
               <div className="flex flex-wrap items-start justify-between gap-2">

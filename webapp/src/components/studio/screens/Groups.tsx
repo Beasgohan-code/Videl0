@@ -81,6 +81,7 @@ import {
   type GroupSort,
   type PresetId,
 } from "@/lib/group-admin";
+import { Callout, EmptyState, LoadingState, PageHeader } from "../ui";
 
 type Tab = "protection" | "community" | "moderation" | "members" | "commands" | "inbox" | "audit" | "backup";
 
@@ -691,32 +692,30 @@ export default function GroupsPage() {
   const bulkIds = bulkSelection(picked);
 
   return (
-    <main className="mx-auto max-w-6xl py-5 sm:py-8">
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="ios-caps text-[11px]">Videl · Community</p>
-          <h1 className="mt-2 ios-title">Group Manager</h1>
-          <p className="mt-1 ios-subheadline">
-            Locks, greetings, warnings and blacklists — read from MongoDB, written through the bot.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <button onClick={() => void load()} className="ios-btn ios-btn-glass text-sm" disabled={loading || saving !== null}>
-            <RefreshCw size={16} className={loading ? "animate-spin" : ""} /> Refresh
-          </button>
-          <button
-            onClick={() => {
-              setSelectMode((value) => !value);
-              setPicked([]);
-              setBulkResult("");
-            }}
-            aria-pressed={selectMode}
-            className={`ios-btn text-sm ${selectMode ? "ios-btn-primary" : "ios-btn-glass"}`}
-          >
-            <Layers size={16} /> {selectMode ? "Done selecting" : "Bulk edit"}
-          </button>
-        </div>
-      </header>
+    <main className="ios-page">
+      <PageHeader
+        eyebrow="Videl · Community"
+        title="Group Manager"
+        subtitle="Locks, greetings, warnings and blacklists — read from MongoDB, written through the bot."
+        actions={
+          <>
+            <button onClick={() => void load()} className="ios-btn ios-btn-glass text-sm" disabled={loading || saving !== null}>
+              <RefreshCw size={16} className={loading ? "animate-spin" : ""} aria-hidden /> Refresh
+            </button>
+            <button
+              onClick={() => {
+                setSelectMode((value) => !value);
+                setPicked([]);
+                setBulkResult("");
+              }}
+              aria-pressed={selectMode}
+              className={`ios-btn text-sm ${selectMode ? "ios-btn-primary" : "ios-btn-glass"}`}
+            >
+              <Layers size={16} aria-hidden /> {selectMode ? "Done selecting" : "Bulk edit"}
+            </button>
+          </>
+        }
+      />
 
       <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-4">
         {[
@@ -726,7 +725,7 @@ export default function GroupsPage() {
           { label: "Unreachable", value: summary.unreachable },
         ].map((stat) => (
           <div key={stat.label} className="ios-card p-3">
-            <div className="text-2xl font-semibold tabular-nums">{stat.value}</div>
+            <div className="ios-metric text-2xl font-semibold">{stat.value}</div>
             <div className="ios-caption mt-0.5">{stat.label}</div>
           </div>
         ))}
@@ -776,16 +775,17 @@ export default function GroupsPage() {
       )}
 
       {error && (
-        <div role="status" className="mt-4 flex items-start gap-2 rounded-2xl border border-amber-300/20 bg-amber-300/5 p-4 text-sm text-amber-100">
-          <AlertCircle size={18} className="mt-0.5 shrink-0" />
-          <span className="flex-1">{error}</span>
-          <button onClick={() => setError("")} className="text-xs underline">Dismiss</button>
-        </div>
+        <Callout tone="warn" className="mt-4" title="That change did not go through" icon={<AlertCircle size={18} aria-hidden />}>
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <span className="min-w-0 flex-1">{error}</span>
+            <button onClick={() => setError("")} className="text-xs underline underline-offset-2">Dismiss</button>
+          </div>
+        </Callout>
       )}
       {notice && !error && (
-        <div role="status" className="mt-4 flex items-start gap-2 rounded-2xl border border-emerald-300/20 bg-emerald-300/5 p-3 text-sm text-emerald-100">
-          <Check size={16} className="mt-0.5 shrink-0" /> {notice}
-        </div>
+        <Callout tone="success" className="mt-4" icon={<Check size={16} aria-hidden />}>
+          {notice}
+        </Callout>
       )}
 
       {selectMode && (
@@ -876,14 +876,22 @@ export default function GroupsPage() {
           </div>
 
           <div className="mt-3 space-y-2">
-            {loading && <p className="ios-caption p-3">Loading served chats…</p>}
+            {loading && <LoadingState label="Loading served chats" rows={5} className="p-1" />}
             {!loading && !groups.length && (
-              <div className="rounded-xl bg-white/[0.03] p-4 text-sm text-[var(--ios-label-secondary)]">
-                No served chats were found in MongoDB. Add the bot to a group and run <code>/start</code>.
-              </div>
+              <EmptyState
+                compact
+                title="No served groups yet"
+                hint={<>Add the bot to a group and run <code className="mono">/start</code> — it appears here.</>}
+              />
             )}
             {!loading && groups.length > 0 && !visible.length && (
-              <p className="p-3 text-sm text-white/50">No groups match this search and filter.</p>
+              <EmptyState
+                compact
+                icon={<Search size={19} />}
+                title="No groups match"
+                hint="Clear the search or choose a different filter."
+                action={<button onClick={() => { setQuery(""); setFilter("all"); }} className="ios-btn ios-btn-glass text-xs">Clear filters</button>}
+              />
             )}
             {morePending && (
               <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/[0.02] p-3">
@@ -1616,9 +1624,7 @@ export default function GroupsPage() {
                     />
                   </div>
                   {backupNote && (
-                    <p role="status" className="flex items-start gap-2 rounded-xl border border-emerald-300/20 bg-emerald-300/5 p-3 text-xs text-emerald-100">
-                      <Check size={14} className="mt-0.5 shrink-0" /> {backupNote}
-                    </p>
+                    <Callout tone="success" live className="text-xs">{backupNote}</Callout>
                   )}
                   {restorableId && (
                     <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-white/[0.03] p-3 text-xs">

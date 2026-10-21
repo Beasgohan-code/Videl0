@@ -127,7 +127,7 @@ export function BackendStatus() {
         className="backend-strip-action"
         aria-label="Retry backend connection"
       >
-        <RefreshCw size={12} /> Retry
+        <RefreshCw size={12} aria-hidden /> Retry
       </button>
       <button
         type="button"
@@ -135,7 +135,7 @@ export function BackendStatus() {
         aria-label="Dismiss backend notice"
         className="backend-strip-close"
       >
-        <X size={13} />
+        <X size={13} aria-hidden />
       </button>
     </div>
   );

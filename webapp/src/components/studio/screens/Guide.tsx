@@ -22,6 +22,7 @@ import {
   type BotCommand,
   type CommandCategory,
 } from "@/lib/commands";
+import { Callout, EmptyState, PageHeader } from "../ui";
 
 const ICONS: Record<CommandCategory, typeof BookOpen> = {
   manage: ShieldCheck,
@@ -129,26 +130,20 @@ export default function Guide() {
   const bot = process.env.NEXT_PUBLIC_BOT_USERNAME || "Videl0Bot";
 
   return (
-    <main className="mx-auto max-w-5xl py-8 pb-24 sm:py-12">
-      <header>
-        <p className="ios-caps text-[11px] text-[var(--ios-label-tertiary)]">Command guide</p>
-        <h1 className="ios-title-large mt-3">Everything the bot can do.</h1>
-        <p className="mt-4 max-w-2xl text-sm leading-6 text-[var(--ios-label-secondary)]">
-          All {COMMAND_COUNT} commands the bot registers, grouped by what they are for. Type the
-          command in Telegram — a group command replies in the group, a tool works in any chat.
-          {authenticated === true
-            ? " Owner operations are included because this session is signed in."
-            : " Owner operations stay hidden until you sign in."}
-        </p>
-        <div className="mt-6 flex flex-wrap items-center gap-3">
-          <a href={`https://t.me/${bot}`} target="_blank" rel="noreferrer" className="ios-btn ios-btn-primary text-sm">
-            Open @{bot} <ExternalLink size={15} />
-          </a>
-          <span className="ios-caps text-[11px] text-[var(--ios-label-tertiary)]">
-            /start · /help · /commands
-          </span>
-        </div>
-      </header>
+    <main className="ios-page ios-page-narrow">
+      <PageHeader
+        eyebrow="Command guide"
+        title="Everything the bot can do."
+        subtitle={`All ${COMMAND_COUNT} commands the bot registers, grouped by what they are for. Type the command in Telegram — a group command replies in the group, a tool works in any chat. ${authenticated === true ? "Owner operations are included because this session is signed in." : "Owner operations stay hidden until you sign in."}`}
+        actions={
+          <>
+            <a href={`https://t.me/${bot}`} target="_blank" rel="noreferrer" className="ios-btn ios-btn-primary text-sm">
+              Open @{bot} <ExternalLink size={15} aria-hidden />
+            </a>
+            <span className="ios-caps text-[11px] text-[var(--ios-label-tertiary)]">/start · /help · /commands</span>
+          </>
+        }
+      />
 
       <div className="sticky top-0 z-20 -mx-1 mt-8 bg-[var(--ios-bg)]/90 px-1 py-3 backdrop-blur-xl">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -196,11 +191,10 @@ export default function Guide() {
       </div>
 
       {!authenticated && (
-        <p className="mt-4 flex items-start gap-3 rounded-2xl border border-white/10 bg-white/[0.025] p-4 text-xs leading-5 text-[var(--ios-label-secondary)]">
-          <Lock size={15} className="mt-0.5 shrink-0 text-[var(--ios-label-tertiary)]" />
+        <Callout tone="info" className="mt-4" icon={<Lock size={16} aria-hidden />}>
           Owner commands are not listed publicly. Sign in with the owner Telegram account to see
           broadcasts, blocklists and watchdog controls here.
-        </p>
+        </Callout>
       )}
 
       {groups.map((group) => {
@@ -276,22 +270,23 @@ export default function Guide() {
       })}
 
       {!groups.length && (
-        <div className="ios-card mt-8 p-10 text-center">
-          <Search size={26} className="mx-auto text-[var(--ios-label-tertiary)]" />
-          <h2 className="mt-3 text-sm font-semibold">No command matches “{query}”.</h2>
-          <p className="mt-2 text-xs text-[var(--ios-label-secondary)]">
-            Try a shorter word, or send /help to the bot.
-          </p>
-          <button
-            onClick={() => {
-              setQuery("");
-              setCategory("all");
-            }}
-            className="ios-btn ios-btn-glass mt-4 text-xs"
-          >
-            Clear filters
-          </button>
-        </div>
+        <EmptyState
+          className="mt-8"
+          icon={<Search size={22} />}
+          title={`No command matches “${query}”.`}
+          hint="Try a shorter word, or send /help to the bot."
+          action={
+            <button
+              onClick={() => {
+                setQuery("");
+                setCategory("all");
+              }}
+              className="ios-btn ios-btn-glass text-xs"
+            >
+              Clear filters
+            </button>
+          }
+        />
       )}
 
       <footer className="mt-10 rounded-2xl border border-white/[0.08] bg-white/[0.02] p-5 text-xs leading-6 text-[var(--ios-label-secondary)]">

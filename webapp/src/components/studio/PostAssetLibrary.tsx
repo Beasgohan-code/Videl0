@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState, useRef } from "react";
 import { ArrowDownToLine, Check, ImagePlus, Search, Trash2, Upload, Sparkles, Heart, Star } from "lucide-react";
 import { POST_ASSETS, POST_ASSET_CATEGORIES } from "@/lib/post-assets";
+import { EmptyState } from "./ui";
 
 const STORAGE_KEY = "videl_custom_assets_v1";
 const FAVOURITES_KEY = "videl_asset_favourites_v1";
@@ -212,7 +213,7 @@ export function PostAssetLibrary({
             key={value}
             aria-pressed={category === value}
             onClick={() => setCategory(value)}
-            className={`rounded-full border px-3 py-1.5 text-[11px] transition ${value === category ? "border-[#b5c4a5]/40 bg-[#b5c4a5]/15 text-[#d7e2ca]" : "border-white/10 text-stone-400 hover:text-white"}`}
+            className={`min-h-[34px] rounded-full border px-3 py-1.5 text-[11px] transition ${value === category ? "border-[#b5c4a5]/40 bg-[#b5c4a5]/15 text-[#d7e2ca]" : "border-white/10 text-stone-400 hover:bg-white/5 hover:text-white"}`}
           >
             {value === FAVOURITES ? `★ Favorites · ${favourites.length}` : value}
           </button>
@@ -221,17 +222,16 @@ export function PostAssetLibrary({
 
       {tab === "yours" &&
         (custom.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-white/15 bg-white/[0.02] p-10 text-center">
-            <Sparkles size={28} className="mx-auto text-[#b5c4a5]/50" />
-            <h3 className="mt-3 text-sm font-semibold">No custom assets yet</h3>
-            <p className="mx-auto mt-2 max-w-sm text-xs leading-5 text-stone-400">
-              Upload your own PNG/JPEG images — logos, photos, brand backgrounds. They stay in this browser (localStorage), up to 10 images of
-              1.5 MB, and you can use them instantly as post images.
-            </p>
-            <button onClick={() => fileRef.current?.click()} className="ios-btn ios-btn-glass mt-4 text-xs">
-              <ImagePlus size={14} /> Choose an image
-            </button>
-          </div>
+          <EmptyState
+            icon={<Sparkles size={20} />}
+            title="No custom assets yet"
+            hint="Upload your own PNG/JPEG images — logos, photos, brand backgrounds. They stay in this browser (localStorage), up to 10 images of 1.5 MB, and you can use them instantly as post images."
+            action={
+              <button onClick={() => fileRef.current?.click()} className="ios-btn ios-btn-glass text-xs">
+                <ImagePlus size={14} aria-hidden /> Choose an image
+              </button>
+            }
+          />
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {filteredCustom.map((asset) => {
@@ -321,11 +321,16 @@ export function PostAssetLibrary({
         </div>
       )}
       {tab === "collection" && !filtered.length && (
-        <p role="status" className="rounded-xl border border-white/10 p-6 text-sm text-stone-400">
-          {category === FAVOURITES
-            ? "No favourites yet — tap the star on any image to keep it here."
-            : "No images match your search. Try another category."}
-        </p>
+        <EmptyState
+          compact
+          icon={<Heart size={18} />}
+          title={category === FAVOURITES ? "No favourites yet" : "No images match your search"}
+          hint={
+            category === FAVOURITES
+              ? "Tap the star on any image to keep it here."
+              : "Try another word or category."
+          }
+        />
       )}
       <p className="mt-4 flex items-center gap-2 text-[10px] leading-5 text-stone-500">
         <Heart size={12} className="text-[#b5c4a5]/60" /> Original Videl artwork, generated locally by scripts/create_post_assets.py · your uploads stay in this

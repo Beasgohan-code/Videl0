@@ -100,7 +100,7 @@ export function IOSNav() {
                             active ? "opacity-100" : "opacity-0"
                           }`}
                         />
-                        <item.icon size={17} className={active ? "text-indigo-200" : ""} />
+                        <item.icon size={17} aria-hidden className={active ? "text-indigo-200" : ""} />
                         <span className="truncate">{item.label}</span>
                       </Link>
                     );
@@ -123,9 +123,9 @@ export function IOSNav() {
           <Link href="/" className="shrink-0 font-semibold">
             Videl Studio
           </Link>
-          <ChevronRight size={12} className="shrink-0 text-indigo-100/25" />
+          <ChevronRight size={12} aria-hidden className="shrink-0 text-indigo-100/25" />
           <span className="ios-caps shrink-0 text-indigo-100/35">{groupOf(tab)}</span>
-          <ChevronRight size={12} className="shrink-0 text-indigo-100/25" />
+          <ChevronRight size={12} aria-hidden className="shrink-0 text-indigo-100/25" />
           <span className="ios-caps truncate text-indigo-100/70">
             {visible.find((item) => item.tab === tab)?.label ||
               ownerAccess.label}
@@ -143,7 +143,7 @@ export function IOSNav() {
               className="ios-btn ios-btn-glass text-xs"
               aria-label="Sign out of the owner session"
             >
-              <LogOut size={14} /> <span className="hidden sm:inline">Sign out</span>
+              <LogOut size={14} aria-hidden /> <span className="hidden sm:inline">Sign out</span>
             </button>
           ) : (
             <Link href="/?tab=auth" className="ios-caps text-indigo-200/45">
@@ -188,7 +188,7 @@ export function IOSTabBar() {
               tab === item.tab ? "bg-white/5 text-indigo-100" : "text-white/40"
             }`}
           >
-            <item.icon size={19} />
+            <item.icon size={19} aria-hidden />
             <span className="ios-caps whitespace-nowrap text-[10px]">{item.label}</span>
           </button>
         ))}
@@ -202,7 +202,7 @@ export function IOSTabBar() {
                 : "text-white/40"
             }`}
           >
-            <MoreHorizontal size={19} />
+            <MoreHorizontal size={19} aria-hidden />
             <span className="ios-caps text-[10px]">More</span>
           </button>
         )}

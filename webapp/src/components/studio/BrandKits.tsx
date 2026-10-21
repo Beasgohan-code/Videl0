@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { Palette } from "lucide-react";
 import {
   BRAND_KEY,
   parseBrandKits,
@@ -7,6 +8,7 @@ import {
   type BrandKit,
 } from "@/lib/studio-drafts";
 import type { ImageDesign } from "@/lib/image-design";
+import { EmptyState } from "./ui";
 
 const CORNERS: { id: ImageDesign["logoCorner"]; label: string }[] = [
   { id: "tl", label: "Top left" },
@@ -210,7 +212,7 @@ export function BrandKits({
           </button>
           <button
             disabled={disabled}
-            className="ios-pill"
+            className="ios-pill grid min-h-9 min-w-9 place-items-center text-sm"
             aria-label={`Delete brand ${kit.name}`}
             onClick={() => persist(kits.filter((item) => item.id !== kit.id))}
           >
@@ -218,6 +220,14 @@ export function BrandKits({
           </button>
         </div>
       ))}
+      {!kits.length && (
+        <EmptyState
+          compact
+          icon={<Palette size={18} />}
+          title="No saved brand kits yet"
+          hint="Save the current colours, font, logo and footer as a kit, then apply it to any design in one tap."
+        />
+      )}
       {notice && <p role="status" className="ios-caption">{notice}</p>}
     </section>
   );

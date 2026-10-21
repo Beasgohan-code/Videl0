@@ -715,3 +715,123 @@ button:focus-visible,a:focus-visible { outline: 2px solid #a5b4fc; outline-offse
 /* Wide content (a command table, a long audit detail) never breaks the page. */
 .ios-card { overflow-wrap: anywhere; }
 .ios-card > table { display: block; overflow-x: auto; scrollbar-width: thin; }
+
+/* ── Studio polish: one vocabulary for pages, states and numbers ───────────
+   Screens grew their own versions of the same header, empty state and error
+   strip. These are the shared ones; a screen that uses them stays consistent
+   with every other screen without copying utility strings. */
+
+/* Page rhythm: one max width, one vertical cadence, one bottom allowance for
+   the mobile tab bar so a last button is never trapped under it. */
+.ios-page { width: 100%; max-width: 72rem; margin-inline: auto; padding-block: 1.4rem 2.5rem; }
+.ios-page-narrow { max-width: 60rem; }
+.ios-page-wide { max-width: 80rem; }
+.ios-page-header { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 0.9rem 1.5rem; }
+.ios-page-header > :first-child { min-width: 0; }
+.ios-page-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.ios-eyebrow { font-size: 11px; color: var(--ios-label-tertiary); }
+.ios-section { margin-top: 1.25rem; }
+.ios-section-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0.5rem 1rem; }
+.ios-section-title { font-size: 0.95rem; font-weight: 600; letter-spacing: -0.015em; }
+
+/* Numbers line up in a column, in a card and in a table alike. */
+.ios-metric { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1; letter-spacing: -0.02em; }
+.ios-metric-unit { font-size: 0.72em; font-weight: 500; color: var(--ios-label-tertiary); }
+
+/* Empty, loading and refused states: same box, same voice, everywhere. */
+.ios-state {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 0.55rem; padding: 2.1rem 1.25rem; text-align: center;
+  border-radius: var(--ios-radius-sm);
+  border: 1px dashed rgba(163,179,206,0.18);
+  background: rgba(255,255,255,0.018);
+}
+.ios-state-compact { padding: 1.15rem 1rem; }
+.ios-state-icon {
+  display: grid; place-items: center; height: 2.6rem; width: 2.6rem; border-radius: 999px;
+  background: rgba(129,140,248,0.12); color: #c7d2fe;
+}
+.ios-state-title { font-size: 0.9rem; font-weight: 600; }
+.ios-state-hint { max-width: 36rem; font-size: 0.8125rem; line-height: 1.6; color: var(--ios-label-secondary); }
+.ios-state-action { margin-top: 0.35rem; }
+
+/* Callouts say what happened; tone is never the only signal (icon + title). */
+.ios-callout {
+  display: flex; gap: 0.65rem; padding: 0.85rem 1rem;
+  border: 1px solid; border-radius: 14px; font-size: 0.875rem; line-height: 1.55;
+}
+.ios-callout > svg { flex: none; margin-top: 0.1rem; }
+.ios-callout-body { min-width: 0; }
+.ios-callout-title { font-weight: 600; }
+.ios-callout[data-tone="info"] { border-color: rgba(129,140,248,0.26); background: rgba(99,102,241,0.10); color: #dbe2ff; }
+.ios-callout[data-tone="success"] { border-color: rgba(52,211,153,0.24); background: rgba(16,185,129,0.09); color: #c7f9e2; }
+.ios-callout[data-tone="warn"] { border-color: rgba(251,191,36,0.24); background: rgba(245,158,11,0.09); color: #fdecc4; }
+.ios-callout[data-tone="danger"] { border-color: rgba(251,113,133,0.26); background: rgba(244,63,94,0.10); color: #ffd6dc; }
+
+/* Skeletons: the shape of the answer while it is being fetched. */
+@keyframes ios-shimmer { 100% { transform: translateX(100%); } }
+.ios-skeleton {
+  position: relative; display: block; overflow: hidden;
+  border-radius: 10px; background: rgba(148,163,255,0.09);
+}
+.ios-skeleton::after {
+  content: ""; position: absolute; inset: 0; transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.07), transparent);
+  animation: ios-shimmer 1.6s infinite;
+}
+@media (prefers-reduced-motion: reduce) { .ios-skeleton::after { animation: none; } }
+
+/* Pointer devices get hover feedback; touch devices never get a stuck hover. */
+@media (hover: hover) {
+  .ios-btn:hover:not(:disabled) { transform: translateY(-1px); }
+  .ios-btn-glass:hover:not(:disabled) { background: rgba(120,128,128,0.24); border-color: var(--ios-border-strong); }
+  .ios-btn-primary:hover:not(:disabled) { filter: brightness(1.06); box-shadow: 0 10px 26px rgba(63,96,255,0.34); }
+  .ios-btn-ghost:hover:not(:disabled) { background: rgba(99,102,241,0.10); }
+  .ios-card-interactive:hover { border-color: rgba(141,162,255,0.30); transform: translateY(-1px); }
+  .ios-chip:hover:not(:disabled) { background: rgba(255,255,255,0.055); }
+}
+.ios-card-interactive { cursor: pointer; text-align: left; }
+.ios-card-interactive:active { transform: none; }
+
+/* Focus rings inside clipped cards must not be cut off, but must stay visible. */
+.ios-card :focus-visible, .ios-list :focus-visible { outline-offset: 0; }
+
+/* Headings balance; prose does not leave an orphan word on the last line. */
+h1, h2, h3, h4, .ios-title, .ios-title-large { text-wrap: balance; }
+p { text-wrap: pretty; }
+
+/* A horizontal chip row gets a fade edge instead of a hard cut. */
+.scroll-row { scroll-snap-type: x proximity; }
+
+/* Honour two more system preferences the design system was ignoring. */
+@media (prefers-reduced-transparency: reduce) {
+  .ios-glass, .ios-btn-glass, .tg-layout, .nav-sheet section { backdrop-filter: none; background: var(--ios-card); }
+}
+@media (forced-colors: active) {
+  .ios-card, .ios-list, .ios-btn, .ios-chip, .ios-input, .ios-textarea { border: 1px solid CanvasText; }
+}
+
+/* The layout reserves 88px for the fixed tab bar; screens only need a little
+   breathing room after their last card. */
+@media (max-width: 1023px) {
+  .ios-page, .post-workspace { padding-bottom: 2.25rem; }
+}
+
+/* iOS zooms the whole page when a focused field renders under 16px. The Mini
+   App cannot afford that jump, so every text field is 16px on phones. */
+@media (max-width: 640px) {
+  .studio-panel input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+  .studio-panel textarea,
+  .studio-panel select { font-size: 16px; }
+}
+
+/* The backend strip is the first thing a phone user taps; give it real targets. */
+@media (max-width: 640px) {
+  .backend-strip-action, .backend-strip-close { min-height: 40px; min-width: 40px; justify-content: center; padding: 0 10px; }
+  .backend-strip-close { padding: 0; }
+}
+
+/* Lifts are decoration; people who ask for less motion should not get them. */
+@media (prefers-reduced-motion: reduce) {
+  .ios-btn:hover:not(:disabled), .ios-card-interactive:hover, .ios-card-interactive:active { transform: none; }
+}

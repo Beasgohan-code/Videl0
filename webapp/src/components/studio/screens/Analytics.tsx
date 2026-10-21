@@ -2,7 +2,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { downloadCsv } from "@/lib/csv";
 import Link from "next/link";
-import { Activity, BarChart3, RefreshCw } from "lucide-react";
+import { Activity, BarChart3, MessageSquare, RefreshCw } from "lucide-react";
+import { Callout, EmptyState, LoadingState, PageHeader, SectionHead, Skeleton } from "../ui";
 
 type SeriesPoint = { time: string; commands: number };
 type Analytics = {
@@ -76,91 +77,89 @@ export default function AnalyticsPage() {
     );
   }
   const max = Math.max(1, ...(analytics?.series || []).map((x) => x.commands));
+  const tiles = [
+    ["Registered users", stats?.users],
+    ["Served chats", stats?.chats],
+    ["Music plays", stats?.plays],
+    ["Commands · 24h", analytics?.total_commands],
+  ] as const;
   return (
-    <main className="mx-auto max-w-6xl py-5 sm:py-8">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="ios-caps text-[11px]">Videl · Telemetry</p>
-          <h1 className="mt-2 ios-title">Analytics</h1>
-          <p className="mt-1 ios-subheadline">
-            Observed command activity from MongoDB · rolling 24-hour window.
-          </p>
-        </div>
-        <button
-          onClick={() => void load()}
-          disabled={loading}
-          className="ios-btn ios-btn-glass text-sm"
-        >
-          <RefreshCw size={16} className={loading ? "animate-spin" : ""} />{" "}
-          Refresh
-        </button>
-      </header>
-      <button
-        disabled={loading || !analytics || !stats || Boolean(error)}
-        onClick={exportReport}
-        className="ios-btn ios-btn-glass mt-3 text-xs disabled:opacity-40"
-      >
-        Download observed analytics · CSV
-      </button>
+    <main className="ios-page">
+      <PageHeader
+        eyebrow="Videl · Telemetry"
+        title="Analytics"
+        subtitle="Observed command activity from MongoDB · rolling 24-hour window."
+        actions={
+          <>
+            <button
+              onClick={() => void load()}
+              disabled={loading}
+              className="ios-btn ios-btn-glass text-sm"
+            >
+              <RefreshCw size={16} className={loading ? "animate-spin" : ""} aria-hidden />
+              Refresh
+            </button>
+            <button
+              disabled={loading || !analytics || !stats || Boolean(error)}
+              onClick={exportReport}
+              className="ios-btn ios-btn-glass text-sm"
+            >
+              Download CSV
+            </button>
+          </>
+        }
+      />
       {error && (
-        <div
-          role="alert"
-          className="mt-4 rounded-2xl border border-amber-300/20 bg-amber-300/5 p-4 text-sm text-amber-100"
+        <Callout
+          tone="warn"
+          className="mt-4"
+          title="Some numbers could not be refreshed"
         >
-          {error}
-        </div>
+          {error} Unavailable data is shown as a dash, never as zero activity.
+        </Callout>
       )}
-      <section className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {[
-          ["Registered users", stats?.users],
-          ["Served chats", stats?.chats],
-          ["Music plays", stats?.plays],
-          ["Commands · 24h", analytics?.total_commands],
-        ].map(([label, value]) => (
+      <section className="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4" aria-label="Totals">
+        {tiles.map(([label, value]) => (
           <div key={String(label)} className="ios-card p-4 sm:p-5">
             <div className="ios-caps text-[10px]">{label}</div>
-            <div className="mt-2 text-2xl font-semibold">
-              {typeof value === "number" ? value.toLocaleString() : "—"}
-            </div>
+            {loading && !analytics ? (
+              <Skeleton className="mt-3 h-7 w-16" />
+            ) : (
+              <div className="ios-metric mt-2 text-2xl font-semibold">
+                {typeof value === "number" ? value.toLocaleString() : "—"}
+              </div>
+            )}
           </div>
         ))}
       </section>
       <div className="mt-4 grid gap-4 lg:grid-cols-[1.3fr_0.7fr]">
         <section className="ios-card p-4 sm:p-5">
-          <div className="flex items-center gap-2">
-            <Activity size={17} />
-            <h2 className="font-semibold">Commands per hour</h2>
-          </div>
-          <p className="mt-1 ios-caption">
-            Real command events; activity is recorded after this release.
-          </p>
+          <SectionHead title={<span className="inline-flex items-center gap-2"><Activity size={17} aria-hidden /> Commands per hour</span>} hint="Real command events; activity is recorded after this release." />
           {loading && !analytics ? (
-            <div className="mt-8 text-sm text-[var(--ios-label-secondary)]">
-              Loading data…
-            </div>
+            <LoadingState label="Loading command activity" rows={5} className="mt-6" />
           ) : error && !analytics ? (
-            <p className="mt-5 text-sm text-amber-200">
-              Activity could not be loaded. Refresh to retry; unavailable data
-              is not zero activity.
-            </p>
+            <EmptyState
+              compact
+              icon={<Activity size={19} />}
+              title="Activity could not be loaded"
+              hint="Refresh to retry. Missing data is not the same as zero activity."
+              action={<button onClick={() => void load()} className="ios-btn ios-btn-glass text-xs">Try again</button>}
+            />
           ) : !analytics?.total_commands ? (
-            <div className="mt-5 rounded-xl bg-white/[0.03] p-5 text-sm text-[var(--ios-label-secondary)]">
-              No commands have been recorded in the last 24 hours. Historical
-              data starts as the bot processes commands.
-            </div>
+            <EmptyState
+              compact
+              icon={<Activity size={19} />}
+              title="No commands in the last 24 hours"
+              hint="The chart fills as the bot processes commands. Historical data starts at the first recorded event."
+            />
           ) : (
-            <div className="mt-5 flex h-56 items-end gap-1.5 sm:gap-2">
+            <div className="mt-5 flex h-56 items-end gap-1.5 sm:gap-2" role="img" aria-label="Command counts per hour">
               {analytics.series?.map((point, i) => (
-                <div
-                  key={`${point.time}-${i}`}
-                  className="group relative flex h-full min-w-0 flex-1 flex-col justify-end"
-                >
+                <div key={`${point.time}-${i}`} className="group relative flex h-full min-w-0 flex-1 flex-col justify-end">
                   <div
                     title={`${point.time}: ${point.commands} commands`}
                     className="w-full rounded-t-md bg-blue-400/75 transition hover:bg-blue-300"
-                    style={{
-                      height: `${Math.max(point.commands ? 4 : 0, (point.commands / max) * 100)}%`,
-                    }}
+                    style={{ height: `${Math.max(point.commands ? 4 : 0, (point.commands / max) * 100)}%` }}
                   />
                   <span className="mt-2 text-center text-[9px] text-[var(--ios-label-tertiary)]">
                     {i % 4 === 0 ? point.time : ""}
@@ -170,88 +169,60 @@ export default function AnalyticsPage() {
             </div>
           )}
           {analytics?.truncated && (
-            <p className="mt-3 text-xs text-amber-200">
-              Chart counts are based on the most recent 20,000 events; overall
-              total is exact.
+            <p className="ios-caption mt-3 text-amber-200/85">
+              Chart counts use the most recent 20,000 events; the overall total is exact.
             </p>
           )}
         </section>
         <section className="ios-card p-4 sm:p-5">
-          <div className="flex items-center gap-2">
-            <BarChart3 size={17} />
-            <h2 className="font-semibold">Most-used commands</h2>
-          </div>
+          <SectionHead title={<span className="inline-flex items-center gap-2"><BarChart3 size={17} aria-hidden /> Most-used commands</span>} />
           <div className="mt-4 space-y-2">
             {analytics?.top_commands?.length ? (
               analytics.top_commands.map((row) => {
-                const peak = Math.max(
-                  ...(analytics.top_commands || []).map((entry) => entry.count),
-                  1,
-                );
-                const share = analytics.total_commands
-                  ? Math.round((row.count / analytics.total_commands) * 100)
-                  : null;
+                const peak = Math.max(...(analytics.top_commands || []).map((entry) => entry.count), 1);
+                const share = analytics.total_commands ? Math.round((row.count / analytics.total_commands) * 100) : null;
                 return (
-                  <div
-                    key={row.command}
-                    className="relative overflow-hidden rounded-xl bg-white/[0.035] px-3 py-2.5"
-                  >
-                    <span
-                      aria-hidden
-                      className="absolute inset-y-0 left-0 bg-indigo-400/[0.14]"
-                      style={{ width: `${Math.max(4, (row.count / peak) * 100)}%` }}
-                    />
+                  <div key={row.command} className="relative overflow-hidden rounded-xl bg-white/[0.035] px-3 py-2.5">
+                    <span aria-hidden className="absolute inset-y-0 left-0 bg-indigo-400/[0.14]" style={{ width: `${Math.max(4, (row.count / peak) * 100)}%` }} />
                     <div className="relative flex items-center justify-between gap-3">
-                      <code className="truncate">/{row.command}</code>
-                      <span className="shrink-0 text-sm tabular-nums">
+                      <code className="mono truncate">/{row.command}</code>
+                      <span className="ios-metric shrink-0 text-sm">
                         {row.count.toLocaleString()}
-                        {share !== null && (
-                          <span className="ml-2 text-[10px] text-[var(--ios-label-tertiary)]">
-                            {share}%
-                          </span>
-                        )}
+                        {share !== null && <span className="ml-2 text-[10px] text-[var(--ios-label-tertiary)]">{share}%</span>}
                       </span>
                     </div>
                   </div>
                 );
               })
             ) : (
-              <p className="ios-caption">
-                No command activity is available yet.
-              </p>
+              <EmptyState compact icon={<BarChart3 size={19} />} title="No command activity yet" hint="Commands appear here once the bot records them." />
             )}
           </div>
         </section>
       </div>
-      <section className="mt-4 ios-card p-4 sm:p-5">
-        <h2 className="font-semibold">Most active chats</h2>
-        <p className="mt-1 ios-caption">
-          Ranked by commands processed, not message volume.
-        </p>
+      <section className="ios-card ios-section p-4 sm:p-5">
+        <SectionHead title="Most active chats" hint="Ranked by commands processed, not message volume." />
         <div className="mt-3 grid gap-2 sm:grid-cols-2">
           {analytics?.top_chats?.length ? (
             analytics.top_chats.map((chat) => (
-              <div
-                key={chat.id}
-                className="flex items-center justify-between rounded-xl bg-white/[0.035] px-3 py-3"
-              >
-                <code className="text-xs">{chat.id}</code>
-                <span className="text-sm">
-                  {chat.commands.toLocaleString()} commands
+              <div key={chat.id} className="flex items-center justify-between gap-3 rounded-xl bg-white/[0.035] px-3 py-3">
+                <code className="mono truncate text-xs">{chat.id}</code>
+                <span className="ios-metric shrink-0 text-sm">
+                  {chat.commands.toLocaleString()} <span className="ios-metric-unit">commands</span>
                 </span>
               </div>
             ))
           ) : (
-            <p className="ios-caption">No chat activity is available yet.</p>
+            <div className="sm:col-span-2">
+              <EmptyState compact icon={<MessageSquare size={19} />} title="No chat activity yet" hint="A chat appears once it sends the bot a command." />
+            </div>
           )}
         </div>
       </section>
-      <div className="mt-4 flex flex-wrap items-center justify-between gap-2 ios-caption">
+      <div className="ios-caption ios-section flex flex-wrap items-center justify-between gap-2">
         <span>MongoDB status: {stats?.database || "not reported"}</span>
-        <span>
-          Only command name, chat ID and user ID are stored; no message text.
-        </span>
-        <Link href="/" className="text-white">
+        <span>Only command name, chat ID and user ID are stored; no message text.</span>
+        <Link href="/" className="text-white underline decoration-white/25 underline-offset-4">
           Control room →
         </Link>
       </div>

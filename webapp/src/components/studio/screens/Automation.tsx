@@ -39,6 +39,7 @@ import {
   type Group,
   type ProtectionWindow,
 } from "@/lib/group-admin";
+import { Callout, EmptyState, LoadingState, PageHeader } from "../ui";
 
 const DEFAULT_AUTOMATION: Automation = {
   quiet_hours: { enabled: false, start: "22:00", end: "07:00", tz_offset: 0 },
@@ -235,21 +236,19 @@ export default function AutomationScreen() {
   }
 
   return (
-    <main className="mx-auto max-w-6xl py-5 sm:py-8">
-      <header className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="ios-caps text-[11px]">Videl · Community</p>
-          <h1 className="mt-2 ios-title">Automation</h1>
-          <p className="mt-1 ios-subheadline">
-            Quiet hours and the warning ladder the bot enforces — saved in MongoDB, applied by the running bot.
-          </p>
-        </div>
-        <button onClick={() => void load()} disabled={loading || saving !== null} className="ios-btn ios-btn-glass text-sm">
-          <RefreshCw size={16} className={loading ? "animate-spin" : ""} /> Refresh
-        </button>
-      </header>
+    <main className="ios-page">
+      <PageHeader
+        eyebrow="Videl · Community"
+        title="Automation"
+        subtitle="Quiet hours and the warning ladder the bot enforces — saved in MongoDB, applied by the running bot."
+        actions={
+          <button onClick={() => void load()} disabled={loading || saving !== null} className="ios-btn ios-btn-glass text-sm">
+            <RefreshCw size={16} className={loading ? "animate-spin" : ""} aria-hidden /> Refresh
+          </button>
+        }
+      />
 
-      <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-3">
+      <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
         {[
           { label: "Quiet hours on", value: totals.quiet, icon: Moon },
           { label: "Warning ladder on", value: totals.escalating, icon: ShieldCheck },
@@ -258,7 +257,7 @@ export default function AutomationScreen() {
         ].map((stat) => (
           <div key={stat.label} className="ios-card p-3">
             <div className="flex items-center justify-between">
-              <div className="text-2xl font-semibold tabular-nums">{stat.value}</div>
+              <div className="ios-metric text-2xl font-semibold">{stat.value}</div>
               <stat.icon size={18} className="text-[var(--ios-label-tertiary)]" />
             </div>
             <div className="ios-caption mt-0.5">{stat.label}</div>
@@ -267,16 +266,22 @@ export default function AutomationScreen() {
       </div>
 
       {error && (
-        <div role="status" className="mt-4 flex items-start gap-2 rounded-2xl border border-amber-300/20 bg-amber-300/5 p-4 text-sm text-amber-100">
-          <AlertCircle size={18} className="mt-0.5 shrink-0" />
-          <span className="flex-1">{error}</span>
-          <button onClick={() => setError("")} className="text-xs underline">Dismiss</button>
-        </div>
+        <Callout
+          tone="warn"
+          className="mt-4"
+          title="Automation was not saved"
+          icon={<AlertCircle size={18} aria-hidden />}
+        >
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <span className="min-w-0 flex-1">{error}</span>
+            <button onClick={() => setError("")} className="text-xs underline underline-offset-2">Dismiss</button>
+          </div>
+        </Callout>
       )}
       {notice && !error && (
-        <div role="status" className="mt-4 flex items-start gap-2 rounded-2xl border border-emerald-300/20 bg-emerald-300/5 p-3 text-sm text-emerald-100">
-          <Check size={16} className="mt-0.5 shrink-0" /> {notice}
-        </div>
+        <Callout tone="success" className="mt-4" icon={<Check size={16} aria-hidden />}>
+          {notice}
+        </Callout>
       )}
 
       <div className="mt-6 grid gap-4 lg:grid-cols-[0.85fr_1.15fr]">
@@ -298,11 +303,13 @@ export default function AutomationScreen() {
             />
           </div>
           <div className="mt-3 space-y-2">
-            {loading && <p className="ios-caption p-3">Loading served chats…</p>}
+            {loading && <LoadingState label="Loading served chats" rows={4} className="p-1" />}
             {!loading && !groups.length && (
-              <div className="rounded-xl bg-white/[0.03] p-4 text-sm text-[var(--ios-label-secondary)]">
-                No served chats were found. Add the bot to a group and run <code>/start</code>.
-              </div>
+              <EmptyState
+                compact
+                title="No served chats yet"
+                hint={<>Add the bot to a group and run <code className="mono">/start</code> — the group appears here.</>}
+              />
             )}
             {visible.map((group) => {
               const automation = automationOf(group);

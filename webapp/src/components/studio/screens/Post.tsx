@@ -308,7 +308,7 @@ export default function ChannelStudio() {
   const previewTheme = lightPreview ? "light" : "dark";
   return (
     <main className="post-workspace mx-auto max-w-7xl py-5 sm:py-8">
-      <header className="flex flex-wrap items-center justify-between gap-3">
+      <header className="ios-page-header items-center">
         <div>
           <p className="ios-caption2">VIDEL · PUBLISHING</p>
           <h1 className="mt-2 ios-title">Post Studio</h1>
@@ -339,7 +339,7 @@ export default function ChannelStudio() {
             }}
             className="ios-btn ios-btn-glass text-sm"
           >
-            <RefreshCw size={15} /> New post
+            <RefreshCw size={15} aria-hidden /> New post
           </button>
           <button disabled={busy} className="ios-btn ios-btn-glass text-sm" onClick={() => {
             const draft:Draft={id:crypto.randomUUID(),chatId:isOwner?chatId:"",text,parseMode:"HTML",mediaUrl:localImage?"":mediaUrl,buttons,savedAt:new Date().toISOString()};
@@ -354,7 +354,7 @@ export default function ChannelStudio() {
             onClick={saveDraft}
             className="ios-btn ios-btn-glass text-sm"
           >
-            <Clipboard size={15} /> Save draft
+            <Clipboard size={15} aria-hidden /> Save draft
           </button>
         </div>
       </header>
@@ -395,7 +395,7 @@ export default function ChannelStudio() {
           {autoStatus}
         </p>
       )}
-      <div className="mt-5 flex flex-wrap gap-2">
+      <div className="mt-5 flex flex-wrap gap-2" role="group" aria-label="Post workspace mode">
         <button
           aria-pressed={!showTemplates && !showAssets && !showCovers}
           onClick={() => {
@@ -456,7 +456,7 @@ export default function ChannelStudio() {
             </p>
             <button
               onClick={() => setShowAssets(true)}
-              className="mt-4 text-xs text-[#cbd8ba] underline underline-offset-4"
+              className="mt-4 inline-flex min-h-9 items-center text-xs text-[#cbd8ba] underline underline-offset-4"
             >
               Open the image composer
             </button>
@@ -537,7 +537,7 @@ export default function ChannelStudio() {
                 setParseMode("HTML");
                 setShowTemplates(false);
               }}
-              className="ios-card p-5 text-left transition hover:border-[#b5c4a5]/40"
+              className="ios-card ios-card-interactive p-5"
             >
               <span className="ios-pill ios-pill-blue">{template.tag}</span>
               <h2 className="mt-4 text-sm font-semibold">{template.title}</h2>
@@ -758,7 +758,7 @@ export default function ChannelStudio() {
                 className="ios-btn ios-btn-primary w-full disabled:opacity-50"
               >
                 {busy ? "Sending to Telegram…" : "Publish post"}
-                <Send size={16} />
+                <Send size={16} aria-hidden />
               </button>
             </>
           )}

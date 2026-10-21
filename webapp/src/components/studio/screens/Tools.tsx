@@ -13,6 +13,7 @@ import {
 import { campaignLink, textInsights } from "@/lib/creator-tools";
 import { markdownToTelegram } from "@/lib/markdown-telegram";
 import { previewHtml } from "@/lib/telegram-format";
+import { Callout, PageHeader } from "../ui";
 
 const EXAMPLE = `## Launch day
 **Videl 2.0** is live — *finally*.
@@ -60,20 +61,17 @@ export default function Tools() {
   }
 
   return (
-    <main className="mx-auto max-w-6xl py-8 pb-24">
-      <header className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <p className="ios-caps text-[11px]">Small tools, better posts</p>
-          <h1 className="ios-title mt-3">Creator tools</h1>
-          <p className="mt-3 max-w-xl text-sm leading-6 text-[var(--ios-label-secondary)]">
-            Private by design. Your text, links and Markdown are processed in this
-            browser and never uploaded.
-          </p>
-        </div>
-        <span className="ios-caps flex items-center gap-2 rounded-full border border-emerald-300/20 bg-emerald-400/[0.06] px-3 py-1.5 text-[10px] text-emerald-200/80">
-          <Sparkles size={12} /> Runs locally
-        </span>
-      </header>
+    <main className="ios-page">
+      <PageHeader
+        eyebrow="Small tools, better posts"
+        title="Creator tools"
+        subtitle="Private by design. Your text, links and Markdown are processed in this browser and never uploaded."
+        actions={
+          <span className="ios-pill ios-pill-green">
+            <Sparkles size={12} aria-hidden /> Runs locally
+          </span>
+        }
+      />
 
       <div className="mt-7 grid gap-5 lg:grid-cols-2">
         <section className="ios-card p-5">
@@ -158,7 +156,7 @@ export default function Tools() {
               />
             </label>
           ))}
-          {error && <p className="mt-4 text-xs text-amber-200">{error}</p>}
+          {error && <Callout tone="warn" className="mt-4">{error}</Callout>}
           {link && (
             <>
               <textarea
@@ -285,9 +283,7 @@ export default function Tools() {
         </div>
       </section>
 
-      <p role="status" className="mt-4 text-sm text-indigo-200">
-        {status}
-      </p>
+      {status && <Callout tone="success" className="mt-4" live>{status}</Callout>}
     </main>
   );
 }

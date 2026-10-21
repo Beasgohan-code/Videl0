@@ -30,7 +30,7 @@ export default function Home() {
   const { open } = useStudio();
   if (authenticated === true) return <OwnerHome />;
   return (
-    <main className="mx-auto max-w-6xl py-10 pb-24 sm:py-16">
+    <main className="ios-page">
       <p className="ios-caps text-[12px] text-indigo-200/45">Your creative space</p>
       <h1 className="mt-4 max-w-2xl text-4xl font-semibold tracking-tight sm:text-6xl">
         Make something worth sharing.
@@ -41,10 +41,10 @@ export default function Home() {
       </p>
       <div className="mt-7 flex flex-wrap items-center gap-3">
         <button onClick={() => open("post")} className="ios-btn ios-btn-primary">
-          Open Post Studio <ArrowUpRight size={18} />
+          Open Post Studio <ArrowUpRight size={18} aria-hidden />
         </button>
         <button onClick={() => open("guide")} className="ios-btn ios-btn-glass">
-          <BookOpen size={16} /> Browse the command guide
+          <BookOpen size={16} aria-hidden /> Browse the command guide
         </button>
       </div>
 
@@ -54,7 +54,7 @@ export default function Home() {
       >
         <div className="flex flex-wrap items-center justify-between gap-3 px-1">
           <p className="ios-caps flex items-center gap-2 text-[11px] text-indigo-100/50">
-            <Images size={14} /> Made here, not stock
+            <Images size={14} aria-hidden /> Made here, not stock
           </p>
           <span className="mono text-[10px] text-indigo-100/35">
             {coverCount} covers · {POST_ASSETS.length} images
@@ -65,7 +65,7 @@ export default function Home() {
             <button
               key={asset.id}
               onClick={() => open("post")}
-              className="group overflow-hidden rounded-2xl border border-white/10 text-left transition hover:border-indigo-300/35"
+              className="ios-card-interactive group overflow-hidden rounded-2xl border border-white/10"
               aria-label={`Open Post Studio to use “${asset.title}”`}
             >
               <span className="block overflow-hidden">
@@ -75,6 +75,7 @@ export default function Home() {
                   width={1200}
                   height={675}
                   loading="lazy"
+                  decoding="async"
                   className="aspect-video w-full object-cover transition duration-500 group-hover:scale-[1.035]"
                 />
               </span>
@@ -117,16 +118,16 @@ export default function Home() {
           <button
             key={item.tab}
             onClick={() => open(item.tab)}
-            className="ios-card p-6 text-left transition hover:border-indigo-300/30"
+            className="ios-card ios-card-interactive p-6"
           >
-            <item.icon className="text-indigo-300" size={27} />
+            <item.icon className="text-indigo-300" size={27} aria-hidden />
             <h2 className="mt-5 text-lg font-semibold">{item.title}</h2>
             <p className="mt-3 text-sm leading-6 text-indigo-100/50">{item.body}</p>
           </button>
         ))}
       </section>
       <p className="mt-8 flex items-center gap-2 text-xs text-indigo-100/40">
-        <LockKeyhole size={14} /> Your drafts stay on this device. Creating and
+        <LockKeyhole size={14} aria-hidden /> Your drafts stay on this device. Creating and
         exporting does not send anything to Telegram.
       </p>
     </main>

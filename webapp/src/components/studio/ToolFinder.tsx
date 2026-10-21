@@ -16,7 +16,9 @@ import {
   KeyRound,
   BookOpen,
   Command as CommandIcon,
+  SearchX,
 } from "lucide-react";
+import { EmptyState } from "./ui";
 import { useTelegram } from "@/components/TelegramProvider";
 import { canOpenSection } from "@/lib/access";
 import { BOT_COMMANDS } from "@/lib/commands";
@@ -271,7 +273,7 @@ export function ToolFinder() {
                 }`}
               >
                 <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-indigo-400/10 text-indigo-300">
-                  <result.icon size={19} />
+                  <result.icon size={19} aria-hidden />
                 </span>
                 <span className="min-w-0">
                   <span className="flex items-center gap-2">
@@ -288,13 +290,16 @@ export function ToolFinder() {
                     {result.description}
                   </span>
                 </span>
-                <ArrowUpRight size={15} className="ml-auto shrink-0 text-white/30" />
+                <ArrowUpRight size={15} aria-hidden className="ml-auto shrink-0 text-white/30" />
               </button>
             ))}
             {!results.length && (
-              <p className="p-5 text-sm text-white/50">
-                No matching panel or command. Try “post”, “analytics” or “warn”.
-              </p>
+              <EmptyState
+                compact
+                icon={<SearchX size={18} />}
+                title="No matching panel or command"
+                hint="Try “post”, “analytics” or “warn”."
+              />
             )}
           </div>
           <p className="mt-3 text-[10px] text-white/35">
