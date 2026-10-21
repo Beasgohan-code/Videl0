@@ -5,6 +5,7 @@ import {
   ArrowUpRight,
   Check,
   Clipboard,
+  Copy,
   Eye,
   RefreshCw,
   Send,
@@ -28,6 +29,7 @@ import {
   importDraftDocument,
   parseDrafts,
   parseDraft,
+  copyDraft,
 } from "@/lib/post-drafts";
 type Result = { ok: boolean; message: string };
 const templates = [
@@ -62,14 +64,22 @@ export default function ChannelStudio() {
   const lastSent = useRef("");
   const sending = useRef(false);
   const [reviewed, setReviewed] = useState(false);
-  const [undo, setUndo] = useState<null | {
+  /**
+   * Undo is a stack, not an apology. Every action that throws work away — a
+   * new post, opening a draft, importing a file — pushes the outgoing state
+   * here first, so the notice can walk back one step at a time instead of
+   * stopping the writer with a confirm dialog.
+   */
+  type Snapshot = {
+    reason: string;
     text: string;
     mediaUrl: string;
     localImage: File | null;
     buttons: BtnRow[];
     chatId: string;
     at: number;
-  }>(null);
+  };
+  const [undo, setUndo] = useState<Snapshot[]>([]);
   const [showTemplates, setShowTemplates] = useState(false);
 
   const [chatId, setChatId] = useState("");
@@ -162,6 +172,32 @@ export default function ChannelStudio() {
       return false;
     }
   }
+  function pushUndo(reason: string) {
+    if (!text.trim() && !localImage && !mediaUrl) return;
+    const snapshot: Snapshot = {
+      reason,
+      text,
+      mediaUrl,
+      localImage,
+      buttons,
+      chatId,
+      at: Date.now(),
+    };
+    setUndo((stack) => [...stack, snapshot].slice(-5));
+  }
+  function undoLast() {
+    const snapshot = undo[undo.length - 1];
+    if (!snapshot) return;
+    setRecovery(null);
+    setText(snapshot.text);
+    setMediaUrl(snapshot.mediaUrl);
+    setLocalImage(snapshot.localImage);
+    setButtons(snapshot.buttons);
+    setChatId(snapshot.chatId);
+    setUndo((stack) => stack.slice(0, -1));
+    setResult({ ok: true, message: "Put back the previous post." });
+  }
+
   function saveDraft() {
     if (localImage) {
       setResult({
@@ -190,6 +226,43 @@ export default function ChannelStudio() {
     if (persistDrafts([draft, ...drafts].slice(0, 20)))
       setResult({ ok: true, message: "Draft saved in this browser only." });
   }
+  /** Keep the post exactly as it is and start a second, separate copy of it. */
+  function duplicatePost() {
+    if (localImage) {
+      setResult({
+        ok: false,
+        message:
+          "Download the attached image first: a copy can carry text, links and buttons, not a local file.",
+      });
+      return;
+    }
+    if (!text.trim() && !mediaUrl.trim() && !buttons.length) {
+      setResult({ ok: false, message: "Write something before duplicating it." });
+      return;
+    }
+    const draft: Draft = {
+      id: crypto.randomUUID(),
+      chatId: isOwner ? chatId.trim() : "",
+      text,
+      parseMode,
+      mediaUrl: mediaUrl.trim(),
+      buttons: JSON.parse(JSON.stringify(buttons)),
+      savedAt: new Date().toISOString(),
+    };
+    if (persistDrafts([draft, ...drafts].slice(0, 20))) {
+      setResult({
+        ok: true,
+        message: "A copy is in your drafts. Edit this one freely; the copy stays as it was.",
+      });
+    }
+  }
+
+  function copySavedDraft(draft: Draft) {
+    if (persistDrafts([copyDraft(draft), ...drafts].slice(0, 20))) {
+      setResult({ ok: true, message: "Draft copied. It has its own name and date now." });
+    }
+  }
+
   function saveVersion(){
     if(!text.trim()&&!mediaUrl&&!buttons.length)return;
     const version:Draft={id:crypto.randomUUID(),chatId:isOwner?chatId:"",text,parseMode:"HTML",mediaUrl:localImage?"":mediaUrl,buttons:JSON.parse(JSON.stringify(buttons)),savedAt:new Date().toISOString()};
@@ -197,13 +270,7 @@ export default function ChannelStudio() {
     try{localStorage.setItem(VERSION_KEY,JSON.stringify(next));setVersions(next);setResult({ok:true,message:"Version saved locally. Local image files are not included."})}catch{setResult({ok:false,message:"Version not saved: browser storage unavailable."})}
   }
   function restoreDraft(draft: Draft) {
-    if (
-      (text.trim() || localImage || mediaUrl) &&
-      !window.confirm(
-        "Replace the current post with this draft? Download any attached image first.",
-      )
-    )
-      return;
+    pushUndo("Opened a saved draft");
     setRecovery(null);
     setLocalImage(null);
     setChatId(draft.chatId);
@@ -334,16 +401,7 @@ export default function ChannelStudio() {
               // Nothing is lost: the outgoing post is kept in memory for a
               // moment, and the notice under the header puts it back. A modal
               // asking "are you sure" is a wall, not a safety net.
-              if (text.trim() || localImage || mediaUrl) {
-                setUndo({
-                  text,
-                  mediaUrl,
-                  localImage,
-                  buttons,
-                  chatId,
-                  at: Date.now(),
-                });
-              }
+              pushUndo("Started a new post");
               setRecovery(null);
               setChatId("");
               setText("");
@@ -355,6 +413,14 @@ export default function ChannelStudio() {
             className="ios-btn ios-btn-glass text-sm"
           >
             <RefreshCw size={15} aria-hidden /> New post
+          </button>
+          <button
+            disabled={busy}
+            onClick={duplicatePost}
+            className="ios-btn ios-btn-glass text-sm"
+            title="Keep this post and start a second copy"
+          >
+            <Copy size={15} aria-hidden /> Duplicate
           </button>
           <button disabled={busy} className="ios-btn ios-btn-glass text-sm" onClick={() => {
             const draft:Draft={id:crypto.randomUUID(),chatId:isOwner?chatId:"",text,parseMode:"HTML",mediaUrl:localImage?"":mediaUrl,buttons,savedAt:new Date().toISOString()};
@@ -385,26 +451,21 @@ export default function ChannelStudio() {
         }}
       />
 
-      {undo ? (
+      {undo.length ? (
         <section role="status" className="post-undo">
           <span>
-            Started a new post. The previous one is still here for a moment.
+            {undo[undo.length - 1].reason}. The previous post is still here
+            {undo.length > 1 ? ` (${undo.length} steps back)` : ""}.
           </span>
-          <button
-            type="button"
-            className="ios-btn ios-btn-glass text-xs"
-            onClick={() => {
-              setText(undo.text);
-              setMediaUrl(undo.mediaUrl);
-              setLocalImage(undo.localImage);
-              setButtons(undo.buttons);
-              setChatId(undo.chatId);
-              setUndo(null);
-            }}
-          >
+          <button type="button" className="ios-btn ios-btn-glass text-xs" onClick={undoLast}>
             Undo
           </button>
-          <button type="button" className="post-undo-dismiss" onClick={() => setUndo(null)} aria-label="Dismiss">
+          <button
+            type="button"
+            className="post-undo-dismiss"
+            onClick={() => setUndo([])}
+            aria-label="Dismiss"
+          >
             ×
           </button>
         </section>
@@ -906,6 +967,14 @@ export default function ChannelStudio() {
                         {draft.chatId || "No destination"} ·{" "}
                         {new Date(draft.savedAt).toLocaleString()}
                       </span>
+                    </button>
+                    <button
+                      aria-label="Make a copy of this draft"
+                      title="Make a copy"
+                      onClick={() => copySavedDraft(draft)}
+                      className="rounded-lg p-2 text-white/55 hover:bg-white/10 hover:text-white"
+                    >
+                      <Copy size={15} />
                     </button>
                     <button
                       aria-label="Delete draft"
