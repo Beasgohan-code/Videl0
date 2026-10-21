@@ -8,8 +8,7 @@ import random
 from videl import call_py
 from videl.core import queue,player
 from videl.utils.command_ui import result
-from videl.utils.bot_ui import button
-from pyrogram.types import InlineKeyboardMarkup
+from videl.utils.rich_ui import rich_button, rich_button_row
 from .router import Screen,CommandError
 
 log=logging.getLogger(__name__)
@@ -21,9 +20,11 @@ async def view_queue(ctx):
     tracks = list(queue.get_queue(chat_id))
     if not tracks:
         return Screen(
-            result("Your queue", body="Nothing is playing yet. Send <code>/play song name</code> in a voice chat to get started."),
-            InlineKeyboardMarkup([[button("Music help", callback_data="help:music", style="primary"),
-                                   button("Browse commands", callback_data="cmds:all:0")]]),
+            result("Your queue", body="Nothing is playing yet. Send <code>/play song name</code> in a voice chat to get started.")
+            + rich_button_row(
+                rich_button("Music help", callback_data="help:music", style="primary"),
+                rich_button("Browse commands", callback_data="cmds:all:0"),
+            )
         )
 
     # Keep the player card readable in Telegram while reporting when the list is
@@ -38,17 +39,22 @@ async def view_queue(ctx):
     paused = player.is_paused(chat_id)
     loop = player.get_loop(chat_id)
     repeat_label = {"off": "Repeat off", "one": "Repeat track", "all": "Repeat queue"}.get(loop, "Repeat off")
-    controls = InlineKeyboardMarkup([
-        [button("Resume" if paused else "Pause", callback_data="resume" if paused else "pause",
-                style="success" if paused else "primary"),
-         button("Skip", callback_data="skip")],
-        [button(repeat_label, callback_data="cycle_loop"), button("Shuffle", callback_data="shuffle")],
-        [button("Clear upcoming", callback_data="clear", style="danger")],
+    controls = "".join([
+        rich_button_row(
+            rich_button("Resume" if paused else "Pause", callback_data="resume" if paused else "pause",
+                        style="success" if paused else "primary"),
+            rich_button("Skip", callback_data="skip"),
+        ),
+        rich_button_row(
+            rich_button(repeat_label, callback_data="cycle_loop"),
+            rich_button("Shuffle", callback_data="shuffle"),
+        ),
+        rich_button_row(rich_button("Clear upcoming", callback_data="clear", style="danger")),
     ])
     upcoming = max(0, len(tracks) - 1)
     shown = min(len(tracks), len(visible))
     footer = f"{upcoming} upcoming · showing {shown} of {len(tracks)} tracks"
-    return Screen(result("Music queue", rows, body=footer), controls)
+    return Screen(result("Music queue", rows, body=footer) + controls)
 
 
 async def control(ctx, *, cycle=False):
