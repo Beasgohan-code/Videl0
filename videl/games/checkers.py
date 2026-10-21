@@ -13,7 +13,6 @@ panel renders it with no lookup table.
 from .registry import Game, GameError
 
 CROWN_FROM = {1: 3, 2: 4}
-CROWN_TO = {3: 1, 4: 2}
 DIAGONALS = ((1, 1), (1, -1), (-1, 1), (-1, -1))
 
 #: Own-turns without a capture before a side is called stale and loses.
