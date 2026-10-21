@@ -2422,9 +2422,9 @@ html { scroll-padding-top: 5.5rem; }
   }
 }
 
-/* ── Post Studio flow ────────────────────────────────────────────────────────
-   The rail is a map, not a wizard: every stage is always reachable, and the
-   count on the right is the one number a writer checks before publishing. */
+/* ── Post Studio guided pages ────────────────────────────────────────────────
+   Keep one focused publishing step on screen at a time; the draft stays mounted
+   in React state while page controls are swapped. */
 .post-flow {
   position: sticky;
   top: 0.5rem;
@@ -3223,3 +3223,42 @@ html { scroll-behavior: smooth; }
 .arcade-reaction-row .arcade-nudge { margin-left: auto; color: #fcd34d; font-size: 10px; }
 .arcade-reaction-event { color: #fcd34d; }
 @media (max-width:540px) { .arcade-chinese-board { padding: 6px; gap: 1px; }.arcade-dots-grid { padding: 6px; }.arcade-dots-dot { width: 6px;height: 6px; }.arcade-dots-edge-h { height: 4px; }.arcade-dots-edge-v { width: 4px; } }
+
+/* Guided, page-by-page publishing workflow */
+.post-workspace[data-post-step] [data-post-page] { display: none !important; }
+.post-workspace[data-post-step="write"] [data-post-page="write"],
+.post-workspace[data-post-step="design"] [data-post-page="design"],
+.post-workspace[data-post-step="preview"] [data-post-page="preview"],
+.post-workspace[data-post-step="queue"] [data-post-page="queue"] { display: block !important; }
+.post-workspace[data-post-step="write"] [data-post-page="write"].grid,
+.post-workspace[data-post-step="design"] [data-post-page="design"].grid { display: grid !important; }
+.post-workspace[data-post-step] [data-post-page].flex { display: flex !important; }
+.post-workspace[data-post-step] [data-post-page="queue"].ios-btn { display: flex !important; }
+.post-workspace[data-post-step] [hidden] { display: none !important; }
+.post-workspace[data-post-step="write"] fieldset,
+.post-workspace[data-post-step="design"] fieldset,
+.post-workspace[data-post-step="preview"] fieldset { grid-template-columns: minmax(0, 1fr); }
+.post-workspace[data-post-step="write"] fieldset > aside,
+.post-workspace[data-post-step="design"] fieldset > aside,
+.post-workspace[data-post-step="preview"] fieldset > #post-write { display: none; }
+@media (min-width: 1024px) {
+  .post-workspace[data-post-step="queue"] fieldset { grid-template-columns: minmax(0, .82fr) minmax(0, 1.18fr); }
+}
+.post-flow-pager { display: flex; align-items: center; justify-content: space-between; gap: .5rem; width: 100%; border-top: 1px solid rgba(255,255,255,.07); padding: .55rem .35rem .15rem; }
+.post-flow-page-button { display: inline-flex; align-items: center; justify-content: center; gap: .4rem; min-height: 40px; border-radius: 12px; padding: .55rem .85rem; font-size: .75rem; font-weight: 650; transition: background .16s ease, transform .16s ease, border-color .16s ease; }
+.post-flow-previous { border: 1px solid rgba(255,255,255,.1); color: rgba(226,232,240,.76); }
+.post-flow-previous:hover { background: rgba(255,255,255,.06); }
+.post-flow-continue { border: 1px solid rgba(190,180,255,.28); background: linear-gradient(115deg,rgba(108,81,222,.28),rgba(72,94,214,.2)); color: #e5e7ff; }
+.post-flow-continue:hover { border-color: rgba(190,180,255,.5); background: linear-gradient(115deg,rgba(108,81,222,.4),rgba(72,94,214,.3)); }
+.post-flow-step-count { color: rgba(148,163,184,.55); font-size: .65rem; font-variant-numeric: tabular-nums; }
+@media (max-width: 720px) {
+  .post-flow { position: sticky; top: .25rem; }
+  .post-flow > ol { width: 100%; justify-content: space-between; }
+  .post-flow-meter { order: 2; }
+  .post-flow-pager { order: 3; }
+  .post-flow-page-button { min-height: 44px; }
+}
+.post-page-heading { display: flex; align-items: flex-start; gap: .85rem; margin-top: 1rem; border-left: 2px solid rgba(181,196,165,.55); padding: .2rem 0 .2rem .85rem; }
+.post-page-heading > span { flex: none; padding-top: .2rem; color: rgba(203,216,186,.65); font-size: .65rem; letter-spacing: .12em; }
+.post-page-heading h2 { color: #f0f2eb; font-size: 1.05rem; font-weight: 650; letter-spacing: -.02em; }
+.post-page-heading p { margin-top: .2rem; color: rgba(203,213,195,.55); font-size: .74rem; line-height: 1.5; }

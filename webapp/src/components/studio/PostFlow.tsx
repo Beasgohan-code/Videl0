@@ -1,23 +1,16 @@
 "use client";
-import { useEffect, useState } from "react";
-import { ArrowRight, Check, Circle, Clock3, Eye, PenLine, Sparkles } from "lucide-react";
+import { useState } from "react";
+import { ArrowLeft, ArrowRight, Check, Circle, Clock3, Eye, PenLine, Sparkles } from "lucide-react";
 
-/**
- * The Post Studio flow.
- *
- * A post is four decisions in a fixed order — what it says, what it looks like,
- * who will read it, when it goes. The editor used to put all four on one long
- * page and leave the writer to remember where they were. This rail names the
- * order, shows the one thing still missing at each stage, and moves the page
- * instead of hiding content: nothing is lost when a step is skipped.
- */
+/** A guided, four-page publishing flow. The draft stays in the parent while
+ * each page shows just the controls needed for that step. */
 export type Stage = "write" | "design" | "preview" | "queue";
 
 const STAGES: { key: Stage; label: string; detail: string; anchor: string }[] = [
   { key: "write", label: "Write", detail: "The words", anchor: "post-write" },
   { key: "design", label: "Design", detail: "Image and buttons", anchor: "post-design" },
   { key: "preview", label: "Preview", detail: "Read it as a phone", anchor: "post-preview" },
-  { key: "queue", label: "Queue", detail: "Send or schedule", anchor: "post-queue" },
+  { key: "queue", label: "Publish", detail: "Send or schedule", anchor: "post-queue" },
 ];
 
 const ICONS = { write: PenLine, design: Sparkles, preview: Eye, queue: Clock3 };
@@ -31,6 +24,10 @@ export function PostFlow({
   schedule,
   save,
   words = 0,
+  previewed = false,
+  published = false,
+  activeStage,
+  onStageChange,
 }: {
   characters: number;
   limit: number;
@@ -38,51 +35,29 @@ export function PostFlow({
   buttons: number;
   canPublish: boolean;
   schedule?: { ready: boolean; note: string };
-  /** "Saving…" / "Saved 4s ago" / "Autosave off" — the rail is where a writer
-   *  looks when they want to know whether it is safe to close the tab. */
   save?: { state: "idle" | "saving" | "saved" | "error"; note: string };
   words?: number;
+  previewed?: boolean;
+  published?: boolean;
+  activeStage?: Stage;
+  onStageChange?: (stage: Stage) => void;
 }) {
-  const [active, setActive] = useState<Stage>("write");
-  const [done, setDone] = useState<Record<Stage, boolean>>({
-    write: false,
-    design: false,
-    preview: false,
-    queue: false,
-  });
+  const [localActive, setLocalActive] = useState<Stage>("write");
+  const active = activeStage ?? localActive;
+  const done: Record<Stage, boolean> = {
+    write: canPublish,
+    design: hasImage || buttons > 0,
+    preview: previewed,
+    queue: published,
+  };
 
-  useEffect(() => {
-    setDone((current) => ({
-      ...current,
-      write: characters > 0,
-      design: hasImage || buttons > 0,
-      queue: canPublish,
-    }));
-  }, [characters, hasImage, buttons, canPublish]);
-
-  /* The rail follows the page: whichever stage is in front of the reader is
-     the one that is lit. Scrolling is how people actually skip around, so the
-     rail listens to it rather than to clicks. */
-  useEffect(() => {
-    const sections = STAGES.map((stage) => document.getElementById(stage.anchor)).filter(
-      (node): node is HTMLElement => Boolean(node),
-    );
-    if (!sections.length || typeof IntersectionObserver === "undefined") return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const visible = entries
-          .filter((entry) => entry.isIntersecting)
-          .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
-        if (!visible) return;
-        const match = STAGES.find((stage) => stage.anchor === visible.target.id);
-        if (match) setActive(match.key);
-      },
-      { rootMargin: "-20% 0px -55% 0px", threshold: [0.05, 0.4, 0.8] },
-    );
-    sections.forEach((node) => observer.observe(node));
-    return () => observer.disconnect();
-  }, []);
-
+  const change = (stage: Stage) => {
+    setLocalActive(stage);
+    onStageChange?.(stage);
+  };
+  const currentIndex = Math.max(0, STAGES.findIndex((stage) => stage.key === active));
+  const previous = STAGES[currentIndex - 1];
+  const next = STAGES[currentIndex + 1];
   const firstMissing = STAGES.find((stage) => !done[stage.key])?.key;
 
   return (
@@ -97,34 +72,26 @@ export function PostFlow({
                 type="button"
                 data-active={active === stage.key}
                 data-state={state}
-                onClick={() => {
-                  const node = document.getElementById(stage.anchor);
-                  node?.scrollIntoView({ behavior: "smooth", block: "start" });
-                  node?.focus({ preventScroll: true });
-                }}
+                onClick={() => change(stage.key)}
                 aria-current={active === stage.key ? "step" : undefined}
+                aria-label={`Step ${index + 1}: ${stage.label}${done[stage.key] ? ", complete" : ""}`}
               >
                 <span className="post-flow-icon" aria-hidden>
                   {done[stage.key] ? <Check size={13} strokeWidth={3} /> : <Icon size={13} />}
                 </span>
                 <span className="post-flow-text">
-                  <b>
-                    {index + 1}. {stage.label}
-                  </b>
+                  <b>{index + 1}. {stage.label}</b>
                   <i>{stage.detail}</i>
                 </span>
               </button>
-              {index < STAGES.length - 1 ? (
-                <ArrowRight className="post-flow-arrow" size={13} aria-hidden />
-              ) : null}
+              {index < STAGES.length - 1 ? <ArrowRight className="post-flow-arrow" size={13} aria-hidden /> : null}
             </li>
           );
         })}
       </ol>
       <div className="post-flow-meter">
         <span className="post-flow-count" data-over={characters > limit}>
-          {characters}
-          <i>/{limit}</i>
+          {characters.toLocaleString()}<i>/{limit.toLocaleString()}</i>
         </span>
         {words ? <span className="post-flow-words">{words} {words === 1 ? "word" : "words"}</span> : null}
         {save ? (
@@ -137,6 +104,23 @@ export function PostFlow({
           </span>
         ) : null}
       </div>
+      <div className="post-flow-pager" aria-label={`Step ${currentIndex + 1} of ${STAGES.length}`}>
+        {previous ? (
+          <button type="button" className="post-flow-page-button post-flow-previous" onClick={() => change(previous.key)}>
+            <ArrowLeft size={14} aria-hidden /> Back
+          </button>
+        ) : <span className="post-flow-step-count">Start</span>}
+        <span className="post-flow-step-count">Step {currentIndex + 1} of {STAGES.length}</span>
+        {next ? (
+          <button type="button" className="post-flow-page-button post-flow-continue" onClick={() => change(next.key)}>
+            Continue to {next.label} <ArrowRight size={14} aria-hidden />
+          </button>
+        ) : (
+          <span className="post-flow-step-count">Final step</span>
+        )}
+      </div>
+      <span className="sr-only" aria-live="polite">Step {currentIndex + 1} of {STAGES.length}: {STAGES[currentIndex]?.label}</span>
+      <span className="sr-only">{canPublish ? "Post content is ready for review." : "Add text or media before publishing."}</span>
     </nav>
   );
 }

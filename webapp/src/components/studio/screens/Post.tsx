@@ -19,7 +19,7 @@ import { visibleLength, plainPostText } from "@/lib/telegram-format";
 import { RichEditor } from "@/components/editor/RichEditor";
 import { ButtonBuilder, BtnRow } from "@/components/editor/ButtonBuilder";
 import { ChannelPreview } from "@/components/channel/Preview";
-import { PostFlow } from "@/components/studio/PostFlow";
+import { PostFlow, type Stage } from "@/components/studio/PostFlow";
 
 import {
   PostDraft as Draft,
@@ -92,8 +92,11 @@ export default function ChannelStudio() {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
   const [lightPreview, setLightPreview] = useState(false);
+  const [postStage, setPostStage] = useState<Stage>("write");
+  const [published, setPublished] = useState(false);
   useEffect(() => {
     setReviewed(false);
+    setPublished(false);
   }, [chatId, text, mediaUrl, parseMode, buttons]);
   const [recovery, setRecovery] = useState<Draft | null>(null);
   const [storageReady, setStorageReady] = useState(false);
@@ -393,6 +396,7 @@ export default function ChannelStudio() {
       if (!response.ok || !data.ok)
         throw new Error(data.error || "Telegram rejected the post");
       lastSent.current = fingerprint;
+      setPublished(true);
       setResult({
         ok: true,
         message: `Telegram accepted the post · message ${data.message_id} · chat ${data.chat_id}`,
@@ -418,8 +422,16 @@ export default function ChannelStudio() {
   const limit = hasImage ? 1024 : 4096;
   const remaining = limit - visibleLength(text);
   const previewTheme = lightPreview ? "light" : "dark";
+  const stageContent: Record<Stage, { title: string; description: string }> = {
+    write: { title: "Write your post", description: "Start with the message. Your draft saves in this browser as you work." },
+    design: { title: "Add a little design", description: "Attach an image, build buttons, or keep it beautifully simple." },
+    preview: { title: "Review before it goes", description: "Check the destination, formatting, media and buttons as a reader will see them." },
+    queue: isOwner
+      ? { title: "Publish or schedule", description: "Run the checklist, then send now or choose a scheduled time." }
+      : { title: "Save and export", description: "Review the checklist, save a local draft, or export your finished post." },
+  };
   return (
-    <main className="post-workspace mx-auto max-w-7xl py-5 sm:py-8">
+    <main className="post-workspace mx-auto max-w-7xl py-5 sm:py-8" data-post-step={postStage}>
       <header className="ios-page-header items-center">
         <div>
           <p className="ios-caption2">VIDEL · PUBLISHING</p>
@@ -475,6 +487,13 @@ export default function ChannelStudio() {
           </button>
         </div>
       </header>
+      <div className="post-page-heading" aria-live="polite">
+        <span className="ios-caps">STEP {(["write", "design", "preview", "queue"] as Stage[]).indexOf(postStage) + 1} OF 4</span>
+        <div>
+          <h2>{stageContent[postStage].title}</h2>
+          <p>{stageContent[postStage].description}</p>
+        </div>
+      </div>
       <PostFlow
         characters={visibleLength(text)}
         limit={limit}
@@ -494,6 +513,10 @@ export default function ChannelStudio() {
                   : "autosave on this device",
         }}
         schedule={{ ready: isOwner, note: isOwner ? "⌘S draft · ⌘⏎ publish" : "sign in to schedule" }}
+        previewed={reviewed}
+        published={published}
+        activeStage={postStage}
+        onStageChange={setPostStage}
       />
 
       {undo.length ? (
@@ -557,6 +580,7 @@ export default function ChannelStudio() {
         <button
           aria-pressed={!showTemplates && !showAssets && !showCovers}
           onClick={() => {
+            setPostStage("write");
             setShowTemplates(false);
             setShowAssets(false);
             setShowCovers(false);
@@ -568,6 +592,7 @@ export default function ChannelStudio() {
         <button
           aria-pressed={showTemplates}
           onClick={() => {
+            setPostStage("write");
             setShowTemplates(true);
             setShowAssets(false);
             setShowCovers(false);
@@ -579,6 +604,7 @@ export default function ChannelStudio() {
         <button
           aria-pressed={showCovers}
           onClick={() => {
+            setPostStage("design");
             setShowCovers(true);
             setShowTemplates(false);
             setShowAssets(false);
@@ -590,6 +616,7 @@ export default function ChannelStudio() {
         <button
           aria-pressed={showAssets}
           onClick={() => {
+            setPostStage("design");
             setShowAssets(true);
             setShowTemplates(false);
             setShowCovers(false);
@@ -600,7 +627,7 @@ export default function ChannelStudio() {
         </button>
       </div>
       {!showTemplates && !showAssets && !showCovers && (
-        <section className="post-editorial-banner mt-5 flex items-center justify-between gap-5 overflow-hidden rounded-2xl border border-white/10 p-5 sm:p-7">
+        <section data-post-page="write" className="post-editorial-banner mt-5 flex items-center justify-between gap-5 overflow-hidden rounded-2xl border border-white/10 p-5 sm:p-7">
           <img className="post-editorial-art" src="/studio/flow.jpg" alt="" aria-hidden decoding="async" />
           <div className="max-w-md">
             <p className="post-eyebrow">THE PUBLISHING DESK</p>
@@ -614,7 +641,7 @@ export default function ChannelStudio() {
               before publishing.
             </p>
             <button
-              onClick={() => setShowAssets(true)}
+              onClick={() => { setPostStage("design"); setShowAssets(true); }}
               className="mt-4 inline-flex min-h-9 items-center text-xs text-[#cbd8ba] underline underline-offset-4"
             >
               Open the image composer
@@ -629,7 +656,7 @@ export default function ChannelStudio() {
           />
         </section>
       )}
-      <div hidden={!showAssets}>
+      <div hidden={!showAssets} data-post-page="design">
         <ImageComposer
           disabled={busy}
           onAttach={(file) => {
@@ -644,6 +671,7 @@ export default function ChannelStudio() {
         />
       </div>
       {showCovers && (
+        <section data-post-page="design">
         <PostAssetLibrary
           selected={mediaUrl}
           disabled={busy}
@@ -677,9 +705,10 @@ export default function ChannelStudio() {
             }
           }}
         />
+        </section>
       )}
       {showTemplates && (
-        <section className="mt-4 grid gap-3 sm:grid-cols-3">
+        <section data-post-page="write" className="mt-4 grid gap-3 sm:grid-cols-3">
           {templates.map((template) => (
             <button
               key={template.title}
@@ -717,7 +746,7 @@ export default function ChannelStudio() {
       >
         <section id="post-write" tabIndex={-1} className="space-y-4">
           {isOwner && (
-            <div className="ios-card p-4 sm:p-5">
+            <div data-post-page="write" className="ios-card p-4 sm:p-5">
               <div className="flex flex-wrap items-end gap-3">
                 <label className="min-w-[220px] flex-1 text-sm font-medium">
                   Channel or chat ID
@@ -742,7 +771,7 @@ export default function ChannelStudio() {
               </p>
             </div>
           )}
-          <div>
+          <div data-post-page="write">
             <div className="mb-2 flex items-center justify-between">
               <h2 className="ios-caption2">Post text</h2>
               <span
@@ -760,7 +789,7 @@ export default function ChannelStudio() {
               placeholder="Write a Telegram announcement…"
             />
           </div>
-          <div className="ios-card space-y-3 p-4 sm:p-5">
+          <div data-post-page="design" className="ios-card space-y-3 p-4 sm:p-5">
             <div>
               <h2 className="ios-caption2">Post image</h2>
               <p className="mt-1 ios-caption">
@@ -771,6 +800,7 @@ export default function ChannelStudio() {
             <div className="flex flex-wrap gap-2">
               <button
                 onClick={() => {
+                  setPostStage("design");
                   setShowAssets(true);
                   setShowTemplates(false);
                   window.scrollTo({ top: 0, behavior: "smooth" });
@@ -781,6 +811,7 @@ export default function ChannelStudio() {
               </button>
               <button
                 onClick={() => {
+                  setPostStage("design");
                   setShowCovers(true);
                   setShowAssets(false);
                   setShowTemplates(false);
@@ -827,7 +858,7 @@ export default function ChannelStudio() {
               />
             )}
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div data-post-page="write" className="flex flex-wrap gap-2">
             <button
               className="ios-btn ios-btn-glass text-sm"
               disabled={!text.trim()}
@@ -873,7 +904,7 @@ export default function ChannelStudio() {
               Share post
             </button>
           </div>
-          <div id="post-design" tabIndex={-1} className="scroll-mt-24">
+          <div id="post-design" data-post-page="design" tabIndex={-1} className="scroll-mt-24">
             <ButtonBuilder value={buttons} onChange={setButtons} />
           </div>
           {result && (
@@ -896,36 +927,31 @@ export default function ChannelStudio() {
           )}
           {isOwner && (
             <>
-              <label className="flex items-start gap-3 rounded-xl border border-[#b5c4a5]/15 bg-[#b5c4a5]/5 p-4 text-xs leading-5 text-stone-400">
-                <input
-                  type="checkbox"
-                  checked={reviewed}
-                  disabled={busy}
-                  onChange={(e) => setReviewed(e.target.checked)}
-                  className="mt-1"
-                />
-                I reviewed the destination and preview. Publish this post to{" "}
-                {chatId.trim() || "the selected destination"}.
-              </label>
+              {!reviewed ? (
+                <p data-post-page="queue" className="rounded-xl border border-amber-300/15 bg-amber-300/[0.04] p-3 text-xs text-amber-100/75">Go back to Preview and confirm the destination before publishing.</p>
+              ) : !chatId.trim() ? (
+                <p data-post-page="queue" className="rounded-xl border border-amber-300/15 bg-amber-300/[0.04] p-3 text-xs text-amber-100/75">Add the channel or chat ID on the Write page to enable publishing.</p>
+              ) : null}
               <button
-                onClick={() => void sendPost()}
-                disabled={
-                  busy ||
-                  remaining < 0 ||
-                  !reviewed ||
-                  !chatId.trim() ||
-                  (!text.trim() && !hasImage)
-                }
-                className="ios-btn ios-btn-primary w-full disabled:opacity-50"
-              >
-                {busy ? "Sending to Telegram…" : "Publish post"}
-                <Send size={16} aria-hidden />
+              data-post-page="queue"
+              onClick={() => void sendPost()}
+              disabled={
+                busy ||
+                remaining < 0 ||
+                !reviewed ||
+                !chatId.trim() ||
+                (!text.trim() && !hasImage)
+              }
+              className="ios-btn ios-btn-primary w-full disabled:opacity-50"
+            >
+              {busy ? "Sending to Telegram…" : published ? "Post published ✓" : "Publish post"}
+              <Send size={16} aria-hidden />
               </button>
             </>
           )}
         </section>
         <aside className="space-y-4 lg:sticky lg:top-20 lg:self-start">
-          <section id="post-preview" tabIndex={-1} className="ios-card-elevated scroll-mt-24 p-4">
+          <section id="post-preview" data-post-page="preview" tabIndex={-1} className="ios-card-elevated scroll-mt-24 p-4">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <h2 className="font-semibold">Preview</h2>
@@ -951,6 +977,14 @@ export default function ChannelStudio() {
                 theme={previewTheme}
               />
             </div>
+            {isOwner ? (
+              <label className="mt-4 flex items-start gap-3 rounded-xl border border-[#b5c4a5]/20 bg-[#b5c4a5]/5 p-3 text-xs leading-5 text-stone-300">
+                <input type="checkbox" checked={reviewed} disabled={busy} onChange={(event) => setReviewed(event.target.checked)} className="mt-1" />
+                I reviewed the destination and preview. I’m ready to publish to {chatId.trim() || "the selected destination"}.
+              </label>
+            ) : (
+              <p className="mt-3 text-xs text-stone-400">Sign in as the bot owner to publish or schedule. You can still create and export posts here.</p>
+            )}
             <div className="mt-3 flex gap-2">
               <button
                 onClick={async () => {
@@ -979,11 +1013,11 @@ export default function ChannelStudio() {
               </a>
             </div>
           </section>
-          <div id="post-queue" tabIndex={-1} className="scroll-mt-24" />
-          {isOwner&&<ScheduledPosts chatId={chatId} text={text} mediaUrl={mediaUrl} buttons={buttons} hasLocalImage={!!localImage} reviewed={reviewed} disabled={busy||remaining<0}/>}
-          <section className="ios-card space-y-3 p-4"><h2 className="font-semibold">Publishing checklist</h2><p className="ios-caption">Advisory checks, not a guarantee of delivery.</p>{postChecks(text,!!mediaUrl||!!localImage,buttons).map(check=><div key={check.label} className="rounded-xl bg-white/[0.035] p-3"><div className="text-sm">{check.state==="pass"?"✓":check.state==="error"?"Fix":"Review"} · {check.label}</div><p className="ios-caption mt-1">{check.detail}</p></div>)}</section>
-          <section className="ios-card space-y-3 p-4"><h2 className="font-semibold">Version history</h2><p className="ios-caption">Up to 20 manual checkpoints in this browser. Image files are excluded.</p><button className="ios-btn ios-btn-glass text-xs" disabled={busy} onClick={saveVersion}>Save version</button>{versions.map((version,i)=><div className="rounded-xl bg-white/[0.035] p-3" key={version.id}><p className="text-xs">{new Date(version.savedAt).toLocaleString()} · {visibleLength(version.text)} characters</p><p className="ios-caption truncate">{plainPostText(version.text).slice(0,100)||"Image/button post"}</p><button className="ios-pill mt-2" disabled={busy} onClick={()=>restoreDraft({...version,chatId:isOwner?version.chatId:""})}>Restore version {versions.length-i}</button></div>)}</section>
-          <section className="ios-card p-4">
+          <div id="post-queue" data-post-page="queue" tabIndex={-1} className="scroll-mt-24" />
+          {isOwner&&<div data-post-page="queue"><ScheduledPosts chatId={chatId} text={text} mediaUrl={mediaUrl} buttons={buttons} hasLocalImage={!!localImage} reviewed={reviewed} disabled={busy||remaining<0}/></div>}
+          <section data-post-page="queue" className="ios-card space-y-3 p-4"><h2 className="font-semibold">Publishing checklist</h2><p className="ios-caption">Advisory checks, not a guarantee of delivery.</p>{postChecks(text,!!mediaUrl||!!localImage,buttons).map(check=><div key={check.label} className="rounded-xl bg-white/[0.035] p-3"><div className="text-sm">{check.state==="pass"?"✓":check.state==="error"?"Fix":"Review"} · {check.label}</div><p className="ios-caption mt-1">{check.detail}</p></div>)}</section>
+          <section data-post-page="queue" className="ios-card space-y-3 p-4"><h2 className="font-semibold">Version history</h2><p className="ios-caption">Up to 20 manual checkpoints in this browser. Image files are excluded.</p><button className="ios-btn ios-btn-glass text-xs" disabled={busy} onClick={saveVersion}>Save version</button>{versions.map((version,i)=><div className="rounded-xl bg-white/[0.035] p-3" key={version.id}><p className="text-xs">{new Date(version.savedAt).toLocaleString()} · {visibleLength(version.text)} characters</p><p className="ios-caption truncate">{plainPostText(version.text).slice(0,100)||"Image/button post"}</p><button className="ios-pill mt-2" disabled={busy} onClick={()=>restoreDraft({...version,chatId:isOwner?version.chatId:""})}>Restore version {versions.length-i}</button></div>)}</section>
+          <section data-post-page="queue" className="ios-card p-4">
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="font-semibold">Local drafts</h2>

@@ -394,12 +394,35 @@ test("the post flow names its four stages and never claims a done step", async (
       canPublish: false,
     }),
   );
-  for (const stage of ["Write", "Design", "Preview", "Queue"]) {
+  for (const stage of ["Write", "Design", "Preview", "Publish"]) {
     assert.match(html, new RegExp(stage), `the rail names ${stage}`);
   }
-  assert.match(html, /0<i>\/4096<\/i>/, "the counter starts honest");
+  assert.match(html, /Continue to Design/, "the first page has an explicit next action");
+  assert.match(html, /Step 1 of 4/, "the flow reports the current page");
+  assert.match(html, /0<i>\/4,096<\/i>/, "the counter starts honest");
   assert.match(html, /data-state="next"/, "the first unfinished stage is marked");
   assert.ok(!/undefined/.test(html));
+});
+
+test("post review stays on its own page and only completed review is marked done", async () => {
+  const { PostFlow } = await import("../src/components/studio/PostFlow");
+  const html = render(
+    createElement(PostFlow, {
+      characters: 140,
+      limit: 4096,
+      hasImage: false,
+      buttons: 0,
+      canPublish: true,
+      activeStage: "preview",
+      previewed: true,
+      published: false,
+    }),
+  );
+  assert.match(html, /Step 3 of 4/);
+  assert.match(html, /aria-current="step"/);
+  assert.match(html, /data-state="done"/);
+  assert.match(html, /Continue to Publish/);
+  assert.ok(!/data-state="done"[^>]*>4\\. Publish/.test(html), "a ready draft is not a published post");
 });
 
 test("a draw offer shows the answer, not another offer", async () => {
