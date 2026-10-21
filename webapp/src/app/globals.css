@@ -2417,3 +2417,14 @@ html { scroll-padding-top: 5.5rem; }
   .post-undo { animation: none; }
   .post-flow { animation: none; }
 }
+.voice-invite {
+  font-size: 0.66rem;
+  line-height: 1.3;
+  color: rgba(226, 232, 240, 0.66);
+  max-width: 17rem;
+}
+.voice-invite[data-quiet="true"] { color: rgba(148, 163, 184, 0.45); }
+.voice-join[data-invite="true"] {
+  border-color: rgba(94, 234, 212, 0.4);
+  box-shadow: 0 0 0 1px rgba(94, 234, 212, 0.12), 0 12px 30px -22px #5eead4;
+}

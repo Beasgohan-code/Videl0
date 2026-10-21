@@ -172,6 +172,7 @@ export function VoiceDock({
 
   const active = state.status === "ready" || state.status === "live" || state.status === "connecting";
   const connected = Object.keys(peers).length;
+  const others = room.seats.filter((entry) => entry.seat !== seat && entry.online);
 
   if (!supported) {
     return (
@@ -186,10 +187,26 @@ export function VoiceDock({
   return (
     <div className="voice-dock" data-state={state.status} data-live={active && !muted ? "true" : "false"}>
       {!active ? (
-        <button onClick={() => void start()} className="ios-btn ios-btn-glass voice-join" disabled={state.status === "asking"}>
-          {state.status === "asking" ? <Loader2 size={14} className="animate-spin" aria-hidden /> : <Headphones size={14} aria-hidden />}
-          {state.status === "asking" ? "Asking for the mic…" : "Start voice"}
-        </button>
+        <>
+          <button
+            onClick={() => void start()}
+            className="ios-btn ios-btn-glass voice-join"
+            data-invite={others.length > 0}
+            disabled={state.status === "asking"}
+          >
+            {state.status === "asking" ? <Loader2 size={14} className="animate-spin" aria-hidden /> : <Headphones size={14} aria-hidden />}
+            {state.status === "asking" ? "Asking for the mic…" : "Start voice"}
+          </button>
+          {others.length ? (
+            <span className="voice-invite">
+              {others[0].name} is at the table — say hello out loud. Holds space to talk.
+            </span>
+          ) : (
+            <span className="voice-invite" data-quiet="true">
+              Voice opens when a second chair fills.
+            </span>
+          )}
+        </>
       ) : (
         <>
           <button
