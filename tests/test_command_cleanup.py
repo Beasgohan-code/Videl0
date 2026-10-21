@@ -19,7 +19,7 @@ class CommandCleanupTests(unittest.TestCase):
         for required in ('play','vplay','cplay','autoplay','queue','q','playlist','saveplaylist',
                          'playlists','deleteplaylist','song','vsong','download','ban','warn',
                          'lock','unapprove','addblacklist','rmblacklist','setup','permissions',
-                         'poll','quiz','copy','topicrename','remind','watchdog','dbcleanup'):
+                         'poll','quiz','copy','topicrename','remind','watchdog','dbcleanup','tagall'):
             self.assertIn(required,names)
 
     def test_unused_dependency_declarations_are_gone(self):

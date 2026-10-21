@@ -48,15 +48,25 @@ DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
 def _get_yt_dlp_opts(audio_only: bool = True, out_path: Optional[str] = None) -> dict:
     """Build professional yt-dlp options with cookies, proxy, external downloader support."""
     cookies = None
-    for key in ("YTDLP_COOKIES", "COOKIES_PATH", "YOUTUBE_COOKIES_FILE", "cookies.txt"):
-        v = os.getenv(key)
-        if v and Path(v).exists():
-            cookies = v
-            break
-    if not cookies and Path("/app/cookies.txt").exists():
-        cookies = "/app/cookies.txt"
-    elif not cookies and Path("cookies.txt").exists():
-        cookies = "cookies.txt"
+    # Never pass the repository's placeholder cookies.txt to yt-dlp. Only
+    # accept an exported Netscape cookie jar containing YouTube auth cookies.
+    candidates = [
+        os.getenv("YTDLP_COOKIES"), os.getenv("YT_COOKIES_FILE"),
+        os.getenv("COOKIES_PATH"), os.getenv("YOUTUBE_COOKIES_FILE"),
+        "/app/cookies.txt", "cookies.txt",
+    ]
+    markers = ("\tSID\t", "\tHSID\t", "\tSSID\t", "\tLOGIN_INFO\t",
+               "\tSAPISID\t", "\tAPISID\t", "\t__Secure-3PSID\t")
+    for candidate in candidates:
+        if not candidate or not Path(candidate).is_file():
+            continue
+        try:
+            raw = Path(candidate).read_text(encoding="utf-8", errors="ignore")
+            if any(marker in raw for marker in markers):
+                cookies = candidate
+                break
+        except OSError:
+            continue
 
     proxy = (os.getenv("PROXY_URL") or os.getenv("YOUTUBE_PROXY") or "").strip()
     if proxy and "://" not in proxy:
@@ -82,8 +92,6 @@ def _get_yt_dlp_opts(audio_only: bool = True, out_path: Optional[str] = None) ->
         "retries": 5,
         "fragment_retries": 10,
         "concurrent_fragment_downloads": 5,
-        "http_chunk_size": 10 * 1024 * 1024,
-        "extractor_args": {"youtube": {"player_client": ["android", "ios", "web", "web_embedded"]}},
         "postprocessors": [],
         "prefer_ffmpeg": True,
         "keepvideo": False,

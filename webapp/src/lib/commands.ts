@@ -541,6 +541,14 @@ export const BOT_COMMANDS: BotCommand[] = [
     "owner": false
   },
   {
+    "name": "tagall",
+    "usage": "/tagall",
+    "summary": "Mention up to 50 group members (admin only)",
+    "category": "manage",
+    "context": "group",
+    "owner": false
+  },
+  {
     "name": "tban",
     "usage": "/tban <duration> [reason]",
     "summary": "Temporarily ban a member",

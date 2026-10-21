@@ -168,6 +168,49 @@ async def invite(ctx) -> Screen:
     )
 
 
+async def tagall(ctx) -> Screen | None:
+    """Mention a bounded sample of members Telegram exposes to this bot."""
+    from html import escape as html_escape
+
+    argument = ctx.command.arguments.strip()
+    if len(argument) > 180:
+        raise CommandError("Keep the optional announcement under 180 characters.")
+    client = ctx.client
+    chat_id = ctx.message.chat.id
+    mentions = []
+    try:
+        async for member in client.get_chat_members(chat_id, limit=51):
+            user = getattr(member, "user", None)
+            if not user or getattr(user, "is_bot", False):
+                continue
+            name = " ".join(part for part in (getattr(user, "first_name", ""), getattr(user, "last_name", "")) if part).strip() or "member"
+            mentions.append(f'<a href="tg://user?id={user.id}">{html_escape(name)}</a>')
+            if len(mentions) >= 50:
+                break
+    except Exception as exc:
+        raise CommandError(f"Could not read this group's member list ({type(exc).__name__}). Check the bot's access and try again.") from None
+    if not mentions:
+        raise CommandError("Telegram did not return any mentionable members.")
+
+    # Telegram messages are limited to 4096 chars. Bound output and disclose
+    # that this is a sample rather than implying the API returned everyone.
+    selected = mentions
+    while selected:
+        label = f"📣 <b>Announcement · {len(selected)} members</b>"
+        prefix = label + (f"\n{html_escape(argument)}" if argument else "") + "\n"
+        if len(prefix + " ".join(selected)) <= 3900:
+            break
+        selected = selected[:-1]
+    if not selected:
+        raise CommandError("Member names were too long to fit in one Telegram message.")
+    body_text = prefix + " ".join(selected)
+    await client.send_message(chat_id, body_text, parse_mode="html",
+                              message_thread_id=getattr(ctx.message, "message_thread_id", None))
+    # The announcement is the confirmation; a second reply would add noise to
+    # the group immediately after a potentially large mention.
+    return None
+
+
 COMMANDS = (
     Command("pin", pin, "Pin a replied message", category="manage", policy="admin", rights=("can_pin_messages",)),
     Command("unpin", pin, "Unpin the latest pin", category="manage", policy="admin", rights=("can_pin_messages",)),
@@ -184,4 +227,5 @@ COMMANDS = (
     Command("stats", stats, "Stored data and uptime", category="tools"),
     Command("invite", invite, "Create an approval-only invite link", category="manage", policy="admin",
             rights=("can_invite_users",)),
+    Command("tagall", tagall, "Mention up to 50 group members (admin only)", category="manage", policy="admin"),
 )

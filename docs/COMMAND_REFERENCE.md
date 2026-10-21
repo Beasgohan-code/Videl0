@@ -5,7 +5,7 @@ This documents navigation and source coverage, not verified live Telegram behavi
 Aliases are listed separately; permissions remain enforced by the referenced handler.
 Owner operations are hidden from public `/commands` results.
 
-159 distinct command names.
+160 distinct command names.
 
 ## Music & playlists
 
@@ -118,6 +118,7 @@ Owner operations are hidden from public `/commands` results.
 | `/setwelcome` | group | `videl/plugins/welcome.py::set_welcome` |
 | `/slowmode` | group | `videl/plugins/group.py::slowmode` |
 | `/stopfilter` | group | `videl/plugins/notes.py::remove_filter` |
+| `/tagall` | group | `videl/plugins/group.py::tagall` |
 | `/tban` | group | `videl/plugins/moderation.py::moderate` |
 | `/tmute` | group | `videl/plugins/moderation.py::moderate` |
 | `/unapprove` | group | `videl/modules/approve.py::unapprove_cmd` |
