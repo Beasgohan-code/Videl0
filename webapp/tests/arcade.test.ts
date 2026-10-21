@@ -35,7 +35,11 @@ test("a player cookie round-trips and cannot be forged", async () => {
   const other = await import("../src/lib/player-auth");
   const forged = await (async () => {
     const marker = other.playerMarker({ id: 99, name: "Mallory" });
-    return marker!.split(".")[0] + "." + marker!.split(".")[1].replace(/^./, "0");
+    const [body, signature] = marker!.split(".");
+    // Flip a hex digit rather than "replace with 0": the first character can
+    // already be 0, which would leave a valid signature in place.
+    const flipped = `${signature[0] === "0" ? "1" : "0"}${signature.slice(1)}`;
+    return `${body}.${flipped}`;
   })();
   assert.equal(validPlayer(cookieRequest(`videl_player=${forged}`)), null);
 });

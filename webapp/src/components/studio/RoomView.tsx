@@ -62,12 +62,17 @@ export function RoomView({
   const [busy, setBusy] = useState(false);
   const [text, setText] = useState("");
   const [now, setNow] = useState(() => Date.now());
+  const [skew, setSkew] = useState(0);
   const [copied, setCopied] = useState(false);
   const seq = useRef(0);
   const triedJoin = useRef(false);
   const feed = useRef<HTMLDivElement>(null);
 
   const apply = useCallback((next: Room, rows: RoomEvent[]) => {
+    // The turn clock is measured on the server; a phone with a wrong clock must
+    // not see "0s" while the room still has half a minute.
+    const serverNow = Date.parse(next.server_time);
+    if (Number.isFinite(serverNow)) setSkew(serverNow - Date.now());
     setRoom(next);
     seq.current = Math.max(seq.current, next.seq);
     if (rows.length) setEvents((current) => [...current, ...rows].slice(-120));
@@ -256,7 +261,7 @@ export function RoomView({
                       myTurn ? "bg-amber-400/15 text-amber-200" : "bg-white/[0.05] text-indigo-100/60"
                     }`}
                   >
-                    <Clock size={14} aria-hidden /> {countdown(room.deadline_at, now) || "…"}
+                    <Clock size={14} aria-hidden /> {countdown(room.deadline_at, now + skew) || "…"}
                   </span>
                 ) : null}
               </div>
@@ -311,7 +316,27 @@ export function RoomView({
                 ) : null}
                 {room.status === "open" && !mine ? (
                   <button
-                    onClick={() => void send({ action: "move", move: {} })}
+                    onClick={async () => {
+                      setBusy(true);
+                      try {
+                        const response = await fetch("/api/arcade/join", {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ code }),
+                          cache: "no-store",
+                        });
+                        const data = await response.json().catch(() => ({}));
+                        if (!response.ok || !data.ok)
+                          throw new Error(data.error || "That seat could not be taken.");
+                        apply(data.room as Room, []);
+                        setError("");
+                        onChanged();
+                      } catch (failure) {
+                        setError((failure as Error).message);
+                      } finally {
+                        setBusy(false);
+                      }
+                    }}
                     disabled={busy}
                     className="ios-btn ios-btn-primary"
                   >
