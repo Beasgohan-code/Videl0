@@ -51,7 +51,7 @@ to code that actually runs:
   same way. A protection-window tick writes runtime state only, so it never
   turns an open panel's next save into a false conflict. Bot-side writes still
   work without a token but advance the counter, so an open panel notices them.
-- **Command switches** — any of the 155 registered commands can be turned off
+- **Command switches** — any registered command can be turned off
   for one group. A handler at group −1 refuses it before every other handler,
   so this also covers commands that never pass through the declarative router.
   Group admins and the bot owner stay exempt.

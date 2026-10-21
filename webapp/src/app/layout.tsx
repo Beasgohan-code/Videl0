@@ -4,7 +4,14 @@ import { IOSNav, IOSTabBar } from "@/components/ios/IOSNav";
 import { StudioProvider } from "@/components/studio/StudioProvider";
 import { TelegramProvider } from "@/components/TelegramProvider";
 
+const siteUrl =
+  process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
+  (process.env.VERCEL_URL
+    ? `https://${process.env.VERCEL_URL}`
+    : "http://localhost:3000");
+
 export const metadata: Metadata = {
+  metadataBase: new URL(siteUrl),
   title: "Videl 👑 Studio",
   description: "Create polished Telegram posts and custom images with a private, browser-based creative workspace.",
   openGraph: {
