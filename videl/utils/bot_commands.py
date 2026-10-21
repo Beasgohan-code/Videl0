@@ -7,7 +7,7 @@ PUBLIC_COMMANDS = (
     ("play", "Play audio in your group voice chat"),
     ("vplay", "Play video in your group voice chat"),
     ("queue", "Show the playback queue"),
-    ("setup", "Check group configuration"),
+    ("setup", "Check the bot's group permissions and readiness"),
     ("permissions", "Admin: diagnose missing bot permissions"),
     ("locks", "Review content locks and anti-flood"),
     ("lock", "Admin: block a content type"),

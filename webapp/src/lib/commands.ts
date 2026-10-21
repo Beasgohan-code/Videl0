@@ -503,7 +503,7 @@ export const BOT_COMMANDS: BotCommand[] = [
   {
     "name": "setup",
     "usage": "/setup",
-    "summary": "Open the group setup panel",
+    "summary": "Check the bot's group permissions and setup readiness",
     "category": "manage",
     "context": "group",
     "owner": false

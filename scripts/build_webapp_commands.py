@@ -126,7 +126,7 @@ SUMMARY_OVERRIDES = {
     "saveplaylist": "Save the current queue as a playlist",
     "seek": "Jump forward in the current track",
     "seekback": "Jump backward in the current track",
-    "setup": "Open the group setup panel",
+    "setup": "Check the bot's group permissions and setup readiness",
     "song": "Download an audio track",
     "speed": "Change playback speed",
     "speedreset": "Reset playback speed to normal",
