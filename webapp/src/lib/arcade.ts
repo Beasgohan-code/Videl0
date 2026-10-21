@@ -88,6 +88,9 @@ export const GAME_ICON: Record<string, string> = {
   reversi: "◐",
   tictactoe: "✕",
   ludo: "◈",
+  chinese: "✦",
+  dots: "⠿",
+  yacht: "🎲",
 };
 
 /**
@@ -103,6 +106,9 @@ export const GAME_ART: Record<string, string> = {
   reversi: "/arcade/reversi.jpg",
   tictactoe: "/arcade/tictactoe.jpg",
   ludo: "/arcade/ludo.jpg",
+  chinese: "/arcade/chinese.jpg",
+  dots: "/arcade/dots.jpg",
+  yacht: "/arcade/yacht.jpg",
 };
 
 /** One accent per game, used by cards, rooms, chips and the board surface. */
@@ -114,6 +120,9 @@ export const GAME_THEME: Record<string, { accent: string; soft: string; tagline:
   ludo: { accent: "#a78bfa", soft: "rgba(167,139,250,0.20)", tagline: "Four tokens, one crown" },
   reversi: { accent: "#34d399", soft: "rgba(52,211,153,0.20)", tagline: "Flip the whole board" },
   tictactoe: { accent: "#60a5fa", soft: "rgba(96,165,250,0.20)", tagline: "Three moves is all it takes" },
+  chinese: { accent: "#f0abfc", soft: "rgba(240,171,252,0.20)", tagline: "Hop the star, fill your far camp" },
+  dots: { accent: "#fbbf24", soft: "rgba(251,191,36,0.20)", tagline: "One line can claim a box" },
+  yacht: { accent: "#38bdf8", soft: "rgba(56,189,248,0.20)", tagline: "Five dice, thirteen chances" },
 };
 
 /** Terms someone actually needs to know one board and no manual. */
@@ -153,6 +162,24 @@ export const GAME_TERMS: Record<string, string[]> = {
     "Three sixes in a row forfeit the turn.",
     "Landing on a rival sends it home — except on the eight safe squares.",
     "Tokens may share a square. First player home wins the table.",
+  ],
+  chinese: [
+    "Move one peg to a neighbouring hole, or jump over a peg into the empty hole beyond it.",
+    "Chain jumps may turn; stop at any empty landing along the chain.",
+    "Fill all ten holes in the camp opposite your starting corner to win.",
+    "Two, three, four or six players can take a seat at the star.",
+  ],
+  dots: [
+    "Draw one horizontal or vertical line on your turn.",
+    "The fourth side closes a box, scores it and gives you another line.",
+    "When every line is drawn, the player with the most boxes wins.",
+    "Tied box counts are a draw. The board is six by five boxes.",
+  ],
+  yacht: [
+    "Roll five dice up to three times; tap a die to keep it between rolls.",
+    "Write your final roll in one of thirteen score boxes. Each box is used once.",
+    "A full house is 25, a small straight 30, a large straight 40 and five alike 50.",
+    "At least 63 in the upper six boxes earns a 35-point bonus; highest total wins.",
   ],
 };
 
@@ -292,10 +319,10 @@ export const LUDO_HOME: Record<number, [number, number][]> = {
 };
 
 export const LUDO_BASE: [number, number][] = [[1.4, 1.4], [1.4, 10.4], [10.4, 10.4], [10.4, 1.4]];
-export const SEAT_COLOUR = ["#ef4444", "#22c55e", "#eab308", "#3b82f6"];
+export const SEAT_COLOUR = ["#ef4444", "#22c55e", "#eab308", "#3b82f6", "#a855f7", "#f97316"];
 /** Checkers plays bone against ink, the way a wooden board is actually set. */
 export const CHECKERS_COLOUR = ["#f4e4bf", "#3b4266"];
-export const SEAT_DARK = ["#7f1d1d", "#14532d", "#713f12", "#1e3a8a"];
+export const SEAT_DARK = ["#7f1d1d", "#14532d", "#713f12", "#1e3a8a", "#581c87", "#7c2d12"];
 
 export function colourOf(start: number): number {
   return Math.max(0, [0, 13, 26, 39].indexOf(start));

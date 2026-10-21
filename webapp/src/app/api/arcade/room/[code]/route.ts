@@ -36,7 +36,7 @@ export async function POST(req: Request, context: { params: Promise<{ code: stri
     return Response.json({ ok: false, error: "An action is required" }, { status: 400 });
   const record = body as Record<string, unknown>;
   const action = String(record.action || "move");
-  if (!["move", "start", "leave", "kick", "rematch", "chat", "seen", "rtc", "resign", "draw", "voice", "clip"].includes(action))
+  if (!["move", "start", "leave", "kick", "rematch", "chat", "seen", "rtc", "resign", "draw", "voice", "clip", "react", "nudge"].includes(action))
     return Response.json({ ok: false, error: "Unknown room action" }, { status: 400 });
   const payload: Record<string, unknown> = { action };
   if (action === "move") payload.move = record.move ?? record;
@@ -44,6 +44,13 @@ export async function POST(req: Request, context: { params: Promise<{ code: stri
   if (action === "kick") payload.user = record.user;
   if (action === "draw") payload.accept = record.accept === true;
   if (action === "voice") payload.on = record.on !== false;
+  if (action === "react") {
+    const emoji = String(record.emoji || "");
+    if (!["👍", "🔥", "😂", "😮", "🎉", "🤝"].includes(emoji))
+      return Response.json({ ok: false, error: "Choose one of the table reactions" }, { status: 400 });
+    payload.emoji = emoji;
+  }
+  if (action === "nudge") payload.action = "nudge";
   if (action === "clip") {
     const data = record.data;
     if (typeof data !== "string" || !data || data.length > 480_000)

@@ -29,6 +29,8 @@ class ArcadeRoomTests(unittest.TestCase):
         store._LAST_SIGNAL.clear()
         players.upsert({"id": 1, "name": "Ada"})
         players.upsert({"id": 2, "name": "Grace"})
+        players.upsert({"id": 3, "name": "Linus"})
+        players.upsert({"id": 4, "name": "Margaret"})
 
     def joined(self, game="connect4", seats=None, second=2, visibility="private"):
         room = store.create(1, "Ada", game, seat_count=seats, visibility=visibility)
@@ -412,6 +414,35 @@ class ArcadeRoomTests(unittest.TestCase):
         with self.assertRaises(GameError) as caught:
             store.act(code, 1, self.clip_payload())
         self.assertEqual(caught.exception.status, 409)
+
+    def test_the_table_has_reactions_and_nudges_with_rate_limits(self):
+        code = self.joined("chess")
+        with self.assertRaises(GameError):
+            store.act(code, 1, {"action": "nudge"})
+        nudged = store.act(code, 2, {"action": "nudge"})
+        self.assertTrue(nudged["ok"])
+        with self.assertRaises(GameError) as cooldown:
+            store.act(code, 2, {"action": "nudge"})
+        self.assertEqual(cooldown.exception.status, 429)
+        self.assertTrue(store.act(code, 1, {"action": "react", "emoji": "🔥"})["ok"])
+        with self.assertRaises(GameError):
+            store.act(code, 1, {"action": "react", "emoji": "💣"})
+        self.assertIn("🔥", [event["text"] for event in store.timeline(code, 1)["events"]])
+
+    def test_a_four_chair_game_starts_when_all_seats_are_taken(self):
+        room = store.create(1, "Ada", "chinese", seat_count=4)
+        store.join(room["code"], 2, "Grace")
+        store.join(room["code"], 3, "Linus")
+        last = store.join(room["code"], 4, "Margaret")
+        self.assertEqual(last["status"], "playing")
+        self.assertEqual([seat["seat"] for seat in last["seats"]], [0, 1, 2, 3])
+
+    def test_multiplayer_results_record_each_seat_without_duel_rating(self):
+        players.record_table("chinese", 1, [2, 3, 4])
+        self.assertEqual(players.public(players.get(1))["stats"]["chinese"]["wins"], 1)
+        self.assertEqual(players.public(players.get(2))["stats"]["chinese"]["losses"], 1)
+        self.assertEqual(players.public(players.get(3))["stats"]["chinese"]["games"], 1)
+        self.assertEqual(players.public(players.get(1))["stats"]["chinese"]["rating"], 1200)
 
 if __name__ == "__main__":
     unittest.main()

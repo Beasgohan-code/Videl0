@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import secrets
+import time
 from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
 
@@ -45,6 +46,13 @@ CLIP_TYPES = ("audio/webm", "audio/ogg", "audio/mp4", "audio/mpeg", "audio/wav")
 # takes a seat out of the call instead of leaving a ghost in it.
 VOICE_WINDOW = 35
 SIGNAL_GAP = 0.05
+#: A reaction is a flick of the wrist, not a message stream; and a nudge is
+#: something you do once, not a way to drum on someone's phone.
+REACTIONS = frozenset({"👍", "🔥", "😂", "😮", "🎉", "🤝"})
+REACT_GAP = 1.2
+NUDGE_GAP = 20.0
+_LAST_REACT = {}
+_LAST_NUDGE = {}
 _LAST_CHAT = defaultdict(deque)
 _LAST_SIGNAL = defaultdict(deque)
 
@@ -371,6 +379,10 @@ def act(code, user, payload):
         return voice_presence(code, user, bool(payload.get("on", True)))
     if action == "clip":
         return voice_note(code, user, payload)
+    if action == "react":
+        return reaction(code, user, payload.get("emoji"))
+    if action == "nudge":
+        return nudge(code, user)
     if action == "seen":
         touch(code, user)
         return {"ok": True}
@@ -599,24 +611,48 @@ def _describe(game, state, seat, move):
     if game.key == "gomoku":
         cell = int(move.get("cell") or 0)
         return f"placed a stone at {chr(97 + cell % 15)}{cell // 15 + 1}"
+    if game.key == "chinese":
+        last = state.get("last") or {}
+        return (f"hopped a peg from {int(last.get('from', 0)) + 1} "
+                f"to {int(last.get('to', 0)) + 1}")
+    if game.key == "dots":
+        closed = len((state.get("last") or {}).get("closed") or [])
+        return f"closed {closed} box{'es' if closed != 1 else ''}" if closed else "drew a line"
+    if game.key == "yacht":
+        last = state.get("last") or {}
+        if last.get("category"):
+            return f"scored {int(last.get('points') or 0)} on {str(last['category']).replace('_', ' ')}"
+        return "rolled the dice"
     return "made a move"
 
 
 def _finish(doc):
-    """Record a rating exactly once, guarded by the room's own version write."""
+    """Record a result exactly once, guarded by the room's own version write."""
     winner = doc.get("winner")
     if doc.get("recorded") or doc.get("status") != "done":
         return
     rooms().update_one({"_id": doc["_id"], "recorded": {"$ne": True}}, {"$set": {"recorded": True}})
-    if winner in (None, "draw"):
-        return
     seats = doc.get("seats") or []
-    if len(seats) != 2:
+    if not seats:
         return
-    loser = 1 - int(winner)
+    users = [int(member["user"]) for member in seats]
     try:
         from videl.utils import players
-        players.record(doc["game"], int(seats[int(winner)]["user"]), int(seats[loser]["user"]))
+        if len(seats) == 2 and winner == "draw":
+            players.record(doc["game"], int(seats[0]["user"]),
+                           int(seats[1]["user"]), draw=True)
+        elif len(seats) == 2 and winner is not None:
+            loser = 1 - int(winner)
+            players.record(doc["game"], int(seats[int(winner)]["user"]), int(seats[loser]["user"]))
+        elif len(seats) > 2:
+            # A full table still gets the result in every profile; only the
+            # rating stays out of it, because six chairs are not a duel.
+            if winner in (None, "draw"):
+                players.record_table(doc["game"], None, users, draw=True)
+            elif isinstance(winner, int) and 0 <= int(winner) < len(users):
+                players.record_table(doc["game"], int(users[int(winner)]),
+                                     [user for index, user in enumerate(users)
+                                      if index != int(winner)])
     except Exception:
         pass
 
@@ -687,6 +723,44 @@ def chat(code, user, text):
     _rate_limit(code, user)
     seq = _next_seq(code)
     _event(code, "chat", int(user), body, seq=seq)
+    return {"ok": True, "seq": seq}
+
+
+def reaction(code, user, emoji):
+    """A single emoji thrown at the table, with a human-sized cooldown."""
+    doc = _find(code)
+    _require_member(doc, user)
+    if doc.get("status") == "abandoned":
+        raise GameError("This room has been closed", 409)
+    symbol = str(emoji or "")
+    if symbol not in REACTIONS:
+        raise GameError("Choose one of the table reactions")
+    key = (code, int(user))
+    if time.monotonic() - _LAST_REACT.get(key, 0.0) < REACT_GAP:
+        raise GameError("Give the last reaction a moment", 429)
+    _LAST_REACT[key] = time.monotonic()
+    seq = _next_seq(code)
+    _event(code, "react", int(user), symbol, seq=seq)
+    return {"ok": True, "seq": seq}
+
+
+def nudge(code, user):
+    """Poke the player whose clock is running. Once every twenty seconds."""
+    doc = _find(code)
+    _require_member(doc, user)
+    if doc.get("status") != "playing":
+        raise GameError("There is no clock to nudge", 409)
+    seat = int((doc.get("state") or {}).get("turn", 0))
+    if seat == _seat_of(doc, user):
+        raise GameError("It is your turn — the table is waiting on you")
+    key = (code, int(user))
+    if time.monotonic() - _LAST_NUDGE.get(key, 0.0) < NUDGE_GAP:
+        raise GameError("You already nudged; give them a moment", 429)
+    _LAST_NUDGE[key] = time.monotonic()
+    target = next((member for member in doc.get("seats", []) if int(member["seat"]) == seat), None)
+    name = (target or {}).get("name") or "the next player"
+    seq = _next_seq(code)
+    _event(code, "nudge", int(user), f"nudged {name}", seq=seq)
     return {"ok": True, "seq": seq}
 
 

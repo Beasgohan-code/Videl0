@@ -228,7 +228,7 @@ test("checkers chains are only the ones the server already offered", async () =>
 test("every table has its own art, and every game has its terms", async () => {
   const { GAME_ART, GAME_ICON, GAME_TERMS, GAME_THEME } = await import("../src/lib/arcade");
   const games = Object.keys(GAME_THEME);
-  assert.deepEqual(games.sort(), ["checkers", "chess", "connect4", "gomoku", "ludo", "reversi", "tictactoe"]);
+  assert.deepEqual(games.sort(), ["checkers", "chess", "chinese", "connect4", "dots", "gomoku", "ludo", "reversi", "tictactoe", "yacht"]);
   for (const game of games) {
     assert.match(GAME_ART[game], /^\/arcade\/[a-z0-9]+\.jpg$/, `${game} has local art`);
     assert.ok(GAME_ICON[game], `${game} has a glyph for when the art does not load`);
@@ -598,6 +598,29 @@ test("every game the arcade offers has rules a player can read", async () => {
     assert.ok(Array.isArray(terms) && terms.length >= 2, `${game} needs its own rules`);
     for (const line of terms) assert.ok(line.length > 20, `${game} has a stub rule`);
   }
+});
+
+test("the three new multiplayer tables have board handlers and original local art", async () => {
+  const { GAME_ART, GAME_TERMS } = await import("../src/lib/arcade");
+  const { ChineseCheckersBoard } = await import("../src/components/studio/boards/ChineseCheckersBoard");
+  const { DotsAndBoxesBoard } = await import("../src/components/studio/boards/DotsAndBoxesBoard");
+  const { YachtBoard } = await import("../src/components/studio/boards/YachtBoard");
+  assert.match(GAME_ART.chinese, /chinese/);
+  assert.match(GAME_ART.dots, /dots/);
+  assert.match(GAME_ART.yacht, /yacht/);
+  assert.ok(GAME_TERMS.chinese.length >= 2);
+  assert.ok(GAME_TERMS.dots.length >= 2);
+  assert.ok(GAME_TERMS.yacht.length >= 2);
+  assert.equal(typeof ChineseCheckersBoard, "function");
+  assert.equal(typeof DotsAndBoxesBoard, "function");
+  assert.equal(typeof YachtBoard, "function");
+});
+
+test("seat profiles load Telegram avatars through our player API", async () => {
+  const { PlayerProfile } = await import("../src/components/studio/boards/PlayerProfile");
+  const html = render(createElement(PlayerProfile, { id: 42, name: "Ada", game: "chinese" }));
+  assert.match(html, /View Ada&#x27;s player profile/);
+  assert.match(html, /api\/arcade\/avatar\/42/);
 });
 
 test("the post rail reports a save state it can actually know", async () => {

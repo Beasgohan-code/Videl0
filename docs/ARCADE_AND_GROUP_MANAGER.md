@@ -1,10 +1,12 @@
 # Plan: public games with live chat, Telegram sign-up, and a group manager
 
-Status: **partly shipped.** The identity layer, the seven games (Chess,
-Checkers, Five in a Row, Connect Four, Reversi, Tic-tac-toe, Ludo),
-server-authoritative rooms with chat, live voice and timeouts,
-the arcade screen, and the group-manager backend are in the repository and
-tested. The group-manager screen, presence-based SSE and voice remain. Where
+Status: **partly shipped.** The identity layer, ten games (Chinese Checkers,
+Dots & Boxes, Yacht, Chess, Checkers, Five in a Row, Connect Four, Reversi,
+Tic-tac-toe, Ludo),
+server-authoritative rooms with chat, live voice and timeouts, Telegram player
+photos, profile cards, table reactions and nudges, the arcade screen, and the
+group-manager backend are in the repository and tested. The group-manager
+screen, presence-based SSE and TURN relay remain. Where
 this document and the code differ, the code and its tests are the truth.
 
 ## Verdict first
@@ -14,7 +16,7 @@ this document and the code differ, the code and its tests are the truth.
 | Public multiplayer games | **Yes** | Rooms in the panel, server-authoritative rules, no accounts to create |
 | Live text chat + presence | **Yes** | Server-sent events from the Render backend, short polling as fallback |
 | Telegram sign-up | **Yes** | The Mini App already proves who you are; reuse that proof for everyone, not only the owner |
-| Live **voice** chat | **Partly** | Voice lives in Telegram's own group voice chat (free, reliable). In-panel real-time audio is a gated spike: it needs TURN and fights iOS WebView |
+| Live **voice** chat | **Yes, best effort** | In-panel peer-to-peer WebRTC is shipped with room signalling and honest mobile-network limits; TURN relay remains the reliability upgrade. Voice notes remain the fallback |
 | Group manager for admins | **Yes, and it is the smaller half** | Reuses `GroupView`, but only after an actor refactor — see §3.4, the current code acts as the owner |
 
 The two features share one thing that does not exist yet: **an identity for
@@ -637,3 +639,31 @@ webapp/src/app/page.tsx                           register the screen
    and blocks), or invite-only links until moderation proves itself?
 3. **Voice:** confirm tier A as the definition of "live voice" for v1, with
    tier B in v1.1 and tier C gated by the P5 spike.
+
+
+## 2.2e Three tables for a crowd, Telegram player cards, and table talk
+
+The arcade now includes three additional server-authoritative multiplayer
+engines, with original locally generated plate art and board controls:
+
+- **Chinese Checkers** — 121 holes and six ten-peg camps. Two, three, four or
+  six players; step and chain-jump moves; a win is filling the opposite camp.
+- **Dots & Boxes** — a six-by-five grid, two to four players. The engine owns
+  each of the 71 edges and 30 boxes; closing a box scores it and grants another
+  line, and a tied board is a draw.
+- **Yacht** — two to six players, five dice, up to three rolls and thirteen
+  once-only score categories. The server computes category previews, totals,
+  upper-section bonus and a full-turn timeout move.
+
+A multi-seat room begins when all chosen seats are filled (the host may still
+start an early Ludo table as before). Multi-seat wins/losses/draws appear on
+player records without pretending that a six-chair game is a two-player Elo
+rating. Table reactions are limited to six supported emoji with a cooldown;
+clock nudges go into the table feed and have a server-side cooldown, not a
+Telegram push notification.
+
+Player tiles use the photo URL from Telegram's signed Mini App identity when
+available, or ask the Bot API for that user's profile photo. The bot token
+stays server-side; downloads are HTTPS-only, restricted to Telegram hosts,
+limited to 400 KB and cached. Each tile opens a profile card with that game's
+W/L/D and rating. If Telegram has no photo, the seat initials remain visible.

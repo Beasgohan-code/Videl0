@@ -30,7 +30,6 @@ import {
   LUDO_RING,
   LUDO_SAFE,
   countdown,
-  initials,
   isMyTurn,
   laneVars,
   ludoTokenCell,
@@ -54,6 +53,10 @@ import { VoiceDock } from "./boards/VoiceDock";
 import { TableActions } from "./boards/TableActions";
 import { ResultOverlay } from "./boards/ResultOverlay";
 import { VoiceNote, VoiceClip } from "./boards/VoiceNote";
+import { ChineseCheckersBoard } from "./boards/ChineseCheckersBoard";
+import { DotsAndBoxesBoard } from "./boards/DotsAndBoxesBoard";
+import { YachtBoard } from "./boards/YachtBoard";
+import { PlayerProfile } from "./boards/PlayerProfile";
 import { cue, cueFor, haptic, setSoundOn, soundOn } from "@/lib/audio";
 import { Callout } from "./ui";
 
@@ -476,9 +479,7 @@ export function RoomView({
                     data-speaking={talkers.includes(seat.user)}
                     style={{ "--seat": seatColour(room.game, seat.seat) } as CSSProperties}
                   >
-                    <span className="arcade-seat-avatar" aria-hidden>
-                      {initials(seat.name)}
-                    </span>
+                    <PlayerProfile id={seat.user} name={seat.name} game={room.game} />
                     <span className="max-w-[7rem] truncate">{seat.name}</span>
                     {seat.user === player.id ? <span className="arcade-seat-tag">you</span> : null}
                     {seat.user === room.host ? <Crown size={11} className="text-amber-300/80" aria-label="host" /> : null}
@@ -625,6 +626,9 @@ export function RoomView({
                         </div>
                       );
                     }
+                    if (event.kind === "react") {
+                      return <p key={`${event.seq}-${event.kind}`} className="arcade-event arcade-reaction-event"><b>{playerName(room, event.user)}</b> {event.text}</p>;
+                    }
                     return (
                       <p key={`${event.seq}-${event.kind}`} className="arcade-event">
                         {event.text || event.kind}
@@ -632,6 +636,14 @@ export function RoomView({
                     );
                   })
                 )}
+              </div>
+              <div className="arcade-reaction-row" aria-label="Table reactions">
+                {["👍", "🔥", "😂", "😮", "🎉", "🤝"].map((emoji) => (
+                  <button key={emoji} type="button" disabled={!seated || busy} onClick={() => void send({ action: "react", emoji })} aria-label={`React ${emoji}`}>{emoji}</button>
+                ))}
+                {room.status === "playing" && seated && !myTurn ? (
+                  <button type="button" className="arcade-nudge" disabled={busy} onClick={() => void send({ action: "nudge" })}>⏱ Nudge</button>
+                ) : null}
               </div>
               <div className="arcade-note-row">
                 <VoiceNote
@@ -780,6 +792,18 @@ function Board({
         </p>
       </div>
     );
+  }
+
+  if (room.game === "chinese") {
+    return <ChineseCheckersBoard room={room} myTurn={myTurn} busy={busy} onMove={onMove} />;
+  }
+
+  if (room.game === "dots") {
+    return <DotsAndBoxesBoard room={room} myTurn={myTurn} busy={busy} onMove={onMove} />;
+  }
+
+  if (room.game === "yacht") {
+    return <YachtBoard room={room} myTurn={myTurn} busy={busy} onMove={onMove} />;
   }
 
   if (room.game === "ludo") {

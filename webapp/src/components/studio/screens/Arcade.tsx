@@ -47,7 +47,7 @@ export default function Arcade() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [code, setCode] = useState("");
-  const [game, setGame] = useState("connect4");
+  const [game, setGame] = useState("chinese");
   const [seats, setSeats] = useState(2);
   const [visibility, setVisibility] = useState<"private" | "public">("private");
   const [room, setRoom] = useState<string | null>(null);
@@ -156,7 +156,7 @@ export default function Arcade() {
         <Hero
           kicker="Arcade"
           title="Pull up a chair."
-          subtitle="Seven boards, one to four chairs each, with live voice at the table. Rooms live on the server, so closing the app never loses your turn — or your clock."
+          subtitle="Ten boards, up to six chairs, with live voice at the table. Rooms live on the server, so closing the app never loses your turn — or your clock."
           stats={[
             { value: String(boards), label: "boards" },
             { value: "2–4", label: "chairs" },
@@ -658,9 +658,12 @@ function Leaderboards({ lobby, me }: { lobby: Lobby | null; me: number }) {
 }
 
 const FALLBACK_GAMES: GameInfo[] = [
+  { key: "chinese", name: "Chinese Checkers", seats: [2, 3, 4, 6], turn_seconds: 60, summary: "Hop the star and fill the opposite camp." },
+  { key: "dots", name: "Dots & Boxes", seats: [2, 3, 4], turn_seconds: 45, summary: "Draw lines; boxes score another turn." },
+  { key: "yacht", name: "Yacht", seats: [2, 3, 4, 5, 6], turn_seconds: 45, summary: "Five dice, three rolls, thirteen score boxes." },
+  { key: "ludo", name: "Ludo", seats: [2, 3, 4], turn_seconds: 45, summary: "Race four tokens home." },
   { key: "chess", name: "Chess", seats: [2], turn_seconds: 180, summary: "The real thing: castling, en passant, promotion and mate." },
   { key: "checkers", name: "Checkers", seats: [2], turn_seconds: 75, summary: "Draughts with forced chains." },
-  { key: "ludo", name: "Ludo", seats: [2, 3, 4], turn_seconds: 45, summary: "Race four tokens home." },
   { key: "gomoku", name: "Five in a Row", seats: [2], turn_seconds: 60, summary: "Fifteen by fifteen. Five stones in a line wins." },
   { key: "connect4", name: "Connect Four", seats: [2], turn_seconds: 60, summary: "Line up four discs." },
   { key: "reversi", name: "Reversi", seats: [2], turn_seconds: 90, summary: "Flank and flip." },

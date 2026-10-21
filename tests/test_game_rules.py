@@ -9,18 +9,23 @@ from unittest.mock import patch
 from videl.games import GAMES
 from videl.games.checkers import Checkers
 from videl.games.chess import Chess
+from videl.games.chinese import CAMPS, HOLES, INDEX, NEIGHBOURS, ChineseCheckers
 from videl.games.connect4 import ConnectFour
+from videl.games.dots import COLS as DOTS_COLS
+from videl.games.dots import DotsAndBoxes
 from videl.games.gomoku import Gomoku
 from videl.games.ludo import HOME_PROGRESS, Ludo
 from videl.games.registry import GameError, run_length
 from videl.games.reversi import Reversi
 from videl.games.tictactoe import TicTacToe
+from videl.games.yacht import CATEGORIES, Yacht
 
 
 class RegistryTests(unittest.TestCase):
     def test_every_listed_game_describes_itself(self):
-        self.assertEqual(set(GAMES), {"checkers", "chess", "connect4", "gomoku",
-                                      "reversi", "tictactoe", "ludo"})
+        self.assertEqual(set(GAMES), {"checkers", "chess", "chinese", "connect4",
+                                      "dots", "gomoku", "reversi", "tictactoe",
+                                      "ludo", "yacht"})
         for key, game in GAMES.items():
             described = game.describe()
             self.assertEqual(described["key"], key)
@@ -219,6 +224,183 @@ class LudoTests(unittest.TestCase):
         self.assertEqual(state["starts"], [0, 13, 26, 39])
         self.assertEqual(len(state["tokens"]), 4)
 
+
+class ChineseCheckersTests(unittest.TestCase):
+    def setUp(self):
+        self.game = ChineseCheckers()
+        self.state = self.game.new(4)
+
+    def landing(self, origin, neighbour):
+        row, x2 = HOLES[origin]
+        nrow, nx2 = HOLES[neighbour]
+        return INDEX[(2 * nrow - row, 2 * nx2 - x2)]
+
+    def test_the_star_has_121_holes_and_six_ten_peg_camps(self):
+        self.assertEqual(len(HOLES), 121)
+        self.assertEqual(len(CAMPS), 6)
+        self.assertEqual({len(camp) for camp in CAMPS}, {10})
+        cells = [hole for camp in CAMPS for hole in camp]
+        self.assertEqual(len(cells), len(set(cells)), "no two camps share a hole")
+        self.assertEqual(self.state["homes"], [0, 1, 3, 4])
+        self.assertEqual(self.state["targets"], [3, 4, 0, 1],
+                         "each camp is opposite its own")
+
+    def test_two_players_start_in_opposite_camps(self):
+        state = self.game.new(2)
+        self.assertEqual(state["homes"], [0, 3])
+        self.assertEqual(len(state["pegs"][0]), 10)
+        self.assertEqual(set(state["pegs"][0]), set(CAMPS[0]))
+
+    def test_a_peg_steps_and_the_turn_passes(self):
+        move = self.game.legal(self.state, 0)[0]
+        moved = self.game.apply(self.state, 0, move)
+        self.assertEqual(moved["turn"], 1)
+        self.assertIn(move["to"], moved["pegs"][0])
+        self.assertNotIn(move["from"], moved["pegs"][0])
+
+    def test_a_peg_jumps_over_one_peg_into_the_empty_hole_beyond(self):
+        origin = INDEX[(8, 0)]
+        neighbour = NEIGHBOURS[origin][0]
+        landing = self.landing(origin, neighbour)
+        state = {**self.state, "pegs": [[origin], [neighbour], [], []],
+                 "targets": [3, 4, 5, 0]}
+        moves = self.game.legal(state, 0)
+        self.assertIn({"from": origin, "to": landing}, moves)
+        moved = self.game.apply(state, 0, {"from": origin, "to": landing})
+        self.assertIn(landing, moved["pegs"][0])
+
+    def test_a_peg_cannot_teleport_or_move_for_another_seat(self):
+        origin = self.state["pegs"][0][0]
+        far = next(hole for hole in range(len(HOLES))
+                   if hole not in self.state["pegs"][0]
+                   and hole not in NEIGHBOURS[origin])
+        with self.assertRaises(GameError):
+            self.game.apply(self.state, 0, {"from": origin, "to": far})
+        with self.assertRaises(GameError):
+            self.game.apply(self.state, 1, {"from": origin, "to": NEIGHBOURS[origin][0]})
+
+    def test_filling_the_opposite_camp_wins(self):
+        state = self.game.new(2)
+        target = CAMPS[state["targets"][0]]
+        missing = next(hole for hole in target
+                       if any(neighbour not in target for neighbour in NEIGHBOURS[hole]))
+        park = next(neighbour for neighbour in NEIGHBOURS[missing] if neighbour not in target)
+        state = {**state, "pegs": [list(hole for hole in target if hole != missing) + [park], []],
+                 "turn": 0}
+        won = self.game.apply(state, 0, {"from": park, "to": missing})
+        self.assertEqual(won["winner"], 0)
+
+
+class DotsAndBoxesTests(unittest.TestCase):
+    def setUp(self):
+        self.game = DotsAndBoxes()
+        self.state = self.game.new(2)
+
+    def test_the_grid_owns_every_edge_and_box(self):
+        self.assertEqual(len(self.state["h"]), 36)
+        self.assertEqual(len(self.state["v"]), 35)
+        self.assertEqual(len(self.state["owner"]), 30)
+        self.assertEqual(len(self.game.legal(self.state, 0)), 71)
+
+    def test_a_line_is_drawn_once_and_passes_the_turn(self):
+        state = self.game.apply(self.state, 0, {"kind": "h", "index": 0})
+        self.assertEqual(state["turn"], 1)
+        with self.assertRaises(GameError):
+            self.game.apply(state, 1, {"kind": "h", "index": 0})
+        with self.assertRaises(GameError):
+            self.game.apply(state, 1, {"kind": "h", "index": 999})
+
+    def test_closing_one_box_scores_it_and_keeps_the_turn(self):
+        state = self.state
+        state["h"][0] = state["h"][DOTS_COLS] = 1
+        state["v"][0] = 1
+        state = self.game.apply(state, 0, {"kind": "v", "index": 1})
+        self.assertEqual(state["owner"][0], 0)
+        self.assertEqual(state["scores"][0], 1)
+        self.assertEqual(state["turn"], 0, "closing a box earns another line")
+
+    def test_one_line_can_close_two_boxes(self):
+        state = self.state
+        # Box (0, 1) and box (1, 1) share the horizontal line at row 1, col 1.
+        for index in (1, 2, 1 * DOTS_COLS + 2, 2 * DOTS_COLS + 1, 2 * DOTS_COLS + 2):
+            state["h"][index] = 1
+        state["v"][1] = state["v"][2] = 1          # top pair's sides
+        state["v"][1 * (DOTS_COLS + 1) + 1] = 1
+        state["v"][1 * (DOTS_COLS + 1) + 2] = 1    # bottom pair's sides
+        state = self.game.apply(state, 0, {"kind": "h", "index": 1 * DOTS_COLS + 1})
+        self.assertEqual(state["scores"][0], 2)
+        self.assertEqual(state["owner"][1], 0)
+        self.assertEqual(state["owner"][DOTS_COLS + 1], 0)
+
+    def test_a_full_board_decides_by_score_and_can_draw(self):
+        state = self.game.new(2)
+        state["h"] = [1] * len(state["h"])
+        state["v"] = [1] * len(state["v"])
+        state["owner"] = [-1] * 30
+        state["scores"] = [10, 10]
+        state["turn"] = 1
+        # Re-open one line so the winning move can close the last box.
+        state["h"][-1] = 0
+        state = self.game.apply(state, 1, {"kind": "h", "index": len(state["h"]) - 1})
+        self.assertEqual(state["winner"], 1)
+
+
+class YachtTests(unittest.TestCase):
+    def setUp(self):
+        self.game = Yacht()
+        self.state = self.game.new(3)
+
+    def test_a_turn_has_three_rolls_and_five_dice(self):
+        state = self.game.apply(self.state, 0, {"action": "roll"})
+        self.assertEqual(len(state["dice"]), 5)
+        self.assertTrue(all(1 <= die <= 6 for die in state["dice"]))
+        state = self.game.apply(state, 0, {"action": "roll"})
+        state = self.game.apply(state, 0, {"action": "roll"})
+        with self.assertRaises(GameError):
+            self.game.apply(state, 0, {"action": "roll"})
+
+    def test_each_category_scores_the_way_a_scorecard_does(self):
+        from videl.games.yacht import _score
+        self.assertEqual(_score([1, 1, 1, 2, 2], "full_house"), 25)
+        self.assertEqual(_score([1, 2, 3, 4, 6], "small_straight"), 30)
+        self.assertEqual(_score([2, 3, 4, 5, 6], "large_straight"), 40)
+        self.assertEqual(_score([4, 4, 4, 4, 4], "yacht"), 50)
+        self.assertEqual(_score([4, 4, 4, 4, 4], "four_kind"), 20)
+        self.assertEqual(_score([6, 6, 6, 2, 3], "three_kind"), 23)
+        self.assertEqual(_score([1, 1, 3, 4, 6], "ones"), 2)
+        self.assertEqual(_score([5, 5, 4, 4, 3], "full_house"), 0)
+
+    def test_a_box_is_written_once_and_the_turn_moves_on(self):
+        state = self.game.apply(self.state, 0, {"action": "roll"})
+        state = self.game.apply(state, 0, {"action": "score", "category": "chance"})
+        self.assertEqual(state["turn"], 1)
+        self.assertIsNotNone(state["scores"][0][CATEGORIES.index("chance")])
+        state = self.game.apply(state, 1, {"action": "roll"})
+        with self.assertRaises(GameError):
+            self.game.apply(state, 1, {"action": "score", "category": "not_a_box"})
+
+    def test_a_timeout_plays_a_whole_turn_rather_than_one_roll(self):
+        state = self.game.auto(self.state)
+        self.assertEqual(state["turn"], 1)
+        self.assertEqual(state["rolls"], 0)
+        self.assertEqual(sum(value is not None for value in state["scores"][0]), 1)
+
+    def test_all_thirteen_boxes_end_the_table_and_pay_the_upper_bonus(self):
+        state = self.game.new(2)
+        state["scores"] = [[11] * 6 + [10] * 7, [11] * 6 + [10] * 7]
+        state["scores"][0][12] = None
+        state["scores"][1][12] = None
+        state["dice"] = [6, 6, 6, 6, 6]
+        state["rolls"] = 3
+        state["turn"] = 0
+        state = self.game.apply(state, 0, {"action": "score", "category": "chance"})
+        state["dice"] = [1, 1, 1, 1, 1]
+        state["rolls"] = 1
+        state = self.game.apply(state, 1, {"action": "score", "category": "chance"})
+        self.assertIsNotNone(state["winner"])
+        self.assertEqual(state["winner"], 0)
+        self.assertEqual(self.game.totals(state), [191, 166],
+                         "sixty-six in the upper six pays the thirty-five bonus")
 
 if __name__ == "__main__":
     unittest.main()

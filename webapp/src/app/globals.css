@@ -3133,3 +3133,54 @@ html { scroll-behavior: smooth; }
   color: rgba(203, 213, 225, 0.62);
 }
 .arcade-rules li::marker { color: rgba(165, 180, 252, 0.55); }
+
+/* ── Three new multiplayer tables and Telegram player cards ─────────────── */
+.arcade-profile-wrap { position: relative; display: inline-flex; flex: none; }
+.arcade-profile-trigger { position: relative; display: grid; place-items: center; overflow: hidden; border: 1px solid rgba(255,255,255,.18); padding: 0; color: #e0e7ff; cursor: pointer; }
+.arcade-profile-trigger img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: inherit; }
+.arcade-profile-card { position: absolute; z-index: 30; top: calc(100% + 8px); left: 0; min-width: 180px; max-width: 240px; display: grid; gap: 4px; padding: 12px 30px 12px 12px; border: 1px solid rgba(196,181,253,.25); border-radius: 13px; background: #111426; box-shadow: 0 12px 32px rgba(0,0,0,.45); color: #eef2ff; font-size: 11px; }
+.arcade-profile-card small { color: rgba(224,231,255,.62); }
+.arcade-profile-card > button { position: absolute; top: 5px; right: 8px; color: #c7d2fe; font-size: 17px; }
+.arcade-chinese-wrap,.arcade-dots-wrap,.arcade-yacht { width: 100%; max-width: 44rem; margin: 0 auto; }
+.arcade-chinese-board { display: grid; grid-template-columns: repeat(25,minmax(0,1fr)); grid-template-rows: repeat(17,minmax(0,1fr)); gap: clamp(1px,.55vw,4px); width: 100%; aspect-ratio: 25 / 17; padding: 12px; border: 1px solid rgba(216,180,254,.18); border-radius: 18px; background: radial-gradient(ellipse at center,rgba(124,58,237,.2),rgba(12,15,31,.96) 70%); box-shadow: inset 0 0 45px rgba(167,139,250,.08); }
+.arcade-chinese-hole { display: grid; place-items: center; min-width: 0; padding: 0; border: 0; border-radius: 50%; background: rgba(148,163,184,.18); transition: transform .16s,background .16s,box-shadow .16s; }
+.arcade-chinese-hole > span { width: 70%; height: 70%; border-radius: 50%; background: radial-gradient(circle at 35% 30%,#f8fafc,var(--peg)); opacity: .42; }
+.arcade-chinese-hole[data-target="true"] { background: rgba(196,181,253,.15); }
+.arcade-chinese-hole[data-occupied="true"] > span { background: radial-gradient(circle at 35% 25%,#fff,var(--peg) 65%,#101426); opacity: 1; box-shadow: 0 2px 7px rgba(0,0,0,.55),0 0 8px rgba(196,181,253,.3); }
+.arcade-chinese-hole[data-own="true"] { cursor: pointer; }
+.arcade-chinese-hole:disabled { cursor: default; }
+.arcade-chinese-hole:not(:disabled):hover,.arcade-chinese-hole[data-last="true"] { transform: scale(1.22); box-shadow: 0 0 0 2px #fff,0 0 14px var(--peg); }
+.arcade-chinese-players,.arcade-dots-scores { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 12px; }
+.arcade-chinese-players span,.arcade-dots-scores span { display: inline-flex; align-items: center; gap: 6px; padding: 6px 9px; border: 1px solid rgba(255,255,255,.08); border-radius: 999px; background: rgba(255,255,255,.04); color: rgba(224,231,255,.62); font-size: 10px; }
+.arcade-chinese-players span[data-you="true"],.arcade-dots-scores span[data-you="true"] { border-color: rgba(196,181,253,.36); color: #eef2ff; }
+.arcade-chinese-players i,.arcade-dots-scores i { width: 8px; height: 8px; border-radius: 50%; }
+.arcade-dots-grid { display: grid; grid-template-columns: repeat(13,minmax(0,1fr)); grid-template-rows: repeat(11,minmax(0,1fr)); width: min(100%,38rem); aspect-ratio: 13/11; margin: 0 auto; padding: 12px; border-radius: 18px; border: 1px solid rgba(251,191,36,.16); background: radial-gradient(ellipse at center,rgba(120,83,20,.15),rgba(12,15,31,.96) 70%); }
+.arcade-dots-dot { z-index: 2; align-self: center; justify-self: center; width: 9px; height: 9px; border-radius: 50%; background: #f8fafc; box-shadow: 0 0 9px rgba(226,232,240,.48); }
+.arcade-dots-box { display: grid; place-items: center; border-radius: 5px; background: var(--box); color: #fff; font-size: clamp(9px,2vw,14px); font-weight: 800; }
+.arcade-dots-edge { align-self: center; justify-self: stretch; z-index: 1; padding: 0; border: 0; border-radius: 99px; background: transparent; transition: background .16s,box-shadow .16s; }
+.arcade-dots-edge-h { height: 5px; }
+.arcade-dots-edge-v { width: 5px; justify-self: center; height: 100%; }
+.arcade-dots-edge[data-drawn="true"] { background: var(--line); box-shadow: 0 0 8px var(--line); }
+.arcade-dots-edge:not(:disabled):hover { background: #fff; box-shadow: 0 0 9px #fff; }
+.arcade-yacht { max-width: 42rem; padding: 10px; border: 1px solid rgba(125,211,252,.15); border-radius: 16px; background: rgba(10,14,30,.55); }
+.arcade-yacht-head { display: flex; justify-content: space-between; color: rgba(224,231,255,.65); font-size: 11px; }
+.arcade-yacht-dice { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; padding: 17px 0 12px; }
+.arcade-yacht-dice button { display: grid; place-items: center; width: clamp(46px,11vw,68px); aspect-ratio: 1; border: 1px solid rgba(255,255,255,.18); border-radius: 14px; background: linear-gradient(145deg,#fff,#dbe4f0); color: #18213a; font-size: clamp(30px,7vw,44px); box-shadow: 0 5px 14px rgba(0,0,0,.25); }
+.arcade-yacht-dice button[data-held="true"] { transform: translateY(-4px); border-color: #38bdf8; box-shadow: 0 0 0 2px rgba(56,189,248,.3),0 8px 17px rgba(0,0,0,.28); }
+.arcade-yacht-dice button:disabled { cursor: default; }
+.arcade-yacht-roll { display: flex; margin: 0 auto 12px; }
+.arcade-yacht-cards { display: grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap: 10px; margin-top: 10px; }
+.arcade-yacht-cards section { padding: 9px; border: 1px solid rgba(255,255,255,.08); border-radius: 12px; background: rgba(255,255,255,.035); }
+.arcade-yacht-cards section[data-you="true"] { border-color: rgba(56,189,248,.3); }
+.arcade-yacht-cards h3 { display: flex; justify-content: space-between; margin-bottom: 6px; color: #eef2ff; font-size: 11px; }
+.arcade-yacht-categories { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 8px; }
+.arcade-yacht-categories button { display: flex; justify-content: space-between; gap: 4px; padding: 4px 5px; border-radius: 5px; color: rgba(224,231,255,.56); font-size: 9px; text-align: left; }
+.arcade-yacht-categories button[data-live="true"] { background: rgba(56,189,248,.13); color: #bae6fd; cursor: pointer; }
+.arcade-yacht-categories button[data-open="true"] b { color: #fbbf24; }
+.arcade-yacht-categories button b { color: #eef2ff; }
+.arcade-reaction-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 5px; padding: 7px 9px; border-top: 1px solid rgba(255,255,255,.05); }
+.arcade-reaction-row button { min-width: 30px; padding: 4px 6px; border-radius: 9px; background: rgba(255,255,255,.045); transition: transform .15s,background .15s; }
+.arcade-reaction-row button:not(:disabled):hover { transform: translateY(-2px); background: rgba(255,255,255,.12); }
+.arcade-reaction-row .arcade-nudge { margin-left: auto; color: #fcd34d; font-size: 10px; }
+.arcade-reaction-event { color: #fcd34d; }
+@media (max-width:540px) { .arcade-chinese-board { padding: 6px; gap: 1px; }.arcade-dots-grid { padding: 6px; }.arcade-dots-dot { width: 6px;height: 6px; }.arcade-dots-edge-h { height: 4px; }.arcade-dots-edge-v { width: 4px; } }
