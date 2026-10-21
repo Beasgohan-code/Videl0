@@ -1891,6 +1891,7 @@ html { scroll-padding-top: 5.5rem; }
 .arcade-home-dice {
   display: grid;
   place-items: center;
+  overflow: hidden;
   width: 3.2rem;
   height: 3.2rem;
   flex: none;
@@ -1899,6 +1900,7 @@ html { scroll-padding-top: 5.5rem; }
   box-shadow: 0 14px 30px -16px #d946ef, inset 0 1px 0 rgba(255, 255, 255, 0.45);
   font-size: 1.5rem;
 }
+.arcade-home-dice img { width: 100%; height: 100%; object-fit: cover; transform: scale(1.12); }
 .arcade-home-title { display: block; font-size: 1rem; font-weight: 650; letter-spacing: -0.02em; }
 .arcade-home-copy { display: block; margin-top: 0.15rem; font-size: 0.78rem; line-height: 1.45; color: rgba(203, 213, 225, 0.6); }
 .arcade-home-games { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.5rem; }
@@ -1967,14 +1969,15 @@ html { scroll-padding-top: 5.5rem; }
   color: rgba(203, 213, 225, 0.66);
 }
 .invite-code {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  display: flex;
   gap: clamp(0.25rem, 1vw, 0.45rem);
   margin: 1rem 0 0.9rem;
 }
 .invite-code span {
   display: grid;
   place-items: center;
+  flex: 1 1 0;
+  min-width: 0;
   aspect-ratio: 4 / 5;
   border-radius: 12px;
   border: 1px solid rgba(165, 180, 252, 0.28);
