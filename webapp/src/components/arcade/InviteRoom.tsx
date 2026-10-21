@@ -68,7 +68,7 @@ export function InviteRoom({ code }: { code: string }) {
     <main className="ios-page invite-page">
       <div className="invite-stage">
         <div className="invite-mosaic" aria-hidden>
-          {["ludo", "checkers", "connect4", "reversi", "tictactoe"].map((game) => (
+          {["ludo", "chess", "checkers", "gomoku", "connect4", "reversi", "tictactoe"].map((game) => (
             <img
               key={game}
               src={GAME_ART[game]}

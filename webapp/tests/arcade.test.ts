@@ -457,3 +457,16 @@ test("voice reach is stated, not implied", async () => {
   assert.match(VOICE_REACH, /peer to peer/i);
   assert.match(VOICE_REACH, /mobile networks/i);
 });
+
+test("the invite page shows every plate the arcade advertises", async () => {
+  const { GAME_ART } = await import("../src/lib/arcade");
+  const source = await import("node:fs/promises").then((fs) =>
+    fs.readFile(new URL("../src/components/arcade/InviteRoom.tsx", import.meta.url), "utf8"),
+  );
+  for (const game of Object.keys(GAME_ART)) {
+    assert.ok(
+      source.includes(`"${game}"`),
+      `the invite mosaic is missing ${game}; a seven-board arcade cannot advertise five`,
+    );
+  }
+});
