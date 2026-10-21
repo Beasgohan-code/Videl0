@@ -173,6 +173,9 @@ def view(doc, user=None):
         "version": int(doc.get("version", 0)),
         "seq": int(doc.get("seq", 0)),
         "winner": doc.get("winner"),
+        "end_reason": doc.get("end_reason"),
+        # null, or the seat whose offer is waiting for an answer.
+        "draw_offer": doc.get("draw_offer"),
         "chat_id": doc.get("chat_id"),
         "title": doc.get("title") or "",
         # The panel draws a clock ring from this, so it must not have to guess
@@ -335,6 +338,10 @@ def act(code, user, payload):
         return kick(code, user, payload.get("user"))
     if action == "rematch":
         return rematch(code, user)
+    if action == "resign":
+        return resign(code, user)
+    if action == "draw":
+        return draw(code, user, bool(payload.get("accept")))
     if action == "chat":
         return chat(code, user, payload.get("text"))
     if action == "rtc":
@@ -377,6 +384,76 @@ def move(code, user, move):
            seq=int(fresh.get("seq", 0)))
     if winner is not None:
         _finish(fresh)
+    return view(fresh, user)
+
+
+def resign(code, user):
+    """Give the game away on purpose. A timed-out player already forfeits;
+    this is the same ending without waiting out the clock."""
+    doc = _find(code)
+    seat = _require_member(doc, user)
+    if doc.get("status") != "playing":
+        raise GameError("This room is not in play", 409)
+    if int(doc.get("seat_count", 2)) != 2:
+        raise GameError("Only a two-player game can be resigned", 409)
+    stamp = now()
+    changed = rooms().update_one(
+        {"_id": code, "version": int(doc["version"]), "status": "playing"},
+        {"$set": {"status": "done", "winner": 1 - seat, "finished_at": stamp,
+                  "deadline_at": None, "end_reason": "resign", "draw_offer": None},
+         "$inc": {"version": 1, "seq": 1}})
+    if not changed.modified_count:
+        raise GameError("The room moved without you; refresh before resigning", 409)
+    fresh = _find(code)
+    _event(code, "system", int(user), "resigned", seq=int(fresh.get("seq", 0)))
+    _finish(fresh)
+    return view(fresh, user)
+
+
+def draw(code, user, accept):
+    """Offer a draw, or answer the one already on the table.
+
+    An offer is not a move: the clock keeps running and the game keeps going
+    until the other seat answers, so a stalling player cannot freeze a losing
+    position by never replying.
+    """
+    doc = _find(code)
+    seat = _require_member(doc, user)
+    if doc.get("status") != "playing":
+        raise GameError("This room is not in play", 409)
+    if int(doc.get("seat_count", 2)) != 2:
+        raise GameError("Draws are offered in two-player games only", 409)
+    offered = doc.get("draw_offer")
+    stamp = now()
+    if accept and offered is not None and int(offered) != seat:
+        changed = rooms().update_one(
+            {"_id": code, "version": int(doc["version"]), "status": "playing"},
+            {"$set": {"status": "done", "winner": "draw", "finished_at": stamp,
+                      "deadline_at": None, "end_reason": "agreement",
+                      "draw_offer": None},
+             "$inc": {"version": 1, "seq": 1}})
+        if not changed.modified_count:
+            raise GameError("The room changed; try again", 409)
+        fresh = _find(code)
+        _event(code, "system", int(user), "agreed to a draw",
+               seq=int(fresh.get("seq", 0)))
+        _finish(fresh)
+        return view(fresh, user)
+    if offered is not None and int(offered) == seat:
+        raise GameError("You already offered a draw", 409)
+    if accept and offered is None:
+        raise GameError("There is no draw offer to accept", 409)
+    changed = rooms().update_one(
+        {"_id": code, "version": int(doc["version"]), "status": "playing"},
+        {"$set": {"draw_offer": None if offered is not None else seat,
+                  "updated_at": stamp},
+         "$inc": {"version": 1, "seq": 1}})
+    if not changed.modified_count:
+        raise GameError("The room changed; try again", 409)
+    fresh = _find(code)
+    _event(code, "system", int(user),
+           "declined the draw" if offered is not None else "offered a draw",
+           seq=int(fresh.get("seq", 0)))
     return view(fresh, user)
 
 

@@ -2428,3 +2428,71 @@ html { scroll-padding-top: 5.5rem; }
   border-color: rgba(94, 234, 212, 0.4);
   box-shadow: 0 0 0 1px rgba(94, 234, 212, 0.12), 0 12px 30px -22px #5eead4;
 }
+
+/* ── Ending a game on purpose ──────────────────────────────────────────────── */
+.table-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.7rem;
+}
+.table-resign,
+.table-cancel {
+  background: none;
+  border: none;
+  padding: 0.35rem 0.25rem;
+  font-size: 0.7rem;
+  color: rgba(148, 163, 184, 0.55);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+.table-resign:hover { color: #fca5a5; }
+.table-cancel { color: rgba(148, 163, 184, 0.75); text-decoration: underline; }
+.table-confirm {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.7rem;
+  color: rgba(252, 165, 165, 0.9);
+}
+.table-draw {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.7rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: 14px;
+  border: 1px solid rgba(250, 204, 21, 0.3);
+  background: rgba(250, 204, 21, 0.08);
+  font-size: 0.74rem;
+  color: #fde68a;
+  animation: rise-in var(--quick) var(--ease) both;
+}
+.table-draw > span { flex: 1; min-width: 8rem; }
+.table-verdict {
+  margin-top: 0.7rem;
+  font-size: 0.72rem;
+  color: rgba(203, 213, 225, 0.6);
+}
+@media (prefers-reduced-motion: reduce) {
+  .table-draw { animation: none; }
+}
+.voice-escape {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  margin-left: 0.35rem;
+  color: #a5b4fc;
+  text-decoration: underline;
+  white-space: nowrap;
+}
+.voice-reach {
+  width: 100%;
+  font-size: 0.6rem;
+  line-height: 1.35;
+  color: rgba(148, 163, 184, 0.45);
+}

@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Headphones, Loader2, Mic, MicOff, PhoneOff, Volume2, VolumeX, Waves } from "lucide-react";
-import { RoomVoice, canVoice, type VoiceSignal, type VoiceState } from "@/lib/voice";
+import { ArrowUpRight, Headphones, Loader2, Mic, MicOff, PhoneOff, Volume2, VolumeX, Waves } from "lucide-react";
+import { RoomVoice, VOICE_REACH, canVoice, type VoiceSignal, type VoiceState } from "@/lib/voice";
 import type { RoomEvent, Seat } from "@/lib/arcade";
 
 /**
@@ -15,6 +15,16 @@ import type { RoomEvent, Seat } from "@/lib/arcade";
  * The signals travel on the room's own event stream (`action: "rtc"`), so voice
  * needs no second connection and stops working exactly when the room does.
  */
+/**
+ * The page to leave the webview for. Telegram opens links inside itself by
+ * default, so the escape hatch is an ordinary anchor with a real URL: a press
+ * that lands in Chrome is the whole point of showing it.
+ */
+function pageUrl(): string {
+  if (typeof window === "undefined") return "/";
+  return window.location.href;
+}
+
 export function VoiceDock({
   room,
   seat,
@@ -254,8 +264,13 @@ export function VoiceDock({
       {state.status === "blocked" || state.status === "unsupported" ? (
         <p className="voice-error" role="status">
           <MicOff size={12} aria-hidden /> {state.error}
+          <a className="voice-escape" href={pageUrl()} target="_blank" rel="noreferrer">
+            Open in a browser <ArrowUpRight size={11} aria-hidden />
+          </a>
         </p>
       ) : null}
+
+      {active ? <p className="voice-reach">{VOICE_REACH}</p> : null}
 
       {talkers.length && active ? <span className="sr-only">You are speaking</span> : null}
     </div>

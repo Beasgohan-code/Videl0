@@ -198,6 +198,31 @@ export default function ChannelStudio() {
     setResult({ ok: true, message: "Put back the previous post." });
   }
 
+  /* ── keyboard ─────────────────────────────────────────────────────────────
+     Two shortcuts, both borrowed from the editors people already use:
+     ⌘/Ctrl+S keeps a draft, ⌘/Ctrl+Enter publishes. Esc dismisses the undo
+     notice without restoring anything. Typing inside a field is never
+     intercepted except for those two combinations, so undo/redo keep working
+     in the rich editor. */
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const command = event.metaKey || event.ctrlKey;
+      if (command && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        saveDraft();
+        return;
+      }
+      if (command && event.key === "Enter") {
+        event.preventDefault();
+        if (isOwner && reviewed && !busy) void sendPost();
+        return;
+      }
+      if (event.key === "Escape") setUndo((stack) => (stack.length ? [] : stack));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
   function saveDraft() {
     if (localImage) {
       setResult({
@@ -447,7 +472,7 @@ export default function ChannelStudio() {
         canPublish={Boolean(text.trim() || mediaUrl || localImage)}
         schedule={{
           ready: isOwner,
-          note: isOwner ? "scheduling is available" : "sign in to schedule",
+          note: isOwner ? "⌘S draft · ⌘⏎ publish" : "sign in to schedule",
         }}
       />
 

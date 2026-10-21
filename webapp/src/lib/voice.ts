@@ -22,6 +22,15 @@ export type VoiceState =
   | { status: "off" | "asking" | "ready" | "live" | "blocked" | "unsupported"; error?: string }
   | { status: "connecting"; peer: number };
 
+/**
+ * A mesh with public STUN only reaches peers that can punch a hole through
+ * their own NAT. Most home and office networks can; some carrier-grade mobile
+ * networks cannot, and then the connection sits in "connecting" until it times
+ * out. The dock says so instead of implying a phone call.
+ */
+export const VOICE_REACH =
+  "Peer to peer, no media server. Both players on Wi-Fi is the reliable case; some mobile networks block it.";
+
 /** Is this browser even allowed to try? */
 export function canVoice(): boolean {
   if (typeof window === "undefined") return false;

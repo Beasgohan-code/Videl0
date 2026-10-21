@@ -226,10 +226,6 @@ class ArcadeRoomTests(unittest.TestCase):
         room = store.create(1, "Ada", "connect4", chat_id=-1001)
         self.assertEqual(room["chat_id"], -1001)
 
-
-if __name__ == "__main__":
-    unittest.main()
-
     # ── voice ────────────────────────────────────────────────────────────────
     def test_a_voice_signal_reaches_only_the_seat_it_names(self):
         code = self.joined()
@@ -270,3 +266,67 @@ if __name__ == "__main__":
             store.act(code, 1, {"action": "rtc", "kind": "ice", "to": 2,
                                 "data": {"candidate": "x" * 4000}})
         self.assertEqual(huge.exception.status, 413)
+
+    # ── ending on purpose ────────────────────────────────────────────────────
+    def test_resigning_hands_the_game_to_the_other_seat(self):
+        code = self.joined("chess")
+        done = store.act(code, 2, {"action": "resign"})
+        self.assertEqual(done["status"], "done")
+        self.assertEqual(done["winner"], 0)
+        self.assertEqual(done["end_reason"], "resign")
+        self.assertIsNone(done["deadline_at"], "a finished game has no clock")
+        events = store.timeline(code, 1)["events"]
+        self.assertTrue(any("resigned" in (event.get("text") or "") for event in events))
+
+    def test_a_resigned_room_refuses_further_moves(self):
+        code = self.joined("chess")
+        store.act(code, 1, {"action": "resign"})
+        with self.assertRaises(GameError) as caught:
+            store.act(code, 2, {"action": "resign"})
+        self.assertEqual(caught.exception.status, 409)
+
+    def test_only_a_seated_player_can_resign(self):
+        code = self.joined("chess")
+        with self.assertRaises(GameError):
+            store.act(code, 9, {"action": "resign"})
+
+    def test_a_draw_needs_both_seats(self):
+        code = self.joined("chess")
+        offered = store.act(code, 1, {"action": "draw"})
+        self.assertEqual(offered["status"], "playing", "an offer is not an ending")
+        self.assertEqual(offered["draw_offer"], 0)
+        with self.assertRaises(GameError):
+            # One seat cannot stack offers on itself.
+            store.act(code, 1, {"action": "draw"})
+        drawn = store.act(code, 2, {"action": "draw", "accept": True})
+        self.assertEqual(drawn["status"], "done")
+        self.assertEqual(drawn["winner"], "draw")
+        self.assertEqual(drawn["end_reason"], "agreement")
+        self.assertIsNone(drawn["draw_offer"])
+
+    def test_declining_a_draw_clears_the_table(self):
+        code = self.joined("chess")
+        store.act(code, 1, {"action": "draw"})
+        answer = store.act(code, 2, {"action": "draw", "accept": False})
+        self.assertEqual(answer["status"], "playing")
+        self.assertIsNone(answer["draw_offer"])
+        events = store.timeline(code, 1)["events"]
+        self.assertTrue(any("declined" in (event.get("text") or "") for event in events))
+
+    def test_accepting_when_nothing_is_offered_is_refused(self):
+        code = self.joined("chess")
+        with self.assertRaises(GameError):
+            store.act(code, 2, {"action": "draw", "accept": True})
+
+    def test_a_four_seat_table_cannot_resign_or_draw(self):
+        room = store.create(1, "Ada", "ludo", seat_count=4)
+        store.join(room["code"], 2, "Grace")
+        store.start(room["code"], 1)
+        for payload in ({"action": "resign"}, {"action": "draw"}):
+            with self.assertRaises(GameError) as caught:
+                store.act(room["code"], 1, payload)
+            self.assertEqual(caught.exception.status, 409)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -386,3 +386,74 @@ test("the post flow names its four stages and never claims a done step", async (
   assert.match(html, /data-state="next"/, "the first unfinished stage is marked");
   assert.ok(!/undefined/.test(html));
 });
+
+test("a draw offer shows the answer, not another offer", async () => {
+  const { TableActions } = await import("../src/components/studio/boards/TableActions");
+  const room = {
+    code: "K7M2QX",
+    game: "chess",
+    status: "playing",
+    seat_count: 2,
+    turn: 0,
+    draw_offer: 1,
+    seats: [
+      { user: 1, name: "Ada", seat: 0, online: true },
+      { user: 2, name: "Grace", seat: 1, online: true },
+    ],
+    you: { seat: 0, member: true },
+  } as never;
+  const html = render(
+    createElement(TableActions, { room, busy: false, send: async () => ({}) }),
+  );
+  assert.match(html, /Grace offers a draw/);
+  assert.match(html, /Accept/);
+  assert.match(html, /Keep playing/);
+  assert.ok(!/Offer a draw/.test(html), "the offer is already on the table");
+});
+
+test("resigning asks in place and four-seat tables never see the button", async () => {
+  const { TableActions } = await import("../src/components/studio/boards/TableActions");
+  const base = {
+    code: "K7M2QX",
+    game: "chess",
+    status: "playing",
+    seat_count: 2,
+    turn: 0,
+    draw_offer: null,
+    seats: [{ user: 1, name: "Ada", seat: 0, online: true }],
+    you: { seat: 0, member: true },
+  };
+  const html = render(createElement(TableActions, { room: base as never, busy: false, send: async () => ({}) }));
+  assert.match(html, /Offer a draw/);
+  assert.match(html, /Resign/);
+  assert.ok(!/Give the game away/.test(html), "the question is not asked before it is needed");
+
+  const ludo = { ...base, game: "ludo", seat_count: 4, you: { seat: 0, member: true } };
+  assert.equal(render(createElement(TableActions, { room: ludo as never, busy: false, send: async () => ({}) })), "");
+});
+
+test("a finished game says how it finished", async () => {
+  const { TableActions } = await import("../src/components/studio/boards/TableActions");
+  const room = {
+    code: "K7M2QX",
+    game: "chess",
+    status: "done",
+    seat_count: 2,
+    winner: 0,
+    end_reason: "resign",
+    draw_offer: null,
+    seats: [
+      { user: 1, name: "Ada", seat: 0, online: true },
+      { user: 2, name: "Grace", seat: 1, online: true },
+    ],
+    you: { seat: 0, member: true },
+  } as never;
+  const html = render(createElement(TableActions, { room, busy: false, send: async () => ({}) }));
+  assert.match(html, /Grace resigned/);
+});
+
+test("voice reach is stated, not implied", async () => {
+  const { VOICE_REACH } = await import("../src/lib/voice");
+  assert.match(VOICE_REACH, /peer to peer/i);
+  assert.match(VOICE_REACH, /mobile networks/i);
+});

@@ -26,6 +26,8 @@ export type Room = {
   chat_id: number | null;
   title: string;
   turn_seconds: number;
+  end_reason?: "played" | "forfeit" | "resign" | "agreement" | string | null;
+  draw_offer?: number | null;
 };
 
 export type RoomEvent = {

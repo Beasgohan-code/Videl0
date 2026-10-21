@@ -49,6 +49,7 @@ import { CheckersBoard } from "./boards/CheckersBoard";
 import { ChessBoard } from "./boards/ChessBoard";
 import { GomokuBoard } from "./boards/GomokuBoard";
 import { VoiceDock } from "./boards/VoiceDock";
+import { TableActions } from "./boards/TableActions";
 import { Callout } from "./ui";
 
 /**
@@ -419,6 +420,8 @@ export function RoomView({
               <div className="mt-3">
                 <Board room={room} myTurn={myTurn} busy={busy} onMove={move} />
               </div>
+
+              <TableActions room={room} busy={busy} send={send} />
 
               <VoiceDock
                 room={room}

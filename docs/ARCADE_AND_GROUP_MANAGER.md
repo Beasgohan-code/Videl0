@@ -219,6 +219,15 @@ Signals are rate-limited separately from chat (240 per minute, 50 ms apart) and
 capped at 3 KB in the backend and 2.6 KB at the webapp door, because an SDP is
 much larger than a message and neither should be a way to fill the event log.
 
+### 2.2c Ending a game on purpose
+
+A two-seat game can end without a move: `resign` hands it to the other seat
+(recorded as `end_reason: "resign"`), and `draw` either puts an offer on the
+table or answers the one already there (`end_reason: "agreement"`). An offer is
+deliberately not a move — the clock keeps running, so a player who is losing
+cannot freeze the position by never replying. Four-seat tables refuse both:
+Ludo has no draw and resigning one chair would strand three.
+
 ### 2.3 Timeouts without a timer thread
 
 The watchdog ticks every 60 s (`videl/core/watcher.py`), which is too coarse for
