@@ -27,7 +27,7 @@ ELDIAN_API_KEY = (os.environ.get("ELDIAN_API_KEY") or os.environ.get("WEBAPP_SEC
 DOWNLOAD_DIR = "downloads"
 
 # Cookies — YTDLP_COOKIES path or YTDLP_COOKIES_URL (auto-downloaded & saved)
-_COOKIES_FILE = os.environ.get("YTDLP_COOKIES") or os.environ.get("COOKIES_PATH") or ""
+_COOKIES_FILE = os.environ.get("YTDLP_COOKIES") or os.environ.get("YT_COOKIES_FILE") or os.environ.get("COOKIES_PATH") or ""
 _COOKIES_URL  = (os.environ.get("YTDLP_COOKIES_URL") or "").strip()
 
 # Optional proxy configuration for yt-dlp fallback.
@@ -63,7 +63,7 @@ def _cleanup(path: str) -> None:
 
 def _cookies_save_path() -> str:
     os.makedirs(DOWNLOAD_DIR, exist_ok=True)
-    env = os.environ.get("YTDLP_COOKIES") or os.environ.get("COOKIES_PATH")
+    env = os.environ.get("YTDLP_COOKIES") or os.environ.get("YT_COOKIES_FILE") or os.environ.get("COOKIES_PATH")
     if env:
         parent = os.path.dirname(env) or "."
         os.makedirs(parent, exist_ok=True)
@@ -179,7 +179,7 @@ def _sync_ytdlp(url: str, video: bool = False) -> str | None:
     if found:return found
     watch=_yt_url(url); cookiefile=_cookies_path(); outtmpl=os.path.join(DOWNLOAD_DIR,f"{video_id}.%(ext)s")
     fmt="best[height<=720]/best" if video else "bestaudio[ext=m4a]/bestaudio/best"
-    base={"format":fmt,"outtmpl":outtmpl,"noplaylist":True,"quiet":True,"no_warnings":True,"noprogress":True,"geo_bypass":True,"nocheckcertificate":True,"retries":2,"fragment_retries":2,"socket_timeout":20,"extractor_args":{"youtube":{"player_client":["android","ios","web"]}}}
+    base={"format":fmt,"outtmpl":outtmpl,"noplaylist":True,"quiet":True,"no_warnings":True,"noprogress":True,"geo_bypass":True,"nocheckcertificate":True,"retries":2,"fragment_retries":2,"socket_timeout":20}
     if cookiefile:base["cookiefile"]=cookiefile
     proxies=_load_proxy_list()[:3]
     last_error=None

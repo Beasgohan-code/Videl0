@@ -45,6 +45,10 @@ test("essential bot commands are documented", () => {
     "skip",
     "queue",
     "stats",
+    "kang",
+    "font",
+    "hug",
+    "kiss",
   ])
     assert.ok(documented.has(name), `missing /${name}`);
 });

@@ -5,7 +5,7 @@ from videl.utils.command_catalog import commands,LABELS
 def reference():
     entries=commands()
     lines=['# Registered command reference','',
-           'Generated from registered command and regex handlers plus the two enabled plugins.',
+           "Generated from the bot's registered command manifest and installed handlers.",
            'This documents navigation and source coverage, not verified live Telegram behavior.',
            'Aliases are listed separately; permissions remain enforced by the referenced handler.',
            'Owner operations are hidden from public `/commands` results.','',

@@ -25,6 +25,10 @@ jobs:
       WEBAPP_URL: ${{ vars.WEBAPP_URL || 'https://videl-studio.vercel.app' }}
     steps:
       - name: Wait for the backend to report this commit
+        # Render deploys `main`. On a feature branch the backend is *supposed*
+        # to be behind, so waiting for it would fail every PR for a reason the
+        # PR cannot fix. Only the app itself is checked off-main.
+        if: github.ref == 'refs/heads/main'
         run: |
           set -uo pipefail
           short="${GITHUB_SHA::12}"
@@ -50,6 +54,11 @@ jobs:
           done
           echo "::error::The backend never reported $short. Check the Render deploy log."
           exit 1
+
+      - name: Note a skipped backend check
+        if: github.ref != 'refs/heads/main'
+        run: |
+          echo "Feature branch: the backend deploys from main, so its revision is not compared here."
 
       - name: Wait for the web panel
         run: |

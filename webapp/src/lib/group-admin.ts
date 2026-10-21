@@ -609,6 +609,7 @@ export function auditLabel(event: AuditEvent): string {
     approval: "Approval removed",
     warn: "Warning issued",
     moderation: "Member action",
+    invite: "Invite link created",
     warn_reset: "Warnings cleared",
     automation: "Automation updated",
     commands: "Command switch changed",

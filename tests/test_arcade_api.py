@@ -71,13 +71,28 @@ class ArcadeApiTests(unittest.TestCase):
         self.assertEqual(self.client.get("/internal/arcade", headers=headers).status_code, 401)
 
     # ── the lobby ────────────────────────────────────────────────────────────
+    @patch("videl.games.routes.avatars.fetch", return_value=("image/png", b"avatar"))
+    def test_a_telegram_avatar_is_returned_only_after_actor_verification(self, fetch):
+        denied = self.client.get("/internal/arcade/avatar/1")
+        self.assertEqual(denied.status_code, 403)
+        answer = self.client.get("/internal/arcade/avatar/1", headers=self.headers(2))
+        self.assertEqual(answer.status_code, 200)
+        self.assertEqual(answer.get_json(), {"ok": True, "mime": "image/png", "data": "YXZhdGFy"})
+        fetch.assert_called_once()
+        profile = self.client.get("/internal/arcade/player/1", headers=self.headers(2))
+        self.assertEqual(profile.status_code, 200)
+        self.assertEqual(profile.get_json()["player"]["name"], "Ada")
+        self.assertNotIn("photo_url", profile.get_json()["player"],
+                         "Telegram image URLs stay behind the server proxy")
+
     def test_the_lobby_lists_games_and_only_public_rooms(self):
         self.room(1, visibility="public")
         self.room(1, game="ludo", seats=4, visibility="private")
         body = self.client.get("/internal/arcade", headers=self.headers(2)).get_json()
         self.assertEqual(body["ok"], True)
         self.assertEqual({game["key"] for game in body["games"]},
-                         {"checkers", "connect4", "reversi", "tictactoe", "ludo"})
+                         {"checkers", "chess", "chinese", "connect4", "dots", "gomoku",
+                          "reversi", "tictactoe", "ludo", "yacht"})
         self.assertEqual(len(body["public"]), 1)
         self.assertEqual(body["public"][0]["game"], "connect4")
         self.assertEqual(body["me"]["id"], 2)
@@ -91,7 +106,7 @@ class ArcadeApiTests(unittest.TestCase):
 
     def test_an_unknown_game_is_a_400_not_a_crash(self):
         response = self.client.post("/internal/arcade", headers=self.headers(1),
-                                    json={"game": "chess"})
+                                    json={"game": "poker"})
         self.assertEqual(response.status_code, 400)
         self.assertIn("error", response.get_json())
 

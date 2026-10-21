@@ -66,13 +66,13 @@ styled Close/Reopen controls whose callbacks check the message's chat and curren
 admin privileges on every click. General-topic actions are refused. `/apiinfo`
 and `/emojiinfo` are exact-owner/private only.
 
-Removed demo commands remain removed; the retained command catalogue stays at
-155 names, including aliases. New features are added to useful existing commands,
-not reintroduced as showcase commands. The implementation does not claim support
-for every Bot API method or universal client support.
+Removed demo commands remain removed; the command catalogue is generated from
+registered handlers, including aliases. New features are added to useful existing
+commands, not reintroduced as showcase commands. The implementation does not
+claim support for every Bot API method or universal client support.
 
-Latest validation: 97 Python tests and 36 frontend tests passed; compilation and
-all registered module imports passed. Tests include real Richgram-to-native
+Validation at the original integration checkpoint: 97 Python tests and 36
+frontend tests passed; compilation and all registered module imports passed. Tests include real Richgram-to-native
 fallback rendering with mocked Telegram calls, explicit keyboard preservation,
 public/owner start separation, native transport exceptions, topic callbacks and
 poll validation. Production rollout and live voice/forum/poll verification remain

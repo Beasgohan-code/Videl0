@@ -32,7 +32,7 @@ def panel(chat_id, title):
     return text, InlineKeyboardMarkup(rows)
 
 
-@bot.on_message(filters.command(["group", "setup"]) & filters.group)
+@bot.on_message(filters.command("group") & filters.group)
 async def group_command(_, message):
     if not message.from_user or not await is_admin(message.chat.id, message.from_user.id):
         return await rich_reply(message, rich_note("Group admins only."))

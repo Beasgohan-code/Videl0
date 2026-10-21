@@ -1,9 +1,12 @@
 # Plan: public games with live chat, Telegram sign-up, and a group manager
 
-Status: **partly shipped.** The identity layer, the five games (Checkers,
-Connect Four, Reversi, Tic-tac-toe, Ludo), server-authoritative rooms with chat and timeouts,
-the arcade screen, and the group-manager backend are in the repository and
-tested. The group-manager screen, presence-based SSE and voice remain. Where
+Status: **partly shipped.** The identity layer, ten games (Chinese Checkers,
+Dots & Boxes, Yacht, Chess, Checkers, Five in a Row, Connect Four, Reversi,
+Tic-tac-toe, Ludo),
+server-authoritative rooms with chat, live voice and timeouts, Telegram player
+photos, profile cards, table reactions and nudges, the arcade screen, and the
+group-manager backend are in the repository and tested. The group-manager
+screen, presence-based SSE and TURN relay remain. Where
 this document and the code differ, the code and its tests are the truth.
 
 ## Verdict first
@@ -13,7 +16,7 @@ this document and the code differ, the code and its tests are the truth.
 | Public multiplayer games | **Yes** | Rooms in the panel, server-authoritative rules, no accounts to create |
 | Live text chat + presence | **Yes** | Server-sent events from the Render backend, short polling as fallback |
 | Telegram sign-up | **Yes** | The Mini App already proves who you are; reuse that proof for everyone, not only the owner |
-| Live **voice** chat | **Partly** | Voice lives in Telegram's own group voice chat (free, reliable). In-panel real-time audio is a gated spike: it needs TURN and fights iOS WebView |
+| Live **voice** chat | **Yes, best effort** | In-panel peer-to-peer WebRTC is shipped with room signalling and honest mobile-network limits; TURN relay remains the reliability upgrade. Voice notes remain the fallback |
 | Group manager for admins | **Yes, and it is the smaller half** | Reuses `GroupView`, but only after an actor refactor — see §3.4, the current code acts as the owner |
 
 The two features share one thing that does not exist yet: **an identity for
@@ -149,6 +152,8 @@ Two players may not hold the same seat; leaving mid-game is a forfeit after a
 | **Connect Four** | 2 | 60 s live / 24 h async | Rules fit in 200 lines, provably testable, instantly understood |
 | **Reversi** | 2 | 90 s / 24 h | Zero content, deep play, works asynchronously |
 | **Tic-tac-toe** | 2 | 45 s / 24 h | The fastest complete game; a whole room can be played in a minute |
+| **Chess** | 2 | 180 s / 24 h | The game people arrive asking for; full FIDE move generation rather than a subset |
+| **Five in a Row** | 2 | 60 s / 24 h | One rule, 225 intersections, and the board reads well on a phone |
 | **Checkers** | 2 | 75 s / 24 h | Draughts with the two rules that decide real games: compulsory captures and the longest chain; kings fly |
 | **Ludo** | 2–4 | 45 s / 24 h | The game people ask for by name: a shared board, more than two seats, and chance that keeps every seat in it |
 
@@ -193,6 +198,67 @@ accepted by `codeFromLink()`.
 
 The art in `webapp/public/arcade/` is original to this repository, generated
 for the lobby and the invite page; nothing is loaded from a third-party CDN.
+
+### 2.2b Voice at the table
+
+Voice is peer-to-peer WebRTC in a mesh — one connection per pair of seats, so a
+four-seat table is six connections and nothing needs an SFU. There is no second
+socket: a signal is written by the backend as an ordinary room event
+(`action: "rtc"`, addressed with `to`) and reaches the browser on the stream the
+room already polls every 2.2 s. Joining a room is therefore the only thing that
+has to succeed for voice to work, and leaving it stops voice for free.
+
+Presence is a heartbeat, not a flag: while a player is in the call the dock
+posts `action: "voice"` every 12 s, and the room only counts heartbeats younger
+than 35 s. A phone that sleeps or a tab that closes leaves the call on its own,
+and a heartbeat never bumps the move version, so it cannot make somebody's next
+move look stale.
+
+Two consequences are stated in the UI rather than hidden:
+
+* Telegram's in-app webview often refuses `getUserMedia`. That is a first-class
+  state (`blocked`) with a sentence that names the fallback — Chrome/Safari, or
+  voice notes over the room chat.
+* The microphone starts **muted**, and speaking is push-to-talk (hold the
+  button or the space bar). An open mic in a four-seat room is a bug, not a
+  feature.
+
+Signals are rate-limited separately from chat (240 per minute, 50 ms apart) and
+capped at 3 KB in the backend and 2.6 KB at the webapp door, because an SDP is
+much larger than a message and neither should be a way to fill the event log.
+
+### 2.2c Voice notes, for the call that cannot happen
+
+Not every table can carry a call: a Telegram webview may refuse the microphone,
+a carrier-grade NAT may block the peer connection, and two friends may simply
+never be online at the same time. A voice note is the honest answer — up to
+twenty seconds, recorded in the page, stored beside the room, and played from
+the chat feed with one press.
+
+The clip is capped at 480 KB of base64 (about twenty seconds of Opus), kept in
+`game_clips` with the same expiry as the events around it, and handed out only
+to a member of the room it belongs to. The feed carries an opaque id and a
+duration — never the audio — so a polling client downloads a recording only
+when somebody presses play.
+
+### 2.2d What the table sounds like
+
+The arcade is quiet by default only in the sense that nothing plays until the
+first gesture the browser allows. Move, capture, check, win, loss, a new chair
+and a voice join are six short oscillator envelopes made in the page — no audio
+files, a few hundred bytes of code. Sound is a switch in the room bar, its state
+is remembered per device, and `prefers-reduced-motion` has a sibling in
+`navigator.vibrate`: a phone gets a 12 ms tap instead of a speaker when that is
+the better channel.
+
+### 2.2c Ending a game on purpose
+
+A two-seat game can end without a move: `resign` hands it to the other seat
+(recorded as `end_reason: "resign"`), and `draw` either puts an offer on the
+table or answers the one already there (`end_reason: "agreement"`). An offer is
+deliberately not a move — the clock keeps running, so a player who is losing
+cannot freeze the position by never replying. Four-seat tables refuse both:
+Ludo has no draw and resigning one chair would strand three.
 
 ### 2.3 Timeouts without a timer thread
 
@@ -573,3 +639,31 @@ webapp/src/app/page.tsx                           register the screen
    and blocks), or invite-only links until moderation proves itself?
 3. **Voice:** confirm tier A as the definition of "live voice" for v1, with
    tier B in v1.1 and tier C gated by the P5 spike.
+
+
+## 2.2e Three tables for a crowd, Telegram player cards, and table talk
+
+The arcade now includes three additional server-authoritative multiplayer
+engines, with original locally generated plate art and board controls:
+
+- **Chinese Checkers** — 121 holes and six ten-peg camps. Two, three, four or
+  six players; step and chain-jump moves; a win is filling the opposite camp.
+- **Dots & Boxes** — a six-by-five grid, two to four players. The engine owns
+  each of the 71 edges and 30 boxes; closing a box scores it and grants another
+  line, and a tied board is a draw.
+- **Yacht** — two to six players, five dice, up to three rolls and thirteen
+  once-only score categories. The server computes category previews, totals,
+  upper-section bonus and a full-turn timeout move.
+
+A multi-seat room begins when all chosen seats are filled (the host may still
+start an early Ludo table as before). Multi-seat wins/losses/draws appear on
+player records without pretending that a six-chair game is a two-player Elo
+rating. Table reactions are limited to six supported emoji with a cooldown;
+clock nudges go into the table feed and have a server-side cooldown, not a
+Telegram push notification.
+
+Player tiles use the photo URL from Telegram's signed Mini App identity when
+available, or ask the Bot API for that user's profile photo. The bot token
+stays server-side; downloads are HTTPS-only, restricted to Telegram hosts,
+limited to 400 KB and cached. Each tile opens a profile card with that game's
+W/L/D and rating. If Telegram has no photo, the seat initials remain visible.

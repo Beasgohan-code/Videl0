@@ -116,6 +116,23 @@ def record(game, winner_id, loser_id, *, draw=False):
     return {"winner": delta_first, "loser": delta_second}
 
 
+def record_table(game, winner_id, others, *, draw=False):
+    """Record a multi-seat result. No rating: a six-chair win is not a duel.
+
+    Every player at the table still deserves the result in their profile, so
+    the win, loss or draw is written for all of them even though Elo is not.
+    """
+    col = collection()
+    if col is None:
+        return None
+    game = str(game or "")
+    for user_id in others:
+        _bump(col, user_id, game, won=False, draw=draw, rated=False)
+    if winner_id is not None:
+        _bump(col, winner_id, game, won=not draw, draw=draw, rated=False)
+    return None
+
+
 def _bump(col, user_id, game, *, won, draw, rated, rating=None):
     path = f"stats.{game}"
     # Zeros are written on purpose: a record with only a "wins" field is

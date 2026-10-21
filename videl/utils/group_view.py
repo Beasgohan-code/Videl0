@@ -77,7 +77,7 @@ def audit_detail(action,body):
         off=[key for key,value in body['settings'].items() if value is False]
         if on:parts.append('on: '+', '.join(sorted(on)))
         if off:parts.append('off: '+', '.join(sorted(off)))
-    for key in ('preset','mode','limit','trigger','command','name','keyword','user_id','status','decision'):
+    for key in ('preset','mode','limit','trigger','command','name','keyword','user_id','status','decision','verb'):
         value=body.get(key)
         if value not in (None,''):parts.append(f'{key}: {value}')
     for key in _AUDIT_TEXT_FIELDS:
@@ -719,9 +719,9 @@ class GroupView:
     AUDIT_KINDS={'settings':'settings','protect':'settings','preset':'preset','warn_limit':'warn_limit',
         'welcome':'welcome','goodbye':'goodbye','rules':'rules','blacklist_add':'blacklist',
         'blacklist_remove':'blacklist','blacklist_mode':'blacklist_mode','note_delete':'note',
-        'filter_delete':'filter','approved_remove':'approval','warn_reset':'warn_reset',
+        'filter_delete':'filter','filter_create':'filter','note_create':'note','approved_remove':'approval','warn_reset':'warn_reset',
         'automation':'automation','command_disable':'commands','command_enable':'commands','backup_import':'backup','backup_restore':'backup',
-        'join_request':'join_request','report_update':'report','recording':'recording','purge_history':'purge'}
+        'join_request':'join_request','report_update':'report','member_action':'moderation','invite_link':'invite','recording':'recording','purge_history':'purge'}
 
     def log(self,cid,action,body=None,source='web'):
         """Record a successful change. Never raises: the change already happened."""
@@ -1242,11 +1242,27 @@ class GroupView:
             if mode not in ENUM_SETTINGS['blacklist_mode']:raise ViewError('Choose a supported blacklist mode.')
             revision=self._write_settings(cid,{'blacklist_mode':mode},body)
             return {'ok':True,'settings':self.snapshot(cid),'revision':revision}
+        if action=='note_create':
+            name=str(body.get('name') or '').strip().casefold()
+            text=body.get('text')
+            if not re.fullmatch(r'[a-z0-9_]{1,32}',name):raise ViewError('Note names may use 1–32 letters, numbers or underscores.')
+            if not isinstance(text,str) or not text.strip() or len(text)>2000:raise ViewError('A note needs 1–2000 characters of text.')
+            self.db['mgmt_notes'].update_one({'chat_id':cid,'name':name},
+                {'$set':{'chat_id':cid,'name':name,'content':text.strip(),'type':'text'}},upsert=True)
+            return {'ok':True,'saved':name}
         if action=='note_delete':
             name=str(body.get('name') or '').strip().casefold()
             if not name:raise ViewError('A note name is required.')
             self.db['mgmt_notes'].delete_one({'chat_id':cid,'name':name})
             return {'ok':True,'deleted':name}
+        if action=='filter_create':
+            keyword=str(body.get('keyword') or '').strip().casefold()
+            reply=body.get('reply')
+            if not keyword or len(keyword)>64:raise ViewError('Filter keywords must contain 1–64 characters.')
+            if not isinstance(reply,str) or not reply.strip() or len(reply)>400:raise ViewError('An automatic reply needs 1–400 characters.')
+            self.db['mgmt_filters'].update_one({'chat_id':cid,'keyword':keyword},
+                {'$set':{'chat_id':cid,'keyword':keyword,'reply':reply.strip()}},upsert=True)
+            return {'ok':True,'saved':keyword}
         if action=='filter_delete':
             keyword=str(body.get('keyword') or '').strip().casefold()
             if not keyword:raise ViewError('A filter keyword is required.')
@@ -1300,7 +1316,7 @@ class GroupView:
         if self.scope!='owner' and action in self.OWNER_ONLY:
             raise ViewError('Only the bot owner can do that.',403)
         if action in {'recording','purge_history','protect'}:return self.settings(cid,actor,body)
-        if action in {'settings','preset','warn_limit','welcome','goodbye','rules','blacklist_add','blacklist_remove','blacklist_mode','note_delete','filter_delete','approved_remove','warn_reset','automation','command_disable','command_enable','join_request','report_update'}:
+        if action in {'settings','preset','warn_limit','welcome','goodbye','rules','blacklist_add','blacklist_remove','blacklist_mode','note_create','note_delete','filter_create','filter_delete','approved_remove','warn_reset','automation','command_disable','command_enable','join_request','report_update'}:
             return self.admin(cid,actor,body,source)
         if cid>0 and action not in {'send','reply','delete','react','poll','forward'}:raise ViewError('This action is group-only.',403)
         if action not in {'send','reply','delete','react','poll','forward','mute','unmute','ban','pin','unpin'}:raise ViewError('Unsupported group action.')

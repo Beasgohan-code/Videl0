@@ -3,12 +3,14 @@
 Every route requires the shared internal secret *and* a signed actor assertion,
 so the backend never has to trust a user id chosen by a browser.
 """
+import base64
+
 from flask import jsonify, request
 
 from videl.api.actor import ActorError, require_actor
 from videl.games import GAMES, store
 from videl.games.registry import GameError
-from videl.utils import players
+from videl.utils import avatars, players
 from videl.utils.chat_admins import check as admin_check
 from videl.utils.db import get_db
 
@@ -117,6 +119,52 @@ def register_arcade_routes(app, authorized, api, secret):
             return _answer(error)
         except Exception:
             return jsonify({"ok": False, "error": "The room is unavailable; refresh before moving"}), 503
+
+    @app.route("/internal/arcade/clip/<clip_id>", methods=["GET"])
+    def arcade_clip(clip_id):
+        if not authorized():
+            return jsonify({"ok": False, "error": "unauthorized"}), 403
+        try:
+            return jsonify(store.clip(clip_id, actor()))
+        except (GameError, ActorError) as error:
+            return _answer(error)
+        except Exception:
+            return jsonify({"ok": False, "error": "That voice note is unavailable"}), 503
+
+    @app.route("/internal/arcade/avatar/<int:user_id>", methods=["GET"])
+    def arcade_avatar(user_id):
+        """The player's Telegram photo, or a 404 the panel can fall back from."""
+        if not authorized():
+            return jsonify({"ok": False, "error": "unauthorized"}), 403
+        try:
+            actor()
+            doc = players.get(user_id)
+            if doc is None:
+                raise GameError("That player is not in the arcade", 404)
+            mime, payload = avatars.fetch(doc, api)
+            return jsonify({"ok": True, "mime": mime,
+                            "data": base64.b64encode(payload).decode("ascii")})
+        except (GameError, ActorError, avatars.AvatarError) as error:
+            return _answer(error)
+
+    @app.route("/internal/arcade/player/<int:user_id>", methods=["GET"])
+    def arcade_player(user_id):
+        if not authorized():
+            return jsonify({"ok": False, "error": "unauthorized"}), 403
+        try:
+            actor()
+            doc = players.get(user_id)
+            if doc is None:
+                raise GameError("That player is not in the arcade", 404)
+            public = players.public(doc)
+            # The panel needs the name and record; a provider URL is never
+            # handed to the browser. Profile images go through our byte proxy.
+            safe = {key: public.get(key) for key in ("id", "name", "username", "stats")}
+            return jsonify({"ok": True, "player": safe})
+        except (GameError, ActorError) as error:
+            return _answer(error)
+        except Exception:
+            return jsonify({"ok": False, "error": "That profile is unavailable"}), 503
 
     @app.route("/internal/arcade/me", methods=["GET"])
     def arcade_me():

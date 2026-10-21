@@ -1,11 +1,11 @@
 # Registered command reference
 
-Generated from registered command and regex handlers plus the two enabled plugins.
+Generated from the bot's registered command manifest and installed handlers.
 This documents navigation and source coverage, not verified live Telegram behavior.
 Aliases are listed separately; permissions remain enforced by the referenced handler.
 Owner operations are hidden from public `/commands` results.
 
-155 distinct command names.
+160 distinct command names.
 
 ## Music & playlists
 
@@ -54,28 +54,28 @@ Owner operations are hidden from public `/commands` results.
 |---|---|---|
 | `/addblacklist` | group | `videl/modules/blocklist.py::addbl_cmd` |
 | `/addblsticker` | group | `videl/modules/blocklist.py::add_bl_sticker` |
-| `/admins` | chat | `videl/app/moderation.py::admins` |
-| `/antispam` | group | `videl/app/locks.py::antispam` |
+| `/admins` | chat | `videl/plugins/moderation.py::admins` |
+| `/antispam` | group | `videl/plugins/locks.py::antispam` |
 | `/approval` | group | `videl/modules/approve.py::approval_info` |
 | `/approve` | group | `videl/modules/approve.py::approve_cmd` |
 | `/approved` | group | `videl/modules/approve.py::approved_list` |
-| `/ban` | group | `videl/app/moderation.py::moderate` |
-| `/banlist` | group | `videl/app/moderation.py::ban_list` |
+| `/ban` | group | `videl/plugins/moderation.py::moderate` |
+| `/banlist` | group | `videl/plugins/moderation.py::ban_list` |
 | `/blacklist` | group | `videl/modules/blocklist.py::listbl_cmd` |
 | `/blacklistmode` | group | `videl/modules/blocklist.py::blmode_cmd` |
 | `/blstickers` | group | `videl/modules/blocklist.py::list_bl_stickers_cmd` |
 | `/chatfed` | group | `videl/modules/federation.py::joinfed_cmd` |
-| `/cleanup` | group | `videl/app/group.py::purge` |
-| `/clearrules` | group | `videl/app/welcome.py::clear_rules` |
-| `/clearwarns` | group | `videl/app/moderation.py::clear_warnings` |
-| `/dban` | group | `videl/app/moderation.py::moderate` |
+| `/cleanup` | group | `videl/plugins/group.py::purge` |
+| `/clearrules` | group | `videl/plugins/welcome.py::clear_rules` |
+| `/clearwarns` | group | `videl/plugins/moderation.py::clear_warnings` |
+| `/dban` | group | `videl/plugins/moderation.py::moderate` |
 | `/delblacklist` | group | `videl/modules/blocklist.py::delbl_cmd` |
 | `/delblsticker` | group | `videl/modules/blocklist.py::del_bl_sticker` |
 | `/delfed` | chat | `videl/modules/federation.py::delfed_cmd` |
-| `/delnote` | group | `videl/app/notes.py::delete_note` |
-| `/demote` | group | `videl/app/moderation.py::demote` |
-| `/dkick` | group | `videl/app/moderation.py::moderate` |
-| `/dwarn` | group | `videl/app/moderation.py::warn` |
+| `/delnote` | group | `videl/plugins/notes.py::delete_note` |
+| `/demote` | group | `videl/plugins/moderation.py::demote` |
+| `/dkick` | group | `videl/plugins/moderation.py::moderate` |
+| `/dwarn` | group | `videl/plugins/moderation.py::warn` |
 | `/faddadmin` | chat | `videl/modules/federation.py::fpromote_cmd` |
 | `/fban` | chat | `videl/modules/federation.py::fban_cmd` |
 | `/fdemote` | chat | `videl/modules/federation.py::fdemote_cmd` |
@@ -83,86 +83,91 @@ Owner operations are hidden from public `/commands` results.
 | `/fedchats` | chat | `videl/modules/federation.py::fedchats_cmd` |
 | `/fedinfo` | chat | `videl/modules/federation.py::fedinfo_cmd` |
 | `/fedstat` | chat | `videl/modules/federation.py::fedinfo_cmd` |
-| `/filter` | group | `videl/app/notes.py::add_filter` |
-| `/filters` | group | `videl/app/notes.py::list_filters` |
+| `/filter` | group | `videl/plugins/notes.py::add_filter` |
+| `/filters` | group | `videl/plugins/notes.py::list_filters` |
 | `/fpromote` | chat | `videl/modules/federation.py::fpromote_cmd` |
 | `/fremadmin` | chat | `videl/modules/federation.py::fdemote_cmd` |
-| `/get` | group | `videl/app/notes.py::get` |
-| `/goodbye` | group | `videl/app/welcome.py::toggle_goodbye` |
-| `/greetings` | group | `videl/app/welcome.py::greeting_status` |
+| `/get` | group | `videl/plugins/notes.py::get` |
+| `/goodbye` | group | `videl/plugins/welcome.py::toggle_goodbye` |
+| `/greetings` | group | `videl/plugins/welcome.py::greeting_status` |
 | `/group` | group | `videl/modules/group_manager.py::group_command` |
 | `/groupview` | group | `videl/app/group_view.py::recording` |
-| `/invite` | group | `videl/app/group.py::invite` |
+| `/invite` | group | `videl/plugins/group.py::invite` |
 | `/joinfed` | group | `videl/modules/federation.py::joinfed_cmd` |
-| `/kick` | group | `videl/app/moderation.py::moderate` |
+| `/kick` | group | `videl/plugins/moderation.py::moderate` |
 | `/leavefed` | group | `videl/modules/federation.py::leavefed_cmd` |
-| `/lock` | group | `videl/app/locks.py::lock` |
-| `/locks` | group | `videl/app/locks.py::locks` |
-| `/mute` | group | `videl/app/moderation.py::moderate` |
+| `/lock` | group | `videl/plugins/locks.py::lock` |
+| `/locks` | group | `videl/plugins/locks.py::locks` |
+| `/mute` | group | `videl/plugins/moderation.py::moderate` |
 | `/myfeds` | chat | `videl/modules/federation.py::myfeds_cmd` |
 | `/newfed` | group | `videl/modules/federation.py::newfed_cmd` |
-| `/notes` | group | `videl/app/notes.py::list_notes` |
+| `/notes` | group | `videl/plugins/notes.py::list_notes` |
 | `/permissions` | group | `videl/modules/group_manager.py::permission_command` |
-| `/pin` | group | `videl/app/group.py::pin` |
-| `/promote` | group | `videl/app/moderation.py::promote` |
-| `/purge` | group | `videl/app/group.py::purge` |
+| `/pin` | group | `videl/plugins/group.py::pin` |
+| `/promote` | group | `videl/plugins/moderation.py::promote` |
+| `/purge` | group | `videl/plugins/group.py::purge` |
 | `/report` | group | `videl/modules/group_manager.py::report_command` |
 | `/rmblacklist` | group | `videl/modules/blocklist.py::delbl_cmd` |
-| `/rules` | group | `videl/app/welcome.py::rules` |
-| `/save` | group | `videl/app/notes.py::save` |
-| `/setcaptcha` | group | `videl/app/welcome.py::toggle_captcha` |
-| `/setgoodbye` | group | `videl/app/welcome.py::set_goodbye` |
-| `/setrules` | group | `videl/app/welcome.py::set_rules` |
-| `/setup` | group | `videl/modules/group_manager.py::group_command` |
-| `/setwarnlimit` | group | `videl/app/moderation.py::set_warn_limit` |
-| `/setwelcome` | group | `videl/app/welcome.py::set_welcome` |
-| `/slowmode` | group | `videl/app/group.py::slowmode` |
-| `/stopfilter` | group | `videl/app/notes.py::remove_filter` |
-| `/tban` | group | `videl/app/moderation.py::moderate` |
-| `/tmute` | group | `videl/app/moderation.py::moderate` |
+| `/rules` | group | `videl/plugins/welcome.py::rules` |
+| `/save` | group | `videl/plugins/notes.py::save` |
+| `/setcaptcha` | group | `videl/plugins/welcome.py::toggle_captcha` |
+| `/setgoodbye` | group | `videl/plugins/welcome.py::set_goodbye` |
+| `/setrules` | group | `videl/plugins/welcome.py::set_rules` |
+| `/setup` | group | `videl/plugins/setup.py::setup` |
+| `/setwarnlimit` | group | `videl/plugins/moderation.py::set_warn_limit` |
+| `/setwelcome` | group | `videl/plugins/welcome.py::set_welcome` |
+| `/slowmode` | group | `videl/plugins/group.py::slowmode` |
+| `/stopfilter` | group | `videl/plugins/notes.py::remove_filter` |
+| `/tagall` | group | `videl/plugins/group.py::tagall` |
+| `/tban` | group | `videl/plugins/moderation.py::moderate` |
+| `/tmute` | group | `videl/plugins/moderation.py::moderate` |
 | `/unapprove` | group | `videl/modules/approve.py::unapprove_cmd` |
-| `/unban` | group | `videl/app/moderation.py::moderate` |
+| `/unban` | group | `videl/plugins/moderation.py::moderate` |
 | `/unfban` | chat | `videl/modules/federation.py::unfban_cmd` |
-| `/unlock` | group | `videl/app/locks.py::unlock` |
-| `/unmute` | group | `videl/app/moderation.py::moderate` |
-| `/unpin` | group | `videl/app/group.py::pin` |
-| `/unpinall` | group | `videl/app/group.py::pin` |
-| `/unwarn` | group | `videl/app/moderation.py::unwarn` |
-| `/warn` | group | `videl/app/moderation.py::warn` |
-| `/warnings` | chat | `videl/app/moderation.py::warnings` |
-| `/welcome` | group | `videl/app/welcome.py::toggle_welcome` |
+| `/unlock` | group | `videl/plugins/locks.py::unlock` |
+| `/unmute` | group | `videl/plugins/moderation.py::moderate` |
+| `/unpin` | group | `videl/plugins/group.py::pin` |
+| `/unpinall` | group | `videl/plugins/group.py::pin` |
+| `/unwarn` | group | `videl/plugins/moderation.py::unwarn` |
+| `/warn` | group | `videl/plugins/moderation.py::warn` |
+| `/warnings` | chat | `videl/plugins/moderation.py::warnings` |
+| `/welcome` | group | `videl/plugins/welcome.py::toggle_welcome` |
 
 ## Telegram tools
 
 | Command | Context | Handler |
 |---|---|---|
-| `/about` | chat | `videl/app/start.py::about` |
-| `/afk` | chat | `videl/app/afk.py::afk` |
-| `/afklist` | group | `videl/app/afk.py::afk_list` |
-| `/back` | chat | `videl/app/afk.py::back` |
-| `/commands` | chat | `videl/app/help.py::directory_command` |
+| `/about` | chat | `videl/plugins/start.py::about` |
+| `/afk` | chat | `videl/plugins/afk.py::afk` |
+| `/afklist` | group | `videl/plugins/afk.py::afk_list` |
+| `/back` | chat | `videl/plugins/afk.py::back` |
+| `/commands` | chat | `videl/plugins/help.py::directory_command` |
 | `/copy` | chat | `videl/modules/api_tools.py::copy_command` |
-| `/forget` | chat | `videl/app/reminder.py::forget` |
-| `/help` | chat | `videl/app/help.py::help_command` |
-| `/id` | chat | `videl/app/tools.py::identifiers` |
+| `/font` | chat | `videl/plugins/fun.py::font` |
+| `/forget` | chat | `videl/plugins/reminder.py::forget` |
+| `/help` | chat | `videl/plugins/help.py::help_command` |
+| `/hug` | chat | `videl/plugins/fun.py::hug` |
+| `/id` | chat | `videl/plugins/tools.py::identifiers` |
 | `/inbox` | chat | `videl/app/group_view.py::private_recording` |
+| `/kang` | chat | `videl/plugins/stickers.py::kang` |
+| `/kiss` | chat | `videl/plugins/fun.py::kiss` |
 | `/modernhelp` | chat | `videl/modules/api_tools.py::modern_help` |
-| `/ping` | chat | `videl/app/tools.py::ping` |
-| `/poll` | chat | `videl/app/group.py::poll` |
+| `/ping` | chat | `videl/plugins/tools.py::ping` |
+| `/poll` | chat | `videl/plugins/group.py::poll` |
 | `/pollstop` | chat | `videl/modules/api_tools.py::stop_poll_command` |
-| `/quiz` | chat | `videl/app/group.py::poll` |
+| `/quiz` | chat | `videl/plugins/group.py::poll` |
 | `/react` | chat | `videl/modules/api_tools.py::react_command` |
-| `/remind` | chat | `videl/app/reminder.py::remind` |
-| `/reminders` | chat | `videl/app/reminder.py::reminders` |
-| `/repo` | chat | `videl/app/tools.py::source` |
-| `/start` | chat | `videl/app/start.py::start` |
-| `/stats` | chat | `videl/app/group.py::stats` |
-| `/stickerid` | chat | `videl/app/group.py::sticker_id` |
+| `/remind` | chat | `videl/plugins/reminder.py::remind` |
+| `/reminders` | chat | `videl/plugins/reminder.py::reminders` |
+| `/repo` | chat | `videl/plugins/tools.py::source` |
+| `/start` | chat | `videl/plugins/start.py::start` |
+| `/stats` | chat | `videl/plugins/group.py::stats` |
+| `/stickerid` | chat | `videl/plugins/group.py::sticker_id` |
 | `/topicclose` | chat | `videl/modules/api_tools.py::topic_command` |
 | `/topicnew` | chat | `videl/modules/api_tools.py::topic_command` |
 | `/topicopen` | chat | `videl/modules/api_tools.py::topic_command` |
 | `/topicrename` | chat | `videl/modules/api_tools.py::topic_command` |
-| `/whois` | chat | `videl/app/tools.py::whois` |
+| `/whois` | chat | `videl/plugins/tools.py::whois` |
 
 ## Owner operations
 

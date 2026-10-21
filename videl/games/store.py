@@ -12,7 +12,9 @@ is watching.
 """
 from __future__ import annotations
 
+import json
 import secrets
+import time
 from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
 
@@ -24,10 +26,35 @@ EVENT_RETENTION = timedelta(days=7)
 PUBLIC_PAGE = 30
 CODES_TRIED = 6
 MAX_CHAT = 400
+#: A WebRTC session description is much longer than a message and is written
+#: by the server, not typed by a person, so it gets its own ceiling.
+MAX_SIGNAL = 3000
 TIMEOUTS_BEFORE_FORFEIT = 3
 CHAT_WINDOW = (20, 60)          # 20 messages per minute
 CHAT_GAP = 1.0                  # and never faster than one per second
+#: Trickled ICE candidates arrive in bursts; a peer only needs to be stopped
+#: from turning the room into a message bus.
+SIGNAL_WINDOW = (240, 60)
+# A voice note is a short recording, not a file share: twenty seconds of Opus
+# is about 30 KB, and the cap below is deliberately generous enough for a
+# worse codec but far too small to smuggle anything else through the room.
+MAX_CLIP = 480_000
+CLIP_SECONDS = (1, 20)
+CLIP_TYPES = ("audio/webm", "audio/ogg", "audio/mp4", "audio/mpeg", "audio/wav")
+# A voice heartbeat is only believable for a moment. Longer than the poll
+# interval (about 2 s) by a wide margin, short enough that closing the tab
+# takes a seat out of the call instead of leaving a ghost in it.
+VOICE_WINDOW = 35
+SIGNAL_GAP = 0.05
+#: A reaction is a flick of the wrist, not a message stream; and a nudge is
+#: something you do once, not a way to drum on someone's phone.
+REACTIONS = frozenset({"👍", "🔥", "😂", "😮", "🎉", "🤝"})
+REACT_GAP = 1.2
+NUDGE_GAP = 20.0
+_LAST_REACT = {}
+_LAST_NUDGE = {}
 _LAST_CHAT = defaultdict(deque)
+_LAST_SIGNAL = defaultdict(deque)
 
 
 def now():
@@ -42,6 +69,10 @@ def _as_utc(value):
 
 def _stamp(value):
     return _as_utc(value).isoformat() if isinstance(value, datetime) else None
+
+
+def clips():
+    return _db()["game_clips"]
 
 
 def _db():
@@ -67,6 +98,10 @@ def ensure_indexes(database=None):
         database["game_rooms"].create_index([("seats.user", 1), ("status", 1)])
         database["game_events"].create_index([("room", 1), ("seq", 1)], unique=True)
         database["game_events"].create_index("expires_at", expireAfterSeconds=0)
+        # A recording is deleted by the same clock as the chat around it: a
+        # voice note with no conversation left to belong to is just storage.
+        database["game_clips"].create_index([("room", 1), ("at", -1)])
+        database["game_clips"].create_index("expires_at", expireAfterSeconds=0)
     except Exception:
         # An index is an optimisation; the feature works without it.
         pass
@@ -164,6 +199,12 @@ def view(doc, user=None):
         "version": int(doc.get("version", 0)),
         "seq": int(doc.get("seq", 0)),
         "winner": doc.get("winner"),
+        "end_reason": doc.get("end_reason"),
+        # null, or the seat whose offer is waiting for an answer.
+        "draw_offer": doc.get("draw_offer"),
+        # Who is in the voice call right now, as user ids. The panel draws a
+        # badge from this and the dock decides whether joining is worth it.
+        "voice": _voice_users(doc),
         "chat_id": doc.get("chat_id"),
         "title": doc.get("title") or "",
         # The panel draws a clock ring from this, so it must not have to guess
@@ -326,8 +367,22 @@ def act(code, user, payload):
         return kick(code, user, payload.get("user"))
     if action == "rematch":
         return rematch(code, user)
+    if action == "resign":
+        return resign(code, user)
+    if action == "draw":
+        return draw(code, user, bool(payload.get("accept")))
     if action == "chat":
         return chat(code, user, payload.get("text"))
+    if action == "rtc":
+        return rtc(code, user, payload)
+    if action == "voice":
+        return voice_presence(code, user, bool(payload.get("on", True)))
+    if action == "clip":
+        return voice_note(code, user, payload)
+    if action == "react":
+        return reaction(code, user, payload.get("emoji"))
+    if action == "nudge":
+        return nudge(code, user)
     if action == "seen":
         touch(code, user)
         return {"ok": True}
@@ -369,27 +424,235 @@ def move(code, user, move):
     return view(fresh, user)
 
 
+def voice_note(code, user, payload):
+    """Leave a short recording for the table.
+
+    The point of this is the call that *cannot* happen: a webview that refuses
+    the microphone, a mobile network that blocks a peer connection, or two
+    people who are not online at the same time. The clip lives beside the room
+    and expires with its events; the chat feed shows a player, not a link.
+    """
+    import base64
+    import binascii
+
+    doc = _find(code)
+    seat = _require_member(doc, user)
+    if doc.get("status") not in {"open", "playing"}:
+        raise GameError("This room is finished", 409)
+    data = payload.get("data")
+    if not isinstance(data, str) or not data:
+        raise GameError("Record something first")
+    if len(data) > MAX_CLIP:
+        raise GameError("That recording is too long to send", 413)
+    try:
+        raw = base64.b64decode(data, validate=True)
+    except (binascii.Error, ValueError):
+        raise GameError("That recording could not be read") from None
+    if len(raw) < 512:
+        raise GameError("That recording is too short")
+    mime = str(payload.get("mime") or "audio/webm").lower()
+    if mime not in CLIP_TYPES:
+        raise GameError("That audio format is not supported")
+    try:
+        seconds = float(payload.get("seconds") or 0)
+    except (TypeError, ValueError):
+        raise GameError("That recording has no length") from None
+    low, high = CLIP_SECONDS
+    if not low <= seconds <= high:
+        raise GameError(f"Keep voice notes between {low} and {high} seconds")
+
+    _rate_limit(code, user)
+    clip_id = secrets.token_urlsafe(12)
+    clips().insert_one({"_id": clip_id, "room": code, "user": int(user), "seat": int(seat),
+                        "mime": mime, "seconds": round(seconds, 1), "bytes": len(raw),
+                        "data": data, "at": now(),
+                        "expires_at": now() + EVENT_RETENTION})
+    seq = _next_seq(code)
+    _event(code, "voice", int(user),
+           json.dumps({"id": clip_id, "seconds": round(seconds, 1)}, separators=(",", ":")),
+           seq=seq)
+    return {"ok": True, "seq": seq, "clip": {"id": clip_id, "seconds": round(seconds, 1)}}
+
+
+def clip(clip_id, user):
+    """Hand one recording to a member of the room it belongs to."""
+    row = clips().find_one({"_id": str(clip_id)})
+    if row is None:
+        raise GameError("That voice note has expired", 404)
+    doc = _find(row["room"])
+    seat = _seat_of(doc, user)
+    if seat is None and doc.get("visibility") != "public":
+        raise GameError("You are not seated in this room", 403)
+    return {"ok": True, "mime": row.get("mime"), "data": row.get("data"),
+            "seconds": row.get("seconds"), "user": row.get("user"), "room": row.get("room")}
+
+
+def voice_presence(code, user, on=True):
+    """Say "I am in the call" — and keep saying it.
+
+    Presence is a heartbeat, not a flag: the room only shows the seats whose
+    last word is younger than VOICE_WINDOW, so a phone that sleeps or a tab
+    that closes leaves the call without anybody having to clean up. This never
+    bumps the move version — a heartbeat must not make a player's next move
+    look stale.
+    """
+    doc = _find(code)
+    seat = _require_member(doc, user)
+    stamp = now()
+    current = {}
+    for key, value in (doc.get("voice") or {}).items():
+        beat = _as_utc(value)
+        if beat is not None and stamp - beat < timedelta(seconds=VOICE_WINDOW):
+            current[str(key)] = value
+    if on:
+        # A real datetime, not an ISO string: every reader here compares
+        # datetimes, and a string would silently look like "never".
+        current[str(seat)] = stamp
+    else:
+        current.pop(str(seat), None)
+    rooms().update_one({"_id": code}, {"$set": {"voice": current}})
+    return {"ok": True, "voice": [int(member["user"]) for member in doc.get("seats", [])
+                                  if str(member.get("seat")) in current]}
+
+
+def _voice_users(doc):
+    """The seats currently in the call, as user ids."""
+    stamp = now()
+    holding = set()
+    for key, value in (doc.get("voice") or {}).items():
+        beat = _as_utc(value)
+        if beat is not None and stamp - beat < timedelta(seconds=VOICE_WINDOW):
+            holding.add(str(key))
+    return [int(member["user"]) for member in doc.get("seats", [])
+            if str(member.get("seat")) in holding]
+
+
+def resign(code, user):
+    """Give the game away on purpose. A timed-out player already forfeits;
+    this is the same ending without waiting out the clock."""
+    doc = _find(code)
+    seat = _require_member(doc, user)
+    if doc.get("status") != "playing":
+        raise GameError("This room is not in play", 409)
+    if int(doc.get("seat_count", 2)) != 2:
+        raise GameError("Only a two-player game can be resigned", 409)
+    stamp = now()
+    changed = rooms().update_one(
+        {"_id": code, "version": int(doc["version"]), "status": "playing"},
+        {"$set": {"status": "done", "winner": 1 - seat, "finished_at": stamp,
+                  "deadline_at": None, "end_reason": "resign", "draw_offer": None},
+         "$inc": {"version": 1, "seq": 1}})
+    if not changed.modified_count:
+        raise GameError("The room moved without you; refresh before resigning", 409)
+    fresh = _find(code)
+    _event(code, "system", int(user), "resigned", seq=int(fresh.get("seq", 0)))
+    _finish(fresh)
+    return view(fresh, user)
+
+
+def draw(code, user, accept):
+    """Offer a draw, or answer the one already on the table.
+
+    An offer is not a move: the clock keeps running and the game keeps going
+    until the other seat answers, so a stalling player cannot freeze a losing
+    position by never replying.
+    """
+    doc = _find(code)
+    seat = _require_member(doc, user)
+    if doc.get("status") != "playing":
+        raise GameError("This room is not in play", 409)
+    if int(doc.get("seat_count", 2)) != 2:
+        raise GameError("Draws are offered in two-player games only", 409)
+    offered = doc.get("draw_offer")
+    stamp = now()
+    if accept and offered is not None and int(offered) != seat:
+        changed = rooms().update_one(
+            {"_id": code, "version": int(doc["version"]), "status": "playing"},
+            {"$set": {"status": "done", "winner": "draw", "finished_at": stamp,
+                      "deadline_at": None, "end_reason": "agreement",
+                      "draw_offer": None},
+             "$inc": {"version": 1, "seq": 1}})
+        if not changed.modified_count:
+            raise GameError("The room changed; try again", 409)
+        fresh = _find(code)
+        _event(code, "system", int(user), "agreed to a draw",
+               seq=int(fresh.get("seq", 0)))
+        _finish(fresh)
+        return view(fresh, user)
+    if offered is not None and int(offered) == seat:
+        raise GameError("You already offered a draw", 409)
+    if accept and offered is None:
+        raise GameError("There is no draw offer to accept", 409)
+    changed = rooms().update_one(
+        {"_id": code, "version": int(doc["version"]), "status": "playing"},
+        {"$set": {"draw_offer": None if offered is not None else seat,
+                  "updated_at": stamp},
+         "$inc": {"version": 1, "seq": 1}})
+    if not changed.modified_count:
+        raise GameError("The room changed; try again", 409)
+    fresh = _find(code)
+    _event(code, "system", int(user),
+           "declined the draw" if offered is not None else "offered a draw",
+           seq=int(fresh.get("seq", 0)))
+    return view(fresh, user)
+
+
 def _describe(game, state, seat, move):
     if game.key == "ludo":
         return f"moved token {int(move.get('token', 0)) + 1}"
+    if game.key == "chess":
+        return f"played {(state.get('last') or {}).get('san') or 'a move'}"
+    if game.key == "checkers":
+        last = state.get("last") or {}
+        jumps = int(last.get("captures") or 0)
+        if last.get("crowned"):
+            return "crowned a king" if not jumps else f"crowned a king taking {jumps}"
+        return f"took {jumps} piece{'s' if jumps != 1 else ''}" if jumps else "made a move"
+    if game.key == "gomoku":
+        cell = int(move.get("cell") or 0)
+        return f"placed a stone at {chr(97 + cell % 15)}{cell // 15 + 1}"
+    if game.key == "chinese":
+        last = state.get("last") or {}
+        return (f"hopped a peg from {int(last.get('from', 0)) + 1} "
+                f"to {int(last.get('to', 0)) + 1}")
+    if game.key == "dots":
+        closed = len((state.get("last") or {}).get("closed") or [])
+        return f"closed {closed} box{'es' if closed != 1 else ''}" if closed else "drew a line"
+    if game.key == "yacht":
+        last = state.get("last") or {}
+        if last.get("category"):
+            return f"scored {int(last.get('points') or 0)} on {str(last['category']).replace('_', ' ')}"
+        return "rolled the dice"
     return "made a move"
 
 
 def _finish(doc):
-    """Record a rating exactly once, guarded by the room's own version write."""
+    """Record a result exactly once, guarded by the room's own version write."""
     winner = doc.get("winner")
     if doc.get("recorded") or doc.get("status") != "done":
         return
     rooms().update_one({"_id": doc["_id"], "recorded": {"$ne": True}}, {"$set": {"recorded": True}})
-    if winner in (None, "draw"):
-        return
     seats = doc.get("seats") or []
-    if len(seats) != 2:
+    if not seats:
         return
-    loser = 1 - int(winner)
+    users = [int(member["user"]) for member in seats]
     try:
         from videl.utils import players
-        players.record(doc["game"], int(seats[int(winner)]["user"]), int(seats[loser]["user"]))
+        if len(seats) == 2 and winner == "draw":
+            players.record(doc["game"], int(seats[0]["user"]),
+                           int(seats[1]["user"]), draw=True)
+        elif len(seats) == 2 and winner is not None:
+            loser = 1 - int(winner)
+            players.record(doc["game"], int(seats[int(winner)]["user"]), int(seats[loser]["user"]))
+        elif len(seats) > 2:
+            # A full table still gets the result in every profile; only the
+            # rating stays out of it, because six chairs are not a duel.
+            if winner in (None, "draw"):
+                players.record_table(doc["game"], None, users, draw=True)
+            elif isinstance(winner, int) and 0 <= int(winner) < len(users):
+                players.record_table(doc["game"], int(users[int(winner)]),
+                                     [user for index, user in enumerate(users)
+                                      if index != int(winner)])
     except Exception:
         pass
 
@@ -463,6 +726,93 @@ def chat(code, user, text):
     return {"ok": True, "seq": seq}
 
 
+def reaction(code, user, emoji):
+    """A single emoji thrown at the table, with a human-sized cooldown."""
+    doc = _find(code)
+    _require_member(doc, user)
+    if doc.get("status") == "abandoned":
+        raise GameError("This room has been closed", 409)
+    symbol = str(emoji or "")
+    if symbol not in REACTIONS:
+        raise GameError("Choose one of the table reactions")
+    key = (code, int(user))
+    if time.monotonic() - _LAST_REACT.get(key, 0.0) < REACT_GAP:
+        raise GameError("Give the last reaction a moment", 429)
+    _LAST_REACT[key] = time.monotonic()
+    seq = _next_seq(code)
+    _event(code, "react", int(user), symbol, seq=seq)
+    return {"ok": True, "seq": seq}
+
+
+def nudge(code, user):
+    """Poke the player whose clock is running. Once every twenty seconds."""
+    doc = _find(code)
+    _require_member(doc, user)
+    if doc.get("status") != "playing":
+        raise GameError("There is no clock to nudge", 409)
+    seat = int((doc.get("state") or {}).get("turn", 0))
+    if seat == _seat_of(doc, user):
+        raise GameError("It is your turn — the table is waiting on you")
+    key = (code, int(user))
+    if time.monotonic() - _LAST_NUDGE.get(key, 0.0) < NUDGE_GAP:
+        raise GameError("You already nudged; give them a moment", 429)
+    _LAST_NUDGE[key] = time.monotonic()
+    target = next((member for member in doc.get("seats", []) if int(member["seat"]) == seat), None)
+    name = (target or {}).get("name") or "the next player"
+    seq = _next_seq(code)
+    _event(code, "nudge", int(user), f"nudged {name}", seq=seq)
+    return {"ok": True, "seq": seq}
+
+
+def rtc(code, user, payload):
+    """Relay one WebRTC signal to a seated peer.
+
+    Voice never touches the board: the media is peer-to-peer, and this is only
+    the introduction — an offer, an answer, or one trickled candidate. The
+    signal is addressed (`to`) so it can be dropped by everyone else, and it is
+    written to the same event stream the room already polls, which is why voice
+    needs no second connection.
+    """
+    doc = _find(code)
+    _require_member(doc, user)
+    kind = str(payload.get("kind") or "").lower()
+    if kind not in {"offer", "answer", "ice", "bye"}:
+        raise GameError("Unknown voice signal")
+    try:
+        target = int(payload.get("to"))
+    except (TypeError, ValueError):
+        raise GameError("Choose who the signal is for") from None
+    if target == int(user):
+        raise GameError("A signal needs a peer")
+    seats = {int(member.get("user")) for member in doc.get("seats", [])}
+    if target not in seats:
+        raise GameError("That player is not at this table", 403)
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        raise GameError("A signal needs a payload")
+    body = json.dumps({"to": target, "kind": kind, "data": data},
+                      separators=(",", ":"), sort_keys=True)
+    if len(body) > MAX_SIGNAL:
+        raise GameError("That signal is too large", 413)
+    _signal_limit(code, user)
+    seq = _next_seq(code)
+    _event(code, "rtc", int(user), body, seq=seq)
+    return {"ok": True, "seq": seq}
+
+
+def _signal_limit(code, user):
+    key = (code, int(user))
+    times = _LAST_SIGNAL[key]
+    stamp = datetime.now().timestamp()
+    while times and stamp - times[0] > SIGNAL_WINDOW[1]:
+        times.popleft()
+    if times and stamp - times[-1] < SIGNAL_GAP:
+        raise GameError("Slow down for a moment", 429)
+    if len(times) >= SIGNAL_WINDOW[0]:
+        raise GameError("Too many voice signals; try again shortly", 429)
+    times.append(stamp)
+
+
 def _rate_limit(code, user):
     key = (code, int(user))
     times = _LAST_CHAT[key]
@@ -486,9 +836,10 @@ def _next_seq(code):
 def _event(code, kind, user, text, seq=None):
     if seq is None:
         seq = _next_seq(code)
+    ceiling = MAX_SIGNAL if kind == "rtc" else MAX_CHAT
     events().insert_one({"room": code, "seq": int(seq), "kind": kind,
                          "user": int(user) if user else None,
-                         "text": str(text or "")[:MAX_CHAT],
+                         "text": str(text or "")[:ceiling],
                          "at": now(),
                          "expires_at": now() + EVENT_RETENTION})
 
@@ -503,7 +854,7 @@ def timeline(code, user, after=0):
         if doc.get("visibility") != "public":
             raise GameError("You are not seated in this room", 403)
         query = {"room": code, "seq": {"$gt": int(after or 0)}}
-        rows = list(events().find(query).sort("seq", 1).limit(100))
+        rows = list(events().find(query).sort("seq", 1).limit(200))
         return {"room": view(doc, None),
                 "events": [{"seq": int(row.get("seq", 0)), "kind": row.get("kind"),
                             "user": row.get("user"), "text": row.get("text", ""),
@@ -511,7 +862,7 @@ def timeline(code, user, after=0):
                 "server_time": now().isoformat()}
     touch(code, user)
     query = {"room": code, "seq": {"$gt": int(after or 0)}}
-    rows = list(events().find(query).sort("seq", 1).limit(100))
+    rows = list(events().find(query).sort("seq", 1).limit(200))
     return {"room": view(doc, user),
             "events": [{"seq": int(row.get("seq", 0)), "kind": row.get("kind"),
                         "user": row.get("user"), "text": row.get("text", ""),

@@ -59,11 +59,10 @@ export default function Studio() {
       </div>
       {Object.entries(screens).map(([key, Screen]) =>
         canOpenSection(key, authenticated) && (visited.includes(key) || key === tab) ? (
-          <div key={key} hidden={key !== tab}>
+          <div key={key} data-panel={key} hidden={key !== tab}>
             <PanelBoundary name={key}>
               {[
                 "chat",
-                "groups",
                 "federations",
                 "automation",
                 "analytics",

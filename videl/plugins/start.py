@@ -40,12 +40,12 @@ def studio_url() -> str:
 def private_keyboard(owner: bool, username: str = "") -> InlineKeyboardMarkup:
     root = studio_url()
     rows: list[list] = []
-    first = [button("Play music", callback_data="help:music", style="primary")]
+    first = [button("Music & playlists", callback_data="help:music", style="primary")]
     if username:
         first.append(button("Add to group", url=f"https://t.me/{username}?startgroup=true"))
     rows.append(first)
     rows.append([button("Help center", callback_data="help:home"), button("All commands", callback_data="cmds:all:0")])
-    rows.append([button("Group setup", callback_data="v2:setup"), button("Source & credits", callback_data="help:about")])
+    rows.append([button("Check group setup", callback_data="v2:setup"), button("Source & credits", callback_data="help:about")])
     rows.append([button("Full command list", url=root + "/?tab=guide")])
     rows.append([button("Open Post Studio", web_app=WebAppInfo(url=root), style="primary")])
     if owner:
@@ -56,9 +56,9 @@ def private_keyboard(owner: bool, username: str = "") -> InlineKeyboardMarkup:
 
 def group_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [button("Setup check", callback_data="v2:setup", style="primary"), button("Help center", callback_data="help:home")],
-        [button("Moderation", callback_data="help:manage"), button("All commands", callback_data="cmds:all:0")],
-        [button("Open Post Studio", url=studio_url())],
+        [button("Check group setup", callback_data="v2:setup", style="primary"), button("Help center", callback_data="help:home")],
+        [button("Group safety", callback_data="help:manage"), button("Music", callback_data="help:music")],
+        [button("Browse commands", callback_data="cmds:all:0"), button("Open Post Studio", url=studio_url())],
     ])
 
 
@@ -76,13 +76,14 @@ def owner_caption(name: str) -> str:
 
 
 def member_caption(name: str, private: bool) -> str:
-    intro = (f"Hey {escape(name)}. I run music, moderation, saved notes and the full post studio."
-             if private else "I am awake and connected to this group.")
+    intro = (f"Hey {escape(name)}. Music, group tools and the post studio are ready when you are."
+             if private else "I am online in this group. Here are a few quick ways to get started.")
     steps = [
         ("Music", "<code>/play</code> a song or link inside a voice chat"),
-        ("Protection", "<code>/setup</code> then <code>/lock links</code>"),
+        ("Group setup", "<code>/setup</code> checks access; <code>/lock links</code> protects links"),
         ("Community", "<code>/welcome on</code>, <code>/rules</code>, <code>/save name text</code>"),
-        ("Commands", "<code>/help</code> or <code>/commands keyword</code>"),
+        ("Admin tools", "<code>/tagall [message]</code> mentions up to 50 members"),
+        ("Commands", "<code>/help</code> or search with <code>/commands keyword</code>"),
     ]
     private_note = body("Music plays in your group voice chat, not in this private chat.") if private else body(
         "Start a voice chat, then send <code>/play</code> with a song name or link.")

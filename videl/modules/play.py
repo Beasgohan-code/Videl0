@@ -146,7 +146,7 @@ async def _play_local_media(message: Message, chat_id: int, user_id: int, force_
     else:
         return False
 
-    pm = await rich_send(bot, chat_id, rich_heading(" Processing media...", level=3))
+    pm = await rich_send(bot, chat_id, rich_heading(" Processing media...", level=3), navigation=False)
 
     if file_size and file_size > _MAX_FILE_MB * 1024 * 1024:
         await rich_edit(
@@ -156,7 +156,7 @@ async def _play_local_media(message: Message, chat_id: int, user_id: int, force_
         )
         return True
 
-    await rich_edit(pm, rich_heading("⬇️ Downloading...", level=3))
+    await rich_edit(pm, rich_heading("⬇️ Downloading...", level=3), navigation=False)
 
     try:
         # Re-fetch for stable file ref
@@ -267,6 +267,7 @@ async def play_handler(_, message: Message) -> None:
                 bot, chat_id,
                 rich_heading(" Cooldown active", level=3)
                 + rich_kv_table([("Processing in", f"<code>{rem}s</code>")]),
+                navigation=False,
             )
             _pending[chat_id] = (message, rep)
             asyncio.create_task(_run_pending(chat_id, rem))
@@ -296,7 +297,7 @@ async def play_handler(_, message: Message) -> None:
 async def _process_play(message: Message, query: str, video: bool = False) -> None:
     chat_id = message.chat.id
 
-    pm = await rich_send(bot, chat_id, rich_heading(" Processing...", level=3))
+    pm = await rich_send(bot, chat_id, rich_heading(" Processing...", level=3), navigation=False)
 
     # Assistant check — uses utils/assistant.py
     status = await is_assistant_in(chat_id)
@@ -310,7 +311,7 @@ async def _process_play(message: Message, query: str, video: bool = False) -> No
         return
 
     if not status:
-        await rich_edit(pm, rich_heading("👤 Assistant is joining...", level=3))
+        await rich_edit(pm, rich_heading("👤 Assistant is joining...", level=3), navigation=False)
         ok = await try_join_assistant(chat_id, pm)
         if not ok:
             return
@@ -318,6 +319,7 @@ async def _process_play(message: Message, query: str, video: bool = False) -> No
             pm,
             rich_heading(" Assistant joined", level=3)
             + rich_note("Processing..."),
+            navigation=False,
         )
 
     # Normalise short YouTube URL

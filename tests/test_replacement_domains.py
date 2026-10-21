@@ -152,6 +152,19 @@ class MusicTests(unittest.IsolatedAsyncioTestCase):
         screen=await music.view_queue(context('queue',''))
         self.assertLess(len(screen.html),4000);self.assertNotIn('<script>',screen.html)
         self.assertIn('99 upcoming',screen.html)
+        from vendor.richgram.richgram import rich_ui as transport
+        _,markup=transport._native_buttons(screen.html)
+        callbacks={button.callback_data for row in markup.inline_keyboard for button in row}
+        self.assertEqual(callbacks,{'pause','skip','cycle_loop','shuffle','clear'})
+
+    async def test_empty_queue_offers_contextual_rich_buttons(self):
+        chat_queues[-123]=[]
+        screen=await music.view_queue(context('queue',''))
+        self.assertIn('<tg-button-row>',screen.html)
+        from vendor.richgram.richgram import rich_ui as transport
+        _,markup=transport._native_buttons(screen.html)
+        callbacks={button.callback_data for row in markup.inline_keyboard for button in row}
+        self.assertEqual(callbacks,{'help:music','cmds:all:0'})
 
     async def test_invalid_loop_does_not_change_repeat_state(self):
         music.player.set_loop(-123,'off')

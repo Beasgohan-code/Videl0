@@ -58,9 +58,16 @@ def commands():
                             'summary':(ast.get_docstring(node) or node.name.replace('_cmd','').replace('_command','').replace('_',' ').capitalize()).splitlines()[0][:120]})
     from videl.app.routes import COMMANDS
     for command in COMMANDS:
+        module = command.handler.__module__
+        if module.startswith('videl.plugins.'):
+            source = 'videl/plugins/' + module.rsplit('.', 1)[-1] + '.py'
+        elif module.startswith('videl.app.'):
+            source = 'videl/app/' + module.rsplit('.', 1)[-1] + '.py'
+        else:
+            source = module.replace('.', '/') + '.py'
         entries.append({'name':command.name,'category':command.category,
             'context':'private' if command.policy=='owner' else 'group' if command.policy in {'group','admin'} else 'chat',
-            'owner':command.policy=='owner','source':'videl/app/'+command.handler.__module__.rsplit('.',1)[-1]+'.py',
+            'owner':command.policy=='owner','source':source,
             'handler':command.handler.__name__,'summary':command.summary})
     unique={}
     for entry in entries:

@@ -117,18 +117,25 @@ class OnboardingTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('&lt;Visitor&gt;',text)
         group=general.member_caption('Visitor',False)
         self.assertNotIn('this private chat',group);self.assertIn('Start a voice chat',group)
+        self.assertIn('/tagall [message]',group)
+        self.assertIn('up to 50 members',group)
 
     async def test_private_setup_never_queries_group_membership(self):
         app=client();message=NS(chat=NS(type=ChatType.PRIVATE,id=42))
         screen=await inspect_setup(app,message)
         app.get_chat_member.assert_not_awaited();self.assertIn('Add the bot to your group',screen.html)
 
-    async def test_setup_reports_actual_rights_and_unverified_dependencies(self):
+    async def test_setup_reports_actual_rights_and_rich_actions_without_claiming_changes(self):
         app=client();screen=await inspect_setup(app,query().message)
         app.get_chat_member.assert_awaited_once_with(-321,777)
         self.assertIn('Missing',screen.html);self.assertIn('Granted',screen.html)
         self.assertIn('not verified by this check',screen.html)
         self.assertIn('No permissions, settings or memberships were changed',screen.html)
+        self.assertIn('<details',screen.html)
+        from vendor.richgram.richgram import rich_ui as transport
+        _,markup=transport._native_buttons(screen.html)
+        callbacks={item.callback_data for row in markup.inline_keyboard for item in row}
+        self.assertEqual(callbacks,{'v2:section:music','help:home'})
 
     async def test_setup_timeout_is_not_ready_or_fabricated_missing_rights(self):
         app=client();app.get_chat_member.side_effect=TimeoutError()

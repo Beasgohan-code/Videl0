@@ -70,3 +70,17 @@ export function importDraftDocument(value: unknown): PostDraft {
   if(!draft)throw new Error("This draft is invalid or too large.");
   return draft;
 }
+
+/**
+ * A copy is a new post that starts out saying exactly what this one said.
+ * The id and the timestamp are new; the words, the destination and the
+ * buttons are shared on purpose, because that is the point of duplicating.
+ */
+export function copyDraft(draft: PostDraft, now = new Date()): PostDraft {
+  return {
+    ...draft,
+    id: `copy-${now.getTime()}-${Math.random().toString(36).slice(2, 8)}`,
+    buttons: (draft.buttons || []).map((row) => row.map((button) => ({ ...button }))),
+    savedAt: now.toISOString(),
+  };
+}

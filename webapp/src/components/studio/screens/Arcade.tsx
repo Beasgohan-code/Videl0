@@ -20,9 +20,11 @@ import { usePlayerSession } from "@/lib/player";
 import {
   GAME_ART,
   GAME_ICON,
+  GAME_TERMS,
   GAME_THEME,
   codeFromLink,
   inviteLink,
+  randomGameChoice,
   themeOf,
   type GameInfo,
   type Lobby,
@@ -46,11 +48,12 @@ export default function Arcade() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [code, setCode] = useState("");
-  const [game, setGame] = useState("connect4");
+  const [game, setGame] = useState("chinese");
   const [seats, setSeats] = useState(2);
   const [visibility, setVisibility] = useState<"private" | "public">("private");
   const [room, setRoom] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [announcement, setAnnouncement] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -148,15 +151,16 @@ export default function Arcade() {
   }
 
   /* ── signed out: explain the door, show the room ───────────────────────── */
+  const boards = games.length;
   if (!player) {
     return (
       <main className="ios-page">
         <Hero
           kicker="Arcade"
           title="Pull up a chair."
-          subtitle="Five boards, one to four chairs each. Rooms live on the server, so closing the app never loses your turn — or your clock."
+          subtitle="Ten boards, up to six chairs, with live voice at the table. Rooms live on the server, so closing the app never loses your turn — or your clock."
           stats={[
-            { value: String(FALLBACK_GAMES.length), label: "boards" },
+            { value: String(boards), label: "boards" },
             { value: "2–4", label: "chairs" },
             { value: "∞", label: "rematches" },
           ]}
@@ -253,9 +257,26 @@ export default function Arcade() {
 
       <section className="arcade-section" aria-label="Choose a game">
         <div className="arcade-section-head">
-          <span className="arcade-section-title">Choose a table</span>
-          <span className="arcade-section-hint">{chosen ? `${chosen.turn_seconds}s a turn` : ""}</span>
+          <div className="arcade-section-heading">
+            <span className="arcade-section-title">Choose a table</span>
+            <span className="arcade-section-hint">{chosen ? `${chosen.turn_seconds}s a turn` : ""}</span>
+          </div>
+          <button
+            type="button"
+            className="arcade-surprise"
+            onClick={() => {
+              const choice = randomGameChoice(games, game);
+              if (!choice) return;
+              setGame(choice.game.key);
+              setSeats(choice.seats);
+              setAnnouncement(`${choice.game.name} picked · ${choice.seats} seats`);
+            }}
+            aria-label="Surprise me with a random game and seat count"
+          >
+            <Sparkles size={13} aria-hidden /> Surprise me
+          </button>
         </div>
+        <p className="sr-only" role="status" aria-live="polite">{announcement}</p>
         <div className="arcade-gallery" role="group" aria-label="Games">
           {games.map((entry) => {
             const theme = themeOf(entry.key);
@@ -272,6 +293,7 @@ export default function Arcade() {
                 style={{ "--accent": theme.accent, "--accent-soft": theme.soft } as CSSProperties}
               >
                 <span className="arcade-plate-art" aria-hidden>
+                  <span className="arcade-plate-fallback">{GAME_ICON[entry.key] || "◍"}</span>
                   {GAME_ART[entry.key] ? (
                     <img
                       src={GAME_ART[entry.key]}
@@ -280,6 +302,8 @@ export default function Arcade() {
                       decoding="async"
                       width={720}
                       height={393}
+                      onLoad={(event) => event.currentTarget.classList.add("is-loaded")}
+                      onError={(event) => { event.currentTarget.hidden = true; }}
                     />
                   ) : null}
                   <span className="arcade-plate-glow" />
@@ -312,6 +336,21 @@ export default function Arcade() {
             );
           })}
         </div>
+
+        {chosen && (GAME_TERMS[chosen.key] || []).length ? (
+          <details className="arcade-rules">
+            <summary>
+              <span className="arcade-rules-title">How {chosen.name} ends</span>
+              <span className="arcade-rules-note">{chosen.summary}</span>
+              <ChevronRight size={13} className="arcade-rules-chevron" aria-hidden />
+            </summary>
+            <ul>
+              {(GAME_TERMS[chosen.key] || []).map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          </details>
+        ) : null}
 
         <div className="arcade-setup">
           {chosen && chosen.seats.length > 1 ? (
@@ -641,9 +680,14 @@ function Leaderboards({ lobby, me }: { lobby: Lobby | null; me: number }) {
 }
 
 const FALLBACK_GAMES: GameInfo[] = [
-  { key: "checkers", name: "Checkers", seats: [2], turn_seconds: 75, summary: "Draughts with forced chains." },
-  { key: "connect4", name: "Connect Four", seats: [2], turn_seconds: 60, summary: "Line up four discs." },
+  { key: "chinese", name: "Chinese Checkers", seats: [2, 3, 4, 6], turn_seconds: 60, summary: "Hop the star and fill the opposite camp." },
+  { key: "dots", name: "Dots & Boxes", seats: [2, 3, 4], turn_seconds: 45, summary: "Draw lines; boxes score another turn." },
+  { key: "yacht", name: "Yacht", seats: [2, 3, 4, 5, 6], turn_seconds: 45, summary: "Five dice, three rolls, thirteen score boxes." },
   { key: "ludo", name: "Ludo", seats: [2, 3, 4], turn_seconds: 45, summary: "Race four tokens home." },
+  { key: "chess", name: "Chess", seats: [2], turn_seconds: 180, summary: "The real thing: castling, en passant, promotion and mate." },
+  { key: "checkers", name: "Checkers", seats: [2], turn_seconds: 75, summary: "Draughts with forced chains." },
+  { key: "gomoku", name: "Five in a Row", seats: [2], turn_seconds: 60, summary: "Fifteen by fifteen. Five stones in a line wins." },
+  { key: "connect4", name: "Connect Four", seats: [2], turn_seconds: 60, summary: "Line up four discs." },
   { key: "reversi", name: "Reversi", seats: [2], turn_seconds: 90, summary: "Flank and flip." },
   { key: "tictactoe", name: "Tic-tac-toe", seats: [2], turn_seconds: 45, summary: "Three in a row." },
 ];

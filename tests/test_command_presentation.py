@@ -39,6 +39,14 @@ class PresentationTests(unittest.IsolatedAsyncioTestCase):
         plain,_=transport._native_buttons(ui.present(full))
         self.assertEqual(plain,full)
 
+    def test_narrow_footer_never_overflows_telegram_text_limit(self):
+        long = '<h2>Result</h2>' + 'x' * 4088
+        rendered = ui.present(long)
+        from videl.utils.post_format import post_text_length
+        self.assertLessEqual(post_text_length(rendered, "HTML"), 4096)
+        self.assertNotIn('tg-button', rendered)
+        self.assertNotIn('tg-button', ui.present('<h3>Loading…</h3>', navigation=False))
+
     async def test_reply_standard_fallback_keeps_topic_quote_and_real_buttons(self):
         app=SimpleNamespace(send_message=AsyncMock())
         message=SimpleNamespace(_client=app,chat=SimpleNamespace(id=-1001,type=ChatType.SUPERGROUP),
