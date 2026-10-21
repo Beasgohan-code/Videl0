@@ -70,6 +70,13 @@ jobs:
         run: |
           # The API answering is not the bot working: surface it without failing
           # the deploy, because a Telegram outage is not a broken release.
-          body=$(curl -fsS --max-time 20 "$BACKEND_HEALTH_URL" || true)
-          [ -z "$body" ] && exit 0
-          printf '%s' "$body" | python3 .github/scripts/health_note.py
+          # Written without `&&` chains: the runner's shell runs with -e, so a
+          # false test there would fail the job this step exists not to fail.
+          set +e
+          body=$(curl -fsS --max-time 20 "$BACKEND_HEALTH_URL")
+          if [ -n "$body" ]; then
+            printf '%s' "$body" | python3 .github/scripts/health_note.py
+          else
+            echo "No health payload to annotate."
+          fi
+          exit 0
