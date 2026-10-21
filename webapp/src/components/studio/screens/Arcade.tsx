@@ -225,6 +225,7 @@ export default function Arcade() {
         kicker="Arcade"
         title="Pull up a chair."
         subtitle={`Signed in as ${player.name}. Pick a table, or drop in with a code somebody sent you.`}
+        live={`${lobby?.public.length ?? 0} open now`}
         stats={[
           { value: String(lobby?.public.length ?? 0), label: "open tables" },
           { value: String(lobby?.mine.length ?? 0), label: "your tables" },
@@ -407,9 +408,7 @@ export default function Arcade() {
         <div className="arcade-section" aria-label="Your card">
           <div className="arcade-section-head">
             <span className="arcade-section-title">Your player card</span>
-            <span className="arcade-section-hint">
-              {lobby.me.name} · {player.id}
-            </span>
+            <span className="arcade-section-hint">rated tables only</span>
           </div>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
             {Object.entries(GAME_THEME)
@@ -448,12 +447,14 @@ function Hero({
   title,
   subtitle,
   stats,
+  live = "server-run tables",
   action,
 }: {
   kicker: string;
   title: string;
   subtitle: string;
   stats: { value: string; label: string }[];
+  live?: string;
   action?: React.ReactNode;
 }) {
   return (
@@ -468,7 +469,7 @@ function Hero({
           </span>
           <span className="flex items-center gap-2">
             <span className="arcade-live">
-              <i aria-hidden /> tables open
+              <i aria-hidden /> {live}
             </span>
             {action}
           </span>

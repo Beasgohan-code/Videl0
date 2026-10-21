@@ -1676,3 +1676,45 @@ html { scroll-padding-top: 5.5rem; }
 .arcade-rules[open] summary::after { content: "–"; }
 .arcade-rules ul { margin-top: 0.4rem; display: flex; flex-direction: column; gap: 0.25rem; padding-left: 0.9rem; }
 .arcade-rules li { list-style: disc; line-height: 1.4; }
+
+/* The arcade's door on the public home screen: a lit table, not a text link. */
+.arcade-home-card {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  width: 100%;
+  border-radius: 24px;
+  border: 1px solid rgba(141, 162, 255, 0.2);
+  background:
+    radial-gradient(120% 160% at 0% 0%, rgba(99, 102, 241, 0.32), transparent 55%),
+    linear-gradient(120deg, rgba(26, 22, 74, 0.95), rgba(14, 12, 38, 0.95));
+  padding: 1rem;
+  text-align: left;
+  box-shadow: 0 24px 60px -42px #6366f1, inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  transition: border-color 200ms var(--ios-spring), box-shadow 200ms var(--ios-spring);
+}
+.arcade-home-card:hover { border-color: rgba(165, 180, 252, 0.45); box-shadow: 0 24px 60px -34px #818cf8; }
+.arcade-home-dice {
+  display: grid;
+  place-items: center;
+  width: 3.2rem;
+  height: 3.2rem;
+  flex: none;
+  border-radius: 18px;
+  background: linear-gradient(150deg, #6366f1, #d946ef);
+  box-shadow: 0 14px 30px -16px #d946ef, inset 0 1px 0 rgba(255, 255, 255, 0.45);
+  font-size: 1.5rem;
+}
+.arcade-home-title { display: block; font-size: 1rem; font-weight: 650; letter-spacing: -0.02em; }
+.arcade-home-copy { display: block; margin-top: 0.15rem; font-size: 0.78rem; line-height: 1.45; color: rgba(203, 213, 225, 0.6); }
+.arcade-home-games { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.5rem; }
+.arcade-home-games i {
+  font-style: normal;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  padding: 0.15rem 0.5rem;
+  font-size: 0.62rem;
+  color: rgba(226, 232, 240, 0.7);
+}
+.arcade-home-arrow { flex: none; color: rgba(199, 210, 254, 0.55); }

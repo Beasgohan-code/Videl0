@@ -52,6 +52,30 @@ export default function Home() {
         </button>
       </div>
 
+      <button
+        onClick={() => open("arcade")}
+        className="arcade-home-card mt-6"
+        aria-label="Open the arcade"
+      >
+        <span className="arcade-home-dice" aria-hidden>
+          🎲
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="arcade-home-title">The arcade is open</span>
+          <span className="arcade-home-copy">
+            Ludo for two to four, Connect Four, Reversi and Tic-tac-toe. Make a
+            room, send the six-character code, and the server keeps the board.
+          </span>
+          <span className="arcade-home-games" aria-hidden>
+            <i>🎲 Ludo</i>
+            <i>🔴 Connect Four</i>
+            <i>⚫ Reversi</i>
+            <i>⭕ Tic-tac-toe</i>
+          </span>
+        </span>
+        <ArrowUpRight size={18} aria-hidden className="arcade-home-arrow" />
+      </button>
+
       <section
         aria-label="Original image library"
         className="mt-12 rounded-3xl border border-indigo-300/10 bg-indigo-300/[0.03] p-4 sm:p-5"
