@@ -34,6 +34,10 @@ CHAT_GAP = 1.0                  # and never faster than one per second
 #: Trickled ICE candidates arrive in bursts; a peer only needs to be stopped
 #: from turning the room into a message bus.
 SIGNAL_WINDOW = (240, 60)
+# A voice heartbeat is only believable for a moment. Longer than the poll
+# interval (about 2 s) by a wide margin, short enough that closing the tab
+# takes a seat out of the call instead of leaving a ghost in it.
+VOICE_WINDOW = 35
 SIGNAL_GAP = 0.05
 _LAST_CHAT = defaultdict(deque)
 _LAST_SIGNAL = defaultdict(deque)
@@ -176,6 +180,9 @@ def view(doc, user=None):
         "end_reason": doc.get("end_reason"),
         # null, or the seat whose offer is waiting for an answer.
         "draw_offer": doc.get("draw_offer"),
+        # Who is in the voice call right now, as user ids. The panel draws a
+        # badge from this and the dock decides whether joining is worth it.
+        "voice": _voice_users(doc),
         "chat_id": doc.get("chat_id"),
         "title": doc.get("title") or "",
         # The panel draws a clock ring from this, so it must not have to guess
@@ -346,6 +353,8 @@ def act(code, user, payload):
         return chat(code, user, payload.get("text"))
     if action == "rtc":
         return rtc(code, user, payload)
+    if action == "voice":
+        return voice_presence(code, user, bool(payload.get("on", True)))
     if action == "seen":
         touch(code, user)
         return {"ok": True}
@@ -385,6 +394,46 @@ def move(code, user, move):
     if winner is not None:
         _finish(fresh)
     return view(fresh, user)
+
+
+def voice_presence(code, user, on=True):
+    """Say "I am in the call" — and keep saying it.
+
+    Presence is a heartbeat, not a flag: the room only shows the seats whose
+    last word is younger than VOICE_WINDOW, so a phone that sleeps or a tab
+    that closes leaves the call without anybody having to clean up. This never
+    bumps the move version — a heartbeat must not make a player's next move
+    look stale.
+    """
+    doc = _find(code)
+    seat = _require_member(doc, user)
+    stamp = now()
+    current = {}
+    for key, value in (doc.get("voice") or {}).items():
+        beat = _as_utc(value)
+        if beat is not None and stamp - beat < timedelta(seconds=VOICE_WINDOW):
+            current[str(key)] = value
+    if on:
+        # A real datetime, not an ISO string: every reader here compares
+        # datetimes, and a string would silently look like "never".
+        current[str(seat)] = stamp
+    else:
+        current.pop(str(seat), None)
+    rooms().update_one({"_id": code}, {"$set": {"voice": current}})
+    return {"ok": True, "voice": [int(member["user"]) for member in doc.get("seats", [])
+                                  if str(member.get("seat")) in current]}
+
+
+def _voice_users(doc):
+    """The seats currently in the call, as user ids."""
+    stamp = now()
+    holding = set()
+    for key, value in (doc.get("voice") or {}).items():
+        beat = _as_utc(value)
+        if beat is not None and stamp - beat < timedelta(seconds=VOICE_WINDOW):
+            holding.add(str(key))
+    return [int(member["user"]) for member in doc.get("seats", [])
+            if str(member.get("seat")) in holding]
 
 
 def resign(code, user):

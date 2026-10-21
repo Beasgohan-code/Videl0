@@ -470,3 +470,112 @@ test("the invite page shows every plate the arcade advertises", async () => {
     );
   }
 });
+
+test("a result card picks its artwork from the player's outcome, not the room's", async () => {
+  const { ResultOverlay } = await import("../src/components/studio/boards/ResultOverlay");
+  const base = {
+    code: "K7M2QX",
+    game: "chess",
+    status: "done",
+    seat_count: 2,
+    draw_offer: null,
+    seats: [
+      { user: 1, name: "Ada", seat: 0, online: true },
+      { user: 2, name: "Grace", seat: 1, online: true },
+    ],
+    state: { log: ["e4", "e5", "Qh5", "Nc6", "Bc4", "Nf6", "Qxf7#"] },
+  };
+  const render_for = (winner: number | "draw", seat: number, end_reason: string) =>
+    render(
+      createElement(ResultOverlay, {
+        room: { ...base, winner, end_reason, you: { seat, is_host: seat === 0, member: true } } as never,
+        busy: false,
+        send: async () => ({}),
+        onBack: () => {},
+        onShare: () => {},
+      }),
+    );
+
+  const lost = render_for(1, 0, "played");
+  assert.match(lost, /data-outcome="lose"/);
+  assert.match(lost, /Grace wins/);
+  assert.match(lost, /results\/lose\.jpg/, "a loss gets its own plate");
+  assert.match(lost, /Qxf7#/, "the scoresheet comes with the verdict");
+
+  const won = render_for(0, 0, "resign");
+  assert.match(won, /data-outcome="win"/);
+  assert.match(won, /results\/win\.jpg/);
+  assert.match(won, /result-confetti/, "winning throws confetti");
+
+  const drawn = render_for("draw", 1, "agreement");
+  assert.match(drawn, /data-outcome="draw"/);
+  assert.match(drawn, /A draw/);
+  assert.match(drawn, /results\/draw\.jpg/);
+  assert.ok(!/result-confetti/.test(drawn), "a draw is not a party");
+});
+
+test("the result card never promises a rematch to a spectator", async () => {
+  const { ResultOverlay } = await import("../src/components/studio/boards/ResultOverlay");
+  const html = render(
+    createElement(ResultOverlay, {
+      room: {
+        code: "K7M2QX",
+        game: "chess",
+        status: "done",
+        winner: 0,
+        seat_count: 2,
+        seats: [{ user: 1, name: "Ada", seat: 0, online: true }],
+        you: { seat: null, is_host: false, member: false },
+        state: {},
+      } as never,
+      busy: false,
+      send: async () => ({}),
+      onBack: () => {},
+      onShare: () => {},
+    }),
+  );
+  assert.match(html, /The host can start a rematch/);
+  assert.ok(!/>Rematch</.test(html), "a spectator cannot press a button that will fail");
+});
+
+test("the arcade's audio maps a room change to exactly one cue", async () => {
+  const { cueFor, soundOn, setSoundOn } = await import("../src/lib/audio");
+  const base = { status: "playing", you: { seat: 0 }, state: {} };
+  assert.equal(cueFor({ ...base, state: { last: { capture: false } } }), "move");
+  assert.equal(cueFor({ ...base, state: { last: { capture: true } } }), "capture");
+  assert.equal(cueFor({ ...base, state: { last: { check: true } } }), "check");
+  assert.equal(cueFor({ ...base, state: {} }), null, "nothing to hear on a fresh board");
+  assert.equal(cueFor({ ...base, status: "done", winner: "draw", state: {} }), "lose");
+  assert.equal(cueFor({ ...base, status: "done", winner: 0, state: {} }), "win");
+  assert.equal(cueFor({ ...base, status: "done", winner: 1, state: {} }), "lose");
+  // Server-rendered: no localStorage, so the default has to be sound on.
+  assert.equal(soundOn(), true);
+  assert.equal(setSoundOn(true), undefined, "a missing storage must not throw");
+});
+
+test("chess prints a scoresheet, a flip button and a starting cursor", async () => {
+  const { ChessBoard } = await import("../src/components/studio/boards/ChessBoard");
+  const board = "rnbqkbnrpppppppp".padEnd(64, ".").split("");
+  const room = {
+    code: "K7M2QX",
+    game: "chess",
+    game_name: "Chess",
+    status: "playing",
+    turn: 0,
+    seat_count: 2,
+    version: 4,
+    seats: [
+      { user: 1, name: "Ada", seat: 0, online: true },
+      { user: 2, name: "Grace", seat: 1, online: true },
+    ],
+    you: { seat: 0, is_host: true, member: true },
+    legal: [{ from: 52, to: 36, flags: "double" }],
+    state: { board, turn: 0, winner: null, check: false, log: ["e4", "e5"] },
+  } as never;
+  const html = render(createElement(ChessBoard, { room, myTurn: true, busy: false, onMove: () => {} }));
+  assert.match(html, /chess-log/);
+  assert.match(html, /e4/);
+  assert.match(html, /Flip/);
+  assert.match(html, /data-cursor="true"/, "the keyboard cursor starts on the board");
+  assert.equal((html.match(/role="gridcell"/g) || []).length, 64);
+});

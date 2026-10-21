@@ -33,13 +33,14 @@ export async function POST(req: Request, context: { params: Promise<{ code: stri
     return Response.json({ ok: false, error: "An action is required" }, { status: 400 });
   const record = body as Record<string, unknown>;
   const action = String(record.action || "move");
-  if (!["move", "start", "leave", "kick", "rematch", "chat", "seen", "rtc", "resign", "draw"].includes(action))
+  if (!["move", "start", "leave", "kick", "rematch", "chat", "seen", "rtc", "resign", "draw", "voice"].includes(action))
     return Response.json({ ok: false, error: "Unknown room action" }, { status: 400 });
   const payload: Record<string, unknown> = { action };
   if (action === "move") payload.move = record.move ?? record;
   if (action === "chat") payload.text = String(record.text || "").slice(0, 401);
   if (action === "kick") payload.user = record.user;
   if (action === "draw") payload.accept = record.accept === true;
+  if (action === "voice") payload.on = record.on !== false;
   if (action === "rtc") {
     // Only the four WebRTC verbs cross this door, and only as a small object:
     // the backend re-checks both, but a browser should not be able to post a

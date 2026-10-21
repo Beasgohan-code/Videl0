@@ -28,6 +28,8 @@ export type Room = {
   turn_seconds: number;
   end_reason?: "played" | "forfeit" | "resign" | "agreement" | string | null;
   draw_offer?: number | null;
+  /** User ids currently in the voice call; a heartbeat decides membership. */
+  voice?: number[];
 };
 
 export type RoomEvent = {

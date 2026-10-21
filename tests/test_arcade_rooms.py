@@ -327,6 +327,38 @@ class ArcadeRoomTests(unittest.TestCase):
                 store.act(room["code"], 1, payload)
             self.assertEqual(caught.exception.status, 409)
 
+    # ── voice presence ───────────────────────────────────────────────────────
+    def test_voice_presence_is_a_heartbeat_not_a_flag(self):
+        code = self.joined("chess")
+        self.assertEqual(store.view(self.row(code), 1)["voice"], [])
+        store.act(code, 1, {"action": "voice", "on": True})
+        store.act(code, 2, {"action": "voice", "on": True})
+        # The second seat sees the first one without polling anything new.
+        self.assertEqual(sorted(store.view(self.row(code), 2)["voice"]), [1, 2])
+        store.act(code, 2, {"action": "voice", "on": False})
+        self.assertEqual(store.view(self.row(code), 1)["voice"], [1])
+
+    def test_a_stale_heartbeat_leaves_the_call_on_its_own(self):
+        code = self.joined("chess")
+        store.act(code, 1, {"action": "voice", "on": True})
+        stale = datetime.now(UTC) - timedelta(seconds=store.VOICE_WINDOW + 5)
+        self.db["game_rooms"].update_one({"_id": code},
+                                         {"$set": {"voice": {"0": stale}}})
+        self.assertEqual(store.view(self.row(code), 1)["voice"], [],
+                         "a sleeping phone must not haunt the call")
+
+    def test_voice_presence_never_bumps_the_move_version(self):
+        code = self.joined("chess")
+        before = self.row(code)["version"]
+        store.act(code, 1, {"action": "voice", "on": True})
+        store.act(code, 1, {"action": "voice", "on": True})
+        self.assertEqual(self.row(code)["version"], before,
+                         "a heartbeat is not a move and must not invalidate one")
+
+    def test_only_a_seated_player_can_join_the_call(self):
+        code = self.joined("chess")
+        with self.assertRaises(GameError):
+            store.act(code, 99, {"action": "voice", "on": True})
 
 if __name__ == "__main__":
     unittest.main()

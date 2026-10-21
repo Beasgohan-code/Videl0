@@ -10,7 +10,9 @@ export const metadata: Metadata = {
   openGraph: {
     title: "Videl 👑 Studio",
     description: "Design, format and export your next Telegram post.",
+    images: [{ url: "/og/arcade.jpg", width: 1200, height: 634, alt: "Videl Arcade" }],
   },
+  twitter: { card: "summary_large_image" },
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",

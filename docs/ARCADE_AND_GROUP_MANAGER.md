@@ -206,6 +206,12 @@ socket: a signal is written by the backend as an ordinary room event
 room already polls every 2.2 s. Joining a room is therefore the only thing that
 has to succeed for voice to work, and leaving it stops voice for free.
 
+Presence is a heartbeat, not a flag: while a player is in the call the dock
+posts `action: "voice"` every 12 s, and the room only counts heartbeats younger
+than 35 s. A phone that sleeps or a tab that closes leaves the call on its own,
+and a heartbeat never bumps the move version, so it cannot make somebody's next
+move look stale.
+
 Two consequences are stated in the UI rather than hidden:
 
 * Telegram's in-app webview often refuses `getUserMedia`. That is a first-class
@@ -218,6 +224,16 @@ Two consequences are stated in the UI rather than hidden:
 Signals are rate-limited separately from chat (240 per minute, 50 ms apart) and
 capped at 3 KB in the backend and 2.6 KB at the webapp door, because an SDP is
 much larger than a message and neither should be a way to fill the event log.
+
+### 2.2d What the table sounds like
+
+The arcade is quiet by default only in the sense that nothing plays until the
+first gesture the browser allows. Move, capture, check, win, loss, a new chair
+and a voice join are six short oscillator envelopes made in the page — no audio
+files, a few hundred bytes of code. Sound is a switch in the room bar, its state
+is remembered per device, and `prefers-reduced-motion` has a sibling in
+`navigator.vibrate`: a phone gets a 12 ms tap instead of a speaker when that is
+the better channel.
 
 ### 2.2c Ending a game on purpose
 

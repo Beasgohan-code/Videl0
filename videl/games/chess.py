@@ -328,6 +328,7 @@ class Chess(Game):
         after = {"board": board, "turn": 1 - int(seat), "winner": None, "seats": 2,
                  "castle": rights, "ep": ep, "half": half, "full": full,
                  "history": list(state.get("history") or []),
+                 "log": list(state.get("log") or []),
                  "last": None, "check": False, "moves": list(state.get("moves") or [])}
 
         key = self._key(board, after["turn"], rights, ep)
@@ -344,6 +345,9 @@ class Chess(Game):
                          "castle": flags == "castle",
                          "promote": chosen.get("promote")}
         after["moves"] = (after["moves"] + [square_name(start) + square_name(end)])[-400:]
+        # The panel prints a scoresheet; SAN is the only notation a player can
+        # read back without a board, so keep it here rather than re-deriving it.
+        after["log"] = (after["log"] + [san])[-400:]
 
         winner = None
         if not replies:

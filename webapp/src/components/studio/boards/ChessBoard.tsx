@@ -1,5 +1,6 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { RefreshCw } from "lucide-react";
 import { PIECE_NAME, moveTo, movesFrom, ownsSquare, squareAt, type Room } from "@/lib/arcade";
 
 /**
@@ -36,6 +37,11 @@ export function ChessBoard({
   const [picked, setPicked] = useState<number | null>(null);
   const [promote, setPromote] = useState<{ from: number; to: number } | null>(null);
   const seat = room.you.seat;
+  // Black sees its own pieces at the bottom; a board that is upside down for
+  // half the players is the oldest unforced mistake in digital chess.
+  const [flipped, setFlipped] = useState(seat === 1);
+  const [cursor, setCursor] = useState(52);
+  const grid = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     setPicked(null);
@@ -81,6 +87,33 @@ export function ChessBoard({
     setPicked(null);
   }
 
+  /**
+   * Arrow keys walk the board, Enter picks a piece or plays the move. It is a
+   * small thing that makes the board usable without a mouse — and a chess
+   * board that only responds to taps is a chess board you cannot play on a
+   * laptop without hunching over the trackpad.
+   */
+  function key(event: React.KeyboardEvent) {
+    const step: Record<string, number> = { ArrowUp: -8, ArrowDown: 8, ArrowLeft: -1, ArrowRight: 1 };
+    if (step[event.key]) {
+      event.preventDefault();
+      const delta = step[event.key];
+      // Horizontal moves must not wrap onto the next row.
+      if (Math.abs(delta) === 1 && Math.abs(cursor % 8 - (cursor + delta) % 8) !== 1) return;
+      setCursor((square) => Math.max(0, Math.min(63, square + delta)));
+      return;
+    }
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      tap(cursor);
+      return;
+    }
+    if (event.key === "Escape") {
+      setPicked(null);
+      setPromote(null);
+    }
+  }
+
   const captured = useMemo(() => {
     // Anything the opponent started with that is no longer on the board.
     const start = "rnbqkbnrpppppppppppppppp".split("");
@@ -97,6 +130,8 @@ export function ChessBoard({
   }, [board]);
 
   const checking = Boolean(room.state.check) && room.status === "playing";
+  const log = (room.state.log as string[]) || [];
+  const order = flipped ? Array.from({ length: 64 }, (_, index) => 63 - index) : null;
 
   return (
     <div className="chess">
@@ -112,9 +147,20 @@ export function ChessBoard({
       </div>
 
       <div className="chess-frame">
-        <div className="chess-board" role="grid" aria-label="Chess board">
-          {Array.from({ length: 64 }, (_, square) => {
-            const { row, col } = squareAt(square);
+        <div
+          className="chess-board"
+          role="grid"
+          aria-label="Chess board"
+          ref={grid}
+          tabIndex={0}
+          onKeyDown={key}
+          data-cursor-active={cursor >= 0}
+        >
+          {Array.from({ length: 64 }, (_, visual) => {
+            const square = order ? order[visual] : visual;
+            const row = Math.floor(visual / 8);
+            const col = visual % 8;
+            const { row: fileRow } = squareAt(square);
             const piece = board[square] || ".";
             const dark = (row + col) % 2 === 1;
             const mine = ownsSquare(board, square, seat) && myTurn;
@@ -132,6 +178,7 @@ export function ChessBoard({
                 data-picked={picked === square}
                 data-target={Boolean(target)}
                 data-capture={Boolean(target && piece !== ".")}
+                data-cursor={cursor === square}
                 role="gridcell"
                 aria-label={`${"abcdefgh"[col]}${8 - row}${
                   piece !== "." ? `, ${PIECE_NAME[piece.toLowerCase()]} of ${piece === piece.toUpperCase() ? "ivory" : "onyx"}` : ""
@@ -146,8 +193,8 @@ export function ChessBoard({
                 ) : null}
                 {target && piece === "." ? <span className="chess-dot" aria-hidden /> : null}
                 {target && piece !== "." ? <span className="chess-ring" aria-hidden /> : null}
-                {col === 0 ? <span className="chess-file" aria-hidden>{8 - row}</span> : null}
-                {row === 7 ? <span className="chess-rank" aria-hidden>{"abcdefgh"[col]}</span> : null}
+                {col === 0 ? <span className="chess-file" aria-hidden>{8 - fileRow}</span> : null}
+                {row === 7 ? <span className="chess-rank" aria-hidden>{"abcdefgh"[square % 8]}</span> : null}
               </button>
             );
           })}
@@ -169,6 +216,30 @@ export function ChessBoard({
           </div>
         </div>
       ) : null}
+
+      <div className="chess-foot">
+        <button
+          type="button"
+          className="chess-flip"
+          onClick={() => setFlipped((value) => !value)}
+          aria-label="Flip the board"
+          title="Flip the board"
+        >
+          <RefreshCw size={12} aria-hidden /> Flip
+        </button>
+        {log.length ? (
+          <ol className="chess-log" aria-label="Move list">
+            {log.map((san, index) => (
+              <li key={`${index}-${san}`} data-latest={index === log.length - 1}>
+                <i>{Math.floor(index / 2) + 1}{index % 2 === 0 ? "." : "…"}</i>
+                {san}
+              </li>
+            ))}
+          </ol>
+        ) : (
+          <p className="chess-log-empty">The scoresheet writes itself as you play.</p>
+        )}
+      </div>
 
       <p className="chess-hint">
         {!myTurn ? (

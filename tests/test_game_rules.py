@@ -465,3 +465,33 @@ class GomokuTests(unittest.TestCase):
         with self.assertRaises(GameError) as caught:
             self.game.apply(self.state, 1, {"cell": 0})
         self.assertEqual(caught.exception.status, 409)
+
+
+class ChessScoresheetTests(unittest.TestCase):
+    """The move list the panel prints must be readable notation, not coordinates."""
+
+    def setUp(self):
+        self.game = Chess()
+
+    def play(self, state, seat, move):
+        return self.game.apply(state, seat, move)
+
+    def test_the_scoresheet_is_written_in_san(self):
+        state = self.game.new(2)
+        state = self.play(state, 0, {"from": 52, "to": 36})   # e4
+        state = self.play(state, 1, {"from": 12, "to": 28})   # e5
+        state = self.play(state, 0, {"from": 62, "to": 45})   # Nf3
+        self.assertEqual(state["log"], ["e4", "e5", "Nf3"])
+
+    def test_a_capture_and_a_check_are_marked(self):
+        state = self.game.new(2)
+        state = self.play(state, 0, {"from": 52, "to": 36})   # e4
+        state = self.play(state, 1, {"from": 11, "to": 27})   # d5
+        state = self.play(state, 0, {"from": 36, "to": 27})   # exd5
+        self.assertEqual(state["log"][-1], "exd5")
+
+    def test_the_scoresheet_survives_a_reload(self):
+        state = self.game.new(2)
+        state = self.play(state, 0, {"from": 52, "to": 36})
+        view = self.game.view(state, 0)
+        self.assertEqual(view["log"], ["e4"], "the view is what the browser reloads into")

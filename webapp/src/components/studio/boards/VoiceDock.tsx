@@ -1,20 +1,36 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUpRight, Headphones, Loader2, Mic, MicOff, PhoneOff, Volume2, VolumeX, Waves } from "lucide-react";
+import {
+  ArrowUpRight,
+  Headphones,
+  Loader2,
+  Mic,
+  MicOff,
+  PhoneOff,
+  Volume2,
+  VolumeX,
+  Waves,
+} from "lucide-react";
 import { RoomVoice, VOICE_REACH, canVoice, type VoiceSignal, type VoiceState } from "@/lib/voice";
 import type { RoomEvent, Seat } from "@/lib/arcade";
 
 /**
- * The voice dock in a live room.
+ * The voice bar in a live room.
  *
- * Push-to-talk, not an open mic: joining a table should not put somebody's
- * kitchen into four strangers' speakers. Hold the button (or press and hold
- * the space bar) to speak; the ring around your seat lights up so the table can
- * see who is talking even with the volume down.
+ * This is not a settings panel: it is the table's call strip, sitting under the
+ * board the way a speakerphone sits on a real table. Joining costs one press;
+ * speaking is push-to-talk (hold the button or the space bar) because an open
+ * mic in a four-seat room is a bug, not a feature. Anyone in the call is drawn
+ * as an avatar with a ring that lights up when they speak, so the table can see
+ * who is talking even with the volume down.
  *
- * The signals travel on the room's own event stream (`action: "rtc"`), so voice
- * needs no second connection and stops working exactly when the room does.
+ * Presence is a heartbeat: the bar posts `action: "voice"` every few seconds
+ * while connected, so a closed tab leaves the call by itself instead of
+ * haunting the room. Signals travel on the room's own event stream
+ * (`action: "rtc"`), which means voice needs no second connection and stops
+ * exactly when the room does.
  */
+
 /**
  * The page to leave the webview for. Telegram opens links inside itself by
  * default, so the escape hatch is an ordinary anchor with a real URL: a press
@@ -23,6 +39,14 @@ import type { RoomEvent, Seat } from "@/lib/arcade";
 function pageUrl(): string {
   if (typeof window === "undefined") return "/";
   return window.location.href;
+}
+
+const HEARTBEAT_MS = 12_000;
+
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return "?";
+  return (parts[0][0] + (parts[1]?.[0] || "")).toUpperCase();
 }
 
 export function VoiceDock({
@@ -34,7 +58,13 @@ export function VoiceDock({
   muted,
   onMute,
 }: {
-  room: { code: string; seats: Seat[]; you: { seat: number | null; member: boolean }; status: string };
+  room: {
+    code: string;
+    seats: Seat[];
+    you: { seat: number | null; member: boolean };
+    status: string;
+    voice?: number[];
+  };
   seat: number | null;
   events: RoomEvent[];
   send: (payload: Record<string, unknown>) => Promise<unknown>;
@@ -58,6 +88,53 @@ export function VoiceDock({
     [send],
   );
 
+  const active =
+    state.status === "ready" || state.status === "live" || state.status === "connecting";
+
+  /* ── presence ──────────────────────────────────────────────────────────────
+     One heartbeat now, then every HEARTBEAT_MS. Leaving — by button, by tab
+     close, by unmount — posts `on: false` so the room does not have to wait
+     out the window. */
+  useEffect(() => {
+    if (!active || seat === null) return;
+    // Straight to the route, not through the room's action pipeline: a
+    // heartbeat should not disable the board's buttons or refetch the lobby.
+    const beat = () =>
+      void fetch(`/api/arcade/room/${encodeURIComponent(room.code)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "voice", on: true }),
+        cache: "no-store",
+        keepalive: true,
+      }).catch(() => {});
+    beat();
+    const timer = window.setInterval(beat, HEARTBEAT_MS);
+    const leave = () => {
+      try {
+        navigator.sendBeacon?.(
+          `/api/arcade/room/${encodeURIComponent(room.code)}`,
+          new Blob([JSON.stringify({ action: "voice", on: false })], {
+            type: "application/json",
+          }),
+        );
+      } catch {
+        /* a closed tab is allowed to fail quietly */
+      }
+    };
+    window.addEventListener("pagehide", leave);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("pagehide", leave);
+      void fetch(`/api/arcade/room/${encodeURIComponent(room.code)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "voice", on: false }),
+        cache: "no-store",
+        keepalive: true,
+      }).catch(() => {});
+    };
+  }, [active, room.code, seat]);
+
   /* Every signal that names me is fed to the connection; everything else in
      the feed (chat, moves) is not the dock's business. */
   useEffect(() => {
@@ -68,7 +145,11 @@ export function VoiceDock({
       if (event.kind !== "rtc" || seen.current.has(event.seq) || event.user === null) continue;
       seen.current.add(event.seq);
       try {
-        const signal = JSON.parse(event.text) as { to: number; kind: VoiceSignal["kind"]; data: Record<string, unknown> };
+        const signal = JSON.parse(event.text) as {
+          to: number;
+          kind: VoiceSignal["kind"];
+          data: Record<string, unknown>;
+        };
         if (Number(signal.to) !== seat && seat !== null) continue;
         void engine.receive({ kind: signal.kind, to: signal.to, data: signal.data }, event.user);
       } catch {
@@ -87,10 +168,9 @@ export function VoiceDock({
   /* People who joined after the call started still need an offer. */
   useEffect(() => {
     const engine = voice.current;
-    if (!engine || state.status !== "ready" && state.status !== "live") return;
+    if (!engine || (state.status !== "ready" && state.status !== "live")) return;
     if (seat === null) return;
-    const seated = room.seats.filter((entry) => entry.user !== undefined);
-    for (const entry of seated) {
+    for (const entry of room.seats) {
       if (entry.seat === seat) continue;
       if (!entry.online) continue;
       if (engine.live().includes(entry.user)) continue;
@@ -180,13 +260,15 @@ export function VoiceDock({
 
   if (seat === null || room.status === "done") return null;
 
-  const active = state.status === "ready" || state.status === "live" || state.status === "connecting";
   const connected = Object.keys(peers).length;
   const others = room.seats.filter((entry) => entry.seat !== seat && entry.online);
+  const inCall = (room.voice || [])
+    .map((user) => room.seats.find((entry) => entry.user === user))
+    .filter((entry): entry is Seat => Boolean(entry));
 
   if (!supported) {
     return (
-      <div className="voice-dock" data-state="blocked">
+      <div className="voice-bar" data-state="blocked">
         <span className="voice-note">
           <Waves size={14} aria-hidden /> This browser cannot carry live voice. Table talk still works.
         </span>
@@ -195,71 +277,133 @@ export function VoiceDock({
   }
 
   return (
-    <div className="voice-dock" data-state={state.status} data-live={active && !muted ? "true" : "false"}>
-      {!active ? (
-        <>
+    <div
+      className="voice-bar"
+      data-state={active ? state.status : "off"}
+      data-live={active && !muted ? "true" : "false"}
+    >
+      <div className="voice-call">
+        <span className="voice-call-label">
+          {active ? (
+            <>
+              <Waves size={13} aria-hidden /> Table talk
+            </>
+          ) : (
+            <>
+              <Headphones size={13} aria-hidden /> Table talk
+            </>
+          )}
+        </span>
+
+        <div className="voice-avatars" aria-label="People in the call">
+          {!inCall.length ? (
+            <img className="voice-art" src="/arcade/voice.jpg" alt="" aria-hidden decoding="async" />
+          ) : null}
+          {inCall.length ? (
+            inCall.slice(0, 4).map((entry) => {
+              const talking = talkers.includes(entry.user);
+              return (
+                <span
+                  key={entry.user}
+                  className="voice-avatar"
+                  data-talking={talking}
+                  data-me={entry.seat === seat}
+                  title={`${entry.name}${talking ? " is speaking" : " is on voice"}`}
+                >
+                  {initials(entry.name)}
+                  {talking ? (
+                    <span className="voice-wave" aria-hidden>
+                      <i />
+                      <i />
+                      <i />
+                    </span>
+                  ) : null}
+                </span>
+              );
+            })
+          ) : (
+            <span className="voice-empty">Nobody in the call yet</span>
+          )}
+          {inCall.length > 4 ? <span className="voice-more">+{inCall.length - 4}</span> : null}
+        </div>
+
+        {active ? (
+          <span className="voice-peers">
+            <span className="voice-dot" data-on={connected > 0} aria-hidden />
+            {connected ? `${connected} connected` : "connecting…"}
+          </span>
+        ) : null}
+      </div>
+
+      <div className="voice-controls">
+        {!active ? (
           <button
             onClick={() => void start()}
             className="ios-btn ios-btn-glass voice-join"
             data-invite={others.length > 0}
             disabled={state.status === "asking"}
           >
-            {state.status === "asking" ? <Loader2 size={14} className="animate-spin" aria-hidden /> : <Headphones size={14} aria-hidden />}
-            {state.status === "asking" ? "Asking for the mic…" : "Start voice"}
+            {state.status === "asking" ? (
+              <Loader2 size={14} className="animate-spin" aria-hidden />
+            ) : (
+              <Headphones size={14} aria-hidden />
+            )}
+            {state.status === "asking"
+              ? "Asking for the mic…"
+              : inCall.length
+                ? `Join ${inCall.length} on voice`
+                : "Start voice"}
           </button>
-          {others.length ? (
-            <span className="voice-invite">
-              {others[0].name} is at the table — say hello out loud. Holds space to talk.
-            </span>
-          ) : (
-            <span className="voice-invite" data-quiet="true">
-              Voice opens when a second chair fills.
-            </span>
-          )}
-        </>
-      ) : (
-        <>
-          <button
-            type="button"
-            className="voice-talk"
-            data-talking={!muted}
-            onPointerDown={(event) => {
-              event.preventDefault();
-              talk(true);
-            }}
-            onPointerUp={() => talk(false)}
-            onPointerLeave={() => talk(false)}
-            onPointerCancel={() => talk(false)}
-            aria-label="Hold to talk"
-          >
-            {muted ? <Mic size={15} aria-hidden /> : <Mic size={15} className="voice-pulse" aria-hidden />}
-            <span>{muted ? "Hold to talk" : "Talking…"}</span>
-          </button>
+        ) : (
+          <>
+            <button
+              type="button"
+              className="voice-talk"
+              data-talking={!muted}
+              onPointerDown={(event) => {
+                event.preventDefault();
+                talk(true);
+              }}
+              onPointerUp={() => talk(false)}
+              onPointerLeave={() => talk(false)}
+              onPointerCancel={() => talk(false)}
+              aria-label="Hold to talk"
+            >
+              {muted ? <Mic size={15} aria-hidden /> : <Mic size={15} aria-hidden />}
+              <span>{muted ? "Hold to talk" : "Talking…"}</span>
+            </button>
 
-          <button
-            className="voice-icon"
-            onClick={() => {
-              const next = !deafened;
-              setDeafened(next);
-              audio.current.forEach((element) => (element.muted = next));
-            }}
-            aria-pressed={deafened}
-            aria-label={deafened ? "Unmute the table" : "Mute the table"}
-            title={deafened ? "Unmute the table" : "Mute the table"}
-          >
-            {deafened ? <VolumeX size={15} aria-hidden /> : <Volume2 size={15} aria-hidden />}
-          </button>
+            <button
+              className="voice-icon"
+              onClick={() => {
+                const next = !deafened;
+                setDeafened(next);
+                audio.current.forEach((element) => (element.muted = next));
+              }}
+              aria-pressed={deafened}
+              aria-label={deafened ? "Unmute the table" : "Mute the table"}
+              title={deafened ? "Unmute the table" : "Mute the table"}
+            >
+              {deafened ? <VolumeX size={15} aria-hidden /> : <Volume2 size={15} aria-hidden />}
+            </button>
 
-          <span className="voice-peers">
-            <span className="voice-dot" data-on={connected > 0} aria-hidden />
-            {connected ? `${connected} on voice` : "nobody else yet"}
-          </span>
+            <button className="voice-icon" onClick={stop} aria-label="Leave voice" title="Leave voice">
+              <PhoneOff size={15} aria-hidden />
+            </button>
+          </>
+        )}
+      </div>
 
-          <button className="voice-icon" onClick={stop} aria-label="Leave voice" title="Leave voice">
-            <PhoneOff size={15} aria-hidden />
-          </button>
-        </>
-      )}
+      {!active && others.length ? (
+        <span className="voice-invite">
+          {others[0].name} is at the table — say hello out loud. Hold space to talk.
+        </span>
+      ) : null}
+      {!active && !others.length ? (
+        <span className="voice-invite" data-quiet="true">
+          Voice opens when a second chair fills.
+        </span>
+      ) : null}
 
       {state.status === "blocked" || state.status === "unsupported" ? (
         <p className="voice-error" role="status">

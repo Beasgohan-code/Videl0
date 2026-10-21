@@ -17,6 +17,8 @@ import {
   Sparkles,
   Trophy,
   UserX,
+  Volume2,
+  VolumeX,
   Wifi,
   WifiOff,
   Zap,
@@ -50,6 +52,8 @@ import { ChessBoard } from "./boards/ChessBoard";
 import { GomokuBoard } from "./boards/GomokuBoard";
 import { VoiceDock } from "./boards/VoiceDock";
 import { TableActions } from "./boards/TableActions";
+import { ResultOverlay } from "./boards/ResultOverlay";
+import { cue, cueFor, haptic, setSoundOn, soundOn } from "@/lib/audio";
 import { Callout } from "./ui";
 
 /**
@@ -85,16 +89,44 @@ export function RoomView({
   const seq = useRef(0);
   const triedJoin = useRef(false);
   const feed = useRef<HTMLDivElement>(null);
+  const [sound, setSound] = useState(soundOn);
+  // What the room looked like on the previous read, so a change can be *heard*
+  // once instead of on every two-second poll.
+  const heard = useRef({ version: 0, seats: 0, status: "" });
 
   const apply = useCallback((next: Room, rows: RoomEvent[]) => {
     // The turn clock is measured on the server; a phone with a wrong clock must
     // not see "0s" while the room still has half a minute.
     const serverNow = Date.parse(next.server_time);
     if (Number.isFinite(serverNow)) setSkew(serverNow - Date.now());
+
+    /* Sound follows the room, not the button: whatever changed since the last
+       read is what the table hears. A first load is silent on purpose — a
+       reload should not replay the whole game. */
+    const before = heard.current;
+    const on = sound;
+    if (next.status === "done" && before.status !== "done") {
+      const drawn = next.winner === "draw";
+      const won = typeof next.winner === "number" && next.winner === next.you.seat;
+      cue(drawn ? "lose" : won ? "win" : "lose", on);
+      haptic(drawn ? [20, 40, 20] : won ? [16, 40, 16, 40, 24] : 42);
+    } else if (before.status && next.version !== before.version) {
+      const name = cueFor(next);
+      if (name) {
+        cue(name, on);
+        if (name === "capture" || name === "check") haptic(18);
+        else haptic(8);
+      }
+    }
+    if (before.seats && next.seats.length > before.seats) {
+      cue("join", on);
+    }
+    heard.current = { version: next.version, seats: next.seats.length, status: next.status };
+
     setRoom(next);
     seq.current = Math.max(seq.current, next.seq);
     if (rows.length) setEvents((current) => [...current, ...rows].slice(-120));
-  }, []);
+  }, [sound]);
 
   /** One read. `after` makes it cheap and idempotent. */
   const load = useCallback(async () => {
@@ -285,6 +317,24 @@ export function RoomView({
             <span className="mono">v{room.version}</span>
           </span>
         ) : null}
+        <button
+          type="button"
+          onClick={() => {
+            const next = !sound;
+            setSound(next);
+            setSoundOn(next);
+            if (next) {
+              cue("move", true);
+              haptic(10);
+            }
+          }}
+          className="ios-btn ios-btn-glass px-2.5 py-1.5 text-xs arcade-sound"
+          aria-pressed={sound}
+          aria-label={sound ? "Turn game sounds off" : "Turn game sounds on"}
+          title={sound ? "Sounds on" : "Sounds off"}
+        >
+          {sound ? <Volume2 size={14} aria-hidden /> : <VolumeX size={14} aria-hidden />}
+        </button>
         {room && seated && room.status !== "done" ? (
           <button onClick={() => void send({ action: "leave" })} disabled={busy} className="ios-btn ios-btn-glass px-3 py-1.5 text-xs">
             <DoorOpen size={14} aria-hidden /> Leave
@@ -318,6 +368,13 @@ export function RoomView({
         </div>
       ) : (
         <>
+          <ResultOverlay
+            room={room}
+            busy={busy}
+            send={send}
+            onBack={onBack}
+            onShare={() => void share()}
+          />
           {room.status === "done" ? (
             <div className="arcade-result">
               <span className="arcade-trophy" aria-hidden>

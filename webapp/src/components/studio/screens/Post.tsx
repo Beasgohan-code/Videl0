@@ -581,6 +581,7 @@ export default function ChannelStudio() {
       </div>
       {!showTemplates && !showAssets && !showCovers && (
         <section className="post-editorial-banner mt-5 flex items-center justify-between gap-5 overflow-hidden rounded-2xl border border-white/10 p-5 sm:p-7">
+          <img className="post-editorial-art" src="/studio/flow.jpg" alt="" aria-hidden decoding="async" />
           <div className="max-w-md">
             <p className="post-eyebrow">THE PUBLISHING DESK</p>
             <h2 className="post-serif mt-3 text-3xl leading-tight">
