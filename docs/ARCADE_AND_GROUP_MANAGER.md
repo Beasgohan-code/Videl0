@@ -1,7 +1,8 @@
 # Plan: public games with live chat, Telegram sign-up, and a group manager
 
-Status: **partly shipped.** The identity layer, the five games (Checkers,
-Connect Four, Reversi, Tic-tac-toe, Ludo), server-authoritative rooms with chat and timeouts,
+Status: **partly shipped.** The identity layer, the seven games (Chess,
+Checkers, Five in a Row, Connect Four, Reversi, Tic-tac-toe, Ludo),
+server-authoritative rooms with chat, live voice and timeouts,
 the arcade screen, and the group-manager backend are in the repository and
 tested. The group-manager screen, presence-based SSE and voice remain. Where
 this document and the code differ, the code and its tests are the truth.
@@ -149,6 +150,8 @@ Two players may not hold the same seat; leaving mid-game is a forfeit after a
 | **Connect Four** | 2 | 60 s live / 24 h async | Rules fit in 200 lines, provably testable, instantly understood |
 | **Reversi** | 2 | 90 s / 24 h | Zero content, deep play, works asynchronously |
 | **Tic-tac-toe** | 2 | 45 s / 24 h | The fastest complete game; a whole room can be played in a minute |
+| **Chess** | 2 | 180 s / 24 h | The game people arrive asking for; full FIDE move generation rather than a subset |
+| **Five in a Row** | 2 | 60 s / 24 h | One rule, 225 intersections, and the board reads well on a phone |
 | **Checkers** | 2 | 75 s / 24 h | Draughts with the two rules that decide real games: compulsory captures and the longest chain; kings fly |
 | **Ludo** | 2–4 | 45 s / 24 h | The game people ask for by name: a shared board, more than two seats, and chance that keeps every seat in it |
 
@@ -193,6 +196,28 @@ accepted by `codeFromLink()`.
 
 The art in `webapp/public/arcade/` is original to this repository, generated
 for the lobby and the invite page; nothing is loaded from a third-party CDN.
+
+### 2.2b Voice at the table
+
+Voice is peer-to-peer WebRTC in a mesh — one connection per pair of seats, so a
+four-seat table is six connections and nothing needs an SFU. There is no second
+socket: a signal is written by the backend as an ordinary room event
+(`action: "rtc"`, addressed with `to`) and reaches the browser on the stream the
+room already polls every 2.2 s. Joining a room is therefore the only thing that
+has to succeed for voice to work, and leaving it stops voice for free.
+
+Two consequences are stated in the UI rather than hidden:
+
+* Telegram's in-app webview often refuses `getUserMedia`. That is a first-class
+  state (`blocked`) with a sentence that names the fallback — Chrome/Safari, or
+  voice notes over the room chat.
+* The microphone starts **muted**, and speaking is push-to-talk (hold the
+  button or the space bar). An open mic in a four-seat room is a bug, not a
+  feature.
+
+Signals are rate-limited separately from chat (240 per minute, 50 ms apart) and
+capped at 3 KB in the backend and 2.6 KB at the webapp door, because an SDP is
+much larger than a message and neither should be a way to fill the event log.
 
 ### 2.3 Timeouts without a timer thread
 

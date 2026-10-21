@@ -8,7 +8,9 @@ from unittest.mock import patch
 
 from videl.games import GAMES
 from videl.games.checkers import Checkers
+from videl.games.chess import Chess
 from videl.games.connect4 import ConnectFour
+from videl.games.gomoku import Gomoku
 from videl.games.ludo import HOME_PROGRESS, Ludo
 from videl.games.registry import GameError, run_length
 from videl.games.reversi import Reversi
@@ -17,7 +19,8 @@ from videl.games.tictactoe import TicTacToe
 
 class RegistryTests(unittest.TestCase):
     def test_every_listed_game_describes_itself(self):
-        self.assertEqual(set(GAMES), {"checkers", "connect4", "reversi", "tictactoe", "ludo"})
+        self.assertEqual(set(GAMES), {"checkers", "chess", "connect4", "gomoku",
+                                      "reversi", "tictactoe", "ludo"})
         for key, game in GAMES.items():
             described = game.describe()
             self.assertEqual(described["key"], key)
@@ -297,3 +300,168 @@ class CheckersTests(unittest.TestCase):
         played = self.game.auto(state)
         self.assertEqual(played["board"][28], 0, "the forced chain was taken")
         self.assertNotEqual(played["turn"], state["turn"])
+
+
+class ChessTests(unittest.TestCase):
+    """The rules people check first, because they are the ones that get argued."""
+
+    def setUp(self):
+        self.game = Chess()
+        self.state = self.game.new(2)
+
+    def play(self, *moves):
+        state = self.state
+        for move in moves:
+            start, end = move[0], move[1]
+            payload = {"from": start, "to": end}
+            if len(move) > 2 and move[2]:
+                payload["promote"] = move[2]
+            state = self.game.apply(state, state["turn"], payload)
+        return state
+
+    def test_a_new_board_offers_the_twenty_opening_moves(self):
+        self.assertEqual(len(self.game.legal(self.state, 0)), 20,
+                         "sixteen pawn moves and four knight moves")
+        self.assertEqual(self.game.legal(self.state, 1), [],
+                         "the player who is not on move has no options")
+        self.assertEqual(self.state["board"][60], "K")
+        self.assertEqual(self.state["board"][4], "k")
+
+    def test_a_knight_jumps_over_pieces_but_not_onto_its_own(self):
+        with self.assertRaises(GameError):
+            self.game.apply(self.state, 0, {"from": 62, "to": 53})
+        moved = self.game.apply(self.state, 0, {"from": 62, "to": 45})
+        self.assertEqual(moved["board"][45], "N")
+        self.assertEqual(moved["board"][62], ".")
+
+    def test_fools_mate_is_a_mate_in_four(self):
+        state = self.play((53, 45), (12, 28), (54, 38), (3, 39))
+        self.assertEqual(state["winner"], 1)
+        self.assertEqual(state["last"]["san"], "Qh4#")
+        self.assertTrue(state["last"]["mate"])
+
+    def test_a_pinned_piece_may_not_expose_its_king(self):
+        # King e1 (60), white rook e2 (52), black rook e8 (4): the white rook
+        # is pinned to the file and may not step sideways.
+        board = ["."] * 64
+        board[60] = "K"
+        board[52] = "R"
+        board[4] = "r"
+        board[0] = "k"
+        state = dict(self.state, board=board, castle="", history=[], turn=0)
+        rows = self.game.legal(state, 0)
+        sideways = [row["to"] for row in rows if row["from"] == 52]
+        self.assertNotIn(51, sideways, "a pinned rook cannot leave the file")
+        self.assertIn(44, sideways, "it may still move along the pin")
+
+    def test_castling_moves_the_rook_and_cannot_pass_through_check(self):
+        board = ["."] * 64
+        board[60] = "K"
+        board[63] = "R"
+        board[56] = "R"
+        board[4] = "k"
+        state = dict(self.state, board=board, castle="KQ", history=[], turn=0)
+        castled = self.game.apply(state, 0, {"from": 60, "to": 62})
+        self.assertEqual(castled["board"][62], "K")
+        self.assertEqual(castled["board"][61], "R", "the rook hopped over the king")
+        self.assertEqual(castled["board"][63], ".")
+        self.assertEqual(castled["last"]["san"], "O-O")
+
+        blocked = dict(state, board=list(board))
+        blocked["board"][4] = "r"  # rook on e8 attacks the e-file
+        with self.assertRaises(GameError):
+            self.game.apply(blocked, 0, {"from": 60, "to": 62})
+
+    def test_en_passant_captures_the_pawn_that_just_ran(self):
+        # 1. e4 a6 2. e5 d5 — the white pawn on e5 may take on d6 as if the
+        # black pawn had only advanced one square.
+        state = self.play((52, 36), (8, 16), (36, 28), (11, 27))
+        self.assertEqual(state["ep"], 19, "d6 is the en passant target")
+        taken = self.game.apply(state, 0, {"from": 28, "to": 19})
+        self.assertEqual(taken["board"][19], "P")
+        self.assertEqual(taken["board"][27], ".", "the passed pawn is gone")
+        self.assertEqual(taken["last"]["san"], "exd6")
+
+    def test_a_pawn_on_the_last_rank_must_choose_a_piece(self):
+        board = ["."] * 64
+        board[8] = "P"    # a7, one step from promotion
+        board[60] = "K"
+        board[4] = "k"
+        state = dict(self.state, board=board, castle="", history=[], turn=0)
+        with self.assertRaises(GameError) as caught:
+            self.game.apply(state, 0, {"from": 8, "to": 0})
+        self.assertEqual(caught.exception.status, 422, "the panel is asked to choose")
+        promoted = self.game.apply(state, 0, {"from": 8, "to": 0, "promote": "n"})
+        self.assertEqual(promoted["board"][0], "N")
+
+    def test_stalemate_is_a_draw_not_a_loss(self):
+        # Black king a8, white queen b6 and king e1. Qb6-c7 leaves the king with
+        # nowhere to go and no check: a draw, not a win for White.
+        board = ["."] * 64
+        board[0] = "k"     # a8
+        board[17] = "Q"    # b6
+        board[60] = "K"    # e1
+        state = dict(self.state, board=board, castle="", history=[], turn=0)
+        state["history"] = [self.game._key(board, 0, "", None)]
+        drawn = self.game.apply(state, 0, {"from": 17, "to": 10})
+        self.assertEqual(drawn["winner"], "draw")
+        self.assertFalse(drawn["check"], "stalemate, not checkmate")
+        self.assertEqual(drawn["last"]["san"], "Qc7")
+
+    def test_the_fifty_move_rule_ends_a_quiet_game(self):
+        board = ["."] * 64
+        board[60] = "K"
+        board[0] = "k"
+        board[7] = "R"
+        state = dict(self.state, board=board, castle="", history=[], turn=0, half=99)
+        state["history"] = [self.game._key(board, 0, "", None)]
+        drawn = self.game.apply(state, 0, {"from": 7, "to": 15})
+        self.assertEqual(drawn["winner"], "draw")
+
+    def test_a_timeout_still_produces_a_legal_position(self):
+        played = self.game.auto(self.state)
+        self.assertNotEqual(played["turn"], self.state["turn"])
+        self.assertEqual(sum(1 for piece in played["board"] if piece != "."), 32,
+                         "a timeout moves a piece, it does not remove one")
+        self.assertIsNotNone(played["last"]["san"])
+
+
+class GomokuTests(unittest.TestCase):
+    def setUp(self):
+        self.game = Gomoku()
+        self.state = self.game.new(2)
+
+    def place(self, *cells):
+        state = self.state
+        for cell in cells:
+            state = self.game.apply(state, state["turn"], {"cell": cell})
+        return state
+
+    def test_five_in_a_row_takes_the_table(self):
+        # White 0,0 1,0 2,0 3,0 4,0 — black answers on the last row.
+        state = self.place(0, 210, 1, 211, 2, 212, 3, 213, 4)
+        self.assertEqual(state["winner"], 0)
+        self.assertEqual(sorted(state["line"]), [0, 1, 2, 3, 4])
+
+    def test_a_diagonal_counts_as_a_line(self):
+        state = self.state
+        for step in range(4):
+            state = self.game.apply(state, 0, {"cell": step * 16})
+            state = self.game.apply(state, 1, {"cell": 200 + step})
+        state = self.game.apply(state, 0, {"cell": 4 * 16})
+        self.assertEqual(state["winner"], 0)
+
+    def test_four_in_a_row_is_not_a_win(self):
+        state = self.place(0, 100, 1, 101, 2, 102, 3)
+        self.assertIsNone(state["winner"])
+        self.assertEqual(state["line"], [])
+
+    def test_a_taken_intersection_is_refused(self):
+        state = self.place(112)
+        with self.assertRaises(GameError):
+            self.game.apply(state, 1, {"cell": 112})
+
+    def test_only_the_seat_on_move_may_play(self):
+        with self.assertRaises(GameError) as caught:
+            self.game.apply(self.state, 1, {"cell": 0})
+        self.assertEqual(caught.exception.status, 409)

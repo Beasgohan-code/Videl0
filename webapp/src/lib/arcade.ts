@@ -78,7 +78,9 @@ export type Lobby = {
 
 export const GAME_ICON: Record<string, string> = {
   checkers: "♛",
+  chess: "♞",
   connect4: "◍",
+  gomoku: "⬤",
   reversi: "◐",
   tictactoe: "✕",
   ludo: "◈",
@@ -91,7 +93,9 @@ export const GAME_ICON: Record<string, string> = {
  */
 export const GAME_ART: Record<string, string> = {
   checkers: "/arcade/checkers.jpg",
+  chess: "/arcade/chess.jpg",
   connect4: "/arcade/connect4.jpg",
+  gomoku: "/arcade/gomoku.jpg",
   reversi: "/arcade/reversi.jpg",
   tictactoe: "/arcade/tictactoe.jpg",
   ludo: "/arcade/ludo.jpg",
@@ -100,6 +104,8 @@ export const GAME_ART: Record<string, string> = {
 /** One accent per game, used by cards, rooms, chips and the board surface. */
 export const GAME_THEME: Record<string, { accent: string; soft: string; tagline: string }> = {
   checkers: { accent: "#f5c451", soft: "rgba(245,196,81,0.20)", tagline: "Crown a man, own the board" },
+  chess: { accent: "#c4b5fd", soft: "rgba(196,181,253,0.20)", tagline: "Mate in the endgame" },
+  gomoku: { accent: "#5eead4", soft: "rgba(94,234,212,0.20)", tagline: "Five stones, one line" },
   connect4: { accent: "#fb7185", soft: "rgba(251,113,133,0.20)", tagline: "Drop, stack, connect" },
   ludo: { accent: "#a78bfa", soft: "rgba(167,139,250,0.20)", tagline: "Four tokens, one crown" },
   reversi: { accent: "#34d399", soft: "rgba(52,211,153,0.20)", tagline: "Flip the whole board" },
@@ -108,6 +114,17 @@ export const GAME_THEME: Record<string, { accent: string; soft: string; tagline:
 
 /** Terms someone actually needs to know one board and no manual. */
 export const GAME_TERMS: Record<string, string[]> = {
+  chess: [
+    "A bishop on its own colour and a knight are the only pieces that may move on the first turn's outside files.",
+    "Castling needs the king and rook untouched, an empty path and a king never in check.",
+    "A pawn that reaches the last rank becomes any piece you choose.",
+    "Checkmate wins; stalemate, the fifty-move rule and threefold repetition draw.",
+  ],
+  gomoku: [
+    "Place a stone on any empty intersection; black moves first.",
+    "Five in a row — across, down or either diagonal — wins.",
+    "The board has 225 points; no stones are ever removed.",
+  ],
   checkers: [
     "Captures are compulsory, and the longest chain is the only one allowed.",
     "A man crowned on the eighth row ends its move there.",
@@ -339,4 +356,40 @@ export function checkerSeat(cell: number): number | null {
 
 export function isCrowned(cell: number): boolean {
   return cell === 3 || cell === 4;
+}
+
+
+// ── Chess geometry ──────────────────────────────────────────────────────────
+/** A board square as row and column, for a flat 64-cell list. */
+export function squareAt(index: number): { row: number; col: number } {
+  return { row: Math.floor(index / 8), col: index % 8 };
+}
+
+/** All the legal moves starting from one square. */
+export function movesFrom(legal: Record<string, unknown>[], square: number) {
+  return legal.filter((entry) => Number(entry.from) === square);
+}
+
+/** The legal move that lands on a square, or undefined if the tap is invalid. */
+export function moveTo(legal: Record<string, unknown>[], from: number, to: number) {
+  return movesFrom(legal, from).find((entry) => Number(entry.to) === to);
+}
+
+/** Does this square hold a piece from the seat on move? */
+export function ownsSquare(board: string[], square: number, seat: number | null): boolean {
+  const piece = board[square];
+  if (!piece || piece === "." || seat === null) return false;
+  return seat === 0 ? piece === piece.toUpperCase() : piece === piece.toLowerCase();
+}
+
+/** A readable name for a piece, used in labels and the captured tray. */
+export const PIECE_NAME: Record<string, string> = {
+  p: "pawn", n: "knight", b: "bishop", r: "rook", q: "queen", k: "king",
+};
+
+// ── Gomoku geometry ─────────────────────────────────────────────────────────
+export const GOMOKU_SIZE = 15;
+
+export function gomokuPoint(cell: number): { x: number; y: number } {
+  return { x: (cell % GOMOKU_SIZE) + 0.5, y: Math.floor(cell / GOMOKU_SIZE) + 0.5 };
 }

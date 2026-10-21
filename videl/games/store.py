@@ -12,6 +12,7 @@ is watching.
 """
 from __future__ import annotations
 
+import json
 import secrets
 from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
@@ -24,10 +25,18 @@ EVENT_RETENTION = timedelta(days=7)
 PUBLIC_PAGE = 30
 CODES_TRIED = 6
 MAX_CHAT = 400
+#: A WebRTC session description is much longer than a message and is written
+#: by the server, not typed by a person, so it gets its own ceiling.
+MAX_SIGNAL = 3000
 TIMEOUTS_BEFORE_FORFEIT = 3
 CHAT_WINDOW = (20, 60)          # 20 messages per minute
 CHAT_GAP = 1.0                  # and never faster than one per second
+#: Trickled ICE candidates arrive in bursts; a peer only needs to be stopped
+#: from turning the room into a message bus.
+SIGNAL_WINDOW = (240, 60)
+SIGNAL_GAP = 0.05
 _LAST_CHAT = defaultdict(deque)
+_LAST_SIGNAL = defaultdict(deque)
 
 
 def now():
@@ -328,6 +337,8 @@ def act(code, user, payload):
         return rematch(code, user)
     if action == "chat":
         return chat(code, user, payload.get("text"))
+    if action == "rtc":
+        return rtc(code, user, payload)
     if action == "seen":
         touch(code, user)
         return {"ok": True}
@@ -372,6 +383,17 @@ def move(code, user, move):
 def _describe(game, state, seat, move):
     if game.key == "ludo":
         return f"moved token {int(move.get('token', 0)) + 1}"
+    if game.key == "chess":
+        return f"played {(state.get('last') or {}).get('san') or 'a move'}"
+    if game.key == "checkers":
+        last = state.get("last") or {}
+        jumps = int(last.get("captures") or 0)
+        if last.get("crowned"):
+            return "crowned a king" if not jumps else f"crowned a king taking {jumps}"
+        return f"took {jumps} piece{'s' if jumps != 1 else ''}" if jumps else "made a move"
+    if game.key == "gomoku":
+        cell = int(move.get("cell") or 0)
+        return f"placed a stone at {chr(97 + cell % 15)}{cell // 15 + 1}"
     return "made a move"
 
 
@@ -463,6 +485,55 @@ def chat(code, user, text):
     return {"ok": True, "seq": seq}
 
 
+def rtc(code, user, payload):
+    """Relay one WebRTC signal to a seated peer.
+
+    Voice never touches the board: the media is peer-to-peer, and this is only
+    the introduction — an offer, an answer, or one trickled candidate. The
+    signal is addressed (`to`) so it can be dropped by everyone else, and it is
+    written to the same event stream the room already polls, which is why voice
+    needs no second connection.
+    """
+    doc = _find(code)
+    _require_member(doc, user)
+    kind = str(payload.get("kind") or "").lower()
+    if kind not in {"offer", "answer", "ice", "bye"}:
+        raise GameError("Unknown voice signal")
+    try:
+        target = int(payload.get("to"))
+    except (TypeError, ValueError):
+        raise GameError("Choose who the signal is for") from None
+    if target == int(user):
+        raise GameError("A signal needs a peer")
+    seats = {int(member.get("user")) for member in doc.get("seats", [])}
+    if target not in seats:
+        raise GameError("That player is not at this table", 403)
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        raise GameError("A signal needs a payload")
+    body = json.dumps({"to": target, "kind": kind, "data": data},
+                      separators=(",", ":"), sort_keys=True)
+    if len(body) > MAX_SIGNAL:
+        raise GameError("That signal is too large", 413)
+    _signal_limit(code, user)
+    seq = _next_seq(code)
+    _event(code, "rtc", int(user), body, seq=seq)
+    return {"ok": True, "seq": seq}
+
+
+def _signal_limit(code, user):
+    key = (code, int(user))
+    times = _LAST_SIGNAL[key]
+    stamp = datetime.now().timestamp()
+    while times and stamp - times[0] > SIGNAL_WINDOW[1]:
+        times.popleft()
+    if times and stamp - times[-1] < SIGNAL_GAP:
+        raise GameError("Slow down for a moment", 429)
+    if len(times) >= SIGNAL_WINDOW[0]:
+        raise GameError("Too many voice signals; try again shortly", 429)
+    times.append(stamp)
+
+
 def _rate_limit(code, user):
     key = (code, int(user))
     times = _LAST_CHAT[key]
@@ -486,9 +557,10 @@ def _next_seq(code):
 def _event(code, kind, user, text, seq=None):
     if seq is None:
         seq = _next_seq(code)
+    ceiling = MAX_SIGNAL if kind == "rtc" else MAX_CHAT
     events().insert_one({"room": code, "seq": int(seq), "kind": kind,
                          "user": int(user) if user else None,
-                         "text": str(text or "")[:MAX_CHAT],
+                         "text": str(text or "")[:ceiling],
                          "at": now(),
                          "expires_at": now() + EVENT_RETENTION})
 
@@ -503,7 +575,7 @@ def timeline(code, user, after=0):
         if doc.get("visibility") != "public":
             raise GameError("You are not seated in this room", 403)
         query = {"room": code, "seq": {"$gt": int(after or 0)}}
-        rows = list(events().find(query).sort("seq", 1).limit(100))
+        rows = list(events().find(query).sort("seq", 1).limit(200))
         return {"room": view(doc, None),
                 "events": [{"seq": int(row.get("seq", 0)), "kind": row.get("kind"),
                             "user": row.get("user"), "text": row.get("text", ""),
@@ -511,7 +583,7 @@ def timeline(code, user, after=0):
                 "server_time": now().isoformat()}
     touch(code, user)
     query = {"room": code, "seq": {"$gt": int(after or 0)}}
-    rows = list(events().find(query).sort("seq", 1).limit(100))
+    rows = list(events().find(query).sort("seq", 1).limit(200))
     return {"room": view(doc, user),
             "events": [{"seq": int(row.get("seq", 0)), "kind": row.get("kind"),
                         "user": row.get("user"), "text": row.get("text", ""),

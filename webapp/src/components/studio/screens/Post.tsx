@@ -18,6 +18,7 @@ import { visibleLength, plainPostText } from "@/lib/telegram-format";
 import { RichEditor } from "@/components/editor/RichEditor";
 import { ButtonBuilder, BtnRow } from "@/components/editor/ButtonBuilder";
 import { ChannelPreview } from "@/components/channel/Preview";
+import { PostFlow } from "@/components/studio/PostFlow";
 
 import {
   PostDraft as Draft,
@@ -61,6 +62,14 @@ export default function ChannelStudio() {
   const lastSent = useRef("");
   const sending = useRef(false);
   const [reviewed, setReviewed] = useState(false);
+  const [undo, setUndo] = useState<null | {
+    text: string;
+    mediaUrl: string;
+    localImage: File | null;
+    buttons: BtnRow[];
+    chatId: string;
+    at: number;
+  }>(null);
   const [showTemplates, setShowTemplates] = useState(false);
 
   const [chatId, setChatId] = useState("");
@@ -322,13 +331,19 @@ export default function ChannelStudio() {
           <button
             disabled={busy}
             onClick={() => {
-              if (
-                (text.trim() || localImage || mediaUrl) &&
-                !window.confirm(
-                  "Start a new post? Download any attached image and save a named draft first.",
-                )
-              )
-                return;
+              // Nothing is lost: the outgoing post is kept in memory for a
+              // moment, and the notice under the header puts it back. A modal
+              // asking "are you sure" is a wall, not a safety net.
+              if (text.trim() || localImage || mediaUrl) {
+                setUndo({
+                  text,
+                  mediaUrl,
+                  localImage,
+                  buttons,
+                  chatId,
+                  at: Date.now(),
+                });
+              }
               setRecovery(null);
               setChatId("");
               setText("");
@@ -358,6 +373,43 @@ export default function ChannelStudio() {
           </button>
         </div>
       </header>
+      <PostFlow
+        characters={visibleLength(text)}
+        limit={limit}
+        hasImage={hasImage}
+        buttons={buttons.reduce((total, row) => total + row.length, 0)}
+        canPublish={Boolean(text.trim() || mediaUrl || localImage)}
+        schedule={{
+          ready: isOwner,
+          note: isOwner ? "scheduling is available" : "sign in to schedule",
+        }}
+      />
+
+      {undo ? (
+        <section role="status" className="post-undo">
+          <span>
+            Started a new post. The previous one is still here for a moment.
+          </span>
+          <button
+            type="button"
+            className="ios-btn ios-btn-glass text-xs"
+            onClick={() => {
+              setText(undo.text);
+              setMediaUrl(undo.mediaUrl);
+              setLocalImage(undo.localImage);
+              setButtons(undo.buttons);
+              setChatId(undo.chatId);
+              setUndo(null);
+            }}
+          >
+            Undo
+          </button>
+          <button type="button" className="post-undo-dismiss" onClick={() => setUndo(null)} aria-label="Dismiss">
+            ×
+          </button>
+        </section>
+      ) : null}
+
       {recovery && (
         <section
           role="status"
@@ -556,7 +608,7 @@ export default function ChannelStudio() {
         disabled={busy}
         className="mt-6 grid min-w-0 gap-4 lg:grid-cols-[1.15fr_0.85fr]"
       >
-        <section className="space-y-4">
+        <section id="post-write" tabIndex={-1} className="space-y-4">
           {isOwner && (
             <div className="ios-card p-4 sm:p-5">
               <div className="flex flex-wrap items-end gap-3">
@@ -714,7 +766,9 @@ export default function ChannelStudio() {
               Share post
             </button>
           </div>
-          <ButtonBuilder value={buttons} onChange={setButtons} />
+          <div id="post-design" tabIndex={-1} className="scroll-mt-24">
+            <ButtonBuilder value={buttons} onChange={setButtons} />
+          </div>
           {result && (
             <div
               role={result.ok ? "status" : "alert"}
@@ -764,7 +818,7 @@ export default function ChannelStudio() {
           )}
         </section>
         <aside className="space-y-4 lg:sticky lg:top-20 lg:self-start">
-          <section className="ios-card-elevated p-4">
+          <section id="post-preview" tabIndex={-1} className="ios-card-elevated scroll-mt-24 p-4">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <h2 className="font-semibold">Preview</h2>
@@ -818,6 +872,7 @@ export default function ChannelStudio() {
               </a>
             </div>
           </section>
+          <div id="post-queue" tabIndex={-1} className="scroll-mt-24" />
           {isOwner&&<ScheduledPosts chatId={chatId} text={text} mediaUrl={mediaUrl} buttons={buttons} hasLocalImage={!!localImage} reviewed={reviewed} disabled={busy||remaining<0}/>}
           <section className="ios-card space-y-3 p-4"><h2 className="font-semibold">Publishing checklist</h2><p className="ios-caption">Advisory checks, not a guarantee of delivery.</p>{postChecks(text,!!mediaUrl||!!localImage,buttons).map(check=><div key={check.label} className="rounded-xl bg-white/[0.035] p-3"><div className="text-sm">{check.state==="pass"?"✓":check.state==="error"?"Fix":"Review"} · {check.label}</div><p className="ios-caption mt-1">{check.detail}</p></div>)}</section>
           <section className="ios-card space-y-3 p-4"><h2 className="font-semibold">Version history</h2><p className="ios-caption">Up to 20 manual checkpoints in this browser. Image files are excluded.</p><button className="ios-btn ios-btn-glass text-xs" disabled={busy} onClick={saveVersion}>Save version</button>{versions.map((version,i)=><div className="rounded-xl bg-white/[0.035] p-3" key={version.id}><p className="text-xs">{new Date(version.savedAt).toLocaleString()} · {visibleLength(version.text)} characters</p><p className="ios-caption truncate">{plainPostText(version.text).slice(0,100)||"Image/button post"}</p><button className="ios-pill mt-2" disabled={busy} onClick={()=>restoreDraft({...version,chatId:isOwner?version.chatId:""})}>Restore version {versions.length-i}</button></div>)}</section>

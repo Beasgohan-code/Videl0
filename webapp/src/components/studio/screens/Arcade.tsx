@@ -148,15 +148,16 @@ export default function Arcade() {
   }
 
   /* ── signed out: explain the door, show the room ───────────────────────── */
+  const boards = games.length;
   if (!player) {
     return (
       <main className="ios-page">
         <Hero
           kicker="Arcade"
           title="Pull up a chair."
-          subtitle="Five boards, one to four chairs each. Rooms live on the server, so closing the app never loses your turn — or your clock."
+          subtitle="Seven boards, one to four chairs each, with live voice at the table. Rooms live on the server, so closing the app never loses your turn — or your clock."
           stats={[
-            { value: String(FALLBACK_GAMES.length), label: "boards" },
+            { value: String(boards), label: "boards" },
             { value: "2–4", label: "chairs" },
             { value: "∞", label: "rematches" },
           ]}
@@ -641,9 +642,11 @@ function Leaderboards({ lobby, me }: { lobby: Lobby | null; me: number }) {
 }
 
 const FALLBACK_GAMES: GameInfo[] = [
+  { key: "chess", name: "Chess", seats: [2], turn_seconds: 180, summary: "The real thing: castling, en passant, promotion and mate." },
   { key: "checkers", name: "Checkers", seats: [2], turn_seconds: 75, summary: "Draughts with forced chains." },
-  { key: "connect4", name: "Connect Four", seats: [2], turn_seconds: 60, summary: "Line up four discs." },
   { key: "ludo", name: "Ludo", seats: [2, 3, 4], turn_seconds: 45, summary: "Race four tokens home." },
+  { key: "gomoku", name: "Five in a Row", seats: [2], turn_seconds: 60, summary: "Fifteen by fifteen. Five stones in a line wins." },
+  { key: "connect4", name: "Connect Four", seats: [2], turn_seconds: 60, summary: "Line up four discs." },
   { key: "reversi", name: "Reversi", seats: [2], turn_seconds: 90, summary: "Flank and flip." },
   { key: "tictactoe", name: "Tic-tac-toe", seats: [2], turn_seconds: 45, summary: "Three in a row." },
 ];

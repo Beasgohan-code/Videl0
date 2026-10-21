@@ -77,7 +77,8 @@ class ArcadeApiTests(unittest.TestCase):
         body = self.client.get("/internal/arcade", headers=self.headers(2)).get_json()
         self.assertEqual(body["ok"], True)
         self.assertEqual({game["key"] for game in body["games"]},
-                         {"checkers", "connect4", "reversi", "tictactoe", "ludo"})
+                         {"checkers", "chess", "connect4", "gomoku",
+                          "reversi", "tictactoe", "ludo"})
         self.assertEqual(len(body["public"]), 1)
         self.assertEqual(body["public"][0]["game"], "connect4")
         self.assertEqual(body["me"]["id"], 2)
@@ -91,7 +92,7 @@ class ArcadeApiTests(unittest.TestCase):
 
     def test_an_unknown_game_is_a_400_not_a_crash(self):
         response = self.client.post("/internal/arcade", headers=self.headers(1),
-                                    json={"game": "chess"})
+                                    json={"game": "poker"})
         self.assertEqual(response.status_code, 400)
         self.assertIn("error", response.get_json())
 

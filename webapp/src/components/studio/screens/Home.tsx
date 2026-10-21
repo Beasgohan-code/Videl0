@@ -65,13 +65,16 @@ export default function Home() {
         <span className="min-w-0 flex-1">
           <span className="arcade-home-title">The arcade is open</span>
           <span className="arcade-home-copy">
-            Five boards, real chairs: Ludo for two to four, Checkers, Connect
-            Four, Reversi and Tic-tac-toe. Make a room, send the six-character
-            code or the invite link, and the server keeps the board.
+            Seven boards, real chairs and live voice: Chess, Checkers, Ludo for
+            two to four, Five in a Row, Connect Four, Reversi and Tic-tac-toe.
+            Send the six-character code or the invite link; the server keeps the
+            board.
           </span>
           <span className="arcade-home-games" aria-hidden>
-            <i>◈ Ludo</i>
+            <i>♞ Chess</i>
             <i>♛ Checkers</i>
+            <i>◈ Ludo</i>
+            <i>⬤ Five in a Row</i>
             <i>◍ Connect Four</i>
             <i>◐ Reversi</i>
             <i>✕ Tic-tac-toe</i>

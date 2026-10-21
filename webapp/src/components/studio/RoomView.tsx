@@ -46,6 +46,9 @@ import {
   type RoomEvent,
 } from "@/lib/arcade";
 import { CheckersBoard } from "./boards/CheckersBoard";
+import { ChessBoard } from "./boards/ChessBoard";
+import { GomokuBoard } from "./boards/GomokuBoard";
+import { VoiceDock } from "./boards/VoiceDock";
 import { Callout } from "./ui";
 
 /**
@@ -76,6 +79,8 @@ export function RoomView({
   const [now, setNow] = useState(() => Date.now());
   const [skew, setSkew] = useState(0);
   const [copied, setCopied] = useState<"" | "link" | "code">("");
+  const [talkers, setTalkers] = useState<number[]>([]);
+  const [muted, setMuted] = useState(true);
   const seq = useRef(0);
   const triedJoin = useRef(false);
   const feed = useRef<HTMLDivElement>(null);
@@ -364,6 +369,7 @@ export function RoomView({
                     className="arcade-seat"
                     data-turn={room.status === "playing" && room.turn === seat.seat}
                     data-offline={!seat.online}
+                    data-speaking={talkers.includes(seat.user)}
                     style={{ "--seat": seatColour(room.game, seat.seat) } as CSSProperties}
                   >
                     <span className="arcade-seat-avatar" aria-hidden>
@@ -413,6 +419,16 @@ export function RoomView({
               <div className="mt-3">
                 <Board room={room} myTurn={myTurn} busy={busy} onMove={move} />
               </div>
+
+              <VoiceDock
+                room={room}
+                seat={room.you.seat}
+                events={events}
+                send={send}
+                onSpeaking={setTalkers}
+                muted={muted}
+                onMute={setMuted}
+              />
               <HouseRules game={room.game} />
 
               <div className="arcade-actions">
@@ -638,6 +654,14 @@ function Board({
 
   if (room.game === "checkers") {
     return <CheckersBoard room={room} myTurn={myTurn} busy={busy} onMove={onMove} />;
+  }
+
+  if (room.game === "chess") {
+    return <ChessBoard room={room} myTurn={myTurn} busy={busy} onMove={onMove} />;
+  }
+
+  if (room.game === "gomoku") {
+    return <GomokuBoard room={room} myTurn={myTurn} busy={busy} onMove={onMove} />;
   }
 
   if (room.game === "reversi") {

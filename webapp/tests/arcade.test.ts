@@ -139,7 +139,7 @@ test("the arcade screen renders its sign-in card without a session", async () =>
   const html = render(createElement(Arcade));
   assert.match(html, /Continue with Telegram/);
   assert.match(html, /Pull up a chair/);
-  for (const name of ["Ludo", "Checkers", "Connect Four", "Reversi", "Tic-tac-toe"]) {
+  for (const name of ["Chess", "Ludo", "Checkers", "Five in a Row", "Connect Four", "Reversi", "Tic-tac-toe"]) {
     assert.match(html, new RegExp(name.replace("-", "\\-")), `the lobby shows ${name}`);
   }
   // The three steps are the whole explanation of why a password is not needed.
@@ -228,7 +228,7 @@ test("checkers chains are only the ones the server already offered", async () =>
 test("every table has its own art, and every game has its terms", async () => {
   const { GAME_ART, GAME_ICON, GAME_TERMS, GAME_THEME } = await import("../src/lib/arcade");
   const games = Object.keys(GAME_THEME);
-  assert.deepEqual(games.sort(), ["checkers", "connect4", "ludo", "reversi", "tictactoe"]);
+  assert.deepEqual(games.sort(), ["checkers", "chess", "connect4", "gomoku", "ludo", "reversi", "tictactoe"]);
   for (const game of games) {
     assert.match(GAME_ART[game], /^\/arcade\/[a-z0-9]+\.jpg$/, `${game} has local art`);
     assert.ok(GAME_ICON[game], `${game} has a glyph for when the art does not load`);
@@ -278,4 +278,111 @@ test("the checkers board draws every square and never offers a bad tap", async (
   assert.match(html, /data-king="true"/, "the crowned piece is drawn as a king");
   assert.match(html, /A capture is on the board/, "a forced capture is announced, not hidden");
   assert.ok(!/undefined/.test(html), "no undefined leaks into the board");
+});
+
+test("chess taps can only send a move the server listed", async () => {
+  const { movesFrom, moveTo, ownsSquare, PIECE_NAME } = await import("../src/lib/arcade");
+  const legal = [
+    { from: 52, to: 36, flags: "double" },
+    { from: 62, to: 45, flags: "" },
+    { from: 8, to: 0, flags: "promotion", promote: "q" },
+    { from: 8, to: 0, flags: "promotion", promote: "n" },
+  ];
+  assert.equal(movesFrom(legal, 52).length, 1);
+  assert.equal(movesFrom(legal, 60).length, 0, "a piece with no move offers nothing");
+  assert.equal(moveTo(legal, 62, 45)?.flags, "");
+  assert.equal(moveTo(legal, 62, 44), undefined, "an invented square is refused");
+  assert.equal(movesFrom(legal, 8).length, 2, "a promotion offers one move per piece");
+
+  const board = "rnbqkbnrpppppppp".padEnd(64, ".").split("");
+  board[60] = "K";
+  assert.equal(ownsSquare(board, 60, 0), true);
+  assert.equal(ownsSquare(board, 4, 0), false, "the onyx king is not mine");
+  assert.equal(ownsSquare(board, 4, 1), true);
+  assert.equal(ownsSquare(board, 20, 0), false);
+  assert.equal(ownsSquare(board, 20, null), false);
+  assert.equal(PIECE_NAME.n, "knight");
+});
+
+test("the chess board draws pieces, not glyphs, and marks a check", async () => {
+  const { ChessBoard } = await import("../src/components/studio/boards/ChessBoard");
+  const board = "rnbqkbnrpppppppp".padEnd(64, ".").split("");
+  board[60] = "K";
+  board[52] = "R";
+  const room = {
+    code: "K7M2QX",
+    game: "chess",
+    game_name: "Chess",
+    status: "playing",
+    turn: 0,
+    seat_count: 2,
+    version: 3,
+    seats: [
+      { user: 1, name: "Ada", seat: 0, online: true },
+      { user: 2, name: "Grace", seat: 1, online: true },
+    ],
+    you: { seat: 0, is_host: true, member: true },
+    legal: [{ from: 52, to: 44, flags: "" }],
+    state: { board, turn: 0, winner: null, check: true, last: { from: 52, to: 44, san: "Re3" } },
+  } as never;
+  const html = render(createElement(ChessBoard, { room, myTurn: true, busy: false, onMove: () => {} }));
+  assert.equal((html.match(/role="gridcell"/g) || []).length, 64);
+  assert.match(html, /class="chess-alert">Check/);
+  assert.match(html, /<svg viewBox="0 0 24 24"/, "pieces are drawn, so no emoji font decides the game");
+  assert.ok(!/undefined/.test(html), "no undefined leaks into the board");
+});
+
+test("a microphone refusal becomes a sentence, not a stuck spinner", async () => {
+  const { voiceFailure, canVoice } = await import("../src/lib/voice");
+  const denied = voiceFailure({ name: "NotAllowedError" });
+  assert.equal(denied.status, "blocked");
+  assert.match(denied.error, /microphone/i);
+  assert.match(denied.error, /voice notes/i, "the fallback is named, not implied");
+  assert.equal(voiceFailure({ name: "NotFoundError" }).status, "unsupported");
+  assert.match(voiceFailure({ name: "NotReadableError" }).error, /another app/i);
+  assert.equal(voiceFailure(new Error("boom")).status, "blocked");
+  // No window in this server-rendered test: the dock must say so, not throw.
+  assert.equal(canVoice(), false);
+});
+
+test("the voice dock refuses to promise what a silent webview cannot do", async () => {
+  const { VoiceDock } = await import("../src/components/studio/boards/VoiceDock");
+  const room = {
+    code: "K7M2QX",
+    status: "playing",
+    seats: [{ user: 1, name: "Ada", seat: 0, online: true }],
+    you: { seat: 0, member: true },
+  };
+  const html = render(
+    createElement(VoiceDock, {
+      room,
+      seat: 0,
+      events: [],
+      send: async () => null,
+      onSpeaking: () => {},
+      muted: true,
+      onMute: () => {},
+    }),
+  );
+  assert.match(html, /cannot carry live voice/i);
+  assert.ok(!/undefined/.test(html));
+});
+
+test("the post flow names its four stages and never claims a done step", async () => {
+  const { PostFlow } = await import("../src/components/studio/PostFlow");
+  const html = render(
+    createElement(PostFlow, {
+      characters: 0,
+      limit: 4096,
+      hasImage: false,
+      buttons: 0,
+      canPublish: false,
+    }),
+  );
+  for (const stage of ["Write", "Design", "Preview", "Queue"]) {
+    assert.match(html, new RegExp(stage), `the rail names ${stage}`);
+  }
+  assert.match(html, /0<i>\/4096<\/i>/, "the counter starts honest");
+  assert.match(html, /data-state="next"/, "the first unfinished stage is marked");
+  assert.ok(!/undefined/.test(html));
 });

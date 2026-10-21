@@ -4,6 +4,7 @@ The store is the only writer. These tests pin the two things that make it safe:
 a move belongs to exactly one seat and exactly one version, and a room that
 nobody is watching still resolves.
 """
+import json
 import unittest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import Mock, patch
@@ -25,6 +26,7 @@ class ArcadeRoomTests(unittest.TestCase):
         self.addCleanup(self.patch.stop)
         self.db["served_chats"].insert_one({"_id": -1001})
         store._LAST_CHAT.clear()
+        store._LAST_SIGNAL.clear()
         players.upsert({"id": 1, "name": "Ada"})
         players.upsert({"id": 2, "name": "Grace"})
 
@@ -86,7 +88,7 @@ class ArcadeRoomTests(unittest.TestCase):
 
     def test_an_unknown_game_is_refused(self):
         with self.assertRaises(GameError):
-            store.create(1, "Ada", "chess")
+            store.create(1, "Ada", "poker")
 
     # ── turns ────────────────────────────────────────────────────────────────
     def test_a_move_belongs_to_the_player_whose_turn_it_is(self):
@@ -227,3 +229,44 @@ class ArcadeRoomTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    # ── voice ────────────────────────────────────────────────────────────────
+    def test_a_voice_signal_reaches_only_the_seat_it_names(self):
+        code = self.joined()
+        store.start(code, 1)
+        result = store.act(code, 1, {"action": "rtc", "kind": "offer", "to": 2,
+                                     "data": {"sdp": "v=0", "type": "offer"}})
+        self.assertTrue(result["ok"])
+        row = self.db["game_events"].find_one({"room": code, "kind": "rtc"})
+        payload = json.loads(row["text"])
+        self.assertEqual(payload["to"], 2)
+        self.assertEqual(payload["kind"], "offer")
+        self.assertEqual(payload["data"]["sdp"], "v=0")
+
+        feed = store.timeline(code, 2, 0)
+        kinds = {event["kind"] for event in feed["events"]}
+        self.assertIn("rtc", kinds, "voice arrives on the stream the room already polls")
+
+    def test_voice_refuses_a_signal_to_a_stranger_or_a_made_up_kind(self):
+        code = self.joined()
+        store.start(code, 1)
+        with self.assertRaises(GameError) as caught:
+            store.act(code, 1, {"action": "rtc", "kind": "offer", "to": 99, "data": {}})
+        self.assertEqual(caught.exception.status, 403)
+        with self.assertRaises(GameError):
+            store.act(code, 1, {"action": "rtc", "kind": "sing", "to": 2, "data": {}})
+        with self.assertRaises(GameError):
+            store.act(code, 1, {"action": "rtc", "kind": "offer", "to": 2, "data": []})
+        with self.assertRaises(GameError):
+            store.act(code, 1, {"action": "rtc", "kind": "offer", "to": 1, "data": {}})
+
+    def test_voice_needs_a_seat_and_cannot_carry_a_huge_payload(self):
+        code = self.joined()
+        store.start(code, 1)
+        with self.assertRaises(GameError) as caught:
+            store.act(code, 3, {"action": "rtc", "kind": "ice", "to": 1, "data": {}})
+        self.assertIn(caught.exception.status, (403, 400))
+        with self.assertRaises(GameError) as huge:
+            store.act(code, 1, {"action": "rtc", "kind": "ice", "to": 2,
+                                "data": {"candidate": "x" * 4000}})
+        self.assertEqual(huge.exception.status, 413)

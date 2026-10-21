@@ -33,12 +33,28 @@ export async function POST(req: Request, context: { params: Promise<{ code: stri
     return Response.json({ ok: false, error: "An action is required" }, { status: 400 });
   const record = body as Record<string, unknown>;
   const action = String(record.action || "move");
-  if (!["move", "start", "leave", "kick", "rematch", "chat", "seen"].includes(action))
+  if (!["move", "start", "leave", "kick", "rematch", "chat", "seen", "rtc"].includes(action))
     return Response.json({ ok: false, error: "Unknown room action" }, { status: 400 });
   const payload: Record<string, unknown> = { action };
   if (action === "move") payload.move = record.move ?? record;
   if (action === "chat") payload.text = String(record.text || "").slice(0, 401);
   if (action === "kick") payload.user = record.user;
+  if (action === "rtc") {
+    // Only the four WebRTC verbs cross this door, and only as a small object:
+    // the backend re-checks both, but a browser should not be able to post a
+    // megabyte at the relay in the first place.
+    const kind = String(record.kind || "");
+    if (!["offer", "answer", "ice", "bye"].includes(kind))
+      return Response.json({ ok: false, error: "Unknown voice signal" }, { status: 400 });
+    const data = record.data;
+    if (!data || typeof data !== "object" || Array.isArray(data))
+      return Response.json({ ok: false, error: "A voice signal needs a payload" }, { status: 400 });
+    if (JSON.stringify(data).length > 2600)
+      return Response.json({ ok: false, error: "That voice signal is too large" }, { status: 413 });
+    payload.kind = kind;
+    payload.to = Number(record.to);
+    payload.data = data;
+  }
   return forward(`/internal/arcade/room/${code}`, {
     ...jsonBody(payload),
     headers: { "Content-Type": "application/json", ...actorHeaders(checked.player.id) },
