@@ -780,7 +780,6 @@ export default function GroupsPage() {
                 onClick={() => setFilter(item.id)}
                 aria-pressed={filter === item.id}
                 className="ios-chip text-xs"
-                aria-selected={filter === item.id}
               >
                 {item.label}
               </button>
@@ -941,7 +940,6 @@ export default function GroupsPage() {
                   <button
                     key={item.id}
                     aria-pressed={tab === item.id}
-                    aria-selected={tab === item.id}
                     onClick={() => setTab(item.id)}
                     className="ios-chip text-xs"
                   >

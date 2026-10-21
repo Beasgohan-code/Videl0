@@ -238,6 +238,27 @@ class ReportTriageTests(unittest.TestCase):
         self.assertIn("1/2 warnings", result["note"], "the stale warning did not push the member to the limit")
 
 
+class DecayResetsTheLadderTests(unittest.TestCase):
+    def test_a_member_whose_warnings_all_lapsed_starts_at_the_first_rung(self):
+        # Three warnings, two limit hits already spent: the ladder sits at rung 2.
+        fresh = document(1, 1, 1, stages=2)
+        self.assertEqual(warnings.next_stage(fresh, 3, 0, NOW)["stage"], 2)
+        # The same record a year later, with decay on, is empty again.
+        old = document(400, 400, 400, stages=2)
+        plan = warnings.next_stage(old, 3, 90, NOW)
+        self.assertEqual(plan["count"], 1, "one new warning, and nothing else counts")
+        self.assertFalse(plan["reached"])
+        self.assertEqual(plan["stage"], 0, "the ladder restarts instead of resuming at rung 2")
+        self.assertEqual(plan["next_stage"], 0)
+
+    def test_a_partly_lapsed_record_keeps_the_rung_it_earned(self):
+        # One warning still counts, so the member is still on their ladder.
+        mixed = document(400, 10, stages=2)
+        plan = warnings.next_stage(mixed, 3, 90, NOW)
+        self.assertEqual(plan["decayed"], 1)
+        self.assertEqual(plan["stage"], 1, "one live warning that does not reach the limit steps back one rung")
+
+
 class CaseFileTests(unittest.TestCase):
     """The panel shows the whole case, not only the part that still counts."""
 

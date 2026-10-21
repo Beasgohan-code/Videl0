@@ -139,6 +139,11 @@ def next_stage(document, limit: int, decay_days: int = 0, now: datetime | None =
     state = active_warnings(document, decay_days, now)
     count = state["count"] + 1
     stored_stage = int((document or {}).get("stages") or 0)
+    if state["total"] and state["count"] == 0:
+        # Every warning lapsed. The record is empty, so the ladder starts over:
+        # a member should not resume at a rung earned years ago, one step at a
+        # time. This is the whole point of a decay window.
+        stored_stage = 0
     reached = count >= limit
     return {
         "count": count,

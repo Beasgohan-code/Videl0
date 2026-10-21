@@ -48,8 +48,10 @@ to code that actually runs:
   step runs, the next time the second, and the last step repeats. A ladder is
   written gentlest-first and the backend drops any rung that would weaken a
   repeat offender's action. `decay_days` (0–365) makes warnings older than the
-  window stop counting, so a member who behaves starts fresh; warnings without
-  a timestamp are kept, never assumed old. `/warnings` shows the active count,
+  window stop counting, so a member who behaves starts fresh: once every
+  warning has lapsed the ladder restarts at its gentlest rung instead of
+  resuming where the member left off. Warnings without a timestamp are kept,
+  never assumed old. `/warnings` shows the active count,
   what lapsed and when the next one expires, and the bot and the panel's report
   triage reach the same verdict for the same member. Each warned member has a
   case file: every warning on record with its date, the lapsed ones struck
