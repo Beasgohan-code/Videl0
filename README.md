@@ -47,6 +47,10 @@ npm --prefix webapp test
 npm --prefix webapp run build
 ```
 
+Two workflows run in CI. `ci.yml` runs the suites above on every push. `deploy-check.yml` runs after the push, waits for the live bot backend to report the pushed
+commit and for the panel to answer, and fails when either is still serving an older build — so "it deployed" is checked rather than assumed. A `/health` that
+reports a bot which is not online is a warning there, not a failed release.
+
 `webapp/tests/browser-smoke.cjs` exercises public/owner views, editing and export with mocked Telegram/backend requests. A passing mock is not evidence of live Telegram delivery, Premium eligibility or working production voice permissions.
 
 ## Scope and limitations

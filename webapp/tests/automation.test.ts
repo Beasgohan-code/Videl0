@@ -10,7 +10,9 @@ import {
   filterGroup,
   actionCopy,
   decayLabel,
+  fleetProgress,
   healthTone,
+  mergeGroupPage,
   ladderSteps,
   protectionNow,
   protectionSummary,
@@ -30,7 +32,7 @@ import {
   driftLabel,
   webRevision,
 } from "../src/lib/release";
-import { backendTone, healthCaption, healthProblems } from "../src/lib/health";
+import { backendTone, healthCaption, healthProblems, latencyCaption } from "../src/lib/health";
 import { GET as auditGET } from "../src/app/api/groups/[id]/audit/route";
 import { GET as federationGET } from "../src/app/api/federation/route";
 import { POST as federationPOST } from "../src/app/api/federation/[id]/route";
@@ -339,4 +341,29 @@ test("the backend caption never claims a bot is up before it is", () => {
   assert.match(caption, /bot failed/);
   assert.match(caption, /uptime 1h 1m/);
   assert.match(healthCaption(null), /unavailable/i);
+});
+
+test("a second page of groups never duplicates a group", () => {
+  const first = [group({ id: -1 }), group({ id: -2 })];
+  // The backend cursor is exact, but a group created between the two requests
+  // shifts the window; merging must stay idempotent.
+  const merged = mergeGroupPage(first, [group({ id: -2 }), group({ id: -3 })]);
+  assert.deepEqual(merged.map((item) => item.id), [-1, -2, -3]);
+  assert.equal(new Set(merged.map((item) => item.id)).size, merged.length);
+  assert.deepEqual(mergeGroupPage(first, []), first);
+});
+
+test("the fleet caption only appears while pages remain", () => {
+  assert.equal(fleetProgress(200, 743), "Showing 200 of 743 served groups");
+  assert.equal(fleetProgress(743, 743), null);
+  assert.equal(fleetProgress(0, 0), null);
+  assert.equal(fleetProgress(5, Number.NaN), null, "a backend without a total must not invent one");
+});
+
+test("database latency is reported separately from the API", () => {
+  assert.match(latencyCaption({ ok: true, db: { connected: true, p95_ms: 12.5, samples: 40 } }), /MongoDB 12.5 ms p95/);
+  assert.match(latencyCaption({ ok: true, db: { connected: false } }), /MongoDB not answering/);
+  assert.match(latencyCaption({ ok: true, db: { connected: true, p95_ms: null } }), /not measured/);
+  assert.equal(latencyCaption({ ok: true }), "", "an older backend has no db block to report");
+  assert.equal(latencyCaption(null), "");
 });

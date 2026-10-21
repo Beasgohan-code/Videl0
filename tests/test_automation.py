@@ -780,6 +780,74 @@ class InternalRouteTests(unittest.TestCase):
         self.assertGreaterEqual(payload["api"]["samples"], 1)
         self.assertGreaterEqual(payload["api"]["p95_ms"], 0.0)
 
+    def test_health_times_the_database_separately(self):
+        # One number cannot say whether the API or Mongo is slow.
+        self.client.get("/health")
+        payload = self.client.get("/health").get_json()
+        self.assertIs(payload["db"]["connected"], True)
+        self.assertGreaterEqual(payload["db"]["samples"], 1)
+        self.assertGreaterEqual(payload["db"]["p95_ms"], 0.0)
+        self.assertIn("bot_attempts", payload)
+
+    def test_a_database_that_answers_nothing_is_not_reported_fast(self):
+        from videl.utils import db as database
+        backend = self.backend
+        database._db = None
+        try:
+            payload = self.client.get("/health").get_json()
+        finally:
+            database._db = self.db
+        self.assertIs(payload["db"]["connected"], False)
+        self.assertIsNone(payload["db"]["p95_ms"])
+        self.assertIn("MongoDB is disconnected", payload["degraded_reasons"])
+
+    def test_the_fleet_list_pages_instead_of_stopping_silently(self):
+        # 21 groups is more than one 20-group page, which is the whole point:
+        # the old endpoint returned 200 and said nothing about the rest.
+        for extra in range(19):
+            self.db["served_chats"].insert_one({"_id": -200000 - extra})
+        first = self.client.get("/internal/chats?limit=20", headers=self.headers()).get_json()
+        self.assertEqual(first["total"], 21, "the count covers the fleet, not the page")
+        self.assertEqual(first["returned"], 20)
+        self.assertIs(first["has_more"], True)
+        self.assertIs(first["truncated"], True, "older panels still get the hint")
+        self.assertIsNotNone(first["next_cursor"])
+        self.assertEqual(first["summary"]["scope"], "page")
+        self.assertEqual(first["summary"]["total"], 20, "page totals stay honest about their scope")
+
+        second = self.client.get(f"/internal/chats?limit=20&cursor={first['next_cursor']}",
+                                 headers=self.headers()).get_json()
+        self.assertEqual(second["returned"], 1)
+        self.assertIs(second["has_more"], False)
+        self.assertIsNone(second["next_cursor"])
+
+    def test_paging_walks_every_group_exactly_once(self):
+        for extra in range(30):
+            self.db["served_chats"].insert_one({"_id": -300000 - extra})
+        seen, cursor, pages = [], None, 0
+        while True:
+            url = "/internal/chats?limit=20" + (f"&cursor={cursor}" if cursor is not None else "")
+            body = self.client.get(url, headers=self.headers()).get_json()
+            pages += 1
+            self.assertEqual(body["total"], 32)
+            seen.extend(row["id"] for row in body["chats"])
+            if not body["has_more"]:
+                self.assertIsNone(body["next_cursor"])
+                break
+            cursor = body["next_cursor"]
+            self.assertLess(pages, 10, "paging must terminate")
+        self.assertEqual(len(seen), len(set(seen)), "no group is returned twice")
+        self.assertEqual(set(seen), {-1001234567, -100999, *(-300000 - n for n in range(30))})
+        self.assertGreater(pages, 1, "the fixture really did span pages")
+
+    def test_a_bad_page_parameter_is_refused_rather_than_ignored(self):
+        self.assertEqual(self.client.get("/internal/chats?limit=abc", headers=self.headers()).status_code, 400)
+        self.assertEqual(self.client.get("/internal/chats?limit=5", headers=self.headers()).status_code, 400)
+        self.assertEqual(self.client.get("/internal/chats?limit=10000", headers=self.headers()).status_code, 400)
+        unknown = self.client.get("/internal/chats?cursor=42", headers=self.headers())
+        self.assertEqual(unknown.status_code, 400)
+        self.assertEqual(unknown.get_json()["total"], 2)
+
     def test_health_names_what_is_not_running(self):
         # The HTTP API answering is not the same as the bot working. Keep the
         # status "ok" for uptime monitors, but say which part is down.

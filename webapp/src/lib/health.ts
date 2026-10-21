@@ -16,6 +16,9 @@ export type HealthLike = {
   degraded_reasons?: string[];
   bot_error?: string | null;
   bot_online_at?: number | null;
+  bot_attempts?: number | null;
+  /** Round trip to MongoDB, measured separately from the HTTP API. */
+  db?: { p95_ms?: number | null; samples?: number; connected?: boolean; last_ms?: number } | null;
 };
 
 /** What is not working, in the backend's own words. Empty means healthy. */
@@ -43,6 +46,22 @@ export function healthCaption(health: HealthLike | null | undefined): string {
   }
   if (typeof health.bot_online_at === "number" && health.bot_status === "online") {
     parts.push(`bot up since ${new Date(health.bot_online_at * 1000).toLocaleTimeString()}`);
+  }
+  return parts.join(" · ");
+}
+
+/**
+ * Latency in the backend's own words. Two numbers, because "the panel is slow"
+ * has two very different causes: our code, or the database under it.
+ */
+export function latencyCaption(health: HealthLike | null | undefined): string {
+  if (!health?.ok) return "";
+  const db = health.db;
+  const parts: string[] = [];
+  if (db) {
+    parts.push(db.connected === false
+      ? "MongoDB not answering"
+      : db.p95_ms != null ? `MongoDB ${db.p95_ms} ms p95` : "MongoDB not measured yet");
   }
   return parts.join(" · ");
 }

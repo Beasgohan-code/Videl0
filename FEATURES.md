@@ -24,7 +24,11 @@ to code that actually runs:
 
 - **Group Manager** — per-group drill-down with health (derived from stored
   settings, waiting join requests and the last Telegram read), an aggregate
-  "needs attention" queue ranked worst-first with the recorded reasons, protection
+  "needs attention" queue ranked worst-first with the recorded reasons. The
+  fleet list is **paged**: the header shows the real total, "Load more" walks a
+  cursor to the next page, and the summary says it describes the groups loaded
+  so far — a fleet larger than one page is never silently cut off, which it
+  used to be at 200, protection
   presets, greetings, rules, captcha, warnings, notes, filters, blacklist,
   approvals, join-request triage (approve/decline), report triage (warn, ban,
   resolve or dismiss) and a per-group audit trail
@@ -69,6 +73,13 @@ to code that actually runs:
 - **Release check** — Settings compares the Vercel commit with the backend's
   `revision` and reports drift instead of guessing, plus the measured p95 of
   the backend's internal API calls (the last 400 requests it served).
+- **Self-healing startup** — a failed `bot.start()` no longer parks the process
+  until someone presses Restart. Transient failures retry in 15 s and back off
+  to 15 minutes; a duplicated session waits for the other instance to drain; a
+  rejected token is retried every 30 minutes so a corrected environment
+  recovers on its own. The owner is told once per change of cause, and again
+  when the bot comes back. `/health` reports `bot_attempts` and `db`
+  (`p95_ms`, samples) so a slow panel can be attributed to the API or Mongo.
 - **Honest health** — `/health` keeps `status: "ok"` while the HTTP API answers,
   so an uptime monitor does not flap when Telegram is down, and adds `degraded`
   with one reason per broken part (bot, MongoDB, watchdog) plus a redacted

@@ -43,6 +43,8 @@ export async function GET(req: Request) {
       degraded_reasons: Array.isArray(body.degraded_reasons) ? body.degraded_reasons : [],
       bot_error: typeof body.bot_error === "string" ? body.bot_error : null,
       bot_online_at: typeof body.bot_online_at === "number" ? body.bot_online_at : null,
+      bot_attempts: typeof body.bot_attempts === "number" ? body.bot_attempts : null,
+      db: body.db ?? null,
       watchdog: body.watchdog ?? null,
       latency_ms: result.ms,
       attempts: result.attempts,

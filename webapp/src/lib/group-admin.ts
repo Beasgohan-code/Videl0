@@ -119,6 +119,24 @@ export type NoteRow = { name: string; type: string };
 export type FilterRow = { keyword: string; reply: string };
 export type BlacklistRow = { trigger: string; mode: string };
 
+/**
+ * Append one page of the fleet to what is already loaded.
+ *
+ * A cursor is exact, so this is normally a plain concat — but a group can be
+ * added between two requests, and a duplicate id would break selection and
+ * double-count the summary. Drop what is already there.
+ */
+export function mergeGroupPage(current: Group[], page: Group[]): Group[] {
+  const seen = new Set(current.map((group) => group.id));
+  return [...current, ...page.filter((group) => !seen.has(group.id))];
+}
+
+/** "Showing 200 of 743 served groups", or null once everything is loaded. */
+export function fleetProgress(loaded: number, total: number): string | null {
+  if (!Number.isFinite(total) || total <= 0 || loaded >= total) return null;
+  return `Showing ${loaded} of ${total} served groups`;
+}
+
 /** One-line status for the warnings list; the count is what the limit checks. */
 export function warnCaseSummary(row: WarnRow): string {
   const total = typeof row.total === "number" ? row.total : row.count;

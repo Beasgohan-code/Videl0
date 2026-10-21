@@ -8,7 +8,16 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   const denied = ownerRequired(req);
   if (denied) return denied;
-  const result = await callBackend("/internal/chats", {}, { timeoutMs: 20000, attempts: 2 });
+  // Paging is the backend's contract; forward exactly the two parameters it
+  // understands and drop anything else, so a typo cannot silently change pages.
+  const url = new URL(req.url);
+  const query = new URLSearchParams();
+  const limit = url.searchParams.get("limit");
+  if (limit && /^[0-9]{1,4}$/.test(limit)) query.set("limit", limit);
+  const cursor = url.searchParams.get("cursor");
+  if (cursor && /^-?[0-9]{1,20}$/.test(cursor)) query.set("cursor", cursor);
+  const path = query.toString() ? `/internal/chats?${query.toString()}` : "/internal/chats";
+  const result = await callBackend(path, {}, { timeoutMs: 20000, attempts: 2 });
   if (!result.ok) return groupError(result);
   return Response.json(result.payload, { headers: { "Cache-Control": "no-store" } });
 }

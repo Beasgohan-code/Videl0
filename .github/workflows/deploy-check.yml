@@ -1,0 +1,75 @@
+#  Videl © 2026 | Beasgohan-code
+#  After a push, prove the live services are running *this* commit.
+#
+#  Both hosts redeploy on push, but a deploy can fail, sit in a queue, or serve
+#  the previous build while the panel looks new. This job waits for the bot
+#  backend to report the pushed SHA and for the web panel to answer, then fails
+#  the workflow if they never do — so "it deployed" is a fact, not a guess.
+name: Deploy check
+
+on:
+  push:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  live:
+    name: Live deployments serve this commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      BACKEND_HEALTH_URL: ${{ vars.BACKEND_HEALTH_URL || 'https://videl0.onrender.com/health' }}
+      WEBAPP_URL: ${{ vars.WEBAPP_URL || 'https://videl-studio.vercel.app' }}
+    steps:
+      - name: Wait for the backend to report this commit
+        run: |
+          set -uo pipefail
+          short="${GITHUB_SHA::12}"
+          echo "Waiting for $BACKEND_HEALTH_URL to report $short"
+          for attempt in $(seq 1 24); do
+            body=$(curl -fsS --max-time 20 "$BACKEND_HEALTH_URL?probe=$short" || true)
+            if [ -z "$body" ]; then
+              echo "attempt $attempt: no answer yet"
+            else
+              revision=$(printf '%s' "$body" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("revision",""))' 2>/dev/null || true)
+              status=$(printf '%s' "$body" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("bot_status",""))' 2>/dev/null || true)
+              echo "attempt $attempt: revision=$revision bot=$status"
+              if [ "$revision" = "$short" ]; then
+                echo "Backend is serving $short."
+                {
+                  echo "### Backend"
+                  printf '%s' "$body" | python3 -m json.tool
+                } >> "$GITHUB_STEP_SUMMARY"
+                exit 0
+              fi
+            fi
+            sleep 20
+          done
+          echo "::error::The backend never reported $short. Check the Render deploy log."
+          exit 1
+
+      - name: Wait for the web panel
+        run: |
+          for attempt in $(seq 1 15); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$WEBAPP_URL/")
+            echo "attempt $attempt: $code"
+            if [ "$code" = "200" ]; then
+              echo "Web panel answered 200."
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "::error::The web panel did not answer 200 at $WEBAPP_URL."
+          exit 1
+
+      - name: Warn when the bot is not online
+        if: always()
+        run: |
+          # The API answering is not the bot working: surface it without failing
+          # the deploy, because a Telegram outage is not a broken release.
+          body=$(curl -fsS --max-time 20 "$BACKEND_HEALTH_URL" || true)
+          [ -z "$body" ] && exit 0
+          printf '%s' "$body" | python3 .github/scripts/health_note.py

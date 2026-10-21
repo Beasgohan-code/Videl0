@@ -26,10 +26,15 @@ _BOT_STATUS = "starting"
 # owner can diagnose from the panel instead of hunting Render logs. Redacted.
 _BOT_ERROR = ""
 _BOT_ONLINE_AT = None
+# How many start attempts this process has made: 1 means it started first try.
+_BOT_ATTEMPTS = 0
 
 # Rolling latency of the server-to-server API calls the panel makes. A single
 # /health round-trip is one sample; Settings asks for the distribution instead.
 _API_TIMINGS: deque = deque(maxlen=400)
+# A ping to Mongo, measured the same way, so the panel can tell a slow API from
+# a slow database instead of seeing one number and guessing.
+_DB_TIMINGS: deque = deque(maxlen=200)
 _TIMING_LOCK = threading.Lock()
 _TIMED_PREFIXES = ("/internal/", "/api/")
 
@@ -92,6 +97,27 @@ def _status_json():
         "revision": __import__("videl").build_revision,
     }), 200
 
+def _db_latency() -> dict:
+    """Median-ish round trip to Mongo, measured now and rolled with history."""
+    from videl.utils.db import get_db, is_connected
+    if not is_connected():
+        return {"p95_ms": None, "samples": len(_DB_TIMINGS), "connected": False}
+    try:
+        database = get_db()
+        started = time.perf_counter()
+        database.command("ping")
+        elapsed = round((time.perf_counter() - started) * 1000, 2)
+        with _TIMING_LOCK:
+            _DB_TIMINGS.append(elapsed)
+            samples = sorted(_DB_TIMINGS)
+        index = max(0, min(len(samples) - 1, int(round(0.95 * len(samples))) - 1))
+        return {"p95_ms": samples[index], "samples": len(samples), "connected": True,
+                "last_ms": elapsed}
+    except Exception:
+        LOGGER.debug("database ping failed", exc_info=True)
+        return {"p95_ms": None, "samples": len(_DB_TIMINGS), "connected": False}
+
+
 def _health_text(value) -> str:
     """Error text that is safe to publish: no token, no long credentials."""
     text = str(value or "").strip()
@@ -127,10 +153,11 @@ def _health():
         reasons.append("Maintenance watchdog is not running")
     return jsonify({"status": "ok", "service": "videl-render-backend", "revision": build_revision,
                     "bot_status": _BOT_STATUS, "bot_error": _BOT_ERROR or None,
-                    "bot_online_at": _BOT_ONLINE_AT, "degraded": bool(reasons),
+                    "bot_online_at": _BOT_ONLINE_AT, "bot_attempts": _BOT_ATTEMPTS,
+                    "degraded": bool(reasons),
                     "degraded_reasons": reasons, "database": database,
                     "uptime": max(0, int(time.time() - bot_start_time)),
-                    "api": _api_latency(),
+                    "api": _api_latency(), "db": _db_latency(),
                     "watchdog": {key: maintenance[key] for key in ("running", "healthy", "last_tick")}}), 200
 
 @_flask.route("/internal/auth", methods=["POST"])
@@ -463,8 +490,31 @@ def _internal_chats():
         db = get_db()
         if db is None:
             return jsonify({"ok": False, "error": "MongoDB is not connected"}), 503
-        limit = 200
-        ids = [doc.get("_id") for doc in db["served_chats"].find({}, {"_id": 1}).limit(limit)]
+        # The fleet list is paged. It used to stop at 200 silently, so a bot in
+        # more groups than that hid the rest with no hint at all.
+        try:
+            limit = int(request.args.get("limit", "200"))
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "limit must be a number"}), 400
+        if not 20 <= limit <= 1000:
+            return jsonify({"ok": False, "error": "limit must be between 20 and 1000"}), 400
+        raw_cursor = (request.args.get("cursor") or "").strip()
+        # Read the ids in one sorted projection and slice in Python: chat ids are
+        # integers, but a stale string id must not make a cursor skip a group.
+        every_id = [doc.get("_id") for doc in db["served_chats"].find({}, {"_id": 1}).sort("_id", 1)]
+        total = len(every_id)
+        start = 0
+        if raw_cursor:
+            for index, value in enumerate(every_id):
+                if str(value) == raw_cursor:
+                    start = index + 1
+                    break
+            else:
+                return jsonify({"ok": False, "error": "cursor is not a chat in this list", "total": total}), 400
+        page_ids = every_id[start:start + limit]
+        ids = page_ids
+        has_more = start + len(page_ids) < total
+        next_cursor = page_ids[-1] if (page_ids and has_more) else None
         int_ids = []
         for value in ids:
             try:
@@ -588,7 +638,15 @@ def _internal_chats():
             row["automation"] = normalize_automation((documents.get(chat_id) or {}).get("automation"))
             row["health"] = evaluate_health(row)
             rows.append(row)
-        return jsonify({"ok": True, "chats": rows, "summary": summarize_health(rows), "truncated": len(ids) >= limit})
+        summary = summarize_health(rows)
+        # The totals in `summary` describe this page. `total` is the fleet, so a
+        # caller can say "showing 200 of 743" instead of implying it has them all.
+        summary["scope"] = "page"
+        return jsonify({"ok": True, "chats": rows, "summary": summary,
+                        "total": total, "returned": len(rows), "offset": start,
+                        "has_more": has_more, "next_cursor": next_cursor,
+                        # Kept for a panel build that predates paging.
+                        "truncated": has_more})
     except Exception:
         LOGGER.exception("internal group list query failed")
         return jsonify({"ok": False, "error": "group query failed"}), 503
@@ -1028,27 +1086,57 @@ if __name__ == "__main__":
         except Exception:
             pass  # not in main thread on some runners
 
-        # Start bot
-        try:
-            await bot.start()
-        except Exception as e:
-            _BOT_STATUS = "failed"
-            _BOT_ERROR = _health_text(e) or type(e).__name__
-            LOGGER.error(f"bot.start fail: {e}")
-            try:
-                await log_error(bot, "bot.start", e, "startup")
-            except: pass
-            # keep Flask backend alive even if the bot client fails
-            LOGGER.info("Bot failed — health and backend API remain available")
-            while True:
-                await asyncio.sleep(3600)
-            return
+        # Start the bot, retrying. A failed start delivered nothing, so trying
+        # again is safe; what is not safe is giving up and waiting for a human.
+        from videl.utils import boot as boot_policy
+        from videl.utils.alerts import notify
 
-        me = await bot.get_me()
+        global _BOT_ATTEMPTS
+        previous_kind = None
+        while True:
+            _BOT_ATTEMPTS += 1
+            try:
+                await bot.start()
+                me = await bot.get_me()
+                break
+            except Exception as e:
+                kind = boot_policy.classify(e)
+                delay = boot_policy.retry_delay(_BOT_ATTEMPTS, kind)
+                _BOT_STATUS = "failed"
+                _BOT_ERROR = _health_text(e) or type(e).__name__
+                LOGGER.error("bot.start attempt %s failed (%s): %s — retrying in %ss",
+                             _BOT_ATTEMPTS, kind, e, delay)
+                try:
+                    await log_error(bot, "bot.start", e, "startup")
+                except Exception:
+                    pass
+                if boot_policy.should_alert(_BOT_ATTEMPTS, kind, previous_kind):
+                    await asyncio.to_thread(
+                        notify,
+                        f"The bot could not start: <code>{_BOT_ERROR}</code>\n"
+                        f"{boot_policy.describe(kind)}. The panel and API stay up.",
+                        title="Bot start failed",
+                    )
+                previous_kind = kind
+                # A half-open client would make the next attempt misleading.
+                try:
+                    await bot.stop()
+                except Exception:
+                    pass
+                await asyncio.sleep(delay)
+
         _BOT_STATUS = "online"
         _BOT_ERROR = ""
         _BOT_ONLINE_AT = int(time.time())
-        LOGGER.info(f"Bot @{me.username} started")
+        if _BOT_ATTEMPTS > 1:
+            LOGGER.info("Bot @%s started after %s attempts", me.username, _BOT_ATTEMPTS)
+            await asyncio.to_thread(
+                notify,
+                f"Bot @{me.username} is back online after {_BOT_ATTEMPTS} start attempts.",
+                title="Bot recovered",
+            )
+        else:
+            LOGGER.info(f"Bot @{me.username} started")
 
         # assistant (userbot) optional
         assistant_username = ""

@@ -67,6 +67,8 @@ import {
   textValue,
   toggleSelected,
   visibleGroups,
+  fleetProgress,
+  mergeGroupPage,
   warnCaseSummary,
   type AuditEvent,
   type Group,
@@ -150,6 +152,11 @@ export default function GroupsPage() {
   const [filter, setFilter] = useState<GroupFilter>("all");
   const [sort, setSort] = useState<GroupSort>("name");
   const [groups, setGroups] = useState<Group[]>([]);
+  // The backend pages the fleet. Keep the real total and the cursor separately
+  // from the rows, so "showing 200 of 743" is never a guess.
+  const [fleetTotal, setFleetTotal] = useState(0);
+  const [nextCursor, setNextCursor] = useState<number | string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [selected, setSelected] = useState<number | null>(null);
   const [detail, setDetail] = useState<GroupDetail | null>(null);
   const [detailState, setDetailState] = useState<"idle" | "loading" | "ready" | "unsupported" | "error">("idle");
@@ -199,14 +206,37 @@ export default function GroupsPage() {
       const chats: Group[] = Array.isArray(data.chats) ? data.chats : [];
       setGroups(chats);
       setGroupsSummary(data.summary && typeof data.summary === "object" ? (data.summary as GroupsSummary) : null);
+      setFleetTotal(typeof data.total === "number" ? data.total : chats.length);
+      setNextCursor(typeof data.next_cursor === "number" || typeof data.next_cursor === "string" ? data.next_cursor : null);
       setSelected((current) => (chats.some((group) => group.id === current) ? current : (chats[0]?.id ?? null)));
-      if (data.truncated) setNotice("The bot serves more groups than this page lists. Refresh after the backend prunes inactive chats.");
+      // An older backend has no cursor; say what actually happened either way.
+      if (data.has_more === true && !data.next_cursor)
+        setNotice("The bot serves more groups than this page lists. Redeploy the bot backend to page through them.");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Group data could not be loaded");
     } finally {
       setLoading(false);
     }
   }, []);
+
+  const loadMore = useCallback(async () => {
+    if (nextCursor === null || loadingMore) return;
+    setLoadingMore(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/groups?cursor=${encodeURIComponent(String(nextCursor))}`, { cache: "no-store" });
+      const data = await response.json();
+      if (!response.ok || !data.ok) throw new Error(data.error || "The next page of groups could not be loaded");
+      const page: Group[] = Array.isArray(data.chats) ? data.chats : [];
+      setGroups((current) => mergeGroupPage(current, page));
+      setFleetTotal((current) => (typeof data.total === "number" ? data.total : current));
+      setNextCursor(typeof data.next_cursor === "number" || typeof data.next_cursor === "string" ? data.next_cursor : null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "The next page of groups could not be loaded");
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [nextCursor, loadingMore]);
 
   useEffect(() => {
     void load();
@@ -592,14 +622,16 @@ export default function GroupsPage() {
   const visible = useMemo(() => visibleGroups(groups, { query, filter, sort }), [groups, query, filter, sort]);
   const summary = useMemo(
     () => ({
-      total: groups.length,
+      total: fleetTotal || groups.length,
       protected: groups.filter((group) => protectionSummary(group.settings, explicitSettings(group)).active > 0).length,
       warns: groups.reduce((total, group) => total + (group.counts?.warns ?? 0), 0),
       unreachable: groups.filter((group) => !group.available).length,
       attention: groupsSummary?.attention ?? groups.filter((group) => group.health?.attention).length,
     }),
-    [groups, groupsSummary],
+    [groups, groupsSummary, fleetTotal],
   );
+
+  const morePending = nextCursor !== null && groups.length < (fleetTotal || Number.MAX_SAFE_INTEGER);
 
   const groupCommands = useMemo(
     () => BOT_COMMANDS.filter((command) => !command.owner && command.context !== "private"),
@@ -809,6 +841,21 @@ export default function GroupsPage() {
             )}
             {!loading && groups.length > 0 && !visible.length && (
               <p className="p-3 text-sm text-white/50">No groups match this search and filter.</p>
+            )}
+            {morePending && (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/[0.02] p-3">
+                <p className="ios-caption">
+                  {fleetProgress(groups.length, fleetTotal)}. Health numbers describe the groups loaded so far.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => void loadMore()}
+                  disabled={loadingMore}
+                  className="ios-btn ios-btn-glass text-xs disabled:opacity-40"
+                >
+                  {loadingMore ? "Loading…" : `Load ${Math.min(200, Math.max(1, fleetTotal - groups.length))} more`}
+                </button>
+              </div>
             )}
             {visible.map((group) => {
               const state = protectionSummary(group.settings, explicitSettings(group));
