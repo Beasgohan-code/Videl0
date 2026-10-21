@@ -9,7 +9,7 @@ import uuid
 from datetime import timedelta
 from pymongo.errors import DuplicateKeyError
 from PIL import Image,UnidentifiedImageError
-from videl.utils.group_view import ViewError,integer,now,rich_text,store,RETENTION
+from videl.utils.group_view import ViewError,integer,now,parse_error,plain_from_rich,rich_text,store,RETENTION
 
 UPLOAD_LIMIT=4*1024*1024
 DOWNLOAD_LIMIT=8*1024*1024
@@ -91,17 +91,25 @@ def send_attachment(service,body,data):
     except DuplicateKeyError:return {'ok':False,'status':'pending','error':'This attachment request is already being processed; it was not resent.'}
     method={'photo':'sendPhoto','video':'sendVideo','voice':'sendVoice'}[kind]
     if kind=='video':payload['supports_streaming']=True
+    fallback_note=None
     try:
         status,reply=service.api(method,payload,files={kind:(name,encoded,mime)})
+        description=reply.get('description','') if isinstance(reply,dict) else ''
+        if payload.get('parse_mode') and parse_error(status,description):
+            retry={**payload,'caption':plain_from_rich(payload.get('caption',''))}
+            retry.pop('parse_mode',None)
+            status,reply=service.api(method,retry,files={kind:(name,encoded,mime)})
+            payload=retry
+            fallback_note='Telegram could not render the caption formatting, so it was sent as plain text.'
         if not status or not reply.get('ok') or not isinstance(reply.get('result'),dict):raise ViewError('Attachment delivery was not confirmed. Check Telegram before retrying.',502)
     except Exception:
         service.db['group_view_operations'].update_one({'_id':key},{'$set':{'status':'unconfirmed'}})
         raise
-    warning=None
+    warning=fallback_note
     try:
         service.db['group_view_operations'].update_one({'_id':key},{'$set':{'status':'confirmed'}})
-        remembered(service,cid,reply['result'],me,kind,caption,reply_id)
-    except Exception:warning='Telegram confirmed the attachment; its local history receipt could not be saved.'
+        remembered(service,cid,reply['result'],me,kind,payload.get('caption',''),reply_id)
+    except Exception:warning=fallback_note or 'Telegram confirmed the attachment; its local history receipt could not be saved.'
     return {'ok':True,'status':'confirmed','message_id':reply['result']['message_id'],'warning':warning}
 
 

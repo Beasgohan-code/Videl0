@@ -3,6 +3,15 @@ from flask import jsonify,request
 from videl.utils.group_view import GroupView,ViewError
 
 
+def error_payload(error):
+    """A refused edit carries the revision the panel should reload from."""
+    payload={'ok':False,'error':str(error)}
+    if getattr(error,'conflict',False):
+        payload['conflict']=True
+        payload['revision']=getattr(error,'revision',None)
+    return payload
+
+
 def register_group_view_routes(app,authorized,api):
     @app.route('/internal/group-view',methods=['GET','POST'])
     def group_view():
@@ -11,7 +20,10 @@ def register_group_view_routes(app,authorized,api):
         try:
             service=GroupView(get_db(),api)
             if request.method=='GET':
-                result=service.read(request.args.get('chat_id'),before=request.args.get('before'),query=request.args.get('q',''),sender=request.args.get('sender'))
+                if request.args.get('info'):
+                    result=service.info(request.args.get('chat_id'))
+                else:
+                    result=service.read(request.args.get('chat_id'),before=request.args.get('before'),query=request.args.get('q',''),sender=request.args.get('sender'))
             else:
                 if request.content_length and request.content_length>20000:raise ViewError('Request body is too large.',413)
                 body=request.get_json(silent=True)
@@ -19,9 +31,34 @@ def register_group_view_routes(app,authorized,api):
                 if 'as_user' in body:raise ViewError('Group viewer only operates through the bot.')
                 result=service.act(body)
             return jsonify(result),200,{'Cache-Control':'no-store'}
-        except ViewError as error:return jsonify({'ok':False,'error':str(error)}),error.status,{'Cache-Control':'no-store'}
+        except ViewError as error:return jsonify(error_payload(error)),error.status,{'Cache-Control':'no-store'}
         except Exception:
             return jsonify({'ok':False,'error':'Group viewer unavailable. If an action was submitted, check Telegram before retrying.'}),503,{'Cache-Control':'no-store'}
+
+    @app.route('/internal/premium-emoji',methods=['GET'])
+    def premium_emoji():
+        if not authorized():return jsonify({'ok':False,'error':'unauthorized'}),403
+        from videl.utils.premium_emoji import EmojiError,fetch_emoji
+        from flask import Response
+        try:
+            mime,payload=fetch_emoji(api,request.args.get('id',''))
+        except EmojiError as error:
+            return jsonify({'ok':False,'error':str(error)}),error.status,{'Cache-Control':'no-store'}
+        return Response(payload,mimetype=mime,headers={'Cache-Control':'private, max-age=86400','X-Content-Type-Options':'nosniff'})
+
+    @app.route('/internal/chat-photo',methods=['GET'])
+    def chat_photo():
+        if not authorized():return jsonify({'ok':False,'error':'unauthorized'}),403
+        from flask import Response
+        from videl.utils.db import get_db
+        try:
+            service=GroupView(get_db(),api)
+            mime,payload=service.photo(request.args.get('chat_id'))
+            return Response(payload,mimetype=mime,headers={'Cache-Control':'private, max-age=21600','X-Content-Type-Options':'nosniff'})
+        except ViewError as error:
+            return jsonify({'ok':False,'error':str(error)}),error.status,{'Cache-Control':'no-store'}
+        except Exception:
+            return jsonify({'ok':False,'error':'Chat photo unavailable.'}),503,{'Cache-Control':'no-store'}
 
     @app.route('/internal/bot-conversations',methods=['GET'])
     def bot_conversations():
@@ -70,7 +107,7 @@ def register_group_view_routes(app,authorized,api):
             response=send_file(io.BytesIO(b''.join(parts)),mimetype=mime,download_name='attachment',as_attachment=kind not in {'photo','video','voice','audio','animation'})
             response.headers['Cache-Control']='no-store';response.headers['X-Content-Type-Options']='nosniff'
             return response
-        except ViewError as error:return jsonify({'ok':False,'error':str(error)}),error.status,{'Cache-Control':'no-store'}
+        except ViewError as error:return jsonify(error_payload(error)),error.status,{'Cache-Control':'no-store'}
         except Exception:return jsonify({'ok':False,'error':'Media response unconfirmed. Check Telegram before resending an attachment.'}),503,{'Cache-Control':'no-store'}
 
     @app.route('/internal/inbox-workspace',methods=['GET','POST'])
@@ -87,5 +124,5 @@ def register_group_view_routes(app,authorized,api):
                 if not isinstance(body,dict):raise ViewError('A JSON object is required.')
                 result=workspace.change(body)
             return jsonify(result),200,{'Cache-Control':'no-store'}
-        except ViewError as error:return jsonify({'ok':False,'error':str(error)}),error.status,{'Cache-Control':'no-store'}
+        except ViewError as error:return jsonify(error_payload(error)),error.status,{'Cache-Control':'no-store'}
         except Exception:return jsonify({'ok':False,'error':'Workspace storage is unavailable. Your editor was not sent to Telegram.'}),503,{'Cache-Control':'no-store'}

@@ -4,6 +4,7 @@
 # --------------------------------------------------------------------------------
 
 import logging
+import os
 import time
 
 # Kurigram is the maintained client, imported through its pyrogram namespace.
@@ -34,6 +35,14 @@ logging.getLogger("pytgcalls").setLevel(logging.ERROR)
 
 LOGGER         = logging.getLogger(__name__)
 bot_start_time = time.time()
+# Render sets RENDER_GIT_COMMIT on every deploy; /health exposes the first 12
+# characters so a stale backend is obvious from the outside.
+build_revision = (
+    os.environ.get("RENDER_GIT_COMMIT")
+    or os.environ.get("GIT_COMMIT")
+    or os.environ.get("VERCEL_GIT_COMMIT_SHA")
+    or "dev"
+)[:12]
 
 # ── Bot client ────────────────────────────────────────────────────────────────
 bot = Client(

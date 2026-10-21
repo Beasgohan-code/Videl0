@@ -3,6 +3,7 @@
 #  FallenRobot blacklist.py + blacklist_stickers — Richgram UI
 # --------------------------------------------------------------------------------
 
+import asyncio
 import re
 from pyrogram import filters
 from pyrogram.enums import ChatMemberStatus
@@ -15,6 +16,7 @@ from videl.utils.formatters import sc, sb
 from videl.utils.rich_ui import rich_esc, rich_heading, rich_note, rich_table, rich_kv_table, rich_details, rich_button
 from videl.utils.command_ui import rich_send, rich_edit
 from videl.utils.db import add_blacklist, remove_blacklist, get_blacklist, get_blacklist_mode, set_blacklist_mode, add_blacklist_sticker, remove_blacklist_sticker, list_bl_stickers, is_approved
+from videl.utils.audit import record_bot
 
 try:
     from videl.utils.premium_emojis import pe
@@ -42,6 +44,11 @@ async def addbl_cmd(_, m):
     for t in triggers:
         add_blacklist(m.chat.id, t)
         added.append(t)
+    await asyncio.to_thread(
+        record_bot, m.chat.id, "blacklist", action="blacklist_add",
+        detail="added: " + ", ".join(added[:12])[:200],
+        actor=getattr(m.from_user, "id", None),
+    )
     rows = []
     for x in added[:20]:
         rows.append(("<code>" + rich_esc(x) + "</code>", rich_button(pe("cross","❌") + " " + sc("remove"), callback_data="bl:rm:" + rich_esc(x), style="danger")))
@@ -58,6 +65,10 @@ async def delbl_cmd(_, m):
         return await rich_send(bot, m.chat.id, _hdr(sc("remove from blacklist"),3) + rich_note("<code>/delblacklist &lt;word&gt;</code>"))
     trig = m.text.split(maxsplit=1)[1].lower()
     if remove_blacklist(m.chat.id, trig):
+        await asyncio.to_thread(
+            record_bot, m.chat.id, "blacklist", action="blacklist_remove",
+            detail=f"removed: {trig}"[:200], actor=getattr(m.from_user, "id", None),
+        )
         body = _hdr(pe("cross","❌") + " " + sc("removed"),3) + rich_kv_table([(pe("hex","") + " " + sc("word"), "<code>" + rich_esc(trig) + "</code>")])
         body += "<p>" + rich_button(pe("eyes","👀") + " " + sc("view list"), callback_data="bl:view") + "</p>"
         kb = InlineKeyboardMarkup([[InlineKeyboardButton(pe("eyes","👀") + " " + sc("view list"), callback_data="bl:view")]])
@@ -110,6 +121,10 @@ async def blmode_cmd(_, m):
     elif mode not in VALID_MODES and not mode.startswith("tban_"):
         return await rich_send(bot, m.chat.id, _hdr(pe("warn","⚠️") + " " + sc("invalid mode"),3) + rich_note("✓ " + sc("valid") + ": <code>off/del/warn/mute/ban/kick/tban</code>"))
     set_blacklist_mode(m.chat.id, mode)
+    await asyncio.to_thread(
+        record_bot, m.chat.id, "blacklist_mode", action="blacklist_mode",
+        detail=f"mode: {mode}"[:40], actor=getattr(m.from_user, "id", None),
+    )
     await rich_send(bot, m.chat.id, _hdr(pe("check","✅") + " " + sc("mode updated"),3) + rich_kv_table([(pe("target","") + " " + sc("mode"), "<code>" + rich_esc(mode) + "</code>")]) + "<p>" + rich_button(pe("eyes","👀") + " " + sc("view list"), callback_data="bl:view") + "</p>")
 
 @bot.on_message(filters.command('addblsticker') & filters.group & group_allowed & user_allowed)
@@ -293,7 +308,7 @@ async def blacklist_watcher(_, m):
         c = add_warn(m.chat.id, m.from_user.id, "blacklist: " + hit["trigger"])
         lim = get_warn_limit(m.chat.id)
         body = _hdr(pe("warn","⚠️") + " " + sc("warned — blacklist"),3) + rich_kv_table([(pe("circle","") + " " + sc("user"), m.from_user.mention), (pe("hex","") + " " + sc("word"), "<code>" + rich_esc(hit["trigger"]) + "</code>"), (pe("target","") + " " + sc("warns"), "<code>" + str(c) + "/" + str(lim) + "</code>")])
-        body += "<p>" + rich_button(pe("eyes","👀") + " " + sc("warns"), callback_data="warns_view") + "</p>"
+        body += "<p>" + rich_button(pe("eyes","👀") + " " + sc("warns"), callback_data=f"warns:{m.from_user.id}") + "</p>"
         await rich_send(bot, m.chat.id, body)
         if c >= lim:
             try:

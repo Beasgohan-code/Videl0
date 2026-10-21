@@ -7,8 +7,10 @@ ALL_MODULES = [
     "seek",  "lyrics", "downloader",
     "block",
     # MongoDB-backed group management and distinct moderation features.
-    "management_core", "federation", "blocklist", "approve", "group_manager",
+    "federation", "blocklist", "approve", "group_manager",
     # General operations, owner diagnostics and live command telemetry.
+    # Runs before every other handler group: enforces per-group command switches.
+    "command_gate",
     "bot", "callbacks", "misc", "broadcast",
     "analytics", "owner_utils", "activity",
     # Curated, implemented professional utility commands.

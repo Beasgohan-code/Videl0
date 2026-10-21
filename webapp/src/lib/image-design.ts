@@ -23,6 +23,11 @@ export type ImageDesign = {
   panY: number;
   geometry: boolean;
   pattern: "rings" | "grid" | "dots";
+  /** Optional brand mark, stored as a bounded PNG data URL. */
+  logoData: string;
+  logoCorner: "tl" | "tr" | "bl" | "br";
+  /** Optional line drawn at the bottom of every export. */
+  footer: string;
 };
 export const initialDesign: ImageDesign = {
   ratio: "landscape",
@@ -49,6 +54,9 @@ export const initialDesign: ImageDesign = {
   panY: 50,
   geometry: true,
   pattern: "rings",
+  logoData: "",
+  logoCorner: "tl",
+  footer: "",
 };
 export function designSize(ratio: ImageDesign["ratio"]) {
   return ratio === "square"
@@ -95,6 +103,7 @@ export function paintDesign(
   ctx: CanvasRenderingContext2D,
   d: ImageDesign,
   photo: HTMLImageElement | null,
+  logo: HTMLImageElement | null = null,
 ) {
   const [w, h] = designSize(d.ratio);
   ctx.clearRect(0, 0, w, h);
@@ -199,6 +208,38 @@ export function paintDesign(
     "Arial",
   );
   ctx.restore();
+
+  // The brand mark and footer are part of the artwork, not an overlay the
+  // page adds later, so a downloaded PNG keeps them.
+  if (logo && d.logoData) {
+    const scale = Math.min((w * 0.09) / logo.naturalWidth, (h * 0.09) / logo.naturalHeight, 1);
+    const lw = Math.max(1, logo.naturalWidth * scale);
+    const lh = Math.max(1, logo.naturalHeight * scale);
+    const pad = w * 0.045;
+    const x = d.logoCorner === "tr" || d.logoCorner === "br" ? w - pad - lw : pad;
+    const y = d.logoCorner === "bl" || d.logoCorner === "br" ? h - pad - lh : pad;
+    ctx.save();
+    ctx.globalAlpha = 0.92;
+    ctx.drawImage(logo, x, y, lw, lh);
+    ctx.restore();
+  }
+  if (d.footer.trim()) {
+    const size = Math.max(12, Math.round(h * 0.024));
+    ctx.save();
+    ctx.globalAlpha = 0.78;
+    ctx.fillStyle = d.color;
+    ctx.font = `${size}px Arial`;
+    ctx.textBaseline = "alphabetic";
+    ctx.textAlign = d.align === "center" ? "center" : "left";
+    const pad = w * 0.045;
+    const maxWidth = w - pad * 2;
+    let text = d.footer.trim().slice(0, 160);
+    while (text.length > 1 && ctx.measureText(text).width > maxWidth) {
+      text = text.slice(0, -2);
+    }
+    ctx.fillText(text, d.align === "center" ? w / 2 : pad, h - pad * 0.75);
+    ctx.restore();
+  }
 }
 
 /** Versioned, bounded design documents; never trust imported JSON or browser storage. */
@@ -235,6 +276,20 @@ export function parseDesign(value: unknown): ImageDesign {
   if (typeof input.geometry === "boolean") result.geometry = input.geometry;
   if (["rings", "grid", "dots"].includes(String(input.pattern)))
     result.pattern = input.pattern as ImageDesign["pattern"];
+  if (
+    typeof input.footer === "string" &&
+    !/[\u0000-\u001f\u007f]/.test(input.footer)
+  )
+    result.footer = input.footer.slice(0, 160);
+  if (
+    typeof input.logoData === "string" &&
+    (input.logoData === "" ||
+      (/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(input.logoData) &&
+        input.logoData.length <= 300000))
+  )
+    result.logoData = input.logoData;
+  if (["tl", "tr", "bl", "br"].includes(String(input.logoCorner)))
+    result.logoCorner = input.logoCorner as ImageDesign["logoCorner"];
   const ranges = {
     fontSize: [24, 140],
     subtitleSize: [12, 80],

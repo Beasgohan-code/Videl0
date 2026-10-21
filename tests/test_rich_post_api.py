@@ -24,6 +24,30 @@ class RichPostApiTests(unittest.TestCase):
             self.assertEqual(payload["caption"], caption)
             self.assertEqual(payload["parse_mode"], "HTML")
 
+    def test_nested_marks_are_normalized_before_sending(self):
+        with patch.object(self.api.config, "WEBAPP_SECRET", "offline-test-only"), patch.object(
+            self.api, "_bot_api", return_value=(True, {"ok": True, "result": {"message_id": 11}})
+        ) as send:
+            response = self.client.post("/internal/channel-post", headers={"X-Videl-Internal": "offline-test-only"}, json={
+                "chat_id": "-1001",
+                "text": 'Hwy <u>hu<code>h<tg-spoiler>hhhh</tg-spoiler></code></u> '
+                        '<tg-emoji emoji-id="5368324170671202286">\U0001F44D</tg-emoji>',
+            })
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(send.call_args.args[1]["text"],
+                'Hwy <u>hu</u><code>hhhhh</code> <tg-emoji emoji-id="5368324170671202286">\U0001F44D</tg-emoji>')
+            self.assertEqual(send.call_args.args[1]["parse_mode"], "HTML")
+
+    def test_plain_text_post_does_not_send_html_parse_mode(self):
+        with patch.object(self.api.config, "WEBAPP_SECRET", "offline-test-only"), patch.object(
+            self.api, "_bot_api", return_value=(True, {"ok": True, "result": {"message_id": 12}})
+        ) as send:
+            response = self.client.post("/internal/channel-post", headers={"X-Videl-Internal": "offline-test-only"}, json={
+                "chat_id": "-1001", "text": "Just words & things",
+            })
+            self.assertEqual(response.status_code, 200)
+            self.assertNotIn("parse_mode", send.call_args.args[1])
+
     def test_oversize_caption_is_not_sent(self):
         with patch.object(self.api.config, "WEBAPP_SECRET", "offline-test-only"), patch.object(self.api, "_bot_api") as send:
             response = self.client.post("/internal/channel-post", headers={"X-Videl-Internal": "offline-test-only"}, json={
@@ -95,6 +119,86 @@ class RichPostApiTests(unittest.TestCase):
         for method in ['get','post','delete']:
             with patch.object(self.api.config,"WEBAPP_SECRET","offline-test-only"):
                 self.assertEqual(getattr(self.client,method)("/internal/scheduled-posts").status_code,403)
+
+
+class ScheduledSeriesApiTests(unittest.TestCase):
+    """The HTTP surface for timezone-true series and their controls."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.api = importlib.import_module("videl.__main__")
+        cls.client = cls.api._flask.test_client()
+
+    def test_the_zone_and_wall_clock_are_forwarded_to_the_queue(self):
+        with patch.object(self.api.config, "WEBAPP_SECRET", "offline-test-only"), patch(
+            "videl.utils.scheduled_posts.enqueue",
+            return_value={"ok": True, "job_id": "test", "status": "pending"},
+        ) as enqueue:
+            response = self.client.post(
+                "/internal/scheduled-posts",
+                headers={"X-Videl-Internal": "offline-test-only"},
+                json={"chat_id": "-1001", "text": "Hello", "schedule_at": "2026-10-21T12:00:00Z",
+                      "request_id": "test", "repeat": "daily", "timezone": "Asia/Kolkata",
+                      "wall_time": "09:00"},
+            )
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(enqueue.call_args.args[4], "daily")
+            self.assertEqual(enqueue.call_args.args[5], "Asia/Kolkata")
+            self.assertEqual(enqueue.call_args.args[6], "09:00")
+
+    def test_an_invalid_zone_is_a_client_error_not_a_silent_utc(self):
+        with patch.object(self.api.config, "WEBAPP_SECRET", "offline-test-only"), patch(
+            "videl.utils.scheduled_posts.enqueue", side_effect=ValueError("That timezone is not recognised"),
+        ):
+            response = self.client.post(
+                "/internal/scheduled-posts",
+                headers={"X-Videl-Internal": "offline-test-only"},
+                json={"chat_id": "-1001", "text": "Hello", "schedule_at": "2026-10-21T12:00:00Z",
+                      "request_id": "test", "repeat": "daily", "timezone": "Mars/Olympus"},
+            )
+            self.assertEqual(response.status_code, 400)
+            self.assertIn("not recognised", response.get_json()["error"])
+
+    def test_series_actions_are_protected(self):
+        response = self.client.post("/internal/scheduled-posts/series", json={"id": "x", "action": "pause"})
+        self.assertEqual(response.status_code, 403)
+
+    def test_series_actions_dispatch_to_the_queue(self):
+        with patch.object(self.api.config, "WEBAPP_SECRET", "offline-test-only"), patch(
+            "videl.utils.scheduled_posts.set_paused", return_value={"ok": True, "paused": True},
+        ) as pause, patch(
+            "videl.utils.scheduled_posts.skip_next", return_value={"ok": True, "skipped": 2},
+        ) as skip:
+            headers = {"X-Videl-Internal": "offline-test-only"}
+            paused = self.client.post("/internal/scheduled-posts/series", headers=headers,
+                                      json={"id": "job", "action": "pause"})
+            skipped = self.client.post("/internal/scheduled-posts/series", headers=headers,
+                                       json={"id": "job", "action": "skip"})
+            self.assertEqual(paused.status_code, 200)
+            self.assertEqual(skipped.status_code, 200)
+            pause.assert_called_once_with("job", True)
+            skip.assert_called_once_with("job")
+
+    def test_an_unknown_action_and_a_refused_transition_are_explained(self):
+        headers = {"X-Videl-Internal": "offline-test-only"}
+        with patch.object(self.api.config, "WEBAPP_SECRET", "offline-test-only"):
+            response = self.client.post("/internal/scheduled-posts/series", headers=headers,
+                                        json={"id": "job", "action": "explode"})
+            self.assertEqual(response.status_code, 400)
+        with patch.object(self.api.config, "WEBAPP_SECRET", "offline-test-only"), patch(
+            "videl.utils.scheduled_posts.set_paused", side_effect=ValueError("This series is not waiting in the queue"),
+        ):
+            response = self.client.post("/internal/scheduled-posts/series", headers=headers,
+                                        json={"id": "job", "action": "resume"})
+            self.assertEqual(response.status_code, 409)
+            self.assertIn("not waiting", response.get_json()["error"])
+
+    def test_a_series_action_without_an_id_is_refused(self):
+        with patch.object(self.api.config, "WEBAPP_SECRET", "offline-test-only"):
+            response = self.client.post("/internal/scheduled-posts/series",
+                                        headers={"X-Videl-Internal": "offline-test-only"},
+                                        json={"action": "pause"})
+            self.assertEqual(response.status_code, 400)
 
 
 if __name__ == "__main__":

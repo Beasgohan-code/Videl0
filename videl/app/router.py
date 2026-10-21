@@ -79,7 +79,7 @@ class Command:
         if self.policy not in {'public','group','admin','owner'}:raise ValueError('Invalid command policy')
         if self.category not in {'tools','music','manage','owner'}:raise ValueError('Invalid command category')
         if self.block_policy not in {'none','user','chat'}:raise ValueError('Invalid block policy')
-        if self.rights and (self.policy!='admin' or any(right not in {'can_restrict_members','can_delete_messages','can_manage_topics','can_pin_messages','can_promote_members'} for right in self.rights)):
+        if self.rights and (self.policy!='admin' or any(right not in {'can_restrict_members','can_delete_messages','can_manage_topics','can_pin_messages','can_promote_members','can_invite_users'} for right in self.rights)):
             raise ValueError('Invalid command administrator rights')
 
 
@@ -125,6 +125,16 @@ class Router:
         if not await authorize(command,ctx):
             await rich_reply(message,notice('This command requires '+{'group':'a group chat','admin':'current group admin privileges','owner':'the verified owner in a private chat'}.get(command.policy,'permission')+'. Blocked users or chats cannot use this action.',status='error',title='Access restricted'),client=client)
             return True
+        # A group admin may disable a command for their own group from the panel.
+        # Owners are never locked out of their own bot.
+        if command.policy!='owner' and chat_kind(message) in {'group','supergroup'}:
+            try:
+                from videl.utils.db import is_disabled
+                disabled=await asyncio.to_thread(is_disabled,message.chat.id,command.name)
+            except Exception:disabled=False
+            if disabled:
+                await rich_reply(message,notice('The group administrators have turned this command off. Ask an admin to re-enable it in the group manager.',status='warning',title='Command turned off'),client=client)
+                return True
         # A repeated Telegram update must not overlap a still-running action.
         key=(message.chat.id,getattr(message,'id',None))
         if key in self._active or key in self._completed:return True

@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { useTelegram } from "@/components/TelegramProvider";
 import { useStudio, Section } from "@/components/studio/StudioProvider";
+import { Callout, EmptyState, PageHeader, Skeleton } from "../ui";
 type Metrics = {
   users?: number;
   chats?: number;
@@ -80,6 +81,9 @@ export default function Home() {
     status?: string;
     bot_status?: string;
     uptime?: number;
+    degraded?: boolean;
+    degraded_reasons?: string[];
+    bot_error?: string | null;
   } | null>(null);
   const [error, setError] = useState("");
   const [loaded, setLoaded] = useState(false);
@@ -162,6 +166,13 @@ export default function Home() {
   const count = (n?: number) =>
     typeof n === "number" ? n.toLocaleString() : "—";
   const online = health?.status === "ok" && health.bot_status === "online";
+  // "Reachable" is not "working": name the part that is down, during the outage
+  // itself rather than only in Settings.
+  const degraded = health?.status === "ok" && !online;
+  const degradedReason = [
+    ...(health?.degraded_reasons ?? []),
+    ...(health?.bot_error ? [`Last start error: ${health.bot_error}`] : []),
+  ].join(" · ");
   const uptimeSeconds = stats?.uptime ?? health?.uptime;
   const uptime =
     typeof uptimeSeconds === "number"
@@ -172,33 +183,32 @@ export default function Home() {
   const greeting =
     hour < 12 ? "Good Morning" : hour < 18 ? "Good Afternoon" : "Good Evening";
   return (
-    <main className="mx-auto max-w-7xl py-6 sm:py-8">
-      <header className="mb-6 flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[.24em] text-indigo-300/60">
-            Your community, connected
-          </p>
-          <h1 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">
-            {greeting}, {name}! <span className="text-amber-300">👑</span>
-          </h1>
-          <p className="mt-2 text-sm text-indigo-100/45">
-            Here’s what’s happening with your bot and groups today.
-          </p>
-        </div>
-        <span
-          className={`flex items-center gap-2 rounded-full border px-3 py-2 text-xs ${online ? "border-emerald-400/20 bg-emerald-400/5 text-emerald-300" : "border-indigo-300/15 bg-indigo-300/5 text-indigo-200/60"}`}
-        >
+    <main className="ios-page ios-page-wide">
+      <PageHeader
+        eyebrow="Your community, connected"
+        title={`${greeting}, ${name}! 👑`}
+        subtitle="Here’s what’s happening with your bot and groups today."
+        actions={
           <span
-            className={`h-1.5 w-1.5 rounded-full ${online ? "bg-emerald-400 shadow-[0_0_8px_#34d399]" : "bg-indigo-300/50"}`}
-          />
-          {online
-            ? "Bot online"
-            : loaded
-              ? "Connection not confirmed"
-              : "Connecting…"}
-        </span>
-      </header>
-      <section className="studio-hero relative overflow-hidden rounded-3xl border border-indigo-400/25 p-6 sm:p-8">
+            title={degradedReason || undefined}
+            role="status"
+            className={`flex items-center gap-2 rounded-full border px-3 py-2 text-xs ${online ? "border-emerald-400/20 bg-emerald-400/5 text-emerald-300" : degraded ? "border-amber-300/20 bg-amber-300/5 text-amber-200" : "border-indigo-300/15 bg-indigo-300/5 text-indigo-200/60"}`}
+          >
+            <span
+              aria-hidden
+              className={`h-1.5 w-1.5 rounded-full ${online ? "bg-emerald-400 shadow-[0_0_8px_#34d399]" : degraded ? "bg-amber-300" : "bg-indigo-300/50"}`}
+            />
+            {online
+              ? "Bot online"
+              : degraded
+                ? "Bot offline · panel up"
+                : loaded
+                  ? "Connection not confirmed"
+                  : "Connecting…"}
+          </span>
+        }
+      />
+      <section className="studio-hero relative mt-6 overflow-hidden rounded-3xl border border-indigo-400/25 p-6 sm:p-8">
         <img
           src="/studio-night.png"
           alt="Anime creator overlooking a neon violet city at night"
@@ -206,7 +216,7 @@ export default function Home() {
         />
         <div className="absolute inset-0 bg-gradient-to-r from-[#0a102a] via-[#0a102a]/90 to-[#0a102a]/5" />
         <div className="relative z-10 max-w-xl">
-          <span className="inline-flex items-center gap-2 rounded-full border border-indigo-300/20 bg-indigo-500/15 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-indigo-200">
+          <span className="ios-caps inline-flex items-center gap-2 rounded-full border border-indigo-300/20 bg-indigo-500/15 px-3 py-1 text-[11px] font-semibold text-indigo-200">
             <Crown size={12} /> Videl Studio
           </span>
           <h2 className="mt-5 text-3xl font-bold leading-tight tracking-tight sm:text-[42px]">
@@ -220,12 +230,14 @@ export default function Home() {
             Manage, chat, post, automate — all in one powerful Telegram
             workspace.
           </p>
-          <button
-            onClick={() => open("post")}
-            className="ios-btn ios-btn-primary mt-5 text-sm"
-          >
-            Create something <ArrowUpRight size={16} />
-          </button>
+          <div className="mt-5 flex flex-wrap gap-2">
+            <button onClick={() => open("post")} className="ios-btn ios-btn-primary text-sm">
+              Create something <ArrowUpRight size={16} />
+            </button>
+            <button onClick={() => open("guide")} className="ios-btn ios-btn-glass text-sm">
+              Browse commands
+            </button>
+          </div>
         </div>
         <span className="absolute bottom-6 right-6 hidden text-right text-xs italic leading-5 text-white/70 md:block">
           Built for creators.
@@ -268,15 +280,18 @@ export default function Home() {
             className="ios-card flex items-center gap-4 p-4 sm:p-5"
           >
             <span
+              aria-hidden
               className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl ${m.color}`}
             >
               <m.icon size={21} />
             </span>
-            <div>
-              <p className="text-xl font-bold tracking-tight sm:text-2xl">
-                {m.value}
-              </p>
-              <p className="mt-1 text-xs text-indigo-100/45">{m.label}</p>
+            <div className="min-w-0">
+              {loaded ? (
+                <p className="ios-metric text-xl font-bold sm:text-2xl">{m.value}</p>
+              ) : (
+                <Skeleton className="h-6 w-14 sm:h-7" />
+              )}
+              <p className="mt-1 ios-caption truncate">{m.label}</p>
             </div>
           </div>
         ))}
@@ -298,21 +313,27 @@ export default function Home() {
         </p>
       )}
       {error && (
-        <div
-          role="status"
-          className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-indigo-300/15 bg-indigo-400/5 px-4 py-3 text-xs text-indigo-200/70"
+        <Callout
+          tone="warn"
+          className="mt-4 items-center justify-between"
+          title={error}
+          live
         >
-          {error}
-          {stats &&
-            " · Showing the last successful snapshot, not current totals."}
-          <button
-            disabled={refreshing}
-            className="text-indigo-200 underline underline-offset-4 disabled:opacity-40"
-            onClick={() => refresh((n) => n + 1)}
-          >
-            {refreshing ? "Reconnecting…" : "Retry connection"}
-          </button>
-        </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <span>
+              {stats
+                ? "Showing the last successful snapshot, not current totals."
+                : "Live totals are not available right now."}
+            </span>
+            <button
+              disabled={refreshing}
+              className="underline underline-offset-4 disabled:opacity-40"
+              onClick={() => refresh((n) => n + 1)}
+            >
+              {refreshing ? "Reconnecting…" : "Retry connection"}
+            </button>
+          </div>
+        </Callout>
       )}
       <div className="mt-5 grid gap-5 lg:grid-cols-[1.2fr_1fr]">
         <section className="ios-card p-5">
@@ -353,17 +374,24 @@ export default function Home() {
                 </div>
               ))
             ) : (
-              <div className="flex min-h-48 flex-col items-center justify-center gap-3 text-center">
-                <Activity size={28} className="text-indigo-300/25" />
-                <p className="text-sm text-indigo-100/50">
-                  Your activity starts here
-                </p>
-                <p className="max-w-60 text-xs leading-5 text-indigo-100/30">
-                  {stats
+              <EmptyState
+                compact
+                icon={<Activity size={20} />}
+                title="Your activity starts here"
+                hint={
+                  stats
                     ? "Real command events appear as your community uses Videl."
-                    : "Sign in to load your community’s recent activity."}
-                </p>
-              </div>
+                    : "Sign in to load your community’s recent activity."
+                }
+                action={
+                  <button
+                    onClick={() => open("analytics")}
+                    className="ios-btn ios-btn-glass text-xs"
+                  >
+                    Open analytics
+                  </button>
+                }
+              />
             )}
           </div>
         </section>
@@ -406,18 +434,20 @@ export default function Home() {
                 </div>
               ))
             ) : (
-              <div className="flex min-h-44 flex-col items-center justify-center gap-3 text-center">
-                <Shield size={28} className="text-indigo-300/25" />
-                <p className="text-sm text-indigo-100/50">
-                  A home for your communities
-                </p>
-                <button
-                  className="text-xs text-indigo-300"
-                  onClick={() => open("groups")}
-                >
-                  Open Group Manager →
-                </button>
-              </div>
+              <EmptyState
+                compact
+                icon={<Shield size={20} />}
+                title="A home for your communities"
+                hint="Add Videl to a group and its command activity will rank here."
+                action={
+                  <button
+                    className="ios-btn ios-btn-glass text-xs"
+                    onClick={() => open("groups")}
+                  >
+                    Open Group Manager
+                  </button>
+                }
+              />
             )}
           </div>
         </section>
@@ -429,9 +459,9 @@ export default function Home() {
             <button
               key={action.tab}
               onClick={() => open(action.tab)}
-              className={`flex min-h-20 flex-col items-center justify-center gap-2 rounded-xl border border-white/10 bg-gradient-to-br ${action.color} px-2 py-4 shadow-lg transition hover:-translate-y-1 hover:brightness-110`}
+              className={`flex min-h-24 flex-col items-center justify-center gap-2 rounded-xl border border-white/10 bg-gradient-to-br ${action.color} px-2 py-4 shadow-lg transition active:translate-y-0`}
             >
-              <action.icon size={21} />
+              <action.icon size={21} aria-hidden />
               <span className="text-[10px] font-medium">{action.label}</span>
             </button>
           ))}

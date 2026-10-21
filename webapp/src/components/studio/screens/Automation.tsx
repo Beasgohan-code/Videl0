@@ -1,3 +1,735 @@
 "use client";
-import Groups from "./Groups";
-export default function Automation(){return <Groups automation/>}
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  AlertCircle,
+  CalendarClock,
+  Check,
+  HeartPulse,
+  Loader2,
+  Moon,
+  RefreshCw,
+  Search,
+  ShieldCheck,
+  Timer,
+  Hourglass,
+} from "lucide-react";
+import {
+  DEFAULT_PROTECTION,
+  ESCALATION_CHOICES,
+  WINDOW_LOCKS,
+  conflictMessage,
+  displayTitle,
+  errorHint,
+  escalationSummary,
+  hhmmToMinutes,
+  memberLabel,
+  protectionNow,
+  nextRevision,
+  quietNow,
+  quietSummary,
+  windowSummary,
+  zoneLabel,
+  type Automation,
+  DECAY_CHOICES,
+  LADDER_ACTIONS,
+  actionCopy,
+  decayLabel,
+  ladderSteps,
+  type EscalationAction,
+  type Group,
+  type ProtectionWindow,
+} from "@/lib/group-admin";
+import { Callout, EmptyState, LoadingState, PageHeader } from "../ui";
+
+const DEFAULT_AUTOMATION: Automation = {
+  quiet_hours: { enabled: false, start: "22:00", end: "07:00", tz_offset: 0 },
+  escalation: { enabled: true, action: "ban", mute_hours: 6, decay_days: 0, ladder: [] },
+  protection: DEFAULT_PROTECTION,
+};
+
+/** Offsets offered in the picker; the device zone is added when it differs. */
+const ZONES = [-720, -600, -480, -420, -360, -300, -240, -180, -120, -60, 0, 60, 120, 180, 210, 240, 270, 300, 330, 345, 360, 390, 420, 480, 525, 540, 570, 600, 660, 720, 780, 840];
+
+function automationOf(group: Group | null): Automation {
+  if (!group?.automation) return DEFAULT_AUTOMATION;
+  const quiet = group.automation.quiet_hours ?? DEFAULT_AUTOMATION.quiet_hours;
+  const escalation = group.automation.escalation ?? DEFAULT_AUTOMATION.escalation;
+  const protection = group.automation.protection ?? DEFAULT_PROTECTION;
+  return {
+    quiet_hours: { ...DEFAULT_AUTOMATION.quiet_hours, ...quiet },
+    escalation: {
+      ...DEFAULT_AUTOMATION.escalation,
+      ...escalation,
+      ladder: Array.isArray(escalation.ladder) ? [...escalation.ladder] : [],
+    },
+    protection: {
+      ...DEFAULT_PROTECTION,
+      ...protection,
+      locks: Array.isArray(protection.locks) ? [...protection.locks] : [],
+      state: { ...DEFAULT_PROTECTION.state, ...(protection.state ?? {}) },
+    },
+  };
+}
+
+export default function AutomationScreen() {
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [selected, setSelected] = useState<number | null>(null);
+  const [query, setQuery] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState<string | null>(null);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [draft, setDraft] = useState<Automation>(DEFAULT_AUTOMATION);
+  const [deviceOffset] = useState(() => -new Date().getTimezoneOffset());
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const response = await fetch("/api/groups", { cache: "no-store" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.ok) throw new Error(errorHint(String(data.error || "Groups could not be loaded"), response.status));
+      const chats: Group[] = Array.isArray(data.chats) ? data.chats : [];
+      setGroups(chats);
+      setSelected((current) => (chats.some((group) => group.id === current) ? current : (chats[0]?.id ?? null)));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Groups could not be loaded");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const active = useMemo(() => groups.find((group) => group.id === selected) ?? null, [groups, selected]);
+
+  useEffect(() => {
+    setDraft(automationOf(active));
+  }, [active]);
+
+  const visible = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return groups;
+    return groups.filter((group) =>
+      `${group.title} ${group.id} ${group.username ?? ""}`.toLowerCase().includes(needle),
+    );
+  }, [groups, query]);
+
+  const totals = useMemo(
+    () => ({
+      quiet: groups.filter((group) => automationOf(group).quiet_hours.enabled).length,
+      escalating: groups.filter((group) => {
+        const escalation = automationOf(group).escalation;
+        return escalation.enabled && ladderSteps(escalation).length > 0;
+      }).length,
+      decaying: groups.filter((group) => Number(automationOf(group).escalation.decay_days ?? 0) > 0).length,
+      attention: groups.filter((group) => group.health?.attention).length,
+    }),
+    [groups],
+  );
+
+  const zoneOptions = useMemo(() => {
+    const values = ZONES.includes(deviceOffset) ? ZONES : [...ZONES, deviceOffset];
+    return [...new Set(values)].sort((a, b) => a - b);
+  }, [deviceOffset]);
+
+  function patch(next: {
+    quiet?: Partial<Automation["quiet_hours"]>;
+    escalation?: Partial<Automation["escalation"]>;
+    protection?: Partial<ProtectionWindow>;
+  }) {
+    setDraft((current) => ({
+      quiet_hours: { ...current.quiet_hours, ...(next.quiet ?? {}) },
+      escalation: { ...current.escalation, ...(next.escalation ?? {}) },
+      protection: { ...current.protection, ...(next.protection ?? {}) },
+    }));
+  }
+
+  const startMinutes = hhmmToMinutes(draft.quiet_hours.start);
+  const endMinutes = hhmmToMinutes(draft.quiet_hours.end);
+  const windowProblem =
+    draft.quiet_hours.enabled && (startMinutes === null || endMinutes === null)
+      ? "Use a valid 24-hour time for both ends of the window."
+      : draft.quiet_hours.enabled && startMinutes === endMinutes
+        ? "The window cannot start and end at the same minute."
+        : "";
+
+  const protectionStart = hhmmToMinutes(draft.protection.start);
+  const protectionEnd = hhmmToMinutes(draft.protection.end);
+  const protectionProblem =
+    draft.protection.enabled && !draft.protection.locks.length
+      ? "Pick at least one lock for the window to apply."
+      : draft.protection.enabled && (protectionStart === null || protectionEnd === null)
+        ? "Use a valid 24-hour time for both ends of the window."
+        : draft.protection.enabled && protectionStart === protectionEnd
+          ? "The window cannot start and end at the same minute."
+          : "";
+
+  async function save(block: "quiet" | "escalation" | "protection") {
+    if (!active || saving) return;
+    if (block === "quiet" && windowProblem) {
+      setError(windowProblem);
+      return;
+    }
+    if (block === "protection" && protectionProblem) {
+      setError(protectionProblem);
+      return;
+    }
+    setSaving(block);
+    setError("");
+    setNotice("");
+    try {
+      const body =
+        block === "quiet"
+          ? { action: "automation", quiet_hours: draft.quiet_hours }
+          : block === "escalation"
+            ? { action: "automation", escalation: draft.escalation }
+            : {
+                action: "automation",
+                protection: {
+                  enabled: draft.protection.enabled,
+                  start: draft.protection.start,
+                  end: draft.protection.end,
+                  locks: draft.protection.locks,
+                },
+              };
+      const response = await fetch(`/api/groups/${active.id}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(
+          typeof active.revision === "number" ? { ...body, revision: active.revision } : body,
+        ),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (response.status === 409) {
+        // Another tab (or a Telegram command) saved first. Reload the rows so
+        // the draft on screen is the stored one before it is saved again.
+        await load();
+        throw new Error(String(data.error || conflictMessage(data.revision)));
+      }
+      if (!response.ok || !data.ok) {
+        throw new Error(
+          response.status === 501
+            ? "Automation needs the updated bot backend. Redeploy the Render service, then retry."
+            : errorHint(String(data.error || "Automation was not saved"), response.status),
+        );
+      }
+      const automation = (data.automation ?? draft) as Automation;
+      setGroups((all) =>
+        all.map((group) =>
+          group.id === active.id
+            ? { ...group, automation, revision: nextRevision(data, group.revision ?? null) ?? undefined }
+            : group,
+        ),
+      );
+      setDraft(automationOf({ ...active, automation }));
+      setNotice(
+        block === "quiet" ? "Quiet hours saved." : block === "escalation" ? "Warning ladder saved." : "Protection window saved.",
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Automation was not saved");
+    } finally {
+      setSaving(null);
+    }
+  }
+
+  return (
+    <main className="ios-page">
+      <PageHeader
+        eyebrow="Videl · Community"
+        title="Automation"
+        subtitle="Quiet hours and the warning ladder the bot enforces — saved in MongoDB, applied by the running bot."
+        actions={
+          <button onClick={() => void load()} disabled={loading || saving !== null} className="ios-btn ios-btn-glass text-sm">
+            <RefreshCw size={16} className={loading ? "animate-spin" : ""} aria-hidden /> Refresh
+          </button>
+        }
+      />
+
+      <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {[
+          { label: "Quiet hours on", value: totals.quiet, icon: Moon },
+          { label: "Warning ladder on", value: totals.escalating, icon: ShieldCheck },
+          { label: "With warning decay", value: totals.decaying, icon: Hourglass },
+          { label: "Needs attention", value: totals.attention, icon: HeartPulse },
+        ].map((stat) => (
+          <div key={stat.label} className="ios-card p-3">
+            <div className="flex items-center justify-between">
+              <div className="ios-metric text-2xl font-semibold">{stat.value}</div>
+              <stat.icon size={18} className="text-[var(--ios-label-tertiary)]" />
+            </div>
+            <div className="ios-caption mt-0.5">{stat.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {error && (
+        <Callout
+          tone="warn"
+          className="mt-4"
+          title="Automation was not saved"
+          icon={<AlertCircle size={18} aria-hidden />}
+        >
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <span className="min-w-0 flex-1">{error}</span>
+            <button onClick={() => setError("")} className="text-xs underline underline-offset-2">Dismiss</button>
+          </div>
+        </Callout>
+      )}
+      {notice && !error && (
+        <Callout tone="success" className="mt-4" icon={<Check size={16} aria-hidden />}>
+          {notice}
+        </Callout>
+      )}
+
+      <div className="mt-6 grid gap-4 lg:grid-cols-[0.85fr_1.15fr]">
+        <section className="ios-card p-4 sm:p-5">
+          <div className="flex items-center justify-between">
+            <h2 className="font-semibold">Groups</h2>
+            <span className="ios-pill">{visible.length} shown</span>
+          </div>
+          <label className="sr-only" htmlFor="automation-search">Search groups</label>
+          <div className="relative mt-4">
+            <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ios-label-tertiary)]" />
+            <input
+              id="automation-search"
+              aria-label="Search groups"
+              placeholder="Search group name, @username or ID…"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              className="ios-input pl-9"
+            />
+          </div>
+          <div className="mt-3 space-y-2">
+            {loading && <LoadingState label="Loading served chats" rows={4} className="p-1" />}
+            {!loading && !groups.length && (
+              <EmptyState
+                compact
+                title="No served chats yet"
+                hint={<>Add the bot to a group and run <code className="mono">/start</code> — the group appears here.</>}
+              />
+            )}
+            {visible.map((group) => {
+              const automation = automationOf(group);
+              const isActive = selected === group.id;
+              return (
+                <button
+                  key={group.id}
+                  onClick={() => setSelected(group.id)}
+                  disabled={saving !== null}
+                  className={`w-full rounded-2xl border p-3 text-left transition ${
+                    isActive ? "border-white/25 bg-white/[0.08]" : "border-white/[0.07] bg-white/[0.025] hover:bg-white/[0.05]"
+                  }`}
+                >
+                  <span className="block truncate font-medium">{displayTitle(group)}</span>
+                  <span className="mt-0.5 block truncate text-xs text-[var(--ios-label-secondary)]">
+                    {memberLabel(group.members)} · {quietSummary(automation.quiet_hours)}
+                  </span>
+                  <span className="mt-1 flex flex-wrap gap-1">
+                    <span className="ios-pill text-[10px]">
+                      {quietNow(automation.quiet_hours) ? "quiet now" : automation.quiet_hours.enabled ? "scheduled" : "quiet off"}
+                    </span>
+                    <span className="ios-pill text-[10px]">{escalationSummary(automation.escalation)}</span>
+                    <span className="ios-pill text-[10px]">
+                      {automation.protection.enabled
+                        ? `${automation.protection.locks.length} window locks`
+                        : "window off"}
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+
+        <section className="ios-card p-4 sm:p-5">
+          {!active ? (
+            <div className="rounded-xl bg-white/[0.03] p-4 text-sm text-[var(--ios-label-secondary)]">
+              Select a group to configure its automation.
+            </div>
+          ) : (
+            <>
+              <h2 className="truncate font-semibold">{displayTitle(active)}</h2>
+              {!active.automation && (
+                <div className="mt-2 rounded-xl border border-amber-300/20 bg-amber-300/5 p-3 text-xs text-amber-100">
+                  This backend does not report automation settings yet. Defaults are shown for reference; saving needs
+                  the updated Render deploy.
+                </div>
+              )}
+              <p className="ios-caption mt-1">
+                {active.id} · {memberLabel(active.members)} · {quietNow(draft.quiet_hours) ? "inside the quiet window now" : "outside the quiet window"}
+              </p>
+
+              <div className="mt-4 rounded-xl bg-white/[0.03] p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h3 className="flex items-center gap-2 text-sm font-semibold"><Moon size={15} /> Quiet hours</h3>
+                    <p className="ios-caption mt-1">
+                      Member messages are deleted inside the window. Admins and approved members are exempt, and the bot
+                      never touches its own messages.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={draft.quiet_hours.enabled}
+                    aria-label={`${draft.quiet_hours.enabled ? "Disable" : "Enable"} quiet hours`}
+                    disabled={saving !== null}
+                    onClick={() => patch({ quiet: { enabled: !draft.quiet_hours.enabled } })}
+                    className={`relative h-7 w-12 shrink-0 rounded-full transition disabled:opacity-40 ${
+                      draft.quiet_hours.enabled ? "bg-[#30D158]" : "bg-white/15"
+                    }`}
+                  >
+                    <span className={`absolute top-1 h-5 w-5 rounded-full bg-white transition ${draft.quiet_hours.enabled ? "translate-x-6" : "translate-x-1"}`} />
+                  </button>
+                </div>
+
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <label className="text-xs">
+                    Starts
+                    <input
+                      type="time"
+                      aria-label="Quiet hours start"
+                      value={draft.quiet_hours.start}
+                      disabled={saving !== null}
+                      onChange={(event) => patch({ quiet: { start: event.target.value } })}
+                      className="ios-input mt-1 text-sm"
+                    />
+                  </label>
+                  <label className="text-xs">
+                    Ends
+                    <input
+                      type="time"
+                      aria-label="Quiet hours end"
+                      value={draft.quiet_hours.end}
+                      disabled={saving !== null}
+                      onChange={(event) => patch({ quiet: { end: event.target.value } })}
+                      className="ios-input mt-1 text-sm"
+                    />
+                  </label>
+                </div>
+                <label className="mt-2 block text-xs">
+                  Timezone
+                  <select
+                    aria-label="Quiet hours timezone"
+                    value={draft.quiet_hours.tz_offset}
+                    disabled={saving !== null}
+                    onChange={(event) => patch({ quiet: { tz_offset: Number(event.target.value) } })}
+                    className="ios-input mt-1 text-sm"
+                  >
+                    {zoneOptions.map((offset) => (
+                      <option key={offset} value={offset}>
+                        {zoneLabel(offset)}
+                        {offset === deviceOffset ? " · your device" : ""}
+                        {offset === 330 ? " · India" : ""}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <p className="ios-caption mt-2">{quietSummary(draft.quiet_hours)}</p>
+                {windowProblem && <p className="mt-1 text-xs text-amber-200">{windowProblem}</p>}
+                <div className="mt-2 flex justify-end">
+                  <button
+                    onClick={() => void save("quiet")}
+                    disabled={saving !== null || Boolean(windowProblem)}
+                    className="ios-btn ios-btn-primary text-xs disabled:opacity-40"
+                  >
+                    {saving === "quiet" ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} Save quiet hours
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-3 rounded-xl bg-white/[0.03] p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h3 className="flex items-center gap-2 text-sm font-semibold"><CalendarClock size={15} /> Scheduled protection</h3>
+                    <p className="ios-caption mt-1">
+                      Locks turn themselves on inside the window and off when it closes. Only the locks this window
+                      switched on are released — a lock you set by hand is left alone.
+                    </p>
+                    {!active.automation?.protection && (
+                      <p className="mt-1 text-xs text-amber-200">
+                        This backend does not report the window yet. Quiet hours and the ladder still save; the window
+                        needs the updated Render deploy.
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={draft.protection.enabled}
+                    aria-label={`${draft.protection.enabled ? "Disable" : "Enable"} the protection window`}
+                    disabled={saving !== null}
+                    onClick={() => patch({ protection: { enabled: !draft.protection.enabled } })}
+                    className={`relative h-7 w-12 shrink-0 rounded-full transition disabled:opacity-40 ${
+                      draft.protection.enabled ? "bg-[#30D158]" : "bg-white/15"
+                    }`}
+                  >
+                    <span className={`absolute top-1 h-5 w-5 rounded-full bg-white transition ${draft.protection.enabled ? "translate-x-6" : "translate-x-1"}`} />
+                  </button>
+                </div>
+
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <label className="text-xs">
+                    Starts
+                    <input
+                      type="time"
+                      aria-label="Protection window start"
+                      value={draft.protection.start}
+                      disabled={saving !== null}
+                      onChange={(event) => patch({ protection: { start: event.target.value } })}
+                      className="ios-input mt-1 text-sm"
+                    />
+                  </label>
+                  <label className="text-xs">
+                    Ends
+                    <input
+                      type="time"
+                      aria-label="Protection window end"
+                      value={draft.protection.end}
+                      disabled={saving !== null}
+                      onChange={(event) => patch({ protection: { end: event.target.value } })}
+                      className="ios-input mt-1 text-sm"
+                    />
+                  </label>
+                </div>
+                <p className="ios-caption mt-2">
+                  Runs in the group timezone set above ({zoneLabel(draft.quiet_hours.tz_offset)}).
+                </p>
+
+                <div role="group" aria-label="Locks the window applies" className="mt-3 flex flex-wrap gap-1.5">
+                  {WINDOW_LOCKS.map((lock) => {
+                    const on = draft.protection.locks.includes(lock.key);
+                    return (
+                      <button
+                        key={lock.key}
+                        type="button"
+                        aria-pressed={on}
+                        disabled={saving !== null}
+                        onClick={() =>
+                          patch({
+                            protection: {
+                              locks: on
+                                ? draft.protection.locks.filter((key) => key !== lock.key)
+                                : [...draft.protection.locks, lock.key],
+                            },
+                          })
+                        }
+                        className={`ios-chip text-xs ${on ? "border-white/25 bg-white/[0.12] text-white" : ""}`}
+                      >
+                        {lock.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <span className="ios-pill text-[10px]">
+                    {protectionNow(draft.protection, draft.quiet_hours.tz_offset) ? "inside the window now" : "outside the window"}
+                  </span>
+                  <span className="ios-pill text-[10px]">
+                    {draft.protection.state.active
+                      ? `bot applied ${draft.protection.state.applied.length || 0}`
+                      : "nothing applied"}
+                  </span>
+                </div>
+                <p className="ios-caption mt-2">{windowSummary(draft.protection, draft.quiet_hours.tz_offset)}</p>
+                {protectionProblem && <p className="mt-1 text-xs text-amber-200">{protectionProblem}</p>}
+                <div className="mt-2 flex justify-end">
+                  <button
+                    onClick={() => void save("protection")}
+                    disabled={saving !== null || Boolean(protectionProblem)}
+                    className="ios-btn ios-btn-primary text-xs disabled:opacity-40"
+                  >
+                    {saving === "protection" ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} Save window
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-3 rounded-xl bg-white/[0.03] p-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h3 className="flex items-center gap-2 text-sm font-semibold"><Timer size={15} /> Warning ladder</h3>
+                    <p className="ios-caption mt-1">
+                      What happens when a member reaches the warning limit ({active.warn_limit ?? 3}). Warnings themselves
+                      are unchanged.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={draft.escalation.enabled}
+                    aria-label={`${draft.escalation.enabled ? "Disable" : "Enable"} the warning ladder`}
+                    disabled={saving !== null}
+                    onClick={() => patch({ escalation: { enabled: !draft.escalation.enabled } })}
+                    className={`relative h-7 w-12 shrink-0 rounded-full transition disabled:opacity-40 ${
+                      draft.escalation.enabled ? "bg-[#30D158]" : "bg-white/15"
+                    }`}
+                  >
+                    <span className={`absolute top-1 h-5 w-5 rounded-full bg-white transition ${draft.escalation.enabled ? "translate-x-6" : "translate-x-1"}`} />
+                  </button>
+                </div>
+                <div className="mt-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-medium">Steps</span>
+                    <span className="ios-pill text-[10px]">{ladderSteps(draft.escalation).length || 0} active</span>
+                  </div>
+                  <p className="ios-caption mt-1">
+                    The first time the limit is hit runs the first step, the next time the second, and the last step
+                    repeats. Leave every step off to keep one action for every offender.
+                  </p>
+                  <div role="group" aria-label="Ladder steps, gentlest first" className="mt-2 space-y-1.5">
+                    {LADDER_ACTIONS.map((action) => {
+                      const steps = ladderSteps(draft.escalation);
+                      const position = steps.indexOf(action);
+                      const on = position >= 0;
+                      return (
+                        <div
+                          key={action}
+                          className={`flex items-center justify-between gap-2 rounded-xl border p-2.5 text-xs ${
+                            on ? "border-white/25 bg-white/[0.09]" : "border-white/[0.07] bg-white/[0.02]"
+                          }`}
+                        >
+                          <span className="min-w-0">
+                            <span className="block font-medium">
+                              {on ? `${position + 1}. ` : ""}
+                              {actionCopy(action, draft.escalation.mute_hours).replace(/^./, (c) => c.toUpperCase())}
+                            </span>
+                            <span className="block text-[var(--ios-label-secondary)]">
+                              {action === "mute"
+                                ? `Restrict for ${draft.escalation.mute_hours}h`
+                                : action === "kick"
+                                  ? "Remove; they may rejoin"
+                                  : "Ban from the group"}
+                            </span>
+                          </span>
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={on}
+                            aria-label={`${on ? "Remove" : "Add"} the ${action} step`}
+                            disabled={saving !== null || !draft.escalation.enabled}
+                            onClick={() => {
+                              const next = on ? steps.filter((item) => item !== action) : [...steps, action];
+                              patch({ escalation: { ladder: next } });
+                            }}
+                            className={`relative h-6 w-10 shrink-0 rounded-full transition disabled:opacity-40 ${
+                              on ? "bg-[#30D158]" : "bg-white/15"
+                            }`}
+                          >
+                            <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition ${on ? "translate-x-4" : "translate-x-0.5"}`} />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  {!ladderSteps(draft.escalation).length && (
+                    <div role="group" aria-label="Single escalation action" className="mt-2 space-y-1.5">
+                      {ESCALATION_CHOICES.filter((choice) => choice.id !== "none").map((choice) => (
+                        <button
+                          key={choice.id}
+                          role="radio"
+                          aria-checked={draft.escalation.action === choice.id}
+                          onClick={() => patch({ escalation: { action: choice.id as EscalationAction } })}
+                          disabled={saving !== null || !draft.escalation.enabled}
+                          className={`w-full rounded-xl border p-2.5 text-left text-xs transition disabled:opacity-40 ${
+                            draft.escalation.action === choice.id
+                              ? "border-white/25 bg-white/[0.09]"
+                              : "border-white/[0.07] bg-white/[0.02] hover:bg-white/[0.05]"
+                          }`}
+                        >
+                          <span className="block font-medium">{choice.label}</span>
+                          <span className="block text-[var(--ios-label-secondary)]">{choice.description}</span>
+                        </button>
+                      ))}
+                      <button
+                        role="radio"
+                        aria-checked={draft.escalation.action === "none"}
+                        onClick={() => patch({ escalation: { action: "none" } })}
+                        disabled={saving !== null || !draft.escalation.enabled}
+                        className={`w-full rounded-xl border p-2.5 text-left text-xs transition disabled:opacity-40 ${
+                          draft.escalation.action === "none"
+                            ? "border-white/25 bg-white/[0.09]"
+                            : "border-white/[0.07] bg-white/[0.02] hover:bg-white/[0.05]"
+                        }`}
+                      >
+                        <span className="block font-medium">Nothing</span>
+                        <span className="block text-[var(--ios-label-secondary)]">
+                          Warnings are recorded; no member is restricted.
+                        </span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+                {draft.escalation.action === "mute" && (
+                  <label className="mt-2 block text-xs">
+                    Mute length (hours)
+                    <input
+                      type="number"
+                      min={1}
+                      max={168}
+                      aria-label="Mute hours"
+                      value={draft.escalation.mute_hours}
+                      disabled={saving !== null}
+                      onChange={(event) =>
+                        patch({ escalation: { mute_hours: Math.max(1, Math.min(168, Number(event.target.value) || 1)) } })
+                      }
+                      className="ios-input mt-1 text-sm"
+                    />
+                  </label>
+                )}
+                <label className="mt-3 block text-xs">
+                  Keep old warnings for
+                  <select
+                    aria-label="Warning decay window"
+                    value={Number(draft.escalation.decay_days ?? 0)}
+                    disabled={saving !== null}
+                    onChange={(event) => patch({ escalation: { decay_days: Number(event.target.value) } })}
+                    className="ios-input mt-1 text-sm"
+                  >
+                    {DECAY_CHOICES.map((days) => (
+                      <option key={days} value={days}>
+                        {days === 0 ? "Forever (no decay)" : days === 365 ? "1 year" : `${days} days`}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <p className="ios-caption mt-1">
+                  {decayLabel(draft.escalation.decay_days)}. Warnings older than the window stop counting towards the
+                  limit, so a member who behaves for that long starts fresh.
+                </p>
+                <p className="ios-caption mt-2">{escalationSummary(draft.escalation)}</p>
+                <div className="mt-2 flex justify-end">
+                  <button
+                    onClick={() => void save("escalation")}
+                    disabled={saving !== null}
+                    className="ios-btn ios-btn-primary text-xs disabled:opacity-40"
+                  >
+                    {saving === "escalation" ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} Save ladder
+                  </button>
+                </div>
+              </div>
+
+              {active.health && active.health.issues.length > 0 && (
+                <div className="mt-3 rounded-xl border border-amber-300/20 bg-amber-300/5 p-3 text-xs text-amber-100">
+                  <h3 className="font-semibold">Needs attention · {active.health.score}/100</h3>
+                  <ul className="mt-1 space-y-1">
+                    {active.health.issues.map((issue) => (
+                      <li key={issue.code}>· {issue.message}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              <p className="mt-3 text-xs text-[var(--ios-label-tertiary)]">
+                Changes are written by the bot process and survive restarts. Quiet hours are evaluated against the
+                stored offset, so they do not drift with the server clock.
+              </p>
+            </>
+          )}
+        </section>
+      </div>
+    </main>
+  );
+}

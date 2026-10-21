@@ -38,7 +38,7 @@ Removed adapters:
 
 ## Command and button UI
 
-`/help` and the start panel now share a workflow guide: Music, Group management,
+`/help` and the start panel now share one help center: Music, Group management,
 Protection & notes, Telegram tools. Legacy wizard and duplicate novelty adapters
 were removed. This is a shared guide/native-keyboard rewrite, not a claim that
 every legacy command response was rewritten or live-tested.
@@ -110,7 +110,7 @@ not evidence that a user has blocked the bot or a chat has removed it.
 This watchdog does not restart the host process, prevent provider suspension or
 prove end-to-end Telegram RPC health. It cannot perform work while Render sleeps.
 
-## Creator workflows and scheduled publishing
+## Creator tools and scheduled publishing
 
 Brand kits save up to 20 local color/font presets; no logo storage/sync is claimed.
 Version history stores up to 20 manual post checkpoints locally (text, buttons,
@@ -138,7 +138,7 @@ checked before manually creating a replacement for an unconfirmed post.
 
 A dedicated schedule endpoint is intentional: against an older backend it fails
 closed (404) instead of accidentally sending immediately through the post route.
-Remaining suggested features include approval workflows, logo kits, history
+Remaining suggested features include approval queues, logo kits, history
 comparison, multi-layer image editing and direct editing of published posts.
 
 Latest follow-up validation: **66 Python tests**, **36 frontend tests**, production

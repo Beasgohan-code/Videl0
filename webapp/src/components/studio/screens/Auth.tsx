@@ -3,7 +3,8 @@ import { useState } from "react";
 import Link from "next/link";
 import { TelegramLogin } from "@/components/auth/TelegramLogin";
 import { useTelegram } from "@/components/TelegramProvider";
-import { ArrowLeft, CircleAlert, ShieldCheck } from "lucide-react";
+import { ArrowLeft, ShieldCheck } from "lucide-react";
+import { Callout } from "../ui";
 export default function AuthPage() {
   const telegram = useTelegram();
   const [status, setStatus] = useState("");
@@ -56,13 +57,18 @@ export default function AuthPage() {
     }
   }
   const message = status || telegram.authError;
+  const messageTone = failed || telegram.authError
+    ? "danger"
+    : /confirmed/i.test(message)
+      ? "success"
+      : "info";
   return (
-    <main className="mx-auto max-w-lg py-8 sm:py-14">
-      <section className="ios-card p-6 text-center sm:p-9">
+    <main className="mx-auto max-w-lg py-8 pb-24 sm:py-14">
+      <section className="ios-card p-6 text-center sm:p-9" aria-busy={busy}>
         <span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-gradient-to-br from-blue-400 to-indigo-600 text-white">
-          <ShieldCheck size={25} />
+          <ShieldCheck size={25} aria-hidden />
         </span>
-        <p className="mt-5 ios-caption2">SECURE OWNER ACCESS</p>
+        <p className="ios-caps mt-5 text-[11px]">Secure owner access</p>
         <h1 className="mt-2 ios-title">
           {telegram.authenticated
             ? "Owner access verified"
@@ -127,13 +133,9 @@ export default function AuthPage() {
           </>
         )}
         {message && (
-          <p
-            role={failed || telegram.authError ? "alert" : "status"}
-            className="mt-4 flex items-start justify-center gap-2 rounded-xl border border-amber-300/20 p-3 text-left text-sm text-amber-100"
-          >
-            <CircleAlert size={16} className="mt-0.5 shrink-0" />
+          <Callout tone={messageTone} className="mt-4 text-left">
             {message}
-          </p>
+          </Callout>
         )}
         {!telegram.authenticated && (
           <details className="mt-6 rounded-xl bg-white/[0.035] p-3 text-left text-xs leading-5 text-[var(--ios-label-secondary)]">

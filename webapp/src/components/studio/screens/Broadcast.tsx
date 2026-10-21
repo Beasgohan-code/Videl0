@@ -1,115 +1,142 @@
 "use client";
 import { useRef, useState } from "react";
-import { Send } from "lucide-react";
+import { Send, Users, Megaphone } from "lucide-react";
+import { BusyLabel, Callout, PageHeader } from "../ui";
+
+const audiences = [
+  { value: "chats", label: "Groups & channels" },
+  { value: "users", label: "Users" },
+  { value: "all", label: "Groups and users" },
+] as const;
+
+const LIMIT = 4096;
+
 export default function Broadcast() {
   const sending = useRef(false);
   const previous = useRef("");
   const [text, setText] = useState("");
-  const [scope, setScope] = useState("chats");
+  const [scope, setScope] = useState<(typeof audiences)[number]["value"]>("chats");
   const [confirmed, setConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
+  const [result, setResult] = useState<{ tone: "success" | "danger"; text: string } | null>(null);
+  const remaining = LIMIT - text.length;
+  const nearLimit = remaining <= 200;
+
   async function send() {
     if (sending.current || !confirmed || !text.trim()) return;
     const fingerprint = JSON.stringify([scope, text]);
     if (
       previous.current === fingerprint &&
-      !window.confirm(
-        "This exact broadcast already completed. Send it to the audience again?",
-      )
+      !window.confirm("This exact broadcast already completed. Send it to the audience again?")
     )
       return;
     sending.current = true;
     setBusy(true);
-    setMessage("");
+    setResult(null);
     try {
-      const r = await fetch("/api/broadcast", {
+      const response = await fetch("/api/broadcast", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text, scope }),
       });
-      const d = await r.json();
-      if (!r.ok || !d.ok) throw new Error(d.error || "Broadcast failed");
+      const data = await response.json();
+      if (!response.ok || !data.ok) throw new Error(data.error || "Broadcast failed");
       previous.current = fingerprint;
-      setMessage(
-        `Telegram confirmed ${d.sent} sent, ${d.failed} failed (${d.total} recipients).`,
-      );
+      setResult({
+        tone: "success",
+        text: `Telegram confirmed ${data.sent} sent, ${data.failed} failed (${data.total} recipients).`,
+      });
       setConfirmed(false);
-    } catch (e) {
-      setMessage(e instanceof Error ? e.message : "Broadcast failed");
+    } catch (error) {
+      setResult({
+        tone: "danger",
+        text: error instanceof Error ? error.message : "Broadcast failed",
+      });
     } finally {
       sending.current = false;
       setBusy(false);
       setConfirmed(false);
     }
   }
+
   return (
-    <main className="mx-auto max-w-4xl py-8">
-      <p className="ios-caption2">VIDEL · COMMUNITY REACH</p>
-      <h1 className="ios-title mt-2">Broadcast</h1>
-      <p className="ios-subheadline mt-2">
-        Send an announcement to recipients recorded in MongoDB.
-      </p>
-      <fieldset disabled={busy} className="ios-card mt-6 min-w-0 space-y-5 p-6">
-        <label className="block text-sm">
-          Audience
-          <select
-            className="ios-input mt-2"
-            value={scope}
-            onChange={(e) => {
-              setScope(e.target.value);
-              setConfirmed(false);
-            }}
-          >
-            <option value="chats">Groups & channels</option>
-            <option value="users">Users</option>
-            <option value="all">Groups and users</option>
-          </select>
-        </label>
-        <label className="block text-sm">
-          Announcement
+    <main className="ios-page ios-page-narrow">
+      <PageHeader
+        eyebrow="Videl · Community reach"
+        title="Broadcast"
+        subtitle="Send one announcement to the recipients the bot has recorded."
+      />
+      <fieldset disabled={busy} className="ios-card ios-section min-w-0 space-y-5 p-5 sm:p-6" aria-busy={busy}>
+        <div>
+          <p className="text-sm font-medium" id="broadcast-audience">Audience</p>
+          <div className="scroll-row mt-2 flex gap-2" role="group" aria-labelledby="broadcast-audience">
+            {audiences.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                aria-pressed={scope === option.value}
+                onClick={() => {
+                  setScope(option.value);
+                  setConfirmed(false);
+                }}
+                className="ios-chip"
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+          <p className="ios-caption mt-2 flex items-center gap-1.5">
+            <Users size={13} aria-hidden /> Counted from chats and users the bot has served.
+          </p>
+        </div>
+        <div>
+          <div className="flex items-baseline justify-between gap-3">
+            <label className="text-sm font-medium" htmlFor="broadcast-text">Announcement</label>
+            <span className={`mono text-[11px] ${nearLimit ? "text-amber-200" : "text-[var(--ios-label-tertiary)]"}`}>
+              {text.length}/{LIMIT}
+            </span>
+          </div>
           <textarea
+            id="broadcast-text"
             className="ios-input mt-2"
             rows={8}
-            maxLength={4096}
+            maxLength={LIMIT}
             value={text}
-            onChange={(e) => {
-              setText(e.target.value);
+            onChange={(event) => {
+              setText(event.target.value);
               setConfirmed(false);
             }}
             placeholder="Write your community update…"
           />
-        </label>
-        <p className="ios-caption">
-          {text.length}/4096 · Telegram HTML supported. Limited to the first 60
-          recipients per request; this is not a background campaign. Do not
-          retry a timed-out request without checking Telegram: some recipients
-          may already have received it.
-        </p>
-        <label className="flex items-start gap-3 text-sm text-indigo-100/70">
+          <p className="ios-caption mt-2">Telegram HTML is supported. The preview is exactly what will be sent.</p>
+        </div>
+        <Callout tone="info" title="This is a single request, not a campaign">
+          Limited to the first 60 recipients. Do not retry a timed-out request without checking
+          Telegram first — some recipients may already have received it.
+        </Callout>
+        <label className="flex items-start gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-3.5 text-sm text-indigo-50/80">
           <input
             type="checkbox"
+            className="mt-1"
             checked={confirmed}
-            onChange={(e) => setConfirmed(e.target.checked)}
+            onChange={(event) => setConfirmed(event.target.checked)}
           />
           I confirm this sends real messages to the selected audience.
         </label>
-        <button
-          className="ios-btn ios-btn-primary disabled:opacity-40"
-          disabled={!confirmed || !text.trim() || busy}
-          onClick={() => void send()}
-        >
-          <Send size={16} />
-          {busy ? "Sending — please wait…" : "Send broadcast"}
-        </button>
-        {message && (
-          <p
-            role="status"
-            className="rounded-xl border border-indigo-300/20 p-4 text-sm"
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            className="ios-btn ios-btn-primary"
+            disabled={!confirmed || !text.trim() || busy}
+            onClick={() => void send()}
           >
-            {message}
-          </p>
-        )}
+            <Send size={16} aria-hidden />
+            {busy ? <BusyLabel label="Sending — please wait…" /> : "Send broadcast"}
+          </button>
+          <span className="ios-caption flex items-center gap-1.5">
+            <Megaphone size={13} aria-hidden /> Messages come from your bot, not this browser.
+          </span>
+        </div>
+        {result && <Callout tone={result.tone}>{result.text}</Callout>}
       </fieldset>
     </main>
   );

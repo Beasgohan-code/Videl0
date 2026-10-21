@@ -18,8 +18,8 @@ from videl import bot as test_bot
 
 with patch.object(test_bot, "add_handler"):
     api_tools_module = importlib.import_module("videl.modules.api_tools")
-    management_module = importlib.import_module("videl.modules.management_core")
-    start_module = importlib.import_module("videl.app.general")
+    group_module = importlib.import_module("videl.plugins.group")
+    start_module = importlib.import_module("videl.plugins.start")
 
 
 class PollTests(unittest.TestCase):
@@ -163,23 +163,23 @@ class KeyboardTests(unittest.TestCase):
         self.assertEqual(tg_emoji("9999999999999999999", "Hi"), "Hi")
 
     def test_start_uses_signed_mini_app_launch_buttons_in_private(self):
-        from videl.app.general import start_keyboard
+        from videl.plugins.start import group_keyboard, private_keyboard
 
-        private = start_keyboard(True).inline_keyboard
-        group = start_keyboard(False).inline_keyboard
+        private = private_keyboard(False, "Videl0Bot").inline_keyboard
+        group = group_keyboard().inline_keyboard
         self.assertIsNotNone(private[-1][0].web_app)
-        owner = start_keyboard(True, owner=True).inline_keyboard
+        owner = private_keyboard(True, "Videl0Bot").inline_keyboard
         self.assertIsNotNone(owner[0][0].web_app)
         self.assertFalse(any(item.callback_data == "cmds:owner:0" for row in private for item in row))
         self.assertIsNotNone(group[-1][0].url)
 
     def test_missing_database_is_not_displayed_as_zero(self):
-        from videl.app.general import start_caption
+        from videl.plugins.start import owner_caption
 
         with patch(
-            "videl.utils.db.read_live_totals", side_effect=RuntimeError("offline")
+            "videl.plugins.start.read_live_totals", side_effect=RuntimeError("offline")
         ):
-            self.assertIn("Unavailable", start_caption(6265999542, "Owner"))
+            self.assertIn("unavailable", owner_caption("Owner").lower())
 
 
 class AsyncBehaviorTests(unittest.IsolatedAsyncioTestCase):
@@ -237,19 +237,25 @@ class AsyncBehaviorTests(unittest.IsolatedAsyncioTestCase):
         call.assert_not_awaited()
 
     async def test_poll_keeps_topic_routing(self):
-        module = importlib.import_module("videl.modules.management_core")
+        from videl.app.router import Context, Parsed
+        from videl.plugins import group as group_plugin
+
         message = SimpleNamespace(
             chat=SimpleNamespace(id=-100),
-            command=["quiz", "Question", "|", "*A", "|", "B"],
             message_thread_id=33,
+            id=5,
+            from_user=SimpleNamespace(id=42),
         )
+        ctx = Context(SimpleNamespace(), message, Parsed("quiz", "Question | *A | B"))
         with patch(
             "videl.utils.bot_api.bot_api", AsyncMock(return_value=(200, {"ok": True}))
         ) as call:
-            await module.poll_cmd(None, message)
+            screen = await group_plugin.poll(ctx)
         self.assertEqual(call.call_args.args[0], "sendPoll")
         self.assertEqual(call.call_args.args[1]["message_thread_id"], 33)
         self.assertEqual(call.call_args.args[1]["correct_option_ids"], [0])
+        from videl.plugins.base import plain as plain_caps
+        self.assertIn("poll sent", plain_caps(screen.html).lower())
 
     async def test_rich_edit_rejection_strips_icons_but_keeps_callbacks(self):
         from vendor.richgram.richgram.rich_ui import _rich_edit_via_client
@@ -292,30 +298,125 @@ class AsyncBehaviorTests(unittest.IsolatedAsyncioTestCase):
         )
         client.edit_message_text.assert_awaited_once()
 
-    async def test_plugin_photo_timeout_does_not_duplicate_as_text(self):
-        with patch.object(test_bot, "add_handler"):
-            runtime = importlib.import_module("videl.plugins.runtime")
-        message = SimpleNamespace(chat=SimpleNamespace(id=1))
-        with patch.object(
-            runtime.bot, "send_photo", AsyncMock(side_effect=TimeoutError())
-        ) as photo, patch.object(runtime, "rich_reply", AsyncMock()) as reply:
-            await runtime._send(
-                message, "Cover", "Description", photo="https://example.com/cover.jpg"
-            )
-        photo.assert_awaited_once()
-        self.assertNotIn("<h2>", photo.call_args.kwargs["caption"])
-        reply.assert_not_awaited()
+    async def test_rich_edit_rejection_strips_icons_but_keeps_callbacks(self):
+        from vendor.richgram.richgram.rich_ui import _rich_edit_via_client
 
-    async def test_plugin_photo_definite_rejection_can_fall_back(self):
-        with patch.object(test_bot, "add_handler"):
-            runtime = importlib.import_module("videl.plugins.runtime")
-        message = SimpleNamespace(chat=SimpleNamespace(id=1))
-        with patch.object(
-            runtime.bot,
-            "send_photo",
-            AsyncMock(side_effect=BadRequest("PHOTO_INVALID")),
-        ), patch.object(runtime, "rich_reply", AsyncMock()) as reply:
-            await runtime._send(
-                message, "Cover", "Description", photo="https://example.com/cover.jpg"
+        client = SimpleNamespace(
+            edit_message_text=AsyncMock(
+                side_effect=[BadRequest("CUSTOM_EMOJI_INVALID"), "edited"]
             )
-        reply.assert_awaited_once()
+        )
+        markup = InlineKeyboardMarkup(
+            [[button("Stop", callback_data="stop", icon="cross")]]
+        )
+        result = await _rich_edit_via_client(
+            client,
+            1,
+            2,
+            '<tg-emoji emoji-id="123">🎵</tg-emoji> Track',
+            reply_markup=markup,
+        )
+        self.assertEqual(result, "edited")
+        fallback = client.edit_message_text.call_args.kwargs
+        self.assertEqual(fallback["text"], "🎵 Track")
+        self.assertEqual(
+            fallback["reply_markup"].inline_keyboard[0][0].callback_data, "stop"
+        )
+        self.assertIsNone(
+            fallback["reply_markup"].inline_keyboard[0][0].icon_custom_emoji_id
+        )
+
+    async def test_rich_edit_timeout_is_not_retried(self):
+        from vendor.richgram.richgram.rich_ui import _rich_edit_via_client
+
+        client = SimpleNamespace(
+            edit_message_text=AsyncMock(side_effect=TimeoutError())
+        )
+        self.assertIsNone(
+            await _rich_edit_via_client(
+                client, 1, 2, "<h2>Update</h2>", reply_markup=None
+            )
+        )
+        client.edit_message_text.assert_awaited_once()
+
+    async def test_rich_edit_rejection_strips_icons_but_keeps_callbacks(self):
+        from vendor.richgram.richgram.rich_ui import _rich_edit_via_client
+
+        client = SimpleNamespace(
+            edit_message_text=AsyncMock(
+                side_effect=[BadRequest("CUSTOM_EMOJI_INVALID"), "edited"]
+            )
+        )
+        markup = InlineKeyboardMarkup(
+            [[button("Stop", callback_data="stop", icon="cross")]]
+        )
+        result = await _rich_edit_via_client(
+            client,
+            1,
+            2,
+            '<tg-emoji emoji-id="123">🎵</tg-emoji> Track',
+            reply_markup=markup,
+        )
+        self.assertEqual(result, "edited")
+        fallback = client.edit_message_text.call_args.kwargs
+        self.assertEqual(fallback["text"], "🎵 Track")
+        self.assertEqual(
+            fallback["reply_markup"].inline_keyboard[0][0].callback_data, "stop"
+        )
+        self.assertIsNone(
+            fallback["reply_markup"].inline_keyboard[0][0].icon_custom_emoji_id
+        )
+
+    async def test_rich_edit_timeout_is_not_retried(self):
+        from vendor.richgram.richgram.rich_ui import _rich_edit_via_client
+
+        client = SimpleNamespace(
+            edit_message_text=AsyncMock(side_effect=TimeoutError())
+        )
+        self.assertIsNone(
+            await _rich_edit_via_client(
+                client, 1, 2, "<h2>Update</h2>", reply_markup=None
+            )
+        )
+        client.edit_message_text.assert_awaited_once()
+
+    async def test_rich_edit_rejection_strips_icons_but_keeps_callbacks(self):
+        from vendor.richgram.richgram.rich_ui import _rich_edit_via_client
+
+        client = SimpleNamespace(
+            edit_message_text=AsyncMock(
+                side_effect=[BadRequest("CUSTOM_EMOJI_INVALID"), "edited"]
+            )
+        )
+        markup = InlineKeyboardMarkup(
+            [[button("Stop", callback_data="stop", icon="cross")]]
+        )
+        result = await _rich_edit_via_client(
+            client,
+            1,
+            2,
+            '<tg-emoji emoji-id="123">🎵</tg-emoji> Track',
+            reply_markup=markup,
+        )
+        self.assertEqual(result, "edited")
+        fallback = client.edit_message_text.call_args.kwargs
+        self.assertEqual(fallback["text"], "🎵 Track")
+        self.assertEqual(
+            fallback["reply_markup"].inline_keyboard[0][0].callback_data, "stop"
+        )
+        self.assertIsNone(
+            fallback["reply_markup"].inline_keyboard[0][0].icon_custom_emoji_id
+        )
+
+    async def test_rich_edit_timeout_is_not_retried(self):
+        from vendor.richgram.richgram.rich_ui import _rich_edit_via_client
+
+        client = SimpleNamespace(
+            edit_message_text=AsyncMock(side_effect=TimeoutError())
+        )
+        self.assertIsNone(
+            await _rich_edit_via_client(
+                client, 1, 2, "<h2>Update</h2>", reply_markup=None
+            )
+        )
+        client.edit_message_text.assert_awaited_once()

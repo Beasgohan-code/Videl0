@@ -4,6 +4,7 @@ import {Bookmark,Pin,RefreshCw,Tag,NotebookPen,MessageSquareText,X} from 'lucide
 import {tagsFromInput} from '@/lib/inbox-workspace';
 import type {QuickReply} from '@/lib/inbox-workspace';
 import type {InboxWorkspaceState} from './useInboxWorkspace';
+import {Callout,EmptyState} from './ui';
 
 export default function InboxWorkspace({workspace,text,setText}:{workspace:InboxWorkspaceState;text:string;setText:(value:string)=>void}){
  const {chat,busy,save}=workspace;
@@ -18,10 +19,10 @@ export default function InboxWorkspace({workspace,text,setText}:{workspace:Inbox
   if(ok){setEditing(null);setTitle('');setBody('');}
  }
  return <section className="ios-card p-4" aria-label="Advanced inbox workspace">
-  <div className="flex items-center justify-between"><h2 className="flex items-center gap-2 text-sm font-semibold"><Bookmark size={16}/>Workspace tools</h2><button aria-label="Refresh workspace" disabled={busy} onClick={workspace.refresh}><RefreshCw size={14}/></button></div>
+  <div className="flex items-center justify-between gap-2"><h2 className="flex items-center gap-2 ios-section-title"><Bookmark size={16} aria-hidden/>Workspace tools</h2><button aria-label="Refresh workspace" disabled={busy} className="ios-btn ios-btn-glass !p-2"><RefreshCw size={14} aria-hidden/></button></div>
   <p className="mt-2 text-[10px] leading-5 text-indigo-100/40">Private owner tools · saved in MongoDB · never sent automatically.</p>
-  {workspace.error&&<p role="alert" className="mt-3 text-[11px] leading-5 text-rose-200">{workspace.error}</p>}
-  {workspace.notice&&<p role="status" className="mt-3 text-[11px] leading-5 text-teal-200">{workspace.notice}</p>}
+  {workspace.error&&<Callout tone="danger" className="mt-3 text-[11px]">{workspace.error}</Callout>}
+  {workspace.notice&&<Callout tone="success" live className="mt-3 text-[11px]">{workspace.notice}</Callout>}
   {chat&&<>
    <button aria-label={chat.pinned?'Unpin conversation in workspace':'Pin conversation in workspace'} disabled={busy} onClick={()=>void save({action:'organize',pinned:!chat.pinned,tags:chat.tags,revision:chat.revisions.organize})} className="ios-btn ios-btn-glass mt-4 w-full text-[11px]"><Pin size={13}/>{chat.pinned?'Pinned conversation':'Pin conversation'}</button>
    <div className="mt-4 border-t border-white/5 pt-4"><h3 className="flex items-center gap-2 text-xs font-medium"><MessageSquareText size={13}/>Chat draft</h3><p className="mt-2 text-[10px] leading-5 text-indigo-100/45">Save composer text explicitly, then restore it on another device. Attachments and microphone recordings are not saved.</p>
@@ -34,9 +35,9 @@ export default function InboxWorkspace({workspace,text,setText}:{workspace:Inbox
   </>}
   <div className="mt-5 border-t border-white/5 pt-4"><div className="flex items-center justify-between"><h3 className="text-xs font-semibold">Saved replies</h3><span className="text-[9px] text-indigo-100/35">{workspace.replies.length}/50</span></div>
    <input aria-label="Find saved replies" value={find} onChange={e=>setFind(e.target.value)} className="ios-input mt-3 text-xs" placeholder="Find a saved reply…"/>
-   <div className="mt-2 max-h-44 space-y-2 overflow-auto">{workspace.replies.filter(item=>`${item.title} ${item.text}`.toLowerCase().includes(find.toLowerCase())).map(item=><div key={item.id} className="rounded-xl bg-white/5 p-3"><p className="truncate text-[11px] font-medium">{item.title}</p><p className="mt-1 line-clamp-2 whitespace-pre-wrap break-words text-[10px] text-indigo-100/40">{item.text}</p><div className="mt-2 flex gap-3 text-[10px] text-indigo-200"><button disabled={!chat||busy} onClick={()=>useReply(item.text)}>Use</button><button disabled={busy} onClick={()=>{setEditing(item);setTitle(item.title);setBody(item.text);}}>Edit</button><button disabled={busy} onClick={()=>{if(window.confirm(`Delete saved reply “${item.title}”?`))void save({action:'delete_reply',id:item.id,revision:item.revision});}}>Delete</button></div></div>)}</div>
-   {!workspace.replies.length&&<p className="mt-2 text-[10px] leading-5 text-indigo-100/40">Add your own replies below. No AI or demo replies.</p>}
-   <div className="mt-3 flex items-center justify-between"><span className="text-[10px] text-indigo-100/50">{editing?'Edit saved reply':'New saved reply'}</span>{editing&&<button aria-label="Cancel saved reply edit" onClick={()=>{setEditing(null);setTitle('');setBody('');}}><X size={12}/></button>}</div>
+   <div className="mt-2 max-h-44 space-y-2 overflow-auto">{workspace.replies.filter(item=>`${item.title} ${item.text}`.toLowerCase().includes(find.toLowerCase())).map(item=><div key={item.id} className="rounded-xl bg-white/5 p-3"><p className="truncate text-[11px] font-medium">{item.title}</p><p className="mt-1 line-clamp-2 whitespace-pre-wrap break-words text-[10px] text-indigo-100/40">{item.text}</p><div className="mt-2 flex gap-1 text-[10px] text-indigo-200"><button className="rounded-md px-2 py-1.5 hover:bg-white/5 disabled:opacity-40" disabled={!chat||busy} onClick={()=>useReply(item.text)}>Use</button><button className="rounded-md px-2 py-1.5 hover:bg-white/5 disabled:opacity-40" disabled={busy} onClick={()=>{setEditing(item);setTitle(item.title);setBody(item.text);}}>Edit</button><button className="rounded-md px-2 py-1.5 hover:bg-white/5 disabled:opacity-40" disabled={busy} onClick={()=>{if(window.confirm(`Delete saved reply “${item.title}”?`))void save({action:'delete_reply',id:item.id,revision:item.revision});}}>Delete</button></div></div>)}</div>
+   {!workspace.replies.length&&<EmptyState compact className="mt-2" icon={<Bookmark size={18}/>} title="No saved replies yet" hint="Add your own replies below. No AI or demo replies."/>}
+   <div className="mt-3 flex items-center justify-between"><span className="ios-caption">{editing?'Edit saved reply':'New saved reply'}</span>{editing&&<button aria-label="Cancel saved reply edit" className="rounded-md p-1.5 text-indigo-200 hover:bg-white/5" onClick={()=>{setEditing(null);setTitle('');setBody('');}}><X size={14}/></button>}</div>
    <input aria-label="Saved reply title" value={title} maxLength={60} onChange={e=>setTitle(e.target.value)} className="ios-input mt-2 text-xs" placeholder="Reply title"/>
    <textarea aria-label="Saved reply text" value={body} maxLength={4096} onChange={e=>setBody(e.target.value)} className="ios-input mt-2 resize-y text-xs" rows={3} placeholder="Write reusable plain text…"/>
    <button disabled={busy||!title.trim()||!body.trim()} onClick={()=>void saveReply()} className="ios-btn ios-btn-glass mt-2 w-full text-[10px]">{editing?'Update saved reply':'Create saved reply'}</button>

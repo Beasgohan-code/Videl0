@@ -10,7 +10,8 @@ import time
 import logging
 import hmac
 import requests
-from flask import Flask, jsonify, request
+from collections import deque
+from flask import Flask, g, jsonify, request
 from pyrogram import idle
 import config
 from videl import LOGGER, bot
@@ -21,6 +22,45 @@ BACKEND_PORT = int(os.getenv("PORT", str(config.PORT)))
 _flask = Flask(__name__)
 _BOT_LOOP = None
 _BOT_STATUS = "starting"
+# Why the bot is not running, when it failed to start. Shown on /health so the
+# owner can diagnose from the panel instead of hunting Render logs. Redacted.
+_BOT_ERROR = ""
+_BOT_ONLINE_AT = None
+# How many start attempts this process has made: 1 means it started first try.
+_BOT_ATTEMPTS = 0
+
+# Rolling latency of the server-to-server API calls the panel makes. A single
+# /health round-trip is one sample; Settings asks for the distribution instead.
+_API_TIMINGS: deque = deque(maxlen=400)
+# A ping to Mongo, measured the same way, so the panel can tell a slow API from
+# a slow database instead of seeing one number and guessing.
+_DB_TIMINGS: deque = deque(maxlen=200)
+_TIMING_LOCK = threading.Lock()
+_TIMED_PREFIXES = ("/internal/", "/api/")
+
+
+@_flask.before_request
+def _start_request_timer():
+    g.videl_started = time.perf_counter()
+
+
+@_flask.after_request
+def _record_request_timing(response):
+    started = getattr(g, "videl_started", None)
+    if started is not None and request.path.startswith(_TIMED_PREFIXES):
+        with _TIMING_LOCK:
+            _API_TIMINGS.append((time.perf_counter() - started) * 1000.0)
+    return response
+
+
+def _api_latency() -> dict:
+    with _TIMING_LOCK:
+        samples = list(_API_TIMINGS)
+    if not samples:
+        return {"p95_ms": None, "samples": 0}
+    ordered = sorted(samples)
+    index = max(0, min(len(ordered) - 1, int(len(ordered) * 0.95) - 1))
+    return {"p95_ms": round(ordered[index], 1), "samples": len(ordered)}
 
 try:
     from videl.api.eldian_routes import register_eldian_routes
@@ -43,6 +83,13 @@ def _bot_api(method, payload, files=None):
 from videl.api.group_view_routes import register_group_view_routes
 register_group_view_routes(_flask,_internal_authorized,_bot_api)
 
+# Public arcade and the group-manager view. Both trust only a signed actor
+# assertion minted by the panel, never a user id supplied by a browser.
+from videl.api.manager_routes import register_manager_routes
+from videl.games.routes import register_arcade_routes
+register_arcade_routes(_flask,_internal_authorized,_bot_api,lambda: getattr(config,'WEBAPP_SECRET','') or '')
+register_manager_routes(_flask,_internal_authorized,_bot_api,lambda: getattr(config,'WEBAPP_SECRET','') or '')
+
 # ── Render backend health and service metadata ───────────────────────────
 @_flask.route("/")
 @_flask.route("/_videl_status")
@@ -54,14 +101,71 @@ def _status_json():
         "webapp": getattr(config, "WEBAPP_URL", ""),
         "health": "/health",
         "api_index": "/api",
+        "revision": __import__("videl").build_revision,
     }), 200
+
+def _db_latency() -> dict:
+    """Median-ish round trip to Mongo, measured now and rolled with history."""
+    from videl.utils.db import get_db, is_connected
+    if not is_connected():
+        return {"p95_ms": None, "samples": len(_DB_TIMINGS), "connected": False}
+    try:
+        database = get_db()
+        started = time.perf_counter()
+        database.command("ping")
+        elapsed = round((time.perf_counter() - started) * 1000, 2)
+        with _TIMING_LOCK:
+            _DB_TIMINGS.append(elapsed)
+            samples = sorted(_DB_TIMINGS)
+        index = max(0, min(len(samples) - 1, int(round(0.95 * len(samples))) - 1))
+        return {"p95_ms": samples[index], "samples": len(samples), "connected": True,
+                "last_ms": elapsed}
+    except Exception:
+        LOGGER.debug("database ping failed", exc_info=True)
+        return {"p95_ms": None, "samples": len(_DB_TIMINGS), "connected": False}
+
+
+def _health_text(value) -> str:
+    """Error text that is safe to publish: no token, no long credentials."""
+    text = str(value or "").strip()
+    token = str(getattr(config, "BOT_TOKEN", "") or "")
+    if token and token in text:
+        text = text.replace(token, "<redacted>")
+    # Bot and database errors occasionally echo a secret-looking run of
+    # characters. Nothing a human needs to read is 32+ characters long.
+    text = re.sub(r"[A-Za-z0-9_-]{32,}", "<redacted>", text)
+    return text[:240]
+
 
 @_flask.route("/health")
 def _health():
     from videl import bot_start_time
     from videl.core.watcher import watchdog_status
     maintenance = watchdog_status()
-    return jsonify({"status": "ok", "service": "videl-render-backend", "bot_status": _BOT_STATUS, "uptime": max(0, int(time.time() - bot_start_time)), "watchdog": {key: maintenance[key] for key in ("running", "healthy", "last_tick")}}), 200
+    try:
+        from videl.utils.db import is_connected
+        database = "connected" if is_connected() else "disconnected"
+    except Exception:
+        database = "unknown"
+    from videl import build_revision
+    # "status" stays "ok" while the HTTP API answers: uptime monitors must not
+    # flap because Telegram is down. ``degraded`` names the parts that are not
+    # working, so the panel can say what is wrong instead of only that it is.
+    reasons = []
+    if _BOT_STATUS != "online":
+        reasons.append("Telegram bot is " + _BOT_STATUS)
+    if database == "disconnected":
+        reasons.append("MongoDB is disconnected")
+    if not maintenance.get("running"):
+        reasons.append("Maintenance watchdog is not running")
+    return jsonify({"status": "ok", "service": "videl-render-backend", "revision": build_revision,
+                    "bot_status": _BOT_STATUS, "bot_error": _BOT_ERROR or None,
+                    "bot_online_at": _BOT_ONLINE_AT, "bot_attempts": _BOT_ATTEMPTS,
+                    "degraded": bool(reasons),
+                    "degraded_reasons": reasons, "database": database,
+                    "uptime": max(0, int(time.time() - bot_start_time)),
+                    "api": _api_latency(), "db": _db_latency(),
+                    "watchdog": {key: maintenance[key] for key in ("running", "healthy", "last_tick")}}), 200
 
 @_flask.route("/internal/auth", methods=["POST"])
 def _internal_auth():
@@ -117,6 +221,37 @@ def _internal_auth():
         return jsonify({"ok": True, "user": {key: user.get(key) for key in ("id", "first_name", "username") if user.get(key) is not None}})
     except (ValueError, TypeError, json.JSONDecodeError):
         return jsonify({"ok": False, "error": "Invalid Telegram authentication data"}), 401
+
+@_flask.route("/internal/identity", methods=["POST"])
+def _internal_identity():
+    """Who Telegram says this is. Not a grant of owner power."""
+    if not _internal_authorized():
+        return jsonify({"ok": False, "error": "unauthorized"}), 403
+    from videl.utils.telegram_auth import AuthError, public_user, verify_init_data, verify_login_widget
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify({"ok": False, "error": "A JSON object is required"}), 400
+    token = getattr(config, "BOT_TOKEN", "") or ""
+    if not token:
+        return jsonify({"ok": False, "error": "Telegram authentication is not configured"}), 503
+    try:
+        if isinstance(body.get("init_data"), str) and body.get("init_data"):
+            user = verify_init_data(body["init_data"], token)
+        elif isinstance(body.get("login_widget"), dict):
+            user = verify_login_widget(body["login_widget"], token)
+        else:
+            return jsonify({"ok": False, "error": "Telegram authentication data is required"}), 400
+    except AuthError as error:
+        return jsonify({"ok": False, "error": str(error)}), 401
+    player = public_user(user)
+    try:
+        from videl.utils import players
+        if players.upsert(player) is None:
+            LOGGER.debug("player record not stored; database unavailable")
+    except Exception:
+        LOGGER.debug("player record not stored", exc_info=True)
+    return jsonify({"ok": True, "player": player})
+
 
 @_flask.route("/internal/send-message", methods=["POST"])
 def _internal_send_message():
@@ -174,6 +309,63 @@ def _internal_scheduled_posts():
         return jsonify({"ok":False,"error":"Schedule queue unavailable"}),503
 
 
+@_flask.route("/internal/scheduled-posts/retry", methods=["POST"])
+def _internal_scheduled_retry():
+    if not _internal_authorized():
+        return jsonify({"ok": False, "error": "unauthorized"}), 403
+    from videl.utils.scheduled_posts import retry_job
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or not body.get("id"):
+        return jsonify({"ok": False, "error": "A job ID is required"}), 400
+    try:
+        return jsonify(retry_job(body.get("id"), body.get("schedule_at"))), 200
+    except (ValueError, TypeError, AttributeError) as error:
+        return jsonify({"ok": False, "error": str(error)}), 409
+    except Exception:
+        LOGGER.exception("scheduled retry failed")
+        return jsonify({"ok": False, "error": "The schedule could not be requeued"}), 503
+
+
+@_flask.route("/internal/scheduled-posts/series", methods=["POST"])
+def _internal_scheduled_series():
+    """Pause, resume or skip one occurrence of a repeating series."""
+    if not _internal_authorized():
+        return jsonify({"ok": False, "error": "unauthorized"}), 403
+    from videl.utils.scheduled_posts import set_paused, skip_next
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or not body.get("id"):
+        return jsonify({"ok": False, "error": "A job ID is required"}), 400
+    action = body.get("action")
+    try:
+        if action == "skip":
+            return jsonify(skip_next(body.get("id"))), 200
+        if action in {"pause", "resume"}:
+            return jsonify(set_paused(body.get("id"), action == "pause")), 200
+        return jsonify({"ok": False, "error": "Action must be pause, resume or skip"}), 400
+    except (ValueError, TypeError, AttributeError) as error:
+        return jsonify({"ok": False, "error": str(error)}), 409
+    except Exception:
+        LOGGER.exception("scheduled series action failed")
+        return jsonify({"ok": False, "error": "The series could not be changed"}), 503
+
+
+@_flask.route("/internal/scheduled-posts/duplicate", methods=["POST"])
+def _internal_scheduled_duplicate():
+    if not _internal_authorized():
+        return jsonify({"ok": False, "error": "unauthorized"}), 403
+    from videl.utils.scheduled_posts import duplicate_job
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or not body.get("id"):
+        return jsonify({"ok": False, "error": "A job ID is required"}), 400
+    try:
+        return jsonify(duplicate_job(body.get("id"), body.get("schedule_at"))), 200
+    except (ValueError, TypeError, AttributeError) as error:
+        return jsonify({"ok": False, "error": str(error)}), 409
+    except Exception:
+        LOGGER.exception("scheduled duplicate failed")
+        return jsonify({"ok": False, "error": "The copy could not be queued"}), 503
+
+
 @_flask.route("/internal/channel-post", methods=["POST"])
 def _internal_channel_post():
     if not _internal_authorized():
@@ -210,12 +402,22 @@ def _internal_channel_post():
     parse_mode = body.get("parse_mode", "HTML")
     if parse_mode not in ("HTML", "Markdown", "MarkdownV2"):
         return jsonify({"ok": False, "error": "Unsupported parse mode"}), 400
+    if parse_mode == "HTML" and text:
+        # The visual editor can nest marks in ways Telegram rejects (code plus
+        # bold on the same characters). Normalize here so a post is delivered
+        # instead of failing with "can't parse entities".
+        from videl.utils.group_view import normalize_rich
+        text, _, used = normalize_rich(text)
+        if not used:
+            parse_mode = None
     from videl.utils.post_format import post_text_length
     text_length = post_text_length(text, parse_mode)
     if text_length > 4096:
         return jsonify({"ok": False, "error": "Post text is limited to 4096 visible characters"}), 400
     method = "sendMessage"
-    payload = {"chat_id": chat_id, "parse_mode": parse_mode}
+    payload = {"chat_id": chat_id}
+    if parse_mode:
+        payload["parse_mode"] = parse_mode
     if image_data is not None:
         if text_length > 1024:
             return jsonify({"ok": False, "error": "Image captions allow 1024 visible characters"}), 400
@@ -280,7 +482,9 @@ def _internal_channel_post():
             return jsonify({"ok": False, "error": "Scheduled images need a persistent HTTPS URL, not a local upload"}), 400
         try:
             from videl.utils.scheduled_posts import enqueue
-            return jsonify(enqueue(method, payload, body["schedule_at"], body.get("request_id"))), 200
+            return jsonify(enqueue(method, payload, body["schedule_at"], body.get("request_id"),
+                                   body.get("repeat"), body.get("timezone"),
+                                   body.get("wall_time"))), 200
         except ValueError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
         except Exception:
@@ -342,38 +546,360 @@ def _internal_chats():
         return jsonify({"ok": False, "error": "unauthorized"}), 403
     try:
         from videl.utils.db import get_db
+        from videl.utils.automation import normalize as normalize_automation
+        from videl.utils.group_health import evaluate as evaluate_health, summarize as summarize_health
+        from videl.utils.group_view import BOOL_SETTINGS, INT_SETTINGS, INT_DEFAULTS, ENUM_SETTINGS, SETTING_DEFAULTS
         db = get_db()
         if db is None:
             return jsonify({"ok": False, "error": "MongoDB is not connected"}), 503
-        ids = [doc.get("_id") for doc in db["served_chats"].find({}, {"_id": 1}).limit(100)]
-        setting_keys = ("lock_links", "lock_media", "lock_stickers", "antispam", "lock_forwards", "welcome_enabled")
-        settings = {int(doc["chat_id"]): {k: bool(doc.get(k, False)) for k in setting_keys}
-                    for doc in db["mgmt_chat_settings"].find({"chat_id": {"$in": ids}})}
+        # The fleet list is paged. It used to stop at 200 silently, so a bot in
+        # more groups than that hid the rest with no hint at all.
+        try:
+            limit = int(request.args.get("limit", "200"))
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "limit must be a number"}), 400
+        if not 20 <= limit <= 1000:
+            return jsonify({"ok": False, "error": "limit must be between 20 and 1000"}), 400
+        raw_cursor = (request.args.get("cursor") or "").strip()
+        # Read the ids in one sorted projection and slice in Python: chat ids are
+        # integers, but a stale string id must not make a cursor skip a group.
+        every_id = [doc.get("_id") for doc in db["served_chats"].find({}, {"_id": 1}).sort("_id", 1)]
+        total = len(every_id)
+        start = 0
+        if raw_cursor:
+            for index, value in enumerate(every_id):
+                if str(value) == raw_cursor:
+                    start = index + 1
+                    break
+            else:
+                return jsonify({"ok": False, "error": "cursor is not a chat in this list", "total": total}), 400
+        page_ids = every_id[start:start + limit]
+        ids = page_ids
+        has_more = start + len(page_ids) < total
+        next_cursor = page_ids[-1] if (page_ids and has_more) else None
+        int_ids = []
+        for value in ids:
+            try:
+                int_ids.append(int(value))
+            except (TypeError, ValueError):
+                continue
+        documents = {int(doc["chat_id"]): doc for doc in db["mgmt_chat_settings"].find({"chat_id": {"$in": int_ids}})}
+        cached = {int(doc["_id"]): doc for doc in db["mgmt_chat_info"].find({"_id": {"$in": int_ids}})}
+        warns_by_chat, notes_by_chat, blacklist_by_chat, approved_by_chat, pending_by_chat = {}, {}, {}, {}, {}
+        reports_by_chat = {}
+        for name, target, extra in (
+            ("mgmt_warnings", warns_by_chat, {}),
+            ("mgmt_notes", notes_by_chat, {}),
+            ("blacklist", blacklist_by_chat, {}),
+            ("approved", approved_by_chat, {}),
+            # Only pending requests matter: answered rows are history, not work.
+            ("mgmt_join_requests", pending_by_chat, {"status": "pending"}),
+            ("mgmt_reports", reports_by_chat, {"status": "open"}),
+        ):
+            field = "chat" if name in {"blacklist", "approved"} else "chat_id"
+            match = {field: {"$in": int_ids}, **extra}
+            try:
+                for row in db[name].aggregate([{"$match": match}, {"$group": {"_id": f"${field}", "total": {"$sum": 1}}}]):
+                    target[int(row["_id"])] = int(row["total"])
+            except Exception:
+                LOGGER.debug("group summary aggregation failed for %s", name, exc_info=True)
+
+        def settings_for(chat_id):
+            document = documents.get(chat_id) or {}
+            values = {key: bool(document.get(key, SETTING_DEFAULTS.get(key, False))) for key in BOOL_SETTINGS}
+            for key, (low, high) in INT_SETTINGS.items():
+                try:
+                    value = int(document.get(key, INT_DEFAULTS.get(key, low)))
+                except (TypeError, ValueError):
+                    value = INT_DEFAULTS.get(key, low)
+                values[key] = max(low, min(value, high))
+            for key, allowed in ENUM_SETTINGS.items():
+                value = document.get(key)
+                values[key] = value if value in allowed else "del"
+            return values
+
         from concurrent.futures import ThreadPoolExecutor
+        bot_id = None
+        if getattr(config, "BOT_TOKEN", ""):
+            _, identity = _bot_api("getMe", {})
+            if identity and identity.get("ok"):
+                bot_id = (identity.get("result") or {}).get("id")
         def enrich(chat_id):
+            known = cached.get(chat_id) or {}
+            row = {
+                "id": chat_id,
+                "title": known.get("title") or f"Telegram chat {chat_id}",
+                "username": known.get("username"),
+                "type": known.get("type", "unknown"),
+                "members": known.get("members"),
+                "available": bool(known.get("available", False)),
+                "bot_admin": known.get("bot_admin"),
+            }
             if not getattr(config, "BOT_TOKEN", ""):
-                return {"id": chat_id, "title": f"Telegram chat {chat_id}", "type": "unknown", "members": None, "available": False}
+                return row
             _, chat = _bot_api("getChat", {"chat_id": chat_id})
-            _, members = _bot_api("getChatMemberCount", {"chat_id": chat_id})
             valid_chat = bool(chat and chat.get("ok"))
             result = chat.get("result", {}) if valid_chat else {}
-            return {
-                "id": chat_id,
-                "title": result.get("title") or result.get("username") or f"Telegram chat {chat_id}",
+            members = known.get("members")
+            bot_admin = known.get("bot_admin")
+            if valid_chat:
+                _, count = _bot_api("getChatMemberCount", {"chat_id": chat_id})
+                members = count.get("result") if count and count.get("ok") else members
+                # The bot's own administrator status decides whether any lock can
+                # be enforced, so it is read once and cached with the profile.
+                if bot_id:
+                    _, member = _bot_api("getChatMember", {"chat_id": chat_id, "user_id": bot_id})
+                    if member and member.get("ok"):
+                        status = str((member.get("result") or {}).get("status") or "")
+                        bot_admin = status in {"creator", "administrator"}
+            updated = {
+                "_id": chat_id,
+                "title": result.get("title") or result.get("username") or row["title"],
                 "username": result.get("username"),
-                "type": result.get("type", "unknown"),
-                "members": members.get("result") if members and members.get("ok") else None,
+                "type": result.get("type", row["type"]),
+                "members": members,
                 "available": valid_chat,
+                "bot_admin": bot_admin,
             }
-        with ThreadPoolExecutor(max_workers=8) as pool:
-            rows = list(pool.map(enrich, ids[:25]))
-        for row in rows:
-            try: row["settings"] = settings.get(int(row["id"]), {})
-            except (TypeError, ValueError): row["settings"] = {}
-        return jsonify({"ok": True, "chats": rows, "truncated": len(ids) > 25})
+            try:
+                db["mgmt_chat_info"].update_one({"_id": chat_id}, {"$set": updated}, upsert=True)
+            except Exception:
+                LOGGER.debug("chat info cache write failed", exc_info=True)
+            row.update({key: updated[key] for key in ("title", "username", "type", "members", "available", "bot_admin")})
+            return row
+
+        enrichable = [chat_id for chat_id in int_ids if not (cached.get(chat_id) or {}).get("available")][:25]
+        fresh = {}
+        if enrichable:
+            with ThreadPoolExecutor(max_workers=8) as pool:
+                fresh = {row["id"]: row for row in pool.map(enrich, enrichable)}
+        rows = []
+        for chat_id in int_ids:
+            row = fresh.get(chat_id) or {
+                "id": chat_id,
+                "title": (cached.get(chat_id) or {}).get("title") or f"Telegram chat {chat_id}",
+                "username": (cached.get(chat_id) or {}).get("username"),
+                "type": (cached.get(chat_id) or {}).get("type", "unknown"),
+                "members": (cached.get(chat_id) or {}).get("members"),
+                "available": bool((cached.get(chat_id) or {}).get("available", False)),
+                "bot_admin": (cached.get(chat_id) or {}).get("bot_admin"),
+            }
+            row = dict(row)
+            row["settings"] = settings_for(chat_id)
+            try:
+                # The token a panel sends back so it cannot overwrite a newer
+                # edit (see videl/utils/settings_store.py).
+                row["revision"] = max(0, int((documents.get(chat_id) or {}).get("revision") or 0))
+            except (TypeError, ValueError):
+                row["revision"] = 0
+            row["counts"] = {
+                "warns": warns_by_chat.get(chat_id, 0),
+                "notes": notes_by_chat.get(chat_id, 0),
+                "blacklist": blacklist_by_chat.get(chat_id, 0),
+                "approved": approved_by_chat.get(chat_id, 0),
+                "pending_joins": pending_by_chat.get(chat_id, 0),
+                "reports": reports_by_chat.get(chat_id, 0),
+            }
+            row["warn_limit"] = row["settings"]["warn_threshold"]
+            row["explicit"] = {key: value for key, value in (documents.get(chat_id) or {}).items()
+                               if key in BOOL_SETTINGS and type(value) is bool}
+            row["automation"] = normalize_automation((documents.get(chat_id) or {}).get("automation"))
+            row["health"] = evaluate_health(row)
+            rows.append(row)
+        summary = summarize_health(rows)
+        # The totals in `summary` describe this page. `total` is the fleet, so a
+        # caller can say "showing 200 of 743" instead of implying it has them all.
+        summary["scope"] = "page"
+        return jsonify({"ok": True, "chats": rows, "summary": summary,
+                        "total": total, "returned": len(rows), "offset": start,
+                        "has_more": has_more, "next_cursor": next_cursor,
+                        # Kept for a panel build that predates paging.
+                        "truncated": has_more})
     except Exception:
         LOGGER.exception("internal group list query failed")
         return jsonify({"ok": False, "error": "group query failed"}), 503
+
+
+@_flask.route("/internal/chat/<int(signed=True):chat_id>", methods=["GET", "POST"])
+def _internal_chat_detail(chat_id):
+    if not _internal_authorized():
+        return jsonify({"ok": False, "error": "unauthorized"}), 403
+    try:
+        from videl.utils.db import get_db
+        from videl.utils.group_view import GroupView, ViewError
+        db = get_db()
+        if db is None:
+            return jsonify({"ok": False, "error": "MongoDB is not connected"}), 503
+        view = GroupView(db, _bot_api)
+        if request.method == "GET":
+            return jsonify(view.describe(chat_id))
+        body = request.get_json(silent=True)
+        if not isinstance(body, dict):
+            return jsonify({"ok": False, "error": "A JSON object is required"}), 400
+        payload = dict(body)
+        payload["chat_id"] = chat_id
+        return jsonify(view.act(payload))
+    except ViewError as error:
+        answer = {"ok": False, "error": str(error)}
+        # A stale edit is not a generic failure: tell the panel which revision
+        # to reload from so it can show the current values and let the owner retry.
+        if getattr(error, "conflict", False):
+            answer["conflict"] = True
+            answer["revision"] = getattr(error, "revision", None)
+        return jsonify(answer), error.status
+    except Exception:
+        LOGGER.exception("internal group detail failed")
+        return jsonify({"ok": False, "error": "group detail request failed"}), 503
+
+
+@_flask.route("/internal/chat/<int(signed=True):chat_id>/audit")
+def _internal_chat_audit(chat_id):
+    """Paginated change history for one group."""
+    if not _internal_authorized():
+        return jsonify({"ok": False, "error": "unauthorized"}), 403
+    try:
+        from videl.utils.db import get_db
+        from videl.utils.group_view import GroupView, ViewError
+        db = get_db()
+        if db is None:
+            return jsonify({"ok": False, "error": "MongoDB is not connected"}), 503
+        kind = request.args.get("kind")
+        search = (request.args.get("q") or "").strip()[:60] or None
+        raw_actor = (request.args.get("actor") or "").strip()
+        actor = None
+        if raw_actor:
+            try:
+                actor = int(raw_actor)
+            except ValueError:
+                return jsonify({"ok": False, "error": "actor must be a Telegram user id"}), 400
+            if actor <= 0:
+                return jsonify({"ok": False, "error": "actor must be a Telegram user id"}), 400
+        raw_limit = request.args.get("limit", "40")
+        before = None
+        before_id = request.args.get("before_id") or None
+        if before_id:
+            from videl.utils.audit import object_id
+            if object_id(before_id) is None:
+                return jsonify({"ok": False, "error": "before_id must be an audit row id"}), 400
+        stamp = request.args.get("before")
+        if stamp:
+            from datetime import datetime
+            try:
+                before = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+            except ValueError:
+                return jsonify({"ok": False, "error": "before must be an ISO timestamp"}), 400
+        try:
+            limit = max(1, min(int(raw_limit), 100))
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "limit must be a number"}), 400
+        return jsonify(GroupView(db, _bot_api).events(
+            chat_id, limit=limit, kind=kind, before=before, before_id=before_id,
+            query=search, actor=actor))
+    except ViewError as error:
+        return jsonify({"ok": False, "error": str(error)}), error.status
+    except Exception:
+        LOGGER.exception("internal audit query failed")
+        return jsonify({"ok": False, "error": "audit query failed"}), 503
+
+
+@_flask.route("/internal/chat/<int(signed=True):chat_id>/backup")
+def _internal_chat_backup(chat_id):
+    """Portable configuration export: locks, automation, blacklist, commands."""
+    if not _internal_authorized():
+        return jsonify({"ok": False, "error": "unauthorized"}), 403
+    try:
+        from videl.utils.db import get_db
+        from videl.utils.group_view import GroupView, ViewError
+        db = get_db()
+        if db is None:
+            return jsonify({"ok": False, "error": "MongoDB is not connected"}), 503
+        return jsonify(GroupView(db, _bot_api).export_group(chat_id))
+    except ViewError as error:
+        return jsonify({"ok": False, "error": str(error)}), error.status
+    except Exception:
+        LOGGER.exception("internal backup export failed")
+        return jsonify({"ok": False, "error": "backup export failed"}), 503
+
+
+@_flask.route("/internal/federation", methods=["GET"])
+def _internal_federation_list():
+    if not _internal_authorized():
+        return jsonify({"ok": False, "error": "unauthorized"}), 403
+    from videl.utils.db import get_db
+    from videl.utils.federation_view import overview
+    db = get_db()
+    if db is None:
+        return jsonify({"ok": False, "error": "MongoDB is not connected"}), 503
+    return jsonify(overview(db))
+
+
+@_flask.route("/internal/federation/<fed_id>", methods=["GET", "POST"])
+def _internal_federation_detail(fed_id):
+    if not _internal_authorized():
+        return jsonify({"ok": False, "error": "unauthorized"}), 403
+    import re
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,32}", str(fed_id)):
+        return jsonify({"ok": False, "error": "Invalid federation ID"}), 400
+    from videl.utils.db import get_db
+    from videl.utils.federation_view import detail, unban
+    db = get_db()
+    if db is None:
+        return jsonify({"ok": False, "error": "MongoDB is not connected"}), 503
+    if request.method == "GET":
+        try:
+            return jsonify(detail(db, fed_id))
+        except LookupError as error:
+            return jsonify({"ok": False, "error": str(error)}), 404
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or body.get("action") != "unban":
+        return jsonify({"ok": False, "error": "The only federation write here is action=unban"}), 400
+    try:
+        user_id = int(body.get("user_id"))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "error": "A numeric user_id is required"}), 400
+    outcome = unban(db, fed_id, user_id)
+    LOGGER.info("federation %s: owner lifted the ban on %s", fed_id, user_id)
+    return jsonify(outcome)
+
+
+@_flask.route("/internal/chats/bulk", methods=["POST"])
+def _internal_chats_bulk():
+    if not _internal_authorized():
+        return jsonify({"ok": False, "error": "unauthorized"}), 403
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify({"ok": False, "error": "A JSON object is required"}), 400
+    chat_ids = body.get("chat_ids")
+    if not isinstance(chat_ids, list) or not chat_ids or len(chat_ids) > 15:
+        return jsonify({"ok": False, "error": "Choose between 1 and 15 groups for a bulk change"}), 400
+    action = body.get("action")
+    if action not in {"preset", "settings"}:
+        return jsonify({"ok": False, "error": "Bulk changes support presets and protection settings"}), 400
+    try:
+        from videl.utils.db import get_db
+        from videl.utils.group_view import GroupView, ViewError
+        db = get_db()
+        if db is None:
+            return jsonify({"ok": False, "error": "MongoDB is not connected"}), 503
+        view = GroupView(db, _bot_api)
+        results = []
+        for raw in chat_ids:
+            try:
+                chat_id = int(raw)
+            except (TypeError, ValueError):
+                results.append({"chat_id": raw, "ok": False, "error": "chat_id must be an integer"})
+                continue
+            payload = {"chat_id": chat_id, "action": action, "preset": body.get("preset"), "settings": body.get("settings")}
+            try:
+                outcome = view.act(payload, source="bulk")
+                results.append({"chat_id": chat_id, "ok": True, "applied": outcome.get("preset") or "settings"})
+            except ViewError as error:
+                results.append({"chat_id": chat_id, "ok": False, "error": str(error)})
+        return jsonify({"ok": True, "results": results, "updated": sum(1 for item in results if item["ok"])})
+    except Exception:
+        LOGGER.exception("internal bulk group update failed")
+        return jsonify({"ok": False, "error": "bulk update failed"}), 503
+
 
 @_flask.route("/internal/analytics")
 def _internal_analytics():
@@ -446,9 +972,9 @@ def _internal_chat_settings():
     try:
         chat_id = int(body.get("chat_id"))
         settings = body.get("settings")
-        allowed = {"lock_links", "lock_media", "lock_stickers", "antispam", "lock_forwards", "welcome_enabled"}
-        if not isinstance(settings, dict) or not settings or set(settings) - allowed or any(not isinstance(v, bool) for v in settings.values()):
-            return jsonify({"ok": False, "error": "Only boolean protection and automation settings may be changed"}), 400
+        from videl.utils.group_view import PROTECTION
+        if not isinstance(settings, dict) or not settings or set(settings) - PROTECTION or any(type(value) is not bool for value in settings.values()):
+            return jsonify({"ok": False, "error": "Only supported boolean protection and automation settings may be changed"}), 400
         from videl.utils.db import get_db
         db = get_db()
         if db is None:
@@ -457,8 +983,16 @@ def _internal_chat_settings():
             return jsonify({"ok": False, "error": "Chat is not in Videl's served group list"}), 404
         from videl.utils.group_view import GroupView,ViewError
         try:
-            return jsonify(GroupView(db,_bot_api).act({'chat_id':chat_id,'action':'protect','settings':settings}))
-        except ViewError as error:return jsonify({'ok':False,'error':str(error)}),error.status
+            payload={'chat_id':chat_id,'action':'protect','settings':settings}
+            # Optional: a panel that read a revision gets the conflict check.
+            if 'revision' in body:payload['revision']=body.get('revision')
+            return jsonify(GroupView(db,_bot_api).act(payload))
+        except ViewError as error:
+            answer={'ok':False,'error':str(error)}
+            if getattr(error,'conflict',False):
+                answer['conflict']=True
+                answer['revision']=getattr(error,'revision',None)
+            return jsonify(answer),error.status
     except (TypeError, ValueError):
         return jsonify({"ok": False, "error": "chat_id must be an integer"}), 400
     except Exception:
@@ -612,7 +1146,7 @@ if __name__ == "__main__":
         from videl.utils.logger import log_startup, log_shutdown, log_error, setup_async_error_handler
 
         loop = asyncio.get_running_loop()
-        global _BOT_LOOP, _BOT_STATUS
+        global _BOT_LOOP, _BOT_STATUS, _BOT_ERROR, _BOT_ONLINE_AT
         _BOT_LOOP = loop
         setup_async_error_handler(bot, loop)
 
@@ -634,24 +1168,57 @@ if __name__ == "__main__":
         except Exception:
             pass  # not in main thread on some runners
 
-        # Start bot
-        try:
-            await bot.start()
-        except Exception as e:
-            _BOT_STATUS = "failed"
-            LOGGER.error(f"bot.start fail: {e}")
-            try:
-                await log_error(bot, "bot.start", e, "startup")
-            except: pass
-            # keep Flask backend alive even if the bot client fails
-            LOGGER.info("Bot failed — health and backend API remain available")
-            while True:
-                await asyncio.sleep(3600)
-            return
+        # Start the bot, retrying. A failed start delivered nothing, so trying
+        # again is safe; what is not safe is giving up and waiting for a human.
+        from videl.utils import boot as boot_policy
+        from videl.utils.alerts import notify
 
-        me = await bot.get_me()
+        global _BOT_ATTEMPTS
+        previous_kind = None
+        while True:
+            _BOT_ATTEMPTS += 1
+            try:
+                await bot.start()
+                me = await bot.get_me()
+                break
+            except Exception as e:
+                kind = boot_policy.classify(e)
+                delay = boot_policy.retry_delay(_BOT_ATTEMPTS, kind)
+                _BOT_STATUS = "failed"
+                _BOT_ERROR = _health_text(e) or type(e).__name__
+                LOGGER.error("bot.start attempt %s failed (%s): %s — retrying in %ss",
+                             _BOT_ATTEMPTS, kind, e, delay)
+                try:
+                    await log_error(bot, "bot.start", e, "startup")
+                except Exception:
+                    pass
+                if boot_policy.should_alert(_BOT_ATTEMPTS, kind, previous_kind):
+                    await asyncio.to_thread(
+                        notify,
+                        f"The bot could not start: <code>{_BOT_ERROR}</code>\n"
+                        f"{boot_policy.describe(kind)}. The panel and API stay up.",
+                        title="Bot start failed",
+                    )
+                previous_kind = kind
+                # A half-open client would make the next attempt misleading.
+                try:
+                    await bot.stop()
+                except Exception:
+                    pass
+                await asyncio.sleep(delay)
+
         _BOT_STATUS = "online"
-        LOGGER.info(f"Bot @{me.username} started")
+        _BOT_ERROR = ""
+        _BOT_ONLINE_AT = int(time.time())
+        if _BOT_ATTEMPTS > 1:
+            LOGGER.info("Bot @%s started after %s attempts", me.username, _BOT_ATTEMPTS)
+            await asyncio.to_thread(
+                notify,
+                f"Bot @{me.username} is back online after {_BOT_ATTEMPTS} start attempts.",
+                title="Bot recovered",
+            )
+        else:
+            LOGGER.info(f"Bot @{me.username} started")
 
         # assistant (userbot) optional
         assistant_username = ""
@@ -716,7 +1283,7 @@ if __name__ == "__main__":
         start_watchdog()
 
         try:
-            from videl.plugins.runtime import restore_pending_reminders
+            from videl.plugins.reminder import restore_pending_reminders
             restored = await restore_pending_reminders()
             LOGGER.info("Restored %s pending MongoDB reminders", restored)
         except Exception:

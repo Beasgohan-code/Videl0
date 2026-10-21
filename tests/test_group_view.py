@@ -34,6 +34,8 @@ class GroupViewerTests(unittest.TestCase):
         elif method=='getChatMember':result=self.actor if payload['user_id']==view.OWNER_ID else self.bot_member if payload['user_id']==777 else self.target
         elif method=='getChat':result={'permissions':{'can_send_messages':True,'can_send_photos':False}}
         elif method=='sendMessage':result={'message_id':50,'date':int(view.now().timestamp())}
+        elif method=='sendPoll':result={'message_id':60}
+        elif method=='setMessageReaction':result=True
         else:result=True
         return 200,{'ok':True,'result':result}
 
@@ -127,6 +129,122 @@ class GroupViewerTests(unittest.TestCase):
         self.assertIs(result['rich_text'],True)
         self.assertIn('rich_text',result)
 
+    def test_captured_entities_become_safe_html(self):
+        text="Hwy hu h hhhh \U0001F451"
+        index=text.index("\U0001F451")
+        entities=[NS(type=NS(name="BOLD"),offset=0,length=3),
+            NS(type=NS(name="ITALIC"),offset=0,length=8),
+            NS(type=NS(name="CUSTOM_EMOJI"),offset=index,length=2,custom_emoji_id=5042225965518816316),
+            NS(type=NS(name="TEXT_LINK"),offset=4,length=5,url="https://example.com"),
+            NS(type=NS(name="TEXT_LINK"),offset=0,length=3,url="javascript:alert(1)"),
+            NS(type=NS(name="CODE"),offset=1,length=2)]
+        html,used=view.entities_html(text,entities)
+        self.assertTrue(used)
+        # Telegram forbids code sharing characters with bold, so the normalizer
+        # closes the bold run around the code span instead of emitting bad nesting.
+        self.assertEqual(html,'<i><b>H</b></i><code>wy</code><i> hu h</i> hhhh <tg-emoji emoji-id="5042225965518816316">\U0001F451</tg-emoji>')
+        self.assertNotIn('javascript',html)
+        # An emoji plus its variation selector spans one visible character.
+        html,used=view.entities_html("\U0001F44D\U0001F3FD",[NS(type=NS(name="CUSTOM_EMOJI"),offset=0,length=4,custom_emoji_id=5368324170671202286)])
+        self.assertTrue(used);self.assertIn('<tg-emoji emoji-id="5368324170671202286">',html)
+        self.assertEqual(view.entities_html("plain text",[])[1],False)
+
+    def test_snapshot_marks_formatting_for_rendering(self):
+        msg=NS(chat=NS(id=CID,type=ChatType.SUPERGROUP),id=77,date=view.now(),text="Bold",
+            entities=[NS(type=NS(name="BOLD"),offset=0,length=4)],caption=None,
+            from_user=NS(id=123,first_name="A",username="a",is_bot=False),reply_to_message=None,message_thread_id=None,
+            photo=None,video=None,document=None,audio=None,voice=None,sticker=None,animation=None,video_note=None,poll=None,edit_date=None)
+        item=view.snapshot(msg)
+        self.assertEqual(item["text"],"<b>Bold</b>");self.assertTrue(item["rich"])
+        self.assertFalse(view.snapshot(NS(**{**msg.__dict__,"text":"plain","entities":[]}))["rich"])
+
+    def test_bot_replies_are_stored_as_rich_and_polls_marked(self):
+        self.db["group_view_settings"].insert_one({"_id":CID,"enabled":True,"epoch":"e","enabled_at":view.now()-timedelta(minutes=5),"retention_days":7})
+        self.action("send",text="<b>Hello</b> <tg-emoji emoji-id=\"5368324170671202286\">\U0001F44D</tg-emoji>")
+        doc=self.db["group_view_messages"].find_one({"message_id":50})
+        self.assertTrue(doc["rich"]);self.assertIn("<b>Hello</b>",doc["text"])
+
+    def test_nested_formatting_is_normalized_for_telegram(self):
+        # code/pre may not share characters with bold/italic/underline/spoiler.
+        self.assertEqual(view.rich_text('Hwy <u>hu<code>h<tg-spoiler>hhhh</tg-spoiler></code></u>',4096),
+                         ('Hwy <u>hu</u><code>hhhhh</code>',True))
+        self.assertEqual(view.rich_text('<b>bold <i>both</b> italic</i>',4096),
+                         ('<b>bold <i>both</i></b> italic',True))
+        self.assertEqual(view.rich_text('<u>hu<code>h</code> more</u>',4096),
+                         ('<u>hu</u><code>h</code><u> more</u>',True))
+        self.assertEqual(view.rich_text('<b><b>double</b></b>',4096),('<b>double</b>',True))
+        self.assertEqual(view.rich_text('<script>alert(1)</script>',100),('alert(1)',False))
+        self.assertEqual(view.rich_text('<p>one</p><p>two</p>',100),('one\ntwo',False))
+
+    def test_rich_send_retries_plain_only_after_explicit_entity_rejection(self):
+        original=self.telegram
+        calls=[];rejected=False
+        def reject_once(method,payload):
+            nonlocal rejected
+            calls.append(payload)
+            if method=='sendMessage' and not rejected:
+                rejected=True
+                return 400,{'ok':False,'description':"Bad Request: can't parse entities: nested tag"}
+            return original(method,payload)
+        self.api.side_effect=reject_once
+        result=self.action('reply',text='<u>hu<code>h</code></u>')
+        self.assertTrue(result['ok'])
+        self.assertIn('plain text',result['warning'])
+        sent=[c for c in calls if c.get('text','').startswith(('hu','<u>'))]
+        self.assertEqual(sent[0]['parse_mode'],'HTML')
+        self.assertNotIn('parse_mode',sent[-1]);self.assertEqual(sent[-1]['text'],'hu h'.replace(' ',''))
+
+    def test_forward_requires_a_second_known_chat(self):
+        self.db['served_chats'].insert_one({'_id':-100123457})
+        self.db['group_view_settings'].insert_one({'_id':CID,'enabled':True,'epoch':'e','enabled_at':view.now()-timedelta(minutes=5),'retention_days':7})
+        result=self.service.act({'chat_id':CID,'message_id':25,'action':'forward','to_chat_id':-100123457,'request_id':str(uuid.uuid4())})
+        self.assertTrue(result['ok'])
+        sent=next(call.args[1] for call in self.api.call_args_list if call.args[0]=='forwardMessage')
+        self.assertEqual(sent,{'chat_id':-100123457,'from_chat_id':CID,'message_id':25})
+        with self.assertRaises(view.ViewError):self.service.act({'chat_id':CID,'message_id':25,'action':'forward','to_chat_id':CID,'request_id':str(uuid.uuid4())})
+        with self.assertRaises(view.ViewError):self.service.act({'chat_id':CID,'message_id':25,'action':'forward','to_chat_id':-100999999,'request_id':str(uuid.uuid4())})
+
+    def test_chat_photo_is_resolved_through_telegram(self):
+        original=self.telegram
+        def telegram(method,payload):
+            if method=='getChat':return 200,{'ok':True,'result':{'photo':{'small_file_id':'photo-file-id'}}}
+            if method=='getFile':return 200,{'ok':True,'result':{'file_path':'photos/file_1.jpg'}}
+            return original(method,payload)
+        self.api.side_effect=telegram
+        # photo() imports the cached downloader lazily from premium_emoji.
+        with patch('videl.utils.premium_emoji.fetch_file',return_value=('image/jpeg',b'jpeg')) as fetch:
+            mime,payload=self.service.photo(CID)
+        self.assertEqual((mime,payload),('image/jpeg',b'jpeg'))
+        fetch.assert_called_once_with(self.api,'photo-file-id')
+
+    def test_reaction_action_is_scoped_to_a_recorded_message(self):
+        result=self.action('react',emoji='🔥')
+        self.assertTrue(result['ok']);self.assertEqual(result['reaction'],'🔥')
+        sent=next(call.args[1] for call in self.api.call_args_list if call.args[0]=='setMessageReaction')
+        self.assertEqual(sent['message_id'],25);self.deep_equal_reaction(sent['reaction'])
+        doc=self.db['group_view_messages'].find_one({'message_id':25})
+        self.assertEqual(doc['bot_reaction'],'🔥')
+        with self.assertRaises(view.ViewError):self.action('react',emoji='🦄')
+        with self.assertRaises(view.ViewError):self.service.act({'chat_id':CID,'message_id':999,'action':'react','emoji':'🔥','request_id':str(uuid.uuid4())})
+
+    def deep_equal_reaction(self,reaction):
+        self.assertEqual(reaction,[{'type':'emoji','emoji':'🔥'}])
+
+    def test_poll_action_validates_and_stores_the_sent_poll(self):
+        self.db['group_view_settings'].insert_one({'_id':CID,'enabled':True,'epoch':'e','enabled_at':view.now()-timedelta(minutes=5),'retention_days':7})
+        result=self.service.act({'chat_id':CID,'action':'poll','question':'Ship it?','options':['Yes','No','Later'],
+            'anonymous':True,'multiple':False,'request_id':str(uuid.uuid4())})
+        self.assertTrue(result['ok']);self.assertEqual(result['message_id'],60)
+        sent=next(call.args[1] for call in self.api.call_args_list if call.args[0]=='sendPoll')
+        self.assertEqual(sent['options'],['Yes','No','Later']);self.assertTrue(sent['is_anonymous']);self.assertFalse(sent['allows_multiple_answers'])
+        doc=self.db['group_view_messages'].find_one({'message_id':60})
+        self.assertEqual(doc['poll']['options'],['Yes','No','Later']);self.assertEqual(doc['media']['kind'],'poll')
+        for options in [['one'],['x']*11,['ok','']]:
+            with self.assertRaises(view.ViewError):
+                self.service.act({'chat_id':CID,'action':'poll','question':'Q','options':options,'request_id':str(uuid.uuid4())})
+        with self.assertRaises(view.ViewError):
+            self.service.act({'chat_id':CID,'action':'poll','question':'','options':['a','b'],'request_id':str(uuid.uuid4())})
+
     def test_admin_and_bot_specific_rights_both_required(self):
         self.actor['can_delete_messages']=False
         with self.assertRaises(view.ViewError):self.action('delete')
@@ -162,10 +280,10 @@ class GroupViewerTests(unittest.TestCase):
         self.assertIn('<tg-emoji emoji-id="5368324170671202286">🔥</tg-emoji>',sent['text'])
         self.assertIn('<b>Launch</b>',sent['text'])
         self.assertNotIn('onclick',sent['text']);self.assertNotIn('javascript:',sent['text'])
-        self.assertIn('&lt;script&gt;',view.rich_text('&lt;script&gt; <i>safe</i>',100)[0])
-        # Telegram HTML has no <span>; it must never be forwarded as markup.
+        # Unknown/editor-only tags are dropped but their text is preserved.
         self.assertEqual(view.rich_text('<span data-spoiler="true">note</span> <i>safe</i>',100)[0],
-                         '&lt;span data-spoiler=&quot;true&quot;&gt;note&lt;/span&gt; <i>safe</i>')
+                         'note <i>safe</i>')
+        self.assertEqual(view.rich_text('<script>alert(1)</script>',100),('alert(1)',False))
 
     def test_invalid_premium_emoji_id_is_rejected(self):
         for bad in ['<tg-emoji emoji-id="abc">🔥</tg-emoji>','<tg-emoji>🔥</tg-emoji>']:

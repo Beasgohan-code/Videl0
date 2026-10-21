@@ -7,12 +7,15 @@ export const sections = [
   "chat",
   "post",
   "tools",
+  "guide",
   "groups",
+  "federations",
   "automation",
   "analytics",
   "broadcast",
   "settings",
   "auth",
+  "arcade",
 ] as const;
 export type Section = (typeof sections)[number];
 const legacy: Record<string, Section> = {
@@ -22,12 +25,17 @@ const legacy: Record<string, Section> = {
   "/chat": "chat",
   "/dashboard/channel": "post",
   "/post": "post",
+  "/help": "guide",
+  "/guide": "guide",
   "/groups": "groups",
+  "/federations": "federations",
   "/automation": "automation",
   "/analytics": "analytics",
   "/broadcast": "broadcast",
   "/settings": "settings",
   "/auth": "auth",
+  "/arcade": "arcade",
+  "/play": "arcade",
 };
 const StudioContext = createContext<{
   tab: Section;
@@ -41,8 +49,11 @@ export function StudioProvider({ children }: { children: React.ReactNode }) {
   const [selectedGroup, selectGroup] = useState<number|null>(null);
   const safeTab = canOpenSection(tab, authenticated) ? tab : "home";
   useEffect(() => {
-    const initial = new URLSearchParams(window.location.search).get("tab");
+    const params = new URLSearchParams(window.location.search);
+    const initial = params.get("tab");
     if (sections.includes(initial as Section)) setTab(initial as Section);
+    // A shared command link keeps working after the tab parameter is stripped.
+    else if (params.get("cmd")) setTab("guide");
     // Deep links choose a panel, but the workspace itself always stays at the root URL.
     if (initial) {
       const url = new URL(window.location.href);

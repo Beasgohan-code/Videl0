@@ -1,37 +1,61 @@
 import { ownerRequired } from "@/lib/auth";
-import { backendUrl, internalSecret, unavailableBackend } from "@/lib/backend";
+import { callBackend } from "@/lib/backend";
+import { groupError, isSettingPatch, parseChatId } from "@/lib/group-backend";
 
 export const dynamic = "force-dynamic";
 
+/** The served-group list, with settings, warning totals and cached profile data. */
 export async function GET(req: Request) {
   const denied = ownerRequired(req);
   if (denied) return denied;
-  const backend = backendUrl(); const secret = internalSecret();
-  if (!backend || !secret) return unavailableBackend();
-  try {
-    const response = await fetch(`${backend}/internal/chats`, { headers: { "X-Videl-Internal": secret }, cache: "no-store", signal: AbortSignal.timeout(12000) });
-    const payload = await response.json();
-    if (!response.ok || !payload.ok) return Response.json({ ok: false, error: payload.error || "Group list unavailable" }, { status: response.status || 503 });
-    return Response.json(payload, { headers: { "Cache-Control": "no-store" } });
-  } catch {
-    return Response.json({ ok: false, error: "Videl backend is unreachable" }, { status: 503 });
-  }
+  // Paging is the backend's contract; forward exactly the two parameters it
+  // understands and drop anything else, so a typo cannot silently change pages.
+  const url = new URL(req.url);
+  const query = new URLSearchParams();
+  const limit = url.searchParams.get("limit");
+  if (limit && /^[0-9]{1,4}$/.test(limit)) query.set("limit", limit);
+  const cursor = url.searchParams.get("cursor");
+  if (cursor && /^-?[0-9]{1,20}$/.test(cursor)) query.set("cursor", cursor);
+  const path = query.toString() ? `/internal/chats?${query.toString()}` : "/internal/chats";
+  const result = await callBackend(path, {}, { timeoutMs: 20000, attempts: 2 });
+  if (!result.ok) return groupError(result);
+  return Response.json(result.payload, { headers: { "Cache-Control": "no-store" } });
 }
 
+/**
+ * Protection toggles.
+ *
+ * This stays on `/internal/chat-settings` so the original six locks keep
+ * working against a backend that has not been redeployed yet; newer locks are
+ * accepted by the same route once the updated Flask build is live.
+ */
 export async function POST(req: Request) {
   const denied = ownerRequired(req);
   if (denied) return denied;
-  const backend = backendUrl(); const secret = internalSecret();
-  if (!backend || !secret) return unavailableBackend();
   const body = await req.json().catch(() => null);
-  const chatId = Number(body?.chat_id);
-  const settings = body?.settings;
-  if (!Number.isSafeInteger(chatId) || !settings || typeof settings !== "object" || Array.isArray(settings)) return Response.json({ ok: false, error: "Invalid group settings request" }, { status: 400 });
-  try {
-    const response = await fetch(`${backend}/internal/chat-settings`, { method: "POST", headers: { "Content-Type": "application/json", "X-Videl-Internal": secret }, body: JSON.stringify({ chat_id: chatId, settings }), cache: "no-store", signal: AbortSignal.timeout(5000) });
-    const payload = await response.json();
-    return Response.json(payload, { status: response.status, headers: { "Cache-Control": "no-store" } });
-  } catch {
-    return Response.json({ ok: false, error: "Videl backend is unreachable" }, { status: 503 });
-  }
+  const chatId = parseChatId((body as { chat_id?: unknown } | null)?.chat_id);
+  const settings = (body as { settings?: unknown } | null)?.settings;
+  if (chatId === null || !isSettingPatch(settings))
+    return Response.json({ ok: false, error: "Invalid group settings request" }, { status: 400 });
+  // Optional: the revision the panel read. Forwarded only when it is sane, so
+  // a newer panel can avoid overwriting a concurrent edit and an older one
+  // still saves exactly as before.
+  const revision = (body as { revision?: unknown } | null)?.revision;
+  const known =
+    typeof revision === "number" && Number.isInteger(revision) && revision >= 0 ? revision : undefined;
+  const result = await callBackend(
+    "/internal/chat-settings",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        settings,
+        ...(known === undefined ? {} : { revision: known }),
+      }),
+    },
+    { timeoutMs: 15000, attempts: 2 },
+  );
+  if (!result.ok) return groupError(result);
+  return Response.json(result.payload, { headers: { "Cache-Control": "no-store" } });
 }

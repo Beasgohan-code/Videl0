@@ -12,7 +12,7 @@ def install(client):
     if client in _installed:return _installed[client]
     # The registry, not import order or several overlapping decorators, owns these names.
     message=MessageHandler(router.dispatch,filters.command(list(router.commands)))
-    callback=CallbackQueryHandler(navigate,filters.regex(r'^(?:v2:setup|v2:section:(?:home|music|manage|protect|tools)|guide:(?:home|music|manage|protect|tools)|cmds:(?:all|music|manage|tools|owner):[0-9]{1,4}|pro_plugins_[0-9]+|pro_music_help|pro_group_help)$'))
+    callback=CallbackQueryHandler(navigate,filters.regex(r'^(?:v2:setup|v2:section:(?:home|music|manage|protect|tools)|help:(?:home|about|music|manage|tools|owner|start)(?::[0-9]{1,3})?|cmds:(?:all|music|manage|tools|owner):[0-9]{1,4}|pro_plugins_[0-9]+|pro_music_help|pro_group_help)$'))
     # Record each successfully registered handler for rollback on partial failure.
     registered=[]
     try:

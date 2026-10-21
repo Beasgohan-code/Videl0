@@ -5,6 +5,7 @@
 
 import logging
 import os
+from datetime import datetime, timezone
 from typing import Optional
 
 from pymongo import MongoClient
@@ -48,6 +49,7 @@ def start_mongo() -> bool:
         except Exception:
             pass
         _db = _client[db_name]
+        ensure_indexes(_db)
         logger.info(f"◍ ᴍᴏɴɢᴏ — ᴄᴏɴɴᴇᴄᴛᴇᴅ (db={db_name}) ◍")
         return True
 
@@ -62,6 +64,50 @@ def start_mongo() -> bool:
         _client = None
         _db = None
         return False
+
+
+# ── Indexes ───────────────────────────────────────────────────────────────────
+# The panel reads one document per served group; without these, every group is
+# a collection scan and the fleet view gets slower as the bot is added to more
+# chats. Creation is idempotent, quiet and safe to call on every boot.
+
+INDEX_SPECS = {
+    "mgmt_chat_settings": [([("chat_id", 1)], {})],
+    "mgmt_warnings": [([("chat_id", 1), ("user_id", 1)], {})],
+    "mgmt_join_requests": [([("chat_id", 1), ("status", 1)], {})],
+    "mgmt_reports": [([("chat_id", 1), ("status", 1)], {})],
+    "mgmt_notes": [([("chat_id", 1)], {})],
+    "mgmt_filters": [([("chat_id", 1)], {})],
+    "blacklist": [([("chat", 1), ("trigger", 1)], {})],
+    "approved": [([("chat", 1), ("user", 1)], {})],
+    "disabled_cmds": [([("chat", 1), ("cmd", 1)], {})],
+    "backups": [([("chat", 1), ("time", -1)], {})],
+    "scheduled_posts": [([("owner_id", 1), ("status", 1), ("due_at", 1)], {})],
+    "studio_library": [([("owner_id", 1), ("key", 1)], {"unique": True})],
+    # Arcade: one document per room, one per event. The manager reads admins by
+    # user, and players by rating.
+    "game_rooms": [([("visibility", 1), ("status", 1), ("updated_at", -1)], {}),
+                   ([("seats.user", 1), ("status", 1)], {})],
+    "game_events": [([("room", 1), ("seq", 1)], {"unique": True}),
+                    ([("expires_at", 1)], {"expireAfterSeconds": 0})],
+    "players": [([("stats.connect4.rating", -1)], {})],
+    "chat_admins": [([("user", 1)], {}), ([("chat", 1)], {})],
+}
+
+
+def ensure_indexes(db=None) -> dict:
+    """Create the query indexes once per process. Failures are not fatal."""
+    database = db if db is not None else _db
+    if database is None:
+        return {}
+    created = {}
+    for name, specs in INDEX_SPECS.items():
+        for keys, options in specs:
+            try:
+                created[f"{name}:{'+'.join(key for key, _ in keys)}"] = database[name].create_index(keys, **options)
+            except Exception:
+                logger.debug("[indexes] %s was left as-is", name, exc_info=True)
+    return created
 
 
 def get_db():
@@ -605,45 +651,106 @@ def get_nsfw_approved_users(chat_id: int) -> list:
 
 
 # ── Warns (per-chat) ───────────────────────────────────────────────────────────
+# ``mgmt_warnings`` is the collection /warn writes and
+# ``mgmt_chat_settings.warn_threshold`` is the limit it enforces. These helpers
+# used to read a parallel store (``warns`` / ``chat_settings``), so the webapp
+# could report a different limit from the one the bot applied.
+WARN_COLLECTION = "mgmt_warnings"
+SETTINGS_COLLECTION = "mgmt_chat_settings"
+
 
 def add_warn(chat_id: int, user_id: int, reason: str = "") -> int:
-    """Add a warn and return new total count for this user in the chat."""
-    col = _col("warns")
+    """Add a warn to the store /warn uses and return the new total."""
+    col = _col(WARN_COLLECTION)
     if col is None:
         return 0
     try:
+        document = col.find_one({"chat_id": chat_id, "user_id": user_id}) or {}
+        count = int(document.get("count", 0)) + 1
         col.update_one(
             {"chat_id": chat_id, "user_id": user_id},
             {
-                "$inc": {"count": 1},
-                "$push": {"reasons": reason or "No reason"},
+                "$set": {"count": count, "updated": datetime.now(timezone.utc)},
+                "$push": {"reasons": {"reason": reason or "No reason", "ts": datetime.now(timezone.utc).isoformat()}},
                 "$setOnInsert": {"chat_id": chat_id, "user_id": user_id},
             },
             upsert=True,
         )
-        doc = col.find_one({"chat_id": chat_id, "user_id": user_id})
-        return int(doc.get("count", 0)) if doc else 1
+        return count
     except Exception as e:
         logger.error(f"[DB] add_warn: {e}")
         return 0
 
 
+def warn_reason_text(item) -> str:
+    """Reasons are stored as {reason, ts} by /warn; older rows are plain text."""
+    if isinstance(item, dict):
+        return str(item.get("reason") or "")
+    return str(item or "")
+
+
 def get_warns(chat_id: int, user_id: int) -> dict:
-    col = _col("warns")
+    col = _col(WARN_COLLECTION)
     if col is None:
         return {"count": 0, "reasons": []}
     try:
         doc = col.find_one({"chat_id": chat_id, "user_id": user_id})
         if not doc:
             return {"count": 0, "reasons": []}
-        return {"count": int(doc.get("count", 0)), "reasons": list(doc.get("reasons", []))}
+        return {
+            "count": int(doc.get("count", 0)),
+            "reasons": [warn_reason_text(item) for item in doc.get("reasons", [])],
+        }
     except Exception as e:
         logger.error(f"[DB] get_warns: {e}")
         return {"count": 0, "reasons": []}
 
 
+def list_warns(chat_id: int, limit: int = 100, decay_days: int = 0) -> list:
+    """Every member with warnings in one chat, newest first.
+
+    ``count`` is what still counts after the decay window; ``total`` is what is
+    on record. A group with decay switched off gets identical numbers.
+    """
+    from videl.utils import warnings as warning_rules
+
+    col = _col(WARN_COLLECTION)
+    if col is None:
+        return []
+    try:
+        documents = list(
+            col.find({"chat_id": chat_id, "count": {"$gte": 1}}).sort("updated", -1).limit(max(1, min(int(limit), 300)))
+        )
+    except Exception as e:
+        logger.error(f"[DB] list_warns: {e}")
+        return []
+    rows = []
+    for document in documents:
+        state = warning_rules.case_file(document, decay_days)
+        if state["count"] <= 0:
+            # Every warning has lapsed; the member is not on the list.
+            continue
+        # Newest first, so the case view leads with the reason that still counts.
+        history = [
+            {"reason": entry["reason"],
+             "ts": entry["ts"].isoformat() if entry["ts"] else None,
+             "active": entry["active"]}
+            for entry in state["entries"][-20:]
+        ][::-1]
+        rows.append({
+            "user_id": int(document.get("user_id") or 0),
+            "count": state["count"],
+            "total": state["total"],
+            "decayed": state["decayed"],
+            "expires_at": state["expires_at"].isoformat() if state["expires_at"] else None,
+            "history": history,
+            "reasons": [entry["reason"] for entry in history if entry["reason"]][:10],
+        })
+    return rows
+
+
 def reset_warns(chat_id: int, user_id: int) -> None:
-    col = _col("warns")
+    col = _col(WARN_COLLECTION)
     if col is None:
         return
     try:
@@ -653,24 +760,25 @@ def reset_warns(chat_id: int, user_id: int) -> None:
 
 
 def get_warn_limit(chat_id: int) -> int:
-    col = _col("chat_settings")
+    col = _col(SETTINGS_COLLECTION)
     if col is None:
         return 3
     try:
-        doc = col.find_one({"_id": chat_id})
-        return int(doc.get("warn_limit", 3)) if doc else 3
+        doc = col.find_one({"chat_id": chat_id})
+        value = int((doc or {}).get("warn_threshold", 3) or 3)
+        return value if 1 <= value <= 10 else 3
     except Exception:
         return 3
 
 
 def set_warn_limit(chat_id: int, limit: int) -> None:
-    col = _col("chat_settings")
+    col = _col(SETTINGS_COLLECTION)
     if col is None:
         return
     try:
         col.update_one(
-            {"_id": chat_id},
-            {"$set": {"warn_limit": max(1, min(limit, 20))}},
+            {"chat_id": chat_id},
+            {"$set": {"warn_threshold": max(1, min(int(limit), 10))}},
             upsert=True,
         )
     except Exception as e:
@@ -821,11 +929,11 @@ def delete_playlist(owner_id: int, name: str) -> bool:
 # ── Chat settings (skip votes, antiflood, locks) ───────────────────────────────
 
 def get_chat_setting(chat_id: int, key: str, default=None):
-    col = _col("chat_settings")
+    col = _col(SETTINGS_COLLECTION)
     if col is None:
         return default
     try:
-        doc = col.find_one({"_id": chat_id})
+        doc = col.find_one({"chat_id": chat_id})
         if not doc:
             return default
         return doc.get(key, default)
@@ -834,12 +942,12 @@ def get_chat_setting(chat_id: int, key: str, default=None):
 
 
 def set_chat_setting(chat_id: int, key: str, value) -> None:
-    col = _col("chat_settings")
+    col = _col(SETTINGS_COLLECTION)
     if col is None:
         return
     try:
         col.update_one(
-            {"_id": chat_id},
+            {"chat_id": chat_id},
             {"$set": {key: value}},
             upsert=True,
         )
@@ -939,6 +1047,12 @@ def cleanup_old_data(days: int = 30, *, apply: bool = False) -> dict:
         "chat_activity": {"last_active": {"$type": "number", "$lt": cutoff}},
         "user_activity": {"last_active": {"$type": "number", "$lt": cutoff}},
         "plugin_reminders": {"status": "sent", "sent_at": {
+            "$type": "date", "$lt": datetime.fromtimestamp(cutoff, timezone.utc)}},
+        # Queue bookkeeping only. A delivered or cancelled post already exists
+        # in Telegram; the row is how the monitor lists it, not the post.
+        # Failures and unconfirmed sends are kept until the owner clears them,
+        # because they are the records someone will actually want to read.
+        "scheduled_posts": {"status": {"$in": ["sent", "cancelled"]}, "finished_at": {
             "$type": "date", "$lt": datetime.fromtimestamp(cutoff, timezone.utc)}},
     }
     stats = {"ok": True, "applied": apply, "retention_days": days, "counts": {}, "errors": []}
@@ -1101,17 +1215,17 @@ def get_blacklist(chat_id: int) -> list:
     except: return []
 
 def get_blacklist_mode(chat_id: int) -> str:
-    col = _col("chat_settings")
+    col = _col(SETTINGS_COLLECTION)
     if col is None: return "del"
     try:
-        doc=col.find_one({"_id": chat_id})
-        return doc.get("blacklist_mode","del") if doc else "del"
+        doc=col.find_one({"chat_id": chat_id})
+        return (doc or {}).get("blacklist_mode","del")
     except: return "del"
 
 def set_blacklist_mode(chat_id: int, mode: str) -> None:
-    col = _col("chat_settings")
+    col = _col(SETTINGS_COLLECTION)
     if col is None: return
-    try: col.update_one({"_id": chat_id}, {"$set": {"blacklist_mode": mode}}, upsert=True)
+    try: col.update_one({"chat_id": chat_id}, {"$set": {"blacklist_mode": mode}}, upsert=True)
     except: pass
 
 def add_blacklist_sticker(chat_id: int, file_unique: str) -> None:
@@ -1192,17 +1306,38 @@ def disable_cmd(chat_id: int, cmd: str) -> None:
     if col is None: return
     try: col.update_one({"chat": chat_id, "cmd": cmd.lower()}, {"$set": {"chat": chat_id, "cmd": cmd.lower()}}, upsert=True)
     except: pass
+    _DISABLED_CACHE.pop(chat_id, None)
 
 def enable_cmd(chat_id: int, cmd: str) -> bool:
     col = _col("disabled_cmds")
+    _DISABLED_CACHE.pop(chat_id, None)
     if col is None: return False
     try: r=col.delete_one({"chat": chat_id, "cmd": cmd.lower()}); return r.deleted_count>0
     except: return False
 
+# Every group command asks whether it is switched off. A short cache keeps that
+# from becoming one Mongo read per command message; the writes below invalidate
+# it immediately so the panel's toggle is visible on the next message.
+_DISABLED_CACHE = {}
+_DISABLED_TTL = 30.0
+
+
+def _disabled_set(chat_id: int):
+    import time as _time
+    entry = _DISABLED_CACHE.get(chat_id)
+    moment = _time.monotonic()
+    if entry and moment - entry[0] < _DISABLED_TTL:
+        return entry[1]
+    names = {str(name).lower() for name in list_disabled(chat_id)}
+    _DISABLED_CACHE[chat_id] = (moment, names)
+    while len(_DISABLED_CACHE) > 5000:
+        _DISABLED_CACHE.pop(next(iter(_DISABLED_CACHE)))
+    return names
+
+
 def is_disabled(chat_id: int, cmd: str) -> bool:
-    col = _col("disabled_cmds")
-    if col is None: return False
-    try: return col.find_one({"chat": chat_id, "cmd": cmd.lower()}) is not None
+    if _col("disabled_cmds") is None: return False
+    try: return str(cmd).lower() in _disabled_set(chat_id)
     except: return False
 
 def list_disabled(chat_id: int) -> list:
@@ -1306,6 +1441,74 @@ def get_nightmode(chat_id: int) -> dict:
         doc=col.find_one({"_id": chat_id})
         return doc.get("nightmode", {"enabled": False, "start": "00:00", "end": "06:00"}) if doc else {"enabled": False, "start": "00:00", "end": "06:00"}
     except: return {"enabled": False, "start": "00:00", "end": "06:00"}
+
+# ── Automation (quiet hours + warning escalation) ─────────────────────────────
+# Stored in the same document the group manager writes, so there is one source
+# of truth. Normalisation lives in videl.utils.automation.
+
+def get_automation(chat_id: int) -> dict:
+    from videl.utils.automation import normalize
+    col = _col(SETTINGS_COLLECTION)
+    if col is None:
+        return normalize({})
+    try:
+        document = col.find_one({"chat_id": chat_id}) or {}
+    except Exception:
+        return normalize({})
+    return normalize(document.get("automation"))
+
+
+def set_automation(chat_id: int, *, quiet_hours=None, escalation=None, protection=None,
+                   expected=None) -> dict:
+    """Merge one or more blocks and return the complete normalised config.
+
+    ``expected`` is the settings revision the caller read; a stale one raises
+    ``settings_store.SettingsConflict`` instead of overwriting a newer edit.
+    """
+    from videl.utils.automation import normalize
+    col = _col(SETTINGS_COLLECTION)
+    current = get_automation(chat_id)
+    if quiet_hours is not None:
+        current["quiet_hours"] = {**current["quiet_hours"], **(quiet_hours or {})}
+    if escalation is not None:
+        current["escalation"] = {**current["escalation"], **(escalation or {})}
+    if protection is not None:
+        current["protection"] = {**current.get("protection", {}), **(protection or {})}
+    current = normalize(current)
+    if col is not None:
+        from videl.utils import settings_store
+        try:
+            settings_store.write(chat_id, {"automation": current}, expected=expected)
+        except settings_store.SettingsConflict:
+            raise
+        except Exception as e:
+            logger.error(f"[automation] set: {e}")
+    return current
+
+
+def set_protection_state(chat_id: int, state: dict) -> None:
+    """Write only the run state, so a slow tick cannot overwrite fresh settings."""
+    from videl.utils.automation import normalize_protection_state
+    col = _col(SETTINGS_COLLECTION)
+    if col is None:
+        return
+    try:
+        col.update_one(
+            {"chat_id": chat_id},
+            {"$set": {"automation.protection.state": normalize_protection_state(state)}},
+            upsert=True,
+        )
+    except Exception as e:
+        logger.error(f"[automation] protection state: {e}")
+
+
+def get_escalation(chat_id: int) -> dict:
+    return get_automation(chat_id)["escalation"]
+
+
+def get_quiet_hours(chat_id: int) -> dict:
+    return get_automation(chat_id)["quiet_hours"]
+
 
 def save_backup(chat_id: int, data: dict) -> str:
     col = _col("backups")

@@ -161,10 +161,29 @@ export function ImageComposer({
     setMessage("");
   }
   const [width, height] = designSize(design.ratio);
+  const [logo, setLogo] = useState<HTMLImageElement | null>(null);
+  useEffect(() => {
+    if (!design.logoData) {
+      setLogo(null);
+      return;
+    }
+    let active = true;
+    const image = new Image();
+    image.onload = () => {
+      if (active) setLogo(image);
+    };
+    image.onerror = () => {
+      if (active) setLogo(null);
+    };
+    image.src = design.logoData;
+    return () => {
+      active = false;
+    };
+  }, [design.logoData]);
   useEffect(() => {
     const ctx = canvas.current?.getContext("2d");
-    if (ctx) paintDesign(ctx, design, photo);
-  }, [design, photo]);
+    if (ctx) paintDesign(ctx, design, photo, logo);
+  }, [design, photo, logo]);
   useEffect(() => {
     if (!photoUrl) {
       setPhoto(null);
@@ -271,7 +290,7 @@ export function ImageComposer({
     if (!cancel) change(draft);
     else {
       const ctx = canvas.current?.getContext("2d");
-      if (ctx) paintDesign(ctx, design, photo);
+      if (ctx) paintDesign(ctx, design, photo, logo);
     }
   }
   return (
@@ -294,7 +313,7 @@ export function ImageComposer({
             onClick={() => setIndex((i) => i - 1)}
             className="ios-btn ios-btn-glass !p-2 disabled:opacity-30"
           >
-            <Undo2 size={16} />
+            <Undo2 size={16} aria-hidden />
           </button>
           <button
             aria-label="Redo design edit"
@@ -302,7 +321,7 @@ export function ImageComposer({
             onClick={() => setIndex((i) => i + 1)}
             className="ios-btn ios-btn-glass !p-2 disabled:opacity-30"
           >
-            <Redo2 size={16} />
+            <Redo2 size={16} aria-hidden />
           </button>
           <button
             onClick={() => {
@@ -317,7 +336,7 @@ export function ImageComposer({
             }}
             className="ios-btn ios-btn-glass text-xs"
           >
-            <RotateCcw size={14} /> Reset
+            <RotateCcw size={14} aria-hidden /> Reset
           </button>
         </div>
       </header>
@@ -341,7 +360,7 @@ export function ImageComposer({
                     key={c}
                     aria-pressed={category === c}
                     onClick={() => setCategory(c)}
-                    className={`rounded-lg border px-3 py-2 text-[11px] ${category === c ? "border-[#b5c4a5]/50 bg-[#b5c4a5]/10" : "border-white/10 text-stone-400"}`}
+                    className={`min-h-[34px] rounded-lg border px-3 py-2 text-[11px] transition ${category === c ? "border-[#b5c4a5]/50 bg-[#b5c4a5]/10" : "border-white/10 text-stone-400 hover:bg-white/5 hover:text-white"}`}
                   >
                     {c}
                   </button>
@@ -365,7 +384,7 @@ export function ImageComposer({
                       change(r.design);
                       setLibraryOpen(false);
                     }}
-                    className="overflow-hidden rounded-xl border border-white/10 text-left"
+                    className="ios-card-interactive overflow-hidden rounded-xl border border-white/10"
                   >
                     <div
                       className="flex aspect-[16/9] flex-col justify-center p-5"
@@ -735,7 +754,7 @@ export function ImageComposer({
                 };
                 start.draft = next;
                 const ctx = e.currentTarget.getContext("2d");
-                if (ctx) paintDesign(ctx, next, photo);
+                if (ctx) paintDesign(ctx, next, photo, logo);
               }}
               onPointerUp={(e) => stop(e)}
               onPointerCancel={(e) => stop(e, true)}
@@ -810,14 +829,14 @@ export function ImageComposer({
               onClick={download}
               className="ios-btn ios-btn-glass text-xs disabled:opacity-40"
             >
-              <Download size={15} /> Download PNG
+              <Download size={15} aria-hidden /> Download PNG
             </button>
             <button
               disabled={disabled || loading || attaching}
               onClick={attach}
               className="ios-btn ios-btn-primary text-xs disabled:opacity-40"
             >
-              <Check size={15} />
+              <Check size={15} aria-hidden />
               {attaching ? "Preparing image…" : "Use image in post"}
             </button>
           </div>

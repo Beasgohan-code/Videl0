@@ -1,41 +1,75 @@
-"""Offline behavioral tests for the active handler; no Telegram token or Mongo needed."""
-import ast
+"""Offline behavioral tests for lock and anti-flood enforcement."""
 import asyncio
-from collections import OrderedDict, deque
-from pathlib import Path
-from types import SimpleNamespace
-import logging
 import re
 import time
 import unittest
-from videl.utils.moderation import locked_message_reason
+from collections import OrderedDict, deque
+from types import SimpleNamespace
+from unittest.mock import patch
+
+from videl.plugins import locks
 
 
 class ProtectionTests(unittest.TestCase):
     def setUp(self):
-        tree = ast.parse(Path("videl/modules/management_core.py").read_text())
-        handler = next(n for n in tree.body if isinstance(n, ast.AsyncFunctionDef) and n.name == "mgmt_content_checker")
-        handler.decorator_list = []
         self.settings = {}
-        async def is_admin(*args): return False
-        self.ns = dict(is_approved=lambda *args: False, locked_message_reason=locked_message_reason, Message=object, is_admin=is_admin, get_chat_setting=lambda cid, key, default=None: self.settings.get(key, default), time=time, deque=deque, _FLOOD_WINDOWS=OrderedDict(), _URL_RE=re.compile(r"https?://\S+"), logger=logging.getLogger(__name__))
-        exec(compile(ast.Module(body=[handler], type_ignores=[]), "handler", "exec"), self.ns)
         self.deleted = 0
-        async def delete(): self.deleted += 1
-        self.message = SimpleNamespace(chat=SimpleNamespace(id=-100123, type="supergroup"), from_user=SimpleNamespace(id=123), text="hello", caption=None, entities=[], photo=None, video=None, audio=None, document=None, animation=None, voice=None, video_note=None, sticker=None, poll=None, forward_date=None, forward_from=None, forward_from_chat=None, delete=delete)
+        self.admin = False
+
+        async def is_admin(*args):
+            return self.admin
+
+        async def delete():
+            self.deleted += 1
+
+        self.message = SimpleNamespace(
+            chat=SimpleNamespace(id=-100123, type="supergroup"),
+            from_user=SimpleNamespace(id=123),
+            text="hello",
+            caption=None,
+            entities=[],
+            caption_entities=[],
+            photo=None,
+            video=None,
+            audio=None,
+            document=None,
+            animation=None,
+            voice=None,
+            video_note=None,
+            sticker=None,
+            poll=None,
+            forward_date=None,
+            forward_from=None,
+            forward_from_chat=None,
+            delete=delete,
+        )
+        self.patches = [
+            patch.object(locks.base, "is_admin", is_admin),
+            patch.object(locks.base, "get_setting", lambda chat_id, key, default=None: self.settings.get(key, default)),
+            patch.object(locks, "is_approved", lambda *args: False),
+        ]
+        for item in self.patches:
+            item.start()
+        locks._FLOOD_WINDOWS.clear()
+
+    def tearDown(self):
+        for item in self.patches:
+            item.stop()
 
     def run_handler(self):
-        asyncio.run(self.ns["mgmt_content_checker"](None, self.message))
+        asyncio.run(locks.mgmt_content_checker(None, self.message))
 
-    def test_antispam_enforces_only_after_six_messages(self):
+    def test_antispam_enforces_only_after_the_configured_burst(self):
         self.settings["antispam"] = True
-        for _ in range(6): self.run_handler()
+        for _ in range(locks.FLOOD_LIMIT):
+            self.run_handler()
         self.assertEqual(self.deleted, 0)
         self.run_handler()
         self.assertEqual(self.deleted, 1)
 
     def test_antispam_disabled_does_not_delete(self):
-        for _ in range(10): self.run_handler()
+        for _ in range(10):
+            self.run_handler()
         self.assertEqual(self.deleted, 0)
 
     def test_forward_lock_and_legacy_key(self):
@@ -52,12 +86,15 @@ class ProtectionTests(unittest.TestCase):
         self.assertEqual(self.deleted, 1)
 
     def test_admin_bypasses_protections(self):
-        async def is_admin(*args): return True
-        self.ns["is_admin"] = is_admin
+        self.admin = True
         self.settings["lock_forwards"] = True
         self.message.forward_date = 123
         self.run_handler()
         self.assertEqual(self.deleted, 0)
 
-
-if __name__ == "__main__": unittest.main()
+    def test_private_chat_is_ignored(self):
+        self.settings["lock_links"] = True
+        self.message.chat.type = "private"
+        self.message.text = "https://example.com"
+        self.run_handler()
+        self.assertEqual(self.deleted, 0)

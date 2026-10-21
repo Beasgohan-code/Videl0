@@ -391,10 +391,10 @@ const assert = require("node:assert/strict");
   );
   await page.getByLabel("Search served groups").fill("Offline");
   await page
-    .getByRole("button", { name: "Disable Anti-Spam", exact: true })
+    .getByRole("switch", { name: "Disable Anti-Spam", exact: true })
     .click();
   await page
-    .getByRole("button", { name: "Enable Anti-Spam", exact: true })
+    .getByRole("switch", { name: "Enable Anti-Spam", exact: true })
     .waitFor();
   await page.goto(`${base}/?tab=chat`);
   await page.getByRole("button", { name: /Offline community/ }).click();

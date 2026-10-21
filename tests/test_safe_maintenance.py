@@ -13,7 +13,7 @@ from pyrogram.enums import ChatMemberStatus
 
 class RetentionTests(unittest.TestCase):
     def test_preview_is_default_and_saved_content_is_never_touched(self):
-        collections={name:Mock() for name in ['chat_activity','user_activity','plugin_reminders']}
+        collections={name:Mock() for name in ['chat_activity','user_activity','plugin_reminders','scheduled_posts']}
         for col in collections.values(): col.count_documents.return_value=3
         with patch.object(db,'_db',object()),patch.object(db,'_col',side_effect=collections.__getitem__):
             result=db.cleanup_old_data()
@@ -29,9 +29,14 @@ class RetentionTests(unittest.TestCase):
         with patch.object(db,'_db',object()),patch.object(db,'_col',side_effect=get_col):
             result=db.cleanup_old_data(apply=True)
         self.assertTrue(result['ok'])
-        self.assertEqual(set(calls),{'chat_activity','user_activity','plugin_reminders'})
+        self.assertEqual(set(calls),{'chat_activity','user_activity','plugin_reminders','scheduled_posts'})
         self.assertIn('$lt',calls['chat_activity'].delete_many.call_args.args[0]['last_active'])
         self.assertEqual(calls['plugin_reminders'].delete_many.call_args.args[0]['status'],'sent')
+        # Only finished, delivered/cancelled queue rows are disposable. A
+        # failure is the record someone will come back to read.
+        queue=calls['scheduled_posts'].delete_many.call_args.args[0]
+        self.assertEqual(queue['status'],{'$in':['sent','cancelled']})
+        self.assertEqual(queue['finished_at']['$type'],'date')
 
     def test_missing_db_and_invalid_retention_fail_closed(self):
         with patch.object(db,'_db',None):self.assertFalse(db.cleanup_old_data(apply=True)['ok'])

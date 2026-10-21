@@ -25,7 +25,7 @@ class PresentationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('<h3>',rendered)
         plain,keyboard=transport._native_buttons(rendered)
         self.assertNotIn('tg-button',plain)
-        self.assertEqual(keyboard.inline_keyboard[0][0].callback_data,'guide:home')
+        self.assertEqual(keyboard.inline_keyboard[0][0].callback_data,'help:home')
         self.assertEqual(keyboard.inline_keyboard[0][0].style,ButtonStyle.PRIMARY)
         self.assertEqual(keyboard.inline_keyboard[0][1].callback_data,'cmds:all:0')
 
@@ -49,7 +49,7 @@ class PresentationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(options['chat_id'],-1001)
         self.assertEqual(options['message_thread_id'],22)
         self.assertEqual(options['reply_parameters'].message_id,7)
-        self.assertEqual(options['reply_markup'].inline_keyboard[0][0].callback_data,'guide:home')
+        self.assertEqual(options['reply_markup'].inline_keyboard[0][0].callback_data,'help:home')
         self.assertIn('Ready',options['text'])
 
     async def test_explicit_keyboard_is_preserved_and_not_replaced_with_help(self):
@@ -58,7 +58,7 @@ class PresentationTests(unittest.IsolatedAsyncioTestCase):
             await ui.rich_send(object(),123,'<h2>Player</h2>',reply_markup=keyboard,protect_content=True)
         self.assertIs(send.call_args.kwargs['reply_markup'],keyboard)
         self.assertTrue(send.call_args.kwargs['protect_content'])
-        self.assertNotIn('guide:home',send.call_args.args[2])
+        self.assertNotIn('help:home',send.call_args.args[2])
 
     async def test_edit_explicit_none_clears_controls_and_unknown_send_not_retried(self):
         with patch.object(ui,'_edit',AsyncMock()) as edit:
@@ -74,12 +74,12 @@ class PresentationTests(unittest.IsolatedAsyncioTestCase):
             for node in ast.walk(ast.parse(path.read_text())):
                 if isinstance(node,ast.ImportFrom) and node.module=='videl.utils.rich_ui':
                     self.assertFalse({alias.name for alias in node.names}&{'rich_send','rich_reply','rich_edit'},str(path))
-        runtime=Path('videl/plugins/runtime.py').read_text()
-        self.assertIn('from videl.utils.command_ui import rich_reply',runtime)
+        afk=Path('videl/plugins/afk.py').read_text()
+        self.assertIn('from videl.utils.command_ui import rich_reply',afk)
 
     def test_raw_text_delivery_is_reserved_for_user_payloads(self):
-        allowed={('management_core','mgmt_filter_checker'),('management_core','send_note'),
-                 ('management_core','mgmt_welcome_handler'),('broadcast','_send')}
+        allowed={('notes','filter_watcher'),('notes','send_note'),('welcome','welcome_handler'),
+                 ('welcome','goodbye_handler'),('reminder','deliver'),('broadcast','_send')}
         for path in source_paths():
             for function in ast.parse(path.read_text()).body:
                 if not isinstance(function,(ast.FunctionDef,ast.AsyncFunctionDef)):continue
@@ -120,10 +120,10 @@ class ModernFeatureTests(unittest.IsolatedAsyncioTestCase):
 
 class StartPrivacyTests(unittest.TestCase):
     def test_public_start_does_not_read_owner_totals_or_expose_owner_navigation(self):
-        from videl.app.general import start_caption,start_keyboard
-        with patch('videl.utils.db.read_live_totals') as totals:
-            public=start_caption(42,'Visitor')
+        from videl.plugins.start import member_caption,private_keyboard
+        with patch('videl.plugins.start.read_live_totals') as totals:
+            public=member_caption('Visitor',True)
             totals.assert_not_called()
         self.assertNotIn('At a glance',public)
-        self.assertNotIn('Streams:',public)
-        self.assertFalse(any(item.callback_data=='cmds:owner:0' for row in start_keyboard(True).inline_keyboard for item in row))
+        self.assertNotIn('Streams',public)
+        self.assertFalse(any(item.callback_data=='cmds:owner:0' for row in private_keyboard(False,'Videl0Bot').inline_keyboard for item in row))

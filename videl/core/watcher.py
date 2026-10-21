@@ -88,16 +88,39 @@ async def _auto_leave_idle_vcs():
 
 
 async def _check_database():
-    from videl.utils.db import get_mongo_client
+    from videl.utils.db import get_mongo_client, start_mongo
+
     client = get_mongo_client()
-    if client is None:
-        raise RuntimeError("Database not configured")
-    await asyncio.to_thread(client.admin.command, "ping")
+    if client is not None:
+        try:
+            await asyncio.to_thread(client.admin.command, "ping")
+            return
+        except Exception:
+            LOGGER.warning("[watchdog] Mongo ping failed; reconnecting")
+    # A dropped or never-established connection used to stay dead until the
+    # process restarted, so every /internal/* route answered 503 and the web
+    # app showed a backend error. Reconnect here instead.
+    if not await asyncio.to_thread(start_mongo):
+        raise RuntimeError("Database reconnect failed")
 
 
 async def _dispatch_scheduled():
     from videl.utils.scheduled_posts import dispatch_one
     await asyncio.to_thread(dispatch_one)
+
+
+async def _sweep_arcade():
+    """Abandon rooms nobody came back to. Deadlines themselves settle lazily."""
+    from videl.games import store
+    await asyncio.to_thread(store.sweep)
+
+
+async def _sync_chat_admins():
+    """Refresh a small slice of the admin cache so group lists open fast."""
+    from videl.utils.bot_api import call_bot_api
+    from videl.utils.chat_admins import sweep
+    from videl.utils.db import get_db
+    await asyncio.to_thread(sweep, get_db(), call_bot_api, limit=5)
 
 
 async def _check_bot():
@@ -127,6 +150,16 @@ async def _run_check(name, operation):
         return False
 
 
+async def _apply_protection_windows():
+    from videl.modules.protection_windows import run_once
+
+    outcome = await asyncio.to_thread(run_once)
+    if not outcome.get("ok", False):
+        raise RuntimeError(outcome.get("error", "protection window store unavailable"))
+    if outcome.get("failed"):
+        LOGGER.warning("[protection] %s group windows failed this tick", outcome["failed"])
+
+
 async def watchdog():
     last_cleanup = 0
     while True:
@@ -134,7 +167,8 @@ async def watchdog():
         await asyncio.gather(*(_run_check(name, job) for name, job in (
             ("database", _check_database), ("telegram", _check_bot),
             ("captcha", _check_captcha), ("idle_calls", _auto_leave_idle_vcs),
-            ("scheduled_posts", _dispatch_scheduled))))
+            ("scheduled_posts", _dispatch_scheduled), ("arcade", _sweep_arcade),
+            ("chat_admins", _sync_chat_admins), ("protection_windows", _apply_protection_windows))))
         if time.monotonic()-last_cleanup >= CLEANUP_INTERVAL or not last_cleanup:
             await _run_check("downloads", _cleanup_downloads)
             if await _run_check("retention", _cleanup_database):

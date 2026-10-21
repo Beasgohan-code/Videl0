@@ -1,11 +1,11 @@
-"""Permission-checked group workspace, reports and join-request invite links."""
+"""Permission-checked group workspace, reports and invite links."""
 from collections import OrderedDict
 import time
 from pyrogram import filters
 from pyrogram.enums import ChatMembersFilter
 from pyrogram.types import InlineKeyboardMarkup
-from videl import bot
-from videl.modules.management_core import is_admin, get_chat_setting, set_chat_settings, _chat_settings_col
+from videl import LOGGER, bot
+from videl.plugins.base import is_admin, get_setting as get_chat_setting, set_settings as set_chat_settings, collection as _collection
 from videl.utils.bot_ui import button
 from videl.utils.rich_ui import rich_heading, rich_note, rich_kv_table, rich_esc
 from videl.utils.command_ui import rich_reply, rich_edit
@@ -16,7 +16,7 @@ _REPORTS = OrderedDict()
 
 def panel(chat_id, title):
     try:
-        col = _chat_settings_col()
+        col = _collection()
         if col is None:
             raise RuntimeError("MongoDB unavailable")
         saved = col.find_one({"chat_id": chat_id}) or {}
@@ -27,7 +27,7 @@ def panel(chat_id, title):
     items = list(RULES.items())
     for index in range(0, len(items), 2):
         rows.append([button(f"{'On' if states[key] else 'Off'} · {label}", callback_data=f"groupcfg:{chat_id}:{key}:{int(not states[key])}", style="success" if states[key] else "default", icon="shield") for key, label in items[index:index+2]])
-    rows.append([button("Command guide", callback_data="guide:manage"), button("Refresh", callback_data=f"groupcfg:{chat_id}:refresh:0")])
+    rows.append([button("Commands", callback_data="help:manage"), button("Refresh", callback_data=f"groupcfg:{chat_id}:refresh:0")])
     text = rich_heading("Group workspace", level=2) + rich_kv_table([("Group", rich_esc(title)), ("Chat ID", f"<code>{chat_id}</code>")]) + rich_note("Explicit On/Off actions are saved in MongoDB. Only current group admins can change them. The bot needs Delete messages and Restrict members permissions for protection and join verification.")
     return text, InlineKeyboardMarkup(rows)
 
@@ -80,21 +80,25 @@ async def report_command(_, message):
     _REPORTS.move_to_end(key)
     while len(_REPORTS) > 4096:
         _REPORTS.popitem(last=False)
-    await rich_reply(message, rich_heading("Admin review requested", level=3) + rich_note(f"Reported message: <code>{target.id}</code>\n{mentions}\nReports do not automatically punish anyone."))
-
-
-@bot.on_message(filters.command("invite") & filters.group)
-async def invite_command(_, message):
-    if not message.from_user or not await is_admin(message.chat.id, message.from_user.id):
-        return await rich_reply(message, rich_note("Group admins only."))
-    args = message.command[1:]
-    if args not in ([], ["--request"]):
-        return await rich_reply(message, rich_note("Use /invite or /invite --request for an admin-approval link."))
+    # Persist the report so the owner panel can triage it later; the in-memory
+    # map above only rate-limits repeat submissions.
     try:
-        link = await bot.create_chat_invite_link(message.chat.id, creates_join_request=bool(args))
-        await rich_reply(message, rich_heading("Invite link created", level=3) + rich_note("Admin approval required." if args else "Anyone with this link can request entry under your chat settings."), reply_markup=InlineKeyboardMarkup([[button("Open invite", url=link.invite_link)]]))
-    except Exception as exc:
-        await rich_reply(message, rich_note(f"Could not create an invite ({rich_esc(type(exc).__name__)}). Check Invite users permission."))
+        from datetime import datetime, timezone
+        from videl.utils.db import get_db
+        db = get_db()
+        if db is not None:
+            db["mgmt_reports"].insert_one({
+                "chat_id": message.chat.id,
+                "reporter": message.from_user.id,
+                "target": getattr(target.from_user, "id", None),
+                "message_id": target.id,
+                "text": str(target.text or target.caption or "")[:280],
+                "status": "open",
+                "ts": datetime.now(timezone.utc),
+            })
+    except Exception:
+        LOGGER.debug("report persistence failed", exc_info=True)
+    await rich_reply(message, rich_heading("Admin review requested", level=3) + rich_note(f"Reported message: <code>{target.id}</code>\n{mentions}\nReports do not automatically punish anyone."))
 
 
 @bot.on_message(filters.command("permissions") & filters.group)
@@ -111,3 +115,33 @@ async def permission_command(_, message):
     await rich_reply(message, rich_heading("Bot permission diagnostics", level=2)
         + rich_kv_table(rows)
         + rich_note("A group owner can change these in Telegram → Group → Administrators → Videl. Rights alone do not guarantee assistant access, media availability or playback."))
+
+@bot.on_chat_join_request()
+async def join_request_seen(_, request):
+    """Record a pending join request for the owner panel.
+
+    Telegram keeps the request itself; this row only tells the panel that a
+    person is waiting, so approving still happens through the Bot API.
+    """
+    try:
+        from datetime import datetime, timezone
+        from videl.utils.db import get_db
+        chat = request.chat
+        user = request.from_user
+        db = get_db()
+        if db is None or not chat or not user:
+            return
+        db["mgmt_join_requests"].update_one(
+            {"chat_id": chat.id, "user": user.id},
+            {"$set": {
+                "chat_id": chat.id,
+                "user": user.id,
+                "name": str(user.first_name or "")[:80],
+                "username": str(user.username or "")[:64],
+                "status": "pending",
+                "ts": datetime.now(timezone.utc),
+            }},
+            upsert=True,
+        )
+    except Exception:
+        LOGGER.debug("join request could not be recorded", exc_info=True)
