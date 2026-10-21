@@ -45,17 +45,22 @@ def present(html_text, *, navigation=True):
     if not html_text:
         return html_text
     text = str(html_text)
+    from videl.utils.post_format import post_text_length
+
     if not re.search(r"<h[1-6]\b", text, re.I):
-        from videl.utils.post_format import post_text_length
         # Do not push a previously valid full-length body over Telegram’s limit.
         framed = rich_heading("Videl · Update", level=3) + text
         if post_text_length(framed, "HTML") <= 4096:
             text = framed
     if navigation and not re.search(r"<tg-button\b", text, re.I):
-        text += rich_button_row(
-            rich_button("Help center", callback_data="help:home", style="primary"),
+        footer = rich_button_row(
+            rich_button("Help", callback_data="help:home", style="primary"),
             rich_button("Commands", callback_data="cmds:all:0"),
         )
+        # Inline Richgram buttons count toward Telegram's message limit too.
+        # Keep concise actions discoverable without making long results invalid.
+        if post_text_length(text + footer, "HTML") <= 4096:
+            text += footer
     return text
 
 

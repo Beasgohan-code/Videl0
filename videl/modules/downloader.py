@@ -194,7 +194,7 @@ async def _download_media(source: str, audio_only: bool = True, status_msg: Opti
         log.info(f"Searching for: {source}")
         if status_msg:
             try:
-                await rich_edit(status_msg, rich_heading(f"{pe('circle','')} {sc('searching')} • {sc(source[:40])}", level=3))
+                await rich_edit(status_msg, rich_heading(f"{pe('circle','')} {sc('searching')} • {sc(source[:40])}", level=3), navigation=False)
             except Exception:
                 pass
         results = await _search_youtube(source, limit=1)
@@ -211,7 +211,7 @@ async def _download_media(source: str, audio_only: bool = True, status_msg: Opti
 
     if status_msg:
         try:
-            await rich_edit(status_msg, rich_heading(f"{pe('diamond','')} {sc('downloading')} • {sc('please wait')}", level=3) + rich_note(f"<code>{rich_esc(url[:60])}</code> • {pe('hex','')} {sc('quality')}: <code>{'MP3 192kbps' if audio_only else 'MP4 1080p'}</code>"))
+            await rich_edit(status_msg, rich_heading(f"{pe('diamond','')} {sc('downloading')} • {sc('please wait')}", level=3) + rich_note(f"<code>{rich_esc(url[:60])}</code> • {pe('hex','')} {sc('quality')}: <code>{'MP3 192kbps' if audio_only else 'MP4 1080p'}</code>"), navigation=False)
         except Exception:
             pass
 
@@ -276,7 +276,7 @@ async def song_cmd(_, m: Message):
     if any(w in low for w in blocked):
         return await rich_send(bot, m.chat.id, _hdr(pe("warn","⚠️") + " " + sc("blocked content"),3) + rich_note(sc("this content is not allowed")))
 
-    status = await rich_send(bot, m.chat.id, _hdr(pe("circle","") + " " + sc("preparing") + " • " + sc(query[:30]),3) + rich_note(pe("diamond","") + " " + sc("searching & downloading") + "…<br>" + pe("hex","") + " " + sc("this may take 10-30 seconds")))
+    status = await rich_send(bot, m.chat.id, _hdr(pe("circle","") + " " + sc("preparing") + " • " + sc(query[:30]),3) + rich_note(pe("diamond","") + " " + sc("searching & downloading") + "…<br>" + pe("hex","") + " " + sc("this may take 10-30 seconds")), navigation=False)
 
     path = None
     try:
@@ -370,7 +370,7 @@ async def vsong_cmd(_, m: Message):
     if not query:
         return await rich_send(bot, m.chat.id, _hdr(sc("video downloader"),2) + rich_note("<code>/vsong &lt;name or URL&gt;</code><br>" + pe("small","") + " <code>/vsong Believer</code> • MP4 1080p"))
 
-    status = await rich_send(bot, m.chat.id, _hdr(pe("circle","") + " " + sc("preparing video") + " • " + sc(query[:30]),3))
+    status = await rich_send(bot, m.chat.id, _hdr(pe("circle","") + " " + sc("preparing video") + " • " + sc(query[:30]),3), navigation=False)
 
     path = None
     try:
