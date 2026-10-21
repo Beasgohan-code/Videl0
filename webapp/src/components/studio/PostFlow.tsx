@@ -29,6 +29,8 @@ export function PostFlow({
   buttons,
   canPublish,
   schedule,
+  save,
+  words = 0,
 }: {
   characters: number;
   limit: number;
@@ -36,6 +38,10 @@ export function PostFlow({
   buttons: number;
   canPublish: boolean;
   schedule?: { ready: boolean; note: string };
+  /** "Saving…" / "Saved 4s ago" / "Autosave off" — the rail is where a writer
+   *  looks when they want to know whether it is safe to close the tab. */
+  save?: { state: "idle" | "saving" | "saved" | "error"; note: string };
+  words?: number;
 }) {
   const [active, setActive] = useState<Stage>("write");
   const [done, setDone] = useState<Record<Stage, boolean>>({
@@ -120,7 +126,12 @@ export function PostFlow({
           {characters}
           <i>/{limit}</i>
         </span>
-        {schedule ? (
+        {words ? <span className="post-flow-words">{words} {words === 1 ? "word" : "words"}</span> : null}
+        {save ? (
+          <span className="post-flow-schedule" data-state={save.state} data-ready={schedule?.ready}>
+            <Circle size={7} aria-hidden /> {save.note}
+          </span>
+        ) : schedule ? (
           <span className="post-flow-schedule" data-ready={schedule.ready}>
             <Circle size={7} aria-hidden /> {schedule.note}
           </span>

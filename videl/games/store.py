@@ -34,6 +34,12 @@ CHAT_GAP = 1.0                  # and never faster than one per second
 #: Trickled ICE candidates arrive in bursts; a peer only needs to be stopped
 #: from turning the room into a message bus.
 SIGNAL_WINDOW = (240, 60)
+# A voice note is a short recording, not a file share: twenty seconds of Opus
+# is about 30 KB, and the cap below is deliberately generous enough for a
+# worse codec but far too small to smuggle anything else through the room.
+MAX_CLIP = 480_000
+CLIP_SECONDS = (1, 20)
+CLIP_TYPES = ("audio/webm", "audio/ogg", "audio/mp4", "audio/mpeg", "audio/wav")
 # A voice heartbeat is only believable for a moment. Longer than the poll
 # interval (about 2 s) by a wide margin, short enough that closing the tab
 # takes a seat out of the call instead of leaving a ghost in it.
@@ -55,6 +61,10 @@ def _as_utc(value):
 
 def _stamp(value):
     return _as_utc(value).isoformat() if isinstance(value, datetime) else None
+
+
+def clips():
+    return _db()["game_clips"]
 
 
 def _db():
@@ -80,6 +90,10 @@ def ensure_indexes(database=None):
         database["game_rooms"].create_index([("seats.user", 1), ("status", 1)])
         database["game_events"].create_index([("room", 1), ("seq", 1)], unique=True)
         database["game_events"].create_index("expires_at", expireAfterSeconds=0)
+        # A recording is deleted by the same clock as the chat around it: a
+        # voice note with no conversation left to belong to is just storage.
+        database["game_clips"].create_index([("room", 1), ("at", -1)])
+        database["game_clips"].create_index("expires_at", expireAfterSeconds=0)
     except Exception:
         # An index is an optimisation; the feature works without it.
         pass
@@ -355,6 +369,8 @@ def act(code, user, payload):
         return rtc(code, user, payload)
     if action == "voice":
         return voice_presence(code, user, bool(payload.get("on", True)))
+    if action == "clip":
+        return voice_note(code, user, payload)
     if action == "seen":
         touch(code, user)
         return {"ok": True}
@@ -394,6 +410,69 @@ def move(code, user, move):
     if winner is not None:
         _finish(fresh)
     return view(fresh, user)
+
+
+def voice_note(code, user, payload):
+    """Leave a short recording for the table.
+
+    The point of this is the call that *cannot* happen: a webview that refuses
+    the microphone, a mobile network that blocks a peer connection, or two
+    people who are not online at the same time. The clip lives beside the room
+    and expires with its events; the chat feed shows a player, not a link.
+    """
+    import base64
+    import binascii
+
+    doc = _find(code)
+    seat = _require_member(doc, user)
+    if doc.get("status") not in {"open", "playing"}:
+        raise GameError("This room is finished", 409)
+    data = payload.get("data")
+    if not isinstance(data, str) or not data:
+        raise GameError("Record something first")
+    if len(data) > MAX_CLIP:
+        raise GameError("That recording is too long to send", 413)
+    try:
+        raw = base64.b64decode(data, validate=True)
+    except (binascii.Error, ValueError):
+        raise GameError("That recording could not be read") from None
+    if len(raw) < 512:
+        raise GameError("That recording is too short")
+    mime = str(payload.get("mime") or "audio/webm").lower()
+    if mime not in CLIP_TYPES:
+        raise GameError("That audio format is not supported")
+    try:
+        seconds = float(payload.get("seconds") or 0)
+    except (TypeError, ValueError):
+        raise GameError("That recording has no length") from None
+    low, high = CLIP_SECONDS
+    if not low <= seconds <= high:
+        raise GameError(f"Keep voice notes between {low} and {high} seconds")
+
+    _rate_limit(code, user)
+    clip_id = secrets.token_urlsafe(12)
+    clips().insert_one({"_id": clip_id, "room": code, "user": int(user), "seat": int(seat),
+                        "mime": mime, "seconds": round(seconds, 1), "bytes": len(raw),
+                        "data": data, "at": now(),
+                        "expires_at": now() + EVENT_RETENTION})
+    seq = _next_seq(code)
+    _event(code, "voice", int(user),
+           json.dumps({"id": clip_id, "seconds": round(seconds, 1)}, separators=(",", ":")),
+           seq=seq)
+    return {"ok": True, "seq": seq, "clip": {"id": clip_id, "seconds": round(seconds, 1)}}
+
+
+def clip(clip_id, user):
+    """Hand one recording to a member of the room it belongs to."""
+    row = clips().find_one({"_id": str(clip_id)})
+    if row is None:
+        raise GameError("That voice note has expired", 404)
+    doc = _find(row["room"])
+    seat = _seat_of(doc, user)
+    if seat is None and doc.get("visibility") != "public":
+        raise GameError("You are not seated in this room", 403)
+    return {"ok": True, "mime": row.get("mime"), "data": row.get("data"),
+            "seconds": row.get("seconds"), "user": row.get("user"), "room": row.get("room")}
 
 
 def voice_presence(code, user, on=True):

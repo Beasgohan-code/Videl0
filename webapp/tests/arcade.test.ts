@@ -579,3 +579,42 @@ test("chess prints a scoresheet, a flip button and a starting cursor", async () 
   assert.match(html, /data-cursor="true"/, "the keyboard cursor starts on the board");
   assert.equal((html.match(/role="gridcell"/g) || []).length, 64);
 });
+
+test("a voice note is a player in the feed, not a raw payload", async () => {
+  const { VoiceClip, VoiceNote } = await import("../src/components/studio/boards/VoiceNote");
+  const clip = render(createElement(VoiceClip, { id: "abcDEF123456", seconds: 6.4, mine: true }));
+  assert.match(clip, /Voice note · 6\.4s/);
+  assert.ok(!/undefined/.test(clip));
+
+  const recorder = render(createElement(VoiceNote, { onSend: async () => ({}) }));
+  assert.match(recorder, /Leave a voice note/);
+  assert.match(recorder, /data-state="idle"/);
+});
+
+test("every game the arcade offers has rules a player can read", async () => {
+  const { GAME_TERMS, GAME_ART } = await import("../src/lib/arcade");
+  for (const game of Object.keys(GAME_ART)) {
+    const terms = GAME_TERMS[game];
+    assert.ok(Array.isArray(terms) && terms.length >= 2, `${game} needs its own rules`);
+    for (const line of terms) assert.ok(line.length > 20, `${game} has a stub rule`);
+  }
+});
+
+test("the post rail reports a save state it can actually know", async () => {
+  const { PostFlow } = await import("../src/components/studio/PostFlow");
+  const html = render(
+    createElement(PostFlow, {
+      characters: 96,
+      limit: 1024,
+      hasImage: true,
+      buttons: 1,
+      canPublish: true,
+      words: 18,
+      save: { state: "saved", note: "saved 4s ago" },
+    }),
+  );
+  assert.match(html, /18 words/);
+  assert.match(html, /saved 4s ago/);
+  assert.match(html, /data-state="saved"/);
+  assert.ok(!/scheduling is available/.test(html), "the rail says the useful thing, not the old filler");
+});

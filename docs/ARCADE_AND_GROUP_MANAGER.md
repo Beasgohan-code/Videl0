@@ -225,6 +225,20 @@ Signals are rate-limited separately from chat (240 per minute, 50 ms apart) and
 capped at 3 KB in the backend and 2.6 KB at the webapp door, because an SDP is
 much larger than a message and neither should be a way to fill the event log.
 
+### 2.2c Voice notes, for the call that cannot happen
+
+Not every table can carry a call: a Telegram webview may refuse the microphone,
+a carrier-grade NAT may block the peer connection, and two friends may simply
+never be online at the same time. A voice note is the honest answer — up to
+twenty seconds, recorded in the page, stored beside the room, and played from
+the chat feed with one press.
+
+The clip is capped at 480 KB of base64 (about twenty seconds of Opus), kept in
+`game_clips` with the same expiry as the events around it, and handed out only
+to a member of the room it belongs to. The feed carries an opaque id and a
+duration — never the audio — so a polling client downloads a recording only
+when somebody presses play.
+
 ### 2.2d What the table sounds like
 
 The arcade is quiet by default only in the sense that nothing plays until the

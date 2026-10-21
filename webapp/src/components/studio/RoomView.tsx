@@ -53,6 +53,7 @@ import { GomokuBoard } from "./boards/GomokuBoard";
 import { VoiceDock } from "./boards/VoiceDock";
 import { TableActions } from "./boards/TableActions";
 import { ResultOverlay } from "./boards/ResultOverlay";
+import { VoiceNote, VoiceClip } from "./boards/VoiceNote";
 import { cue, cueFor, haptic, setSoundOn, soundOn } from "@/lib/audio";
 import { Callout } from "./ui";
 
@@ -235,6 +236,20 @@ export function RoomView({
   const online = seats.filter((seat) => seat.online).length;
   const current = room?.seats.find((seat) => seat.seat === room.turn);
 
+  /* A live region is how a board game is playable without seeing it: whose
+     turn it is, whether you are in check, and how the game ended all need to
+     be *spoken*, not just drawn. */
+  const announcement = !room
+    ? ""
+    : room.status === "done"
+      ? winnerText(room)
+      : room.status === "open"
+        ? `${room.seats.length} of ${room.seat_count} seats taken.`
+        : myTurn
+          ? `Your turn${room.state.check ? ". You are in check" : ""}.`
+          : `${current ? current.name : "The other player"} is to move${room.state.check ? ", in check" : ""}.`;
+
+
   /* One invite, three ways to hand it over: the share sheet, the clipboard,
      then the link printed in the notice. The link is a real page that opens in
      Chrome, so a friend without Telegram can still see the table. */
@@ -296,6 +311,9 @@ export function RoomView({
 
   return (
     <div className="space-y-3">
+      <p className="sr-only" aria-live="polite" aria-atomic="true">
+        {announcement}
+      </p>
       <div className="arcade-room-bar">
         <button onClick={onBack} className="ios-btn ios-btn-glass px-3 py-1.5 text-xs" aria-label="Back to the arcade">
           <ArrowLeft size={15} aria-hidden /> Arcade
@@ -336,6 +354,26 @@ export function RoomView({
           {sound ? <Volume2 size={14} aria-hidden /> : <VolumeX size={14} aria-hidden />}
         </button>
         {room && seated && room.status !== "done" ? (
+          <details className="arcade-keys">
+            <summary aria-label="Keyboard shortcuts">⌘</summary>
+            <div className="arcade-keys-card">
+              <p className="arcade-keys-title">At the table</p>
+              <dl>
+                <div><dt>Space</dt><dd>hold to talk</dd></div>
+                {room.game === "chess" ? (
+                  <>
+                    <div><dt>← ↑ ↓ →</dt><dd>walk the board</dd></div>
+                    <div><dt>Enter</dt><dd>pick / play</dd></div>
+                    <div><dt>Esc</dt><dd>let go</dd></div>
+                  </>
+                ) : null}
+                <div><dt>⌘S</dt><dd>save a draft</dd></div>
+                <div><dt>⌘⏎</dt><dd>publish</dd></div>
+              </dl>
+            </div>
+          </details>
+        ) : null}
+        {room && seated && room.status !== "done" ? (
           <button onClick={() => void send({ action: "leave" })} disabled={busy} className="ios-btn ios-btn-glass px-3 py-1.5 text-xs">
             <DoorOpen size={14} aria-hidden /> Leave
           </button>
@@ -363,8 +401,16 @@ export function RoomView({
       ) : null}
 
       {!room ? (
-        <div className="arcade-table flex items-center gap-3 p-8 text-sm text-indigo-100/55">
-          <Loader2 size={18} className="animate-spin" aria-hidden /> Setting the table {code}…
+        <div className="arcade-table" role="status" aria-label={`Setting the table ${code}`}>
+          <div className="arcade-skeleton" aria-hidden>
+            <span />
+            <span />
+            <span />
+            <span />
+          </div>
+          <p className="px-4 pb-4 text-center text-xs text-indigo-100/45">
+            Setting the table {code}…
+          </p>
         </div>
       ) : (
         <>
@@ -560,6 +606,25 @@ export function RoomView({
                         </p>
                       );
                     }
+                    if (event.kind === "voice") {
+                      const own = event.user === player.id;
+                      let note: { id?: string; seconds?: number } = {};
+                      try {
+                        note = JSON.parse(event.text) as { id?: string; seconds?: number };
+                      } catch {
+                        /* a malformed note is skipped, not thrown at the table */
+                      }
+                      return (
+                        <div key={`${event.seq}-${event.kind}`} className="arcade-bubble" data-own={own}>
+                          {!own ? (
+                            <span className="arcade-bubble-name">{playerName(room, event.user)}</span>
+                          ) : null}
+                          {note.id ? (
+                            <VoiceClip id={note.id} seconds={Number(note.seconds) || 0} mine={own} />
+                          ) : null}
+                        </div>
+                      );
+                    }
                     return (
                       <p key={`${event.seq}-${event.kind}`} className="arcade-event">
                         {event.text || event.kind}
@@ -567,6 +632,15 @@ export function RoomView({
                     );
                   })
                 )}
+              </div>
+              <div className="arcade-note-row">
+                <VoiceNote
+                  disabled={!seated || busy}
+                  onSend={async (payload) => {
+                    await send({ action: "clip", ...payload });
+                    cue("voice", sound);
+                  }}
+                />
               </div>
               <form
                 className="arcade-composer"

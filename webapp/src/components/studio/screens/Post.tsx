@@ -98,6 +98,15 @@ export default function ChannelStudio() {
   const [recovery, setRecovery] = useState<Draft | null>(null);
   const [storageReady, setStorageReady] = useState(false);
   const [autoStatus, setAutoStatus] = useState("");
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [savedAt, setSavedAt] = useState(0);
+  // A "saved 8s ago" that never moves is a lie the moment it is read.
+  const [, setClock] = useState(0);
+  useEffect(() => {
+    if (!savedAt) return;
+    const timer = window.setInterval(() => setClock((value) => value + 1), 5000);
+    return () => window.clearInterval(timer);
+  }, [savedAt]);
   useEffect(() => {
     try {
       setDrafts(parseDrafts(localStorage.getItem(DRAFT_KEY) || "[]"));
@@ -131,6 +140,8 @@ export default function ChannelStudio() {
               ? "Text autosaved · attached image is session-only"
               : "Text and links autosaved on this device",
           );
+          setSaveState("saved");
+          setSavedAt(Date.now());
         } else {
           localStorage.removeItem(RECOVERY_KEY);
           setAutoStatus("");
@@ -470,10 +481,19 @@ export default function ChannelStudio() {
         hasImage={hasImage}
         buttons={buttons.reduce((total, row) => total + row.length, 0)}
         canPublish={Boolean(text.trim() || mediaUrl || localImage)}
-        schedule={{
-          ready: isOwner,
-          note: isOwner ? "⌘S draft · ⌘⏎ publish" : "sign in to schedule",
+        words={plainPostText(text).trim().split(/\s+/).filter(Boolean).length}
+        save={{
+          state: saveState,
+          note:
+            saveState === "error"
+              ? "autosave unavailable"
+              : saveState === "saved" && savedAt
+                ? `saved ${Math.max(0, Math.round((Date.now() - savedAt) / 1000))}s ago`
+                : isOwner
+                  ? "⌘S draft · ⌘⏎ publish"
+                  : "autosave on this device",
         }}
+        schedule={{ ready: isOwner, note: isOwner ? "⌘S draft · ⌘⏎ publish" : "sign in to schedule" }}
       />
 
       {undo.length ? (

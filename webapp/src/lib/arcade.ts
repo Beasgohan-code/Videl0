@@ -143,7 +143,11 @@ export const GAME_TERMS: Record<string, string[]> = {
     "A move must bracket at least one rival disc; those discs flip.",
     "No legal move passes the turn; two passes end the game. Most discs wins.",
   ],
-  tictactoe: ["Three in a row wins.", "A full board is a draw."],
+  tictactoe: [
+    "Three in a row — across, down or diagonally — wins the round.",
+    "A full board with no line is a draw; there is no perfect-play trap here.",
+    "The turn clock is 45 seconds, so a stalling opponent forfeits quickly.",
+  ],
   ludo: [
     "A six leaves the base and earns another roll.",
     "Three sixes in a row forfeit the turn.",

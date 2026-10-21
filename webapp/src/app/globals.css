@@ -2930,3 +2930,206 @@ html { scroll-padding-top: 5.5rem; }
   html { scroll-behavior: auto; }
 }
 html { scroll-behavior: smooth; }
+
+/* ── Voice notes ───────────────────────────────────────────────────────────── */
+.arcade-note-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding: 0.4rem 0.55rem 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+.voice-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  width: 100%;
+}
+.voice-note-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.32rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 0.66rem;
+  color: rgba(226, 232, 240, 0.78);
+  white-space: nowrap;
+}
+.voice-note-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.09); color: #f1f5f9; }
+.voice-note-btn:disabled { opacity: 0.5; }
+.voice-note-btn[data-live="true"] {
+  border-color: rgba(248, 113, 113, 0.5);
+  background: rgba(248, 113, 113, 0.12);
+  color: #fecaca;
+  position: relative;
+  overflow: hidden;
+}
+.voice-note-btn[data-live="true"]::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 2px;
+  background: #f87171;
+  animation: arcade-pulse 1s ease-in-out infinite;
+}
+.voice-note-btn[data-send="true"] {
+  border-color: rgba(52, 211, 153, 0.45);
+  background: rgba(52, 211, 153, 0.14);
+  color: #a7f3d0;
+}
+.voice-note-meter {
+  display: block;
+  width: 2.2rem;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.15);
+  overflow: hidden;
+}
+.voice-note-meter i { display: block; height: 100%; background: #f87171; transition: width 100ms linear; }
+.voice-note-audio { height: 28px; max-width: 12rem; }
+.voice-note-hint, .voice-note-error {
+  flex-basis: 100%;
+  font-size: 0.6rem;
+  line-height: 1.35;
+}
+.voice-note-hint { color: rgba(148, 163, 184, 0.55); }
+.voice-note-error { color: #fcd34d; }
+.voice-clip { display: inline-flex; align-items: center; gap: 0.4rem; }
+.voice-clip-play {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.6rem 0.25rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid rgba(94, 234, 212, 0.35);
+  background: rgba(94, 234, 212, 0.1);
+  font-size: 0.68rem;
+  color: #99f6e4;
+}
+.voice-clip-play:hover { background: rgba(94, 234, 212, 0.18); }
+.voice-clip-audio { height: 30px; max-width: 15rem; }
+.voice-clip-error { font-size: 0.6rem; color: #fca5a5; }
+@media (max-width: 480px) {
+  .voice-note-audio, .voice-clip-audio { max-width: 100%; width: 100%; }
+}
+
+/* ── Polish pass: focus, keys, skeletons, rail states ──────────────────────── */
+:where(button, a, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid rgba(165, 180, 252, 0.75);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+.arcade-keys { position: relative; }
+.arcade-keys > summary {
+  list-style: none;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  font-size: 0.7rem;
+  color: rgba(203, 213, 225, 0.7);
+  cursor: pointer;
+}
+.arcade-keys > summary::-webkit-details-marker { display: none; }
+.arcade-keys[open] > summary { background: rgba(165, 180, 252, 0.16); color: #e0e7ff; }
+.arcade-keys-card {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  right: 0;
+  z-index: 30;
+  width: 13rem;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(9, 13, 28, 0.97);
+  box-shadow: 0 24px 50px -30px #000;
+  padding: 0.6rem 0.7rem;
+  animation: rise-in var(--quick) var(--ease) both;
+}
+.arcade-keys-title {
+  font-size: 0.58rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(148, 163, 184, 0.6);
+  margin-bottom: 0.4rem;
+}
+.arcade-keys-card dl { display: grid; gap: 0.3rem; }
+.arcade-keys-card dl > div { display: flex; align-items: baseline; justify-content: space-between; gap: 0.6rem; }
+.arcade-keys-card dt {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 0.62rem;
+  color: #ddd6fe;
+  white-space: nowrap;
+}
+.arcade-keys-card dd { font-size: 0.62rem; color: rgba(203, 213, 225, 0.62); text-align: right; }
+@media (prefers-reduced-motion: reduce) { .arcade-keys-card { animation: none; } }
+
+.post-flow-words {
+  font-size: 0.6rem;
+  color: rgba(148, 163, 184, 0.5);
+  white-space: nowrap;
+}
+.post-flow-schedule[data-state="saved"] { color: rgba(52, 211, 153, 0.75); }
+.post-flow-schedule[data-state="saved"] svg { color: #34d399; }
+.post-flow-schedule[data-state="error"] { color: #fca5a5; }
+.post-flow-schedule[data-state="error"] svg { color: #f87171; }
+
+/* Skeletons: the room's shape while the first read is in flight */
+.arcade-skeleton { display: grid; gap: 0.55rem; padding: 0.9rem; }
+.arcade-skeleton span {
+  display: block;
+  height: 0.8rem;
+  border-radius: 6px;
+  background: linear-gradient(90deg, rgba(255,255,255,0.04) 20%, rgba(255,255,255,0.09) 40%, rgba(255,255,255,0.04) 60%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s linear infinite;
+}
+.arcade-skeleton span:nth-child(1) { width: 42%; height: 1.3rem; }
+.arcade-skeleton span:nth-child(2) { width: 100%; height: 12rem; }
+.arcade-skeleton span:nth-child(3) { width: 74%; }
+.arcade-skeleton span:nth-child(4) { width: 58%; }
+@media (prefers-reduced-motion: reduce) {
+  .arcade-skeleton span { animation: none; }
+}
+.arcade-rules {
+  margin-top: 0.6rem;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: rgba(255, 255, 255, 0.02);
+}
+.arcade-rules > summary {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.7rem;
+  cursor: pointer;
+  list-style: none;
+}
+.arcade-rules > summary::-webkit-details-marker { display: none; }
+.arcade-rules-title { font-size: 0.72rem; font-weight: 600; color: rgba(226, 232, 240, 0.85); }
+.arcade-rules-note {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.64rem;
+  color: rgba(148, 163, 184, 0.55);
+}
+.arcade-rules-chevron { color: rgba(148, 163, 184, 0.5); transition: transform 180ms var(--ease); flex: none; }
+.arcade-rules[open] .arcade-rules-chevron { transform: rotate(90deg); }
+.arcade-rules ul {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0 0.9rem 0.7rem 1.6rem;
+  list-style: disc;
+  font-size: 0.68rem;
+  line-height: 1.5;
+  color: rgba(203, 213, 225, 0.62);
+}
+.arcade-rules li::marker { color: rgba(165, 180, 252, 0.55); }

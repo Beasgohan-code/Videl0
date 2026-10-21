@@ -26,14 +26,17 @@ export async function POST(req: Request, context: { params: Promise<{ code: stri
   if ("denied" in checked) return checked.denied;
   const code = roomPath((await context.params).code);
   if (!code) return Response.json({ ok: false, error: "That room code is not valid" }, { status: 400 });
-  if (Number(req.headers.get("content-length") || 0) > 4096)
+  // A voice note is the one action that legitimately carries a body; every
+  // other action is a few hundred bytes and should stay that way.
+  const ceiling = 560_000;
+  if (Number(req.headers.get("content-length") || 0) > ceiling)
     return Response.json({ ok: false, error: "That request is too large" }, { status: 413 });
   const body = await req.json().catch(() => null);
   if (!body || typeof body !== "object" || Array.isArray(body))
     return Response.json({ ok: false, error: "An action is required" }, { status: 400 });
   const record = body as Record<string, unknown>;
   const action = String(record.action || "move");
-  if (!["move", "start", "leave", "kick", "rematch", "chat", "seen", "rtc", "resign", "draw", "voice"].includes(action))
+  if (!["move", "start", "leave", "kick", "rematch", "chat", "seen", "rtc", "resign", "draw", "voice", "clip"].includes(action))
     return Response.json({ ok: false, error: "Unknown room action" }, { status: 400 });
   const payload: Record<string, unknown> = { action };
   if (action === "move") payload.move = record.move ?? record;
@@ -41,6 +44,14 @@ export async function POST(req: Request, context: { params: Promise<{ code: stri
   if (action === "kick") payload.user = record.user;
   if (action === "draw") payload.accept = record.accept === true;
   if (action === "voice") payload.on = record.on !== false;
+  if (action === "clip") {
+    const data = record.data;
+    if (typeof data !== "string" || !data || data.length > 480_000)
+      return Response.json({ ok: false, error: "That recording is too large" }, { status: 413 });
+    payload.data = data;
+    payload.mime = String(record.mime || "audio/webm");
+    payload.seconds = Number(record.seconds);
+  }
   if (action === "rtc") {
     // Only the four WebRTC verbs cross this door, and only as a small object:
     // the backend re-checks both, but a browser should not be able to post a

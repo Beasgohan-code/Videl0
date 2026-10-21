@@ -360,5 +360,58 @@ class ArcadeRoomTests(unittest.TestCase):
         with self.assertRaises(GameError):
             store.act(code, 99, {"action": "voice", "on": True})
 
+    # ── voice notes ──────────────────────────────────────────────────────────
+    @staticmethod
+    def clip_payload(seconds=6.0, size=4096, mime="audio/webm"):
+        import base64
+        return {"action": "clip", "mime": mime, "seconds": seconds,
+                "data": base64.b64encode(b"x" * size).decode()}
+
+    def test_a_voice_note_lands_in_the_feed_as_a_player_not_a_link(self):
+        code = self.joined("chess")
+        answer = store.act(code, 1, self.clip_payload())
+        self.assertTrue(answer["ok"])
+        events = store.timeline(code, 2)["events"]
+        note = [event for event in events if event["kind"] == "voice"]
+        self.assertEqual(len(note), 1)
+        payload = json.loads(note[0]["text"])
+        self.assertEqual(payload["seconds"], 6.0)
+        self.assertEqual(len(payload["id"]), 16, "the id is a handle, not the audio")
+        self.assertNotIn("data", payload)
+
+    def test_a_voice_note_is_only_playable_by_the_table(self):
+        code = self.joined("chess")
+        clip_id = store.act(code, 1, self.clip_payload())["clip"]["id"]
+        played = store.clip(clip_id, 2)
+        self.assertEqual(played["mime"], "audio/webm")
+        self.assertTrue(played["data"])
+        with self.assertRaises(GameError) as caught:
+            store.clip(clip_id, 99)
+        self.assertEqual(caught.exception.status, 403)
+
+    def test_a_voice_note_has_a_floor_a_ceiling_and_a_format(self):
+        code = self.joined("chess")
+        with self.assertRaises(GameError):
+            store.act(code, 1, self.clip_payload(seconds=0.2))
+        with self.assertRaises(GameError):
+            store.act(code, 1, self.clip_payload(seconds=45))
+        with self.assertRaises(GameError):
+            store.act(code, 1, self.clip_payload(mime="application/zip"))
+        with self.assertRaises(GameError) as huge:
+            store.act(code, 1, self.clip_payload(size=store.MAX_CLIP))
+        self.assertEqual(huge.exception.status, 413)
+
+    def test_a_voice_note_cannot_come_from_a_stranger(self):
+        code = self.joined("chess")
+        with self.assertRaises(GameError):
+            store.act(code, 99, self.clip_payload())
+
+    def test_a_finished_room_takes_no_new_voice_notes(self):
+        code = self.joined("chess")
+        store.act(code, 1, {"action": "resign"})
+        with self.assertRaises(GameError) as caught:
+            store.act(code, 1, self.clip_payload())
+        self.assertEqual(caught.exception.status, 409)
+
 if __name__ == "__main__":
     unittest.main()

@@ -20,6 +20,7 @@ import { usePlayerSession } from "@/lib/player";
 import {
   GAME_ART,
   GAME_ICON,
+  GAME_TERMS,
   GAME_THEME,
   codeFromLink,
   inviteLink,
@@ -313,6 +314,21 @@ export default function Arcade() {
             );
           })}
         </div>
+
+        {chosen && (GAME_TERMS[chosen.key] || []).length ? (
+          <details className="arcade-rules">
+            <summary>
+              <span className="arcade-rules-title">How {chosen.name} ends</span>
+              <span className="arcade-rules-note">{chosen.summary}</span>
+              <ChevronRight size={13} className="arcade-rules-chevron" aria-hidden />
+            </summary>
+            <ul>
+              {(GAME_TERMS[chosen.key] || []).map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          </details>
+        ) : null}
 
         <div className="arcade-setup">
           {chosen && chosen.seats.length > 1 ? (

@@ -118,6 +118,17 @@ def register_arcade_routes(app, authorized, api, secret):
         except Exception:
             return jsonify({"ok": False, "error": "The room is unavailable; refresh before moving"}), 503
 
+    @app.route("/internal/arcade/clip/<clip_id>", methods=["GET"])
+    def arcade_clip(clip_id):
+        if not authorized():
+            return jsonify({"ok": False, "error": "unauthorized"}), 403
+        try:
+            return jsonify(store.clip(clip_id, actor()))
+        except (GameError, ActorError) as error:
+            return _answer(error)
+        except Exception:
+            return jsonify({"ok": False, "error": "That voice note is unavailable"}), 503
+
     @app.route("/internal/arcade/me", methods=["GET"])
     def arcade_me():
         if not authorized():
