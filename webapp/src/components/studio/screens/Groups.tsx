@@ -81,7 +81,7 @@ import {
   type GroupSort,
   type PresetId,
 } from "@/lib/group-admin";
-import { Callout, EmptyState, LoadingState, PageHeader } from "../ui";
+import { BusyLabel, Callout, EmptyState, LoadingState, PageHeader } from "../ui";
 
 type Tab = "protection" | "community" | "moderation" | "members" | "commands" | "inbox" | "audit" | "backup";
 
@@ -902,9 +902,10 @@ export default function GroupsPage() {
                   type="button"
                   onClick={() => void loadMore()}
                   disabled={loadingMore}
+                  aria-busy={loadingMore}
                   className="ios-btn ios-btn-glass text-xs disabled:opacity-40"
                 >
-                  {loadingMore ? "Loading…" : `Load ${Math.min(200, Math.max(1, fleetTotal - groups.length))} more`}
+                  {loadingMore ? <BusyLabel label="Loading…" /> : `Load ${Math.min(200, Math.max(1, fleetTotal - groups.length))} more`}
                 </button>
               </div>
             )}
