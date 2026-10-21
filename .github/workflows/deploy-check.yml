@@ -57,7 +57,8 @@ jobs:
 
       - name: Note a skipped backend check
         if: github.ref != 'refs/heads/main'
-        run: echo "Feature branch: the backend deploys from main, so its revision is not compared here."
+        run: |
+          echo "Feature branch: the backend deploys from main, so its revision is not compared here."
 
       - name: Wait for the web panel
         run: |
