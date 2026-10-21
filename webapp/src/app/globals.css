@@ -993,11 +993,31 @@ html { scroll-padding-top: 5.5rem; }
 }
 .arcade-section-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 0.6rem;
   margin-bottom: 0.7rem;
 }
+.arcade-section-heading { display: flex; flex-direction: column; gap: 0.12rem; }
+.arcade-surprise {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  min-height: 36px;
+  padding: 0.42rem 0.72rem;
+  border: 1px solid rgba(167,139,250,.3);
+  border-radius: 999px;
+  background: linear-gradient(120deg,rgba(139,92,246,.18),rgba(59,130,246,.12));
+  color: #ddd6fe;
+  font-size: .69rem;
+  font-weight: 700;
+  white-space: nowrap;
+  transition: transform 180ms var(--ease), border-color 180ms var(--ease), box-shadow 180ms var(--ease);
+}
+.arcade-surprise:hover { transform: translateY(-1px); border-color: rgba(196,181,253,.65); box-shadow: 0 5px 18px rgba(139,92,246,.18); }
+.arcade-surprise:active { transform: scale(.97); }
+.arcade-surprise:focus-visible { outline: 2px solid #c4b5fd; outline-offset: 3px; }
 .arcade-section-title {
   font-size: 0.7rem;
   font-weight: 700;
@@ -1040,15 +1060,32 @@ html { scroll-padding-top: 5.5rem; }
   display: block;
   aspect-ratio: 5 / 4;
   overflow: hidden;
-  background: #0a1024;
+  background: radial-gradient(ellipse at 50% 40%, color-mix(in srgb, var(--accent) 18%, transparent), #0a1024 72%);
+}
+.arcade-plate-fallback {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--accent);
+  opacity: .32;
+  font-size: clamp(3rem, 10vw, 5rem);
+  line-height: 1;
+  text-shadow: 0 0 24px var(--accent-soft);
+  transition: opacity 220ms var(--ease), transform 360ms var(--ease);
 }
 .arcade-plate-art img {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
+  opacity: 0;
   transform: scale(1.02);
-  transition: transform 520ms var(--ios-spring);
+  transition: opacity 380ms var(--ease), transform 520ms var(--ios-spring);
 }
+.arcade-plate-art img.is-loaded { opacity: 1; }
+.arcade-plate-art:has(img.is-loaded) .arcade-plate-fallback { opacity: 0; transform: scale(.94); pointer-events: none; }
 .arcade-plate:hover .arcade-plate-art img { transform: scale(1.08); }
 .arcade-plate[aria-pressed="true"] .arcade-plate-art img { transform: scale(1.06); }
 .arcade-plate-glow {
@@ -2922,10 +2959,12 @@ html { scroll-padding-top: 5.5rem; }
     animation: none !important;
   }
   .arcade-plate, .arcade-home-card, .arcade-mini, .arcade-room-row,
-  .arcade-plate img, .arcade-home-card img, .ios-btn, .chess-piece {
+  .arcade-plate img, .arcade-home-card img, .ios-btn, .chess-piece,
+  .arcade-surprise, .arcade-plate-fallback {
     transition: none !important;
   }
-  .arcade-plate:hover, .arcade-home-card:hover, .arcade-room-row:hover { transform: none; }
+  .arcade-plate:hover, .arcade-home-card:hover, .arcade-room-row:hover,
+  .arcade-surprise:hover, .arcade-surprise:active { transform: none; }
   .arcade-plate:hover img, .arcade-home-card:hover img { transform: none; }
   html { scroll-behavior: auto; }
 }

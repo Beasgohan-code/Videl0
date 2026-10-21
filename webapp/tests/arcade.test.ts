@@ -237,6 +237,20 @@ test("every table has its own art, and every game has its terms", async () => {
   }
 });
 
+test("surprise-me picks a different playable table and one of its valid seat counts", async () => {
+  const { randomGameChoice } = await import("../src/lib/arcade");
+  const games = [
+    { key: "solo", name: "Solo", seats: [1], turn_seconds: 30, summary: "No" },
+    { key: "chess", name: "Chess", seats: [2], turn_seconds: 180, summary: "Mate" },
+    { key: "ludo", name: "Ludo", seats: [2, 3, 4], turn_seconds: 45, summary: "Race" },
+  ];
+  const choice = randomGameChoice(games, "ludo", () => 0.999999);
+  assert.equal(choice?.game.key, "chess", "does not repeat the current game when another is available");
+  assert.equal(choice?.seats, 2, "single-seat-count games stay valid");
+  assert.equal(randomGameChoice([], "ludo"), null);
+  assert.equal(randomGameChoice(games.slice(0, 1), "solo"), null, "unsupported seat counts are ignored");
+});
+
 test("the invite page renders the code before anyone signs in", async () => {
   const { InviteRoom } = await import("../src/components/arcade/InviteRoom");
   const html = render(createElement(InviteRoom, { code: "K7M2QX" }));

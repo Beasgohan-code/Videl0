@@ -61,6 +61,27 @@ export type GameInfo = {
   summary: string;
 };
 
+export function randomGameChoice(
+  games: GameInfo[],
+  currentKey: string,
+  random: () => number = Math.random,
+): { game: GameInfo; seats: number } | null {
+  const playable = games.filter((game) =>
+    game.seats.some((count) => Number.isInteger(count) && count >= 2 && count <= 6),
+  );
+  if (!playable.length) return null;
+  const different = playable.filter((game) => game.key !== currentKey);
+  const pool = different.length ? different : playable;
+  const draw = Number(random());
+  const fraction = Number.isFinite(draw) ? Math.min(0.999999, Math.max(0, draw)) : 0;
+  const game = pool[Math.floor(fraction * pool.length)];
+  const seatOptions = game.seats.filter((count) => Number.isInteger(count) && count >= 2 && count <= 6);
+  const seatDraw = Number(random());
+  const seatFraction = Number.isFinite(seatDraw) ? Math.min(0.999999, Math.max(0, seatDraw)) : 0;
+  const seats = seatOptions[Math.floor(seatFraction * seatOptions.length)];
+  return { game, seats };
+}
+
 export type PlayerRef = { id: number; name: string };
 
 export type Stat = {

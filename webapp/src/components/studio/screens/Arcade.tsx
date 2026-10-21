@@ -24,6 +24,7 @@ import {
   GAME_THEME,
   codeFromLink,
   inviteLink,
+  randomGameChoice,
   themeOf,
   type GameInfo,
   type Lobby,
@@ -52,6 +53,7 @@ export default function Arcade() {
   const [visibility, setVisibility] = useState<"private" | "public">("private");
   const [room, setRoom] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [announcement, setAnnouncement] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -255,9 +257,26 @@ export default function Arcade() {
 
       <section className="arcade-section" aria-label="Choose a game">
         <div className="arcade-section-head">
-          <span className="arcade-section-title">Choose a table</span>
-          <span className="arcade-section-hint">{chosen ? `${chosen.turn_seconds}s a turn` : ""}</span>
+          <div className="arcade-section-heading">
+            <span className="arcade-section-title">Choose a table</span>
+            <span className="arcade-section-hint">{chosen ? `${chosen.turn_seconds}s a turn` : ""}</span>
+          </div>
+          <button
+            type="button"
+            className="arcade-surprise"
+            onClick={() => {
+              const choice = randomGameChoice(games, game);
+              if (!choice) return;
+              setGame(choice.game.key);
+              setSeats(choice.seats);
+              setAnnouncement(`${choice.game.name} picked · ${choice.seats} seats`);
+            }}
+            aria-label="Surprise me with a random game and seat count"
+          >
+            <Sparkles size={13} aria-hidden /> Surprise me
+          </button>
         </div>
+        <p className="sr-only" role="status" aria-live="polite">{announcement}</p>
         <div className="arcade-gallery" role="group" aria-label="Games">
           {games.map((entry) => {
             const theme = themeOf(entry.key);
@@ -274,6 +293,7 @@ export default function Arcade() {
                 style={{ "--accent": theme.accent, "--accent-soft": theme.soft } as CSSProperties}
               >
                 <span className="arcade-plate-art" aria-hidden>
+                  <span className="arcade-plate-fallback">{GAME_ICON[entry.key] || "◍"}</span>
                   {GAME_ART[entry.key] ? (
                     <img
                       src={GAME_ART[entry.key]}
@@ -282,6 +302,8 @@ export default function Arcade() {
                       decoding="async"
                       width={720}
                       height={393}
+                      onLoad={(event) => event.currentTarget.classList.add("is-loaded")}
+                      onError={(event) => { event.currentTarget.hidden = true; }}
                     />
                   ) : null}
                   <span className="arcade-plate-glow" />
