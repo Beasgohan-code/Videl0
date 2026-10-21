@@ -152,6 +152,8 @@ class MusicTests(unittest.IsolatedAsyncioTestCase):
         screen=await music.view_queue(context('queue',''))
         self.assertLess(len(screen.html),4000);self.assertNotIn('<script>',screen.html)
         self.assertIn('99 upcoming',screen.html)
+        callbacks={button.callback_data for row in screen.keyboard.inline_keyboard for button in row}
+        self.assertEqual(callbacks,{'pause','skip','cycle_loop','shuffle','clear'})
 
     async def test_invalid_loop_does_not_change_repeat_state(self):
         music.player.set_loop(-123,'off')
