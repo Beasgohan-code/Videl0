@@ -63,7 +63,6 @@ export default function Studio() {
             <PanelBoundary name={key}>
               {[
                 "chat",
-                "groups",
                 "federations",
                 "automation",
                 "analytics",

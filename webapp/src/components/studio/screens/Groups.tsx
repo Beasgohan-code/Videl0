@@ -1,6 +1,8 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStudio } from "../StudioProvider";
+import { useTelegram } from "@/components/TelegramProvider";
+import AdminGroups from "./AdminGroups";
 import {
   AlertCircle,
   Check,
@@ -147,7 +149,7 @@ function PanelNotice({ children }: { children: React.ReactNode }) {
   );
 }
 
-export default function GroupsPage() {
+function OwnerGroupsPage() {
   const { open, selectGroup } = useStudio();
   const savingRef = useRef(false);
   const detailRequest = useRef(0);
@@ -1983,4 +1985,10 @@ export default function GroupsPage() {
       </p>
     </main>
   );
+}
+
+export default function GroupsPage() {
+  const { authenticated } = useTelegram();
+  if (authenticated === null) return <div className="py-16 text-center text-indigo-100/55">Verifying your workspace…</div>;
+  return authenticated ? <OwnerGroupsPage /> : <AdminGroups />;
 }

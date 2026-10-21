@@ -1,4 +1,4 @@
-"""Append-only audit trail for every owner-driven group change.
+"""Append-only audit trail for every owner- or group-admin-driven change.
 
 The web panel is powerful: one click can lock seventeen content types in a
 group. Without a record, "who turned antispam off?" is unanswerable. This
@@ -38,6 +38,7 @@ KINDS = (
     "warn",
     "warn_reset",
     "moderation",
+    "invite",
     "automation",
     "commands",
     "recording",

@@ -1085,6 +1085,14 @@ export const BOT_COMMANDS: BotCommand[] = [
     "owner": false
   },
   {
+    "name": "font",
+    "usage": "/font <bold|italic|script|mono> <text>",
+    "summary": "Style text in bold, italic, script or monospace",
+    "category": "tools",
+    "context": "chat",
+    "owner": false
+  },
+  {
     "name": "forget",
     "usage": "/forget",
     "summary": "Cancel every pending reminder you created",
@@ -1101,6 +1109,14 @@ export const BOT_COMMANDS: BotCommand[] = [
     "owner": false
   },
   {
+    "name": "hug",
+    "usage": "/hug [reply or @user]",
+    "summary": "Send a friendly hug to a member or the group",
+    "category": "tools",
+    "context": "chat",
+    "owner": false
+  },
+  {
     "name": "id",
     "usage": "/id",
     "summary": "Read chat, message and user identifiers",
@@ -1112,6 +1128,22 @@ export const BOT_COMMANDS: BotCommand[] = [
     "name": "inbox",
     "usage": "/inbox",
     "summary": "Check or stop recording of your own bot dm",
+    "category": "tools",
+    "context": "chat",
+    "owner": false
+  },
+  {
+    "name": "kang",
+    "usage": "/kang (reply to a sticker)",
+    "summary": "Save a replied sticker to your personal telegram pack",
+    "category": "tools",
+    "context": "chat",
+    "owner": false
+  },
+  {
+    "name": "kiss",
+    "usage": "/kiss [reply or @user]",
+    "summary": "Send a playful, respectful kiss",
     "category": "tools",
     "context": "chat",
     "owner": false

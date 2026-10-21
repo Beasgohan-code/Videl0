@@ -1,11 +1,11 @@
 # Registered command reference
 
-Generated from registered command and regex handlers plus the two enabled plugins.
+Generated from the bot's registered command manifest and installed handlers.
 This documents navigation and source coverage, not verified live Telegram behavior.
 Aliases are listed separately; permissions remain enforced by the referenced handler.
 Owner operations are hidden from public `/commands` results.
 
-155 distinct command names.
+159 distinct command names.
 
 ## Music & playlists
 
@@ -142,10 +142,14 @@ Owner operations are hidden from public `/commands` results.
 | `/back` | chat | `videl/app/afk.py::back` |
 | `/commands` | chat | `videl/app/help.py::directory_command` |
 | `/copy` | chat | `videl/modules/api_tools.py::copy_command` |
+| `/font` | chat | `videl/app/fun.py::font` |
 | `/forget` | chat | `videl/app/reminder.py::forget` |
 | `/help` | chat | `videl/app/help.py::help_command` |
+| `/hug` | chat | `videl/app/fun.py::hug` |
 | `/id` | chat | `videl/app/tools.py::identifiers` |
 | `/inbox` | chat | `videl/app/group_view.py::private_recording` |
+| `/kang` | chat | `videl/app/stickers.py::kang` |
+| `/kiss` | chat | `videl/app/fun.py::kiss` |
 | `/modernhelp` | chat | `videl/modules/api_tools.py::modern_help` |
 | `/ping` | chat | `videl/app/tools.py::ping` |
 | `/poll` | chat | `videl/app/group.py::poll` |

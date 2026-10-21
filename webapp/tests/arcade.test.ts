@@ -166,10 +166,11 @@ test("the clock ring never runs past the turn it belongs to", async () => {
   assert.equal(turnFraction(null, 60, now), 0);
 });
 
-test("the arcade is open without ownership, but the group manager is not", async () => {
+test("group manager is available to non-owners but its separate Telegram session gates controls", async () => {
   const { canOpenSection } = await import("../src/lib/access");
   assert.equal(canOpenSection("arcade", null), true);
-  assert.equal(canOpenSection("groups", null), false);
+  assert.equal(canOpenSection("groups", null), true);
+  assert.equal(canOpenSection("automation", null), false);
   assert.equal(canOpenSection("arcade", true), true);
 });
 
