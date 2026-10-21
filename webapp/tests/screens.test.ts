@@ -40,6 +40,11 @@ test("scheduled publishing renders its queue states", async () => {
   // Repeating is offered as part of the queue, with the series rule stated.
   assert.match(html, /Every day/);
   assert.match(html, /cancelling it stops the series/);
+  // A series is scheduled in a named zone, and the DST policy is stated up
+  // front rather than discovered on the one day a year it matters.
+  assert.match(html, /Timezone/);
+  assert.match(html, /daylight-saving/);
+  assert.match(html, /Pause holds a series where it stands/);
 });
 
 test("a warning row keeps its lapse state out of the count", async () => {

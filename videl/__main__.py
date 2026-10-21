@@ -288,6 +288,29 @@ def _internal_scheduled_retry():
         return jsonify({"ok": False, "error": "The schedule could not be requeued"}), 503
 
 
+@_flask.route("/internal/scheduled-posts/series", methods=["POST"])
+def _internal_scheduled_series():
+    """Pause, resume or skip one occurrence of a repeating series."""
+    if not _internal_authorized():
+        return jsonify({"ok": False, "error": "unauthorized"}), 403
+    from videl.utils.scheduled_posts import set_paused, skip_next
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict) or not body.get("id"):
+        return jsonify({"ok": False, "error": "A job ID is required"}), 400
+    action = body.get("action")
+    try:
+        if action == "skip":
+            return jsonify(skip_next(body.get("id"))), 200
+        if action in {"pause", "resume"}:
+            return jsonify(set_paused(body.get("id"), action == "pause")), 200
+        return jsonify({"ok": False, "error": "Action must be pause, resume or skip"}), 400
+    except (ValueError, TypeError, AttributeError) as error:
+        return jsonify({"ok": False, "error": str(error)}), 409
+    except Exception:
+        LOGGER.exception("scheduled series action failed")
+        return jsonify({"ok": False, "error": "The series could not be changed"}), 503
+
+
 @_flask.route("/internal/scheduled-posts/duplicate", methods=["POST"])
 def _internal_scheduled_duplicate():
     if not _internal_authorized():
@@ -422,7 +445,8 @@ def _internal_channel_post():
         try:
             from videl.utils.scheduled_posts import enqueue
             return jsonify(enqueue(method, payload, body["schedule_at"], body.get("request_id"),
-                                   body.get("repeat"))), 200
+                                   body.get("repeat"), body.get("timezone"),
+                                   body.get("wall_time"))), 200
         except ValueError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
         except Exception:

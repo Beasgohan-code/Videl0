@@ -103,12 +103,23 @@ to code that actually runs:
   the reason Telegram gave. A finished post can be copied into a new job at a
   time you pick (an hour ahead by default) — the copy is a fresh post, so the
   original is never resent, and a job still in the queue has to settle first.
-  A schedule can repeat **daily or weekly** at the same UTC hour: one record
-  carries the series, moving itself to the next occurrence after each accepted
-  delivery, so the monitor shows a single line with a delivered count. A
-  failure stops the series and waits for the owner; a series that fell more
-  than a day behind skips the missed copies (and says how many) instead of
-  sending them in a burst. Cancelling a repeating post stops it.
+  A schedule can repeat **daily or weekly**: one record carries the series,
+  moving itself to the next occurrence after each accepted delivery, so the
+  monitor shows a single line with a delivered count. A failure stops the series
+  and waits for the owner; a series that fell more than a day behind skips the
+  missed copies (and says how many) instead of sending them in a burst.
+  Cancelling a repeating post stops it.
+
+  A repeat may name an IANA **timezone** (the panel defaults to the device's).
+  The chosen wall clock is then what stays fixed: 09:00 remains 09:00 after a
+  daylight-saving change instead of drifting by an hour in UTC. A time that does
+  not exist (spring-forward gap) moves to the first valid minute for that
+  occurrence only; a time that happens twice (autumn fall-back) resolves to its
+  first occurrence and is sent once, never twice. A series can be paused (it is
+  neither sent nor declared missed), resumed (it skips the backlog instead of
+  posting it) or advanced one occurrence (`Skip next`). The panel names the zone
+  beside every run and marks an adjusted occurrence. The exact rules and their
+  limits are in [the scheduling model](docs/SCHEDULING_TIMEZONES.md).
 
 Retention: activity counters, delivered reminders and finished (`sent` or
 `cancelled`) scheduled-post rows are pruned at the configured window. Failed and
