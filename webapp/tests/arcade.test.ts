@@ -247,3 +247,35 @@ test("the invite page renders the code before anyone signs in", async () => {
   assert.match(html, /Copy link/);
   assert.ok(!/undefined/.test(html), "no undefined leaks into the invite");
 });
+
+test("the checkers board draws every square and never offers a bad tap", async () => {
+  const { CheckersBoard } = await import("../src/components/studio/boards/CheckersBoard");
+  const board = new Array(64).fill(0);
+  board[17] = 1; // bone man
+  board[26] = 2; // ink man
+  board[56] = 3; // bone king on the back row
+  const room = {
+    code: "K7M2QX",
+    game: "checkers",
+    game_name: "Checkers",
+    status: "playing",
+    turn: 0,
+    seat_count: 2,
+    version: 7,
+    seats: [
+      { user: 1, name: "Ada", seat: 0, online: true },
+      { user: 2, name: "Grace", seat: 1, online: true },
+    ],
+    you: { seat: 0, is_host: true, member: true },
+    legal: [{ from: 17, to: [30], via: [26], captures: 1 }],
+    state: { board, turn: 0, winner: null, last: { from: 56, to: 49, captures: 0, crowned: false } },
+  } as never;
+  const html = render(
+    createElement(CheckersBoard, { room, myTurn: true, busy: false, onMove: () => {} }),
+  );
+  assert.equal((html.match(/role="gridcell"/g) || []).length, 64, "sixty-four squares");
+  assert.equal((html.match(/class="checkers-piece"/g) || []).length, 3, "three pieces on the board");
+  assert.match(html, /data-king="true"/, "the crowned piece is drawn as a king");
+  assert.match(html, /A capture is on the board/, "a forced capture is announced, not hidden");
+  assert.ok(!/undefined/.test(html), "no undefined leaks into the board");
+});
