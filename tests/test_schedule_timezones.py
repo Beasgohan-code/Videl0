@@ -222,6 +222,10 @@ class SeriesControlTests(unittest.TestCase):
         result = scheduled_posts.skip_next(JOB)
         row = self.store.find_one({"_id": JOB})
         self.assertEqual(row["skipped"], 1)
+        self.assertEqual(row["note"], "Next occurrence skipped by the owner")
+        self.assertIsNone(row.get("error"))
+        self.assertIsNone(scheduled_posts._job_view(row)["error"])
+        self.assertEqual(scheduled_posts._job_view(row)["note"], row["note"])
         self.assertEqual(row["status"], "pending")
         self.assertLess(abs((row["due_at"].replace(tzinfo=UTC) - (before + timedelta(days=1))).total_seconds()), 1)
         self.assertGreater(datetime.fromisoformat(result["scheduled_at"]), before)
@@ -259,7 +263,9 @@ class SeriesControlTests(unittest.TestCase):
         self.assertEqual(row["status"], "pending")
         self.assertGreater(row["due_at"].replace(tzinfo=UTC), datetime.now(UTC))
         self.assertGreaterEqual(row["skipped"], 3)
-        self.assertIn("skipped", row["error"])
+        # A catch-up is a note, not a failure: the panel must not red-flag it.
+        self.assertIn("skipped", row.get("note") or "")
+        self.assertIsNone(row.get("error"))
         anchor = datetime.fromisoformat(row["repeat_anchor"])
         self.assertEqual(anchor.strftime("%H:%M"),
                          late.astimezone(ZoneInfo("Asia/Kolkata")).strftime("%H:%M"))

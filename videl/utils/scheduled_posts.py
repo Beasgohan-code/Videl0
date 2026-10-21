@@ -219,6 +219,8 @@ def _job_view(doc):
             'sent_count': int(doc.get('sent_count') or 0),
             'skipped': int(doc.get('skipped') or 0),
             'error': str(doc.get('error') or '')[:160] or None,
+            # Informational: a skip or a catch-up, not a delivery failure.
+            'note': str(doc.get('note') or '')[:160] or None,
             'finished_at': _stamp(doc.get('finished_at'))}
 
 
@@ -256,7 +258,7 @@ def retry_job(identifier, when=None):
             raise ValueError('Choose a time from 1 minute to 90 days ahead')
     updated = col.update_one({'_id': identifier, 'owner_id': OWNER_ID, 'status': 'failed'},
                              {'$set': {'status': 'pending', 'due_at': due, 'finished_at': None,
-                                       'error': None, 'claimed_at': None}})
+                                       'error': None, 'note': None, 'claimed_at': None}})
     if not updated.modified_count:
         raise ValueError('This schedule changed while retrying; refresh its status')
     return {'ok': True, 'job_id': identifier, 'status': 'pending', 'scheduled_at': due.isoformat()}
@@ -403,7 +405,7 @@ def set_paused(identifier, paused):
         raise ValueError('Only a repeating post can be paused')
     if doc.get('status') != 'pending':
         raise ValueError('This series is not waiting in the queue; refresh its status')
-    changes = {'paused': bool(paused), 'paused_at': now if paused else None}
+    changes = {'paused': bool(paused), 'paused_at': now if paused else None, 'note': None}
     if not paused:
         # Never replay the pause as a burst of late copies.
         ahead, hops, anchor, adjusted = _future_occurrence(doc, now)
@@ -414,7 +416,7 @@ def set_paused(identifier, paused):
             changes['repeat_anchor'] = anchor.isoformat(timespec='seconds')
         if hops:
             changes['skipped'] = int(doc.get('skipped') or 0) + hops
-            changes['error'] = f'{hops} occurrence(s) skipped while paused'
+            changes['note'] = f'{hops} occurrence(s) skipped while paused'
     # The state this decision was based on is part of the write. Two tabs
     # pressing pause and resume at once cannot both win silently.
     guard = {'_id': identifier, 'owner_id': OWNER_ID, 'status': 'pending',
@@ -444,7 +446,7 @@ def skip_next(identifier):
     changes = {'due_at': run_at,
                'skipped': int(doc.get('skipped') or 0) + 1,
                'dst_adjusted': bool(adjusted),
-               'error': 'Next occurrence skipped by the owner'}
+               'note': 'Next occurrence skipped by the owner'}
     if anchor is not None:
         changes['repeat_anchor'] = anchor.isoformat(timespec='seconds')
     # The due_at guard makes this a no-op if the dispatcher claimed the job
@@ -540,7 +542,7 @@ def _skip_missed_series(col, now):
                 steps += 1
         changes.update({'due_at': due,
                         'skipped': int(doc.get('skipped') or 0) + steps,
-                        'error': f'{steps} occurrence(s) skipped while the bot was offline'})
+                        'note': f'{steps} occurrence(s) skipped while the bot was offline'})
         col.update_one({'_id':doc['_id'], 'status':'pending', 'paused':{'$ne':True}},
                        {'$set': changes})
 
@@ -586,7 +588,7 @@ def dispatch_one():
                 # With a timezone this keeps the local wall clock across DST.
                 run_at, anchor, adjusted = _next_occurrence(doc)
                 update.update({'status':'pending','due_at':run_at,
-                               'finished_at':None,'claimed_at':None,'error':None,
+                               'finished_at':None,'claimed_at':None,'error':None,'note':None,
                                'attempts':0,'sent_count':int(doc.get('sent_count') or 0)+1,
                                'dst_adjusted':bool(adjusted),
                                'last_sent_at':datetime.now(timezone.utc)})
@@ -600,6 +602,7 @@ def dispatch_one():
             if wait is not None:
                 reason = f'Rate limit persisted after {attempts} automatic retries: {reason}'[:200]
             update['error'] = reason
+            update['note'] = None
             update['attempts'] = attempts
         col.update_one({'_id':doc['_id'],'status':'sending'}, {'$set':update})
         if state in {'failed', 'unconfirmed'}:

@@ -222,7 +222,10 @@ class RepeatTests(unittest.TestCase):
         self.assertEqual(row["status"], "pending")
         self.assertGreater(row["due_at"].replace(tzinfo=UTC), datetime.now(UTC))
         self.assertEqual(row["skipped"], 4)
-        self.assertIn("skipped", row["error"])
+        # Skipping ahead is routine maintenance, so it is a note rather than a
+        # delivery failure the panel would red-flag.
+        self.assertIn("skipped", row["note"])
+        self.assertIsNone(row.get("error"))
         self.telegram.assert_not_called()
 
     def test_a_failed_series_stops_and_asks_for_a_decision(self):

@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CalendarClock, Pause, Play, SkipForward } from "lucide-react";
+import { CalendarClock, Info, Pause, Play, SkipForward } from "lucide-react";
 import type { ButtonRow } from "@/lib/post-buttons";
 import {
   describeInZone,
@@ -24,6 +24,7 @@ type Job = {
   sent_count?: number;
   skipped?: number;
   error?: string | null;
+  note?: string | null;
   finished_at?: string | null;
   timezone?: string | null;
   paused?: boolean;
@@ -476,6 +477,12 @@ export function ScheduledPosts({
               <Callout tone="warn" className="text-xs">
                 {job.error}
               </Callout>
+            )}
+            {job.note && (
+              <p className="flex items-start gap-1.5 text-[11px] leading-5 text-[var(--ios-label-tertiary)]">
+                <Info size={12} className="mt-0.5 shrink-0" aria-hidden />
+                {job.note}
+              </p>
             )}
             {STATUS_HELP[job.status] && <p className="ios-caption">{STATUS_HELP[job.status]}</p>}
             <p className="truncate text-xs">{job.text.replace(/<[^>]+>/g, "")}</p>
