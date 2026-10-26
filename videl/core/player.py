@@ -190,13 +190,18 @@ async def play_song(chat_id:int, message:Message, song:dict, *, advance=False, r
             if peek_current(chat_id) is not expected:return False
             stream=MediaStream(media_path,audio_parameters=AudioQuality.HIGH,
                 **({'video_parameters':VideoQuality.HD_720p} if want_video else {'video_flags':MediaStream.Flags.IGNORE}))
-            response=await asyncio.wait_for(call_py.play(chat_id,stream),30)
+            from videl.core.voice_chat import play_with_auto_start
+            response=await play_with_auto_start(call_py,chat_id,stream)
             if response is False:raise RuntimeError('Voice engine did not acknowledge playback')
         except asyncio.CancelledError:raise
         except Exception as error:
             LOGGER.warning('Playback unconfirmed (%s); queue preserved, no retry',type(error).__name__)
+            from videl.core.voice_chat import VoiceChatStartError
             if isinstance(error, MediaDownloadError):
                 title = 'Track unavailable'
+                detail = str(error)
+            elif isinstance(error, VoiceChatStartError):
+                title = 'Voice chat unavailable'
                 detail = str(error)
             else:
                 title = 'Playback not confirmed'
