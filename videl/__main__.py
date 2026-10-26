@@ -1224,13 +1224,20 @@ if __name__ == "__main__":
         assistant_username = ""
         try:
             from videl import assistant as _assis
-            if config.STRING_SESSION:
+            session_value = config.STRING_SESSION or ""
+            if session_value:
+                # Confirm the deployment secret is present without ever logging
+                # any portion of the Telegram authorization string.
+                LOGGER.info(
+                    "Assistant STRING_SESSION is present (value masked; %d characters)",
+                    len(session_value),
+                )
                 await _assis.start()
                 am = await _assis.get_me()
                 assistant_username = am.username or str(am.id)
                 LOGGER.info(f"Assistant @{assistant_username} started")
             else:
-                LOGGER.info("No STRING_SESSION — assistant disabled")
+                LOGGER.warning("Assistant STRING_SESSION is missing; assistant disabled")
         except Exception as e:
             LOGGER.warning(f"assistant fail: {e}")
             try:
