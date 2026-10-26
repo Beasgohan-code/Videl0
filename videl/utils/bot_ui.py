@@ -179,7 +179,17 @@ async def visual_call(function, *args, **kwargs):
         return None
     except BadRequest:
         safe = dict(kwargs)
+        safe_args = list(args)
         changed = False
+        # Richgram adapters often receive the message text positionally, while
+        # native Pyrogram calls may pass it by keyword. Strip only optional
+        # premium entities from either form when Telegram rejects them.
+        for index, value in enumerate(safe_args):
+            if isinstance(value, str) and "<tg-emoji" in value:
+                safe_args[index] = re.sub(
+                    r"<tg-emoji\b[^>]*>(.*?)</tg-emoji>", r"\1", value, flags=re.I | re.S
+                )
+                changed = True
         for field in ("text", "caption"):
             value = safe.get(field)
             if isinstance(value, str) and "<tg-emoji" in value:
@@ -202,4 +212,4 @@ async def visual_call(function, *args, **kwargs):
                 changed = True
         if not changed:
             raise
-        return await function(*args, **safe)
+        return await function(*safe_args, **safe)

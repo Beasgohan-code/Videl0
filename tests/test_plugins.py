@@ -27,8 +27,11 @@ class StyleTests(unittest.TestCase):
         self.assertIn("<code>/", rendered)
         self.assertIn("</code>", rendered)
 
-    def test_plain_round_trips_headings(self):
-        self.assertEqual(base.plain(base.heading("Group management", 3)), "<h3>Group management</h3>")
+    def test_plain_round_trips_heading_text_and_keeps_premium_badge(self):
+        rendered = base.plain(base.heading("Group management", 3))
+        self.assertIn("<h3>", rendered)
+        self.assertIn("<tg-emoji emoji-id=", rendered)
+        self.assertIn("</tg-emoji> Group management</h3>", rendered)
 
     def test_duration_bounds(self):
         self.assertEqual(base.parse_duration("2h"), 7200)

@@ -124,7 +124,7 @@ async def poll(ctx) -> Screen:
         LOGGER.warning("Poll send rejected in chat %s: %s", ctx.message.chat.id, description)
         raise CommandError("Telegram did not confirm the poll. Check the poll format and chat permissions before trying again.")
     return Screen(
-        heading("📊 Poll posted", 3)
+        heading("📊 Poll sent", 3)
         + body("Telegram accepted the poll; members can vote in the chat now.")
         + body("Use <code>/pollstop</code> in reply to a bot-created poll to close it early.")
     )

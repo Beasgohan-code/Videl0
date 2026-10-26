@@ -129,7 +129,7 @@ def member_caption(name: str, private: bool) -> str:
     ]
     private_note = body("Music plays in a group voice chat. Add Videl to a group to start listening together.") if private else body(
         "Start a voice chat, then send <code>/play</code> with a song name or link.")
-    title = "🎵 Videl · Quick start" if private else "🛡 Videl · Group guide"
+    title = "🎵 Vɪᴅᴇʟ Sᴛᴜᴅɪᴏ · Qᴜɪᴄᴋ sᴛᴀʀᴛ" if private else "🛡 Vɪᴅᴇʟ Sᴛᴜᴅɪᴏ · Gʀᴏᴜᴘ ɢᴜɪᴅᴇ"
     overview = rich_details("✨ Quick-start guide", table(steps), open=True)
     return heading(title, 2) + body(intro) + private_note + overview
 

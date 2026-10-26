@@ -1,4 +1,5 @@
 import asyncio
+import unittest
 from types import SimpleNamespace
 from unittest import IsolatedAsyncioTestCase, TestCase
 from unittest.mock import AsyncMock, patch

@@ -53,17 +53,21 @@ def present(html_text, *, navigation=True):
     text = str(html_text)
     from videl.utils.post_format import post_text_length
 
-    if not re.search(r"<h[1-6]\b", text, re.I):
-        # Do not push a previously valid full-length body over Telegram’s limit.
-        framed = rich_heading("✨ Videl · Update", level=3) + text
+    has_heading = bool(re.search(r"<h[1-6]\b", text, re.I))
+    has_rich_body = bool(
+        re.search(r"<(?:blockquote|table|details|aside|ul|ol|pre|p|tg-button-row)\b", text, re.I)
+        or re.search(r"<tg-button\b", text, re.I)
+    )
+    # Detect structure before inserting our own heading; otherwise that heading
+    # masks a plain body and prevents the body from getting its readable callout.
+    if not has_heading:
+        body = text if has_rich_body else rich_note(text)
+        framed = rich_heading("✨ Videl · Update", level=3) + body
         if post_text_length(framed, "HTML") <= 4096:
             text = framed
-    # Give short, otherwise-unstructured replies the same readable text card as
-    # command results. Existing tables, callouts, detail panels and authored
-    # button rows are left exactly as authored; long messages keep their limit.
-    if (not re.search(r"<(?:h[1-6]|blockquote|table|details|aside|ul|ol|pre|p|tg-button-row)\b", text, re.I)
-            and not re.search(r"<tg-button\b", text, re.I)
-            and post_text_length(text, "HTML") <= 3900):
+    # Preserve authored headings and wrap only their otherwise-unstructured
+    # short body. Existing tables, callouts, details, and buttons stay untouched.
+    elif has_heading and not has_rich_body and post_text_length(text, "HTML") <= 3900:
         text = rich_note(text)
     if navigation:
         # Keep Help and Browse commands visible even when the command already
