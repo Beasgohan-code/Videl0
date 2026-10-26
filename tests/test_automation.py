@@ -787,6 +787,11 @@ class InternalRouteTests(unittest.TestCase):
         self.assertEqual(payload["status"], "ok")
         self.assertGreaterEqual(payload["api"]["samples"], 1)
         self.assertGreaterEqual(payload["api"]["p95_ms"], 0.0)
+        providers = payload["media_downloaders"]
+        self.assertEqual(providers["primary"], "shruti")
+        self.assertIn(providers["shruti"]["state"], {"configured", "needs_api_key", "invalid_url"})
+        self.assertEqual(providers["fallbacks"], ["eldian", "local_yt_dlp"])
+        self.assertNotIn("YT_API_KEY", repr(providers))
 
     def test_health_times_the_database_separately(self):
         # One number cannot say whether the API or Mongo is slow.

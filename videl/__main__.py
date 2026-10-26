@@ -149,7 +149,9 @@ def _health():
         database = "unknown"
     from videl import build_revision
     from videl.utils.assistant import assistant_status
+    from videl.utils.downloader_status import downloader_status
     user_assistant = assistant_status()
+    media_downloaders = downloader_status()
     # "status" stays "ok" while the HTTP API answers: uptime monitors must not
     # flap because Telegram is down. ``degraded`` names the parts that are not
     # working, so the panel can say what is wrong instead of only that it is.
@@ -165,7 +167,7 @@ def _health():
     return jsonify({"status": "ok", "service": "videl-render-backend", "revision": build_revision,
                     "bot_status": _BOT_STATUS, "bot_error": _BOT_ERROR or None,
                     "bot_online_at": _BOT_ONLINE_AT, "bot_attempts": _BOT_ATTEMPTS,
-                    "assistant": user_assistant,
+                    "assistant": user_assistant, "media_downloaders": media_downloaders,
                     "degraded": bool(reasons),
                     "degraded_reasons": reasons, "database": database,
                     "uptime": max(0, int(time.time() - bot_start_time)),

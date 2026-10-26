@@ -11,7 +11,7 @@ import config
 from videl import LOGGER, bot, call_py
 from videl.utils.formatters import parse_dur, short
 from videl.utils.rich_ui import rich_edit, rich_esc, rich_heading, rich_img, rich_kv_table, rich_note, rich_send, rich_details
-from videl.utils.youtube import resolve_stream
+from videl.utils.youtube import MediaDownloadError, resolve_stream
 
 _nf_pills = lambda: (
     "<p>"
@@ -195,9 +195,15 @@ async def play_song(chat_id:int, message:Message, song:dict, *, advance=False, r
         except asyncio.CancelledError:raise
         except Exception as error:
             LOGGER.warning('Playback unconfirmed (%s); queue preserved, no retry',type(error).__name__)
+            if isinstance(error, MediaDownloadError):
+                title = 'Track unavailable'
+                detail = str(error)
+            else:
+                title = 'Playback not confirmed'
+                detail = ('The queue was preserved. Check that a voice chat is active and the assistant can join. '
+                          'Use /replay to retry the current track or /skip to try the next. No permissions were changed.')
             try:
-                await rich_send(bot,chat_id,rich_heading('Playback not confirmed',level=3)+rich_note(
-                    'The queue was preserved. Check that a voice chat is active and the assistant can join. Use /replay to retry the current track or /skip to try the next. No permissions were changed.'))
+                await rich_send(bot,chat_id,rich_heading(title,level=3)+rich_note(detail))
             except Exception:pass
             return False
         if advance:

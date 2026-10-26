@@ -18,8 +18,14 @@ from pyrogram.enums import MessageEntityType
 from pyrogram.types import Message
 
 from videl.utils.formatters import sec_to_iso
+from videl.utils.downloader_status import downloader_status
 
 logger = logging.getLogger(__name__)
+
+
+class MediaDownloadError(RuntimeError):
+    """Expected, user-safe failure when every configured media provider fails."""
+
 
 # Eldian Network's authenticated API is hosted by this Render service by default.
 # Configure ELDIAN_API_URL to use a separate trusted Eldian deployment.
@@ -355,7 +361,7 @@ async def _save_eldian_response(response, partial: str, target: str, *, video: b
 
 
 async def resolve_stream(url: str, video: bool = False) -> str:
-    """Resolve audio/video via Eldian first, with local yt-dlp fallback."""
+    """Resolve through Shruti first, with Eldian and local yt-dlp fallbacks."""
     if url and os.path.isfile(url):return url
     if url in _file_cache and os.path.isfile(_file_cache[url]):return _file_cache[url]
     video_id=_extract_video_id(url)
@@ -365,7 +371,16 @@ async def resolve_stream(url: str, video: bool = False) -> str:
     path=await (download_video(url) if video else download_song(url))
     if path and os.path.isfile(path):
         _file_cache[url]=path;return path
-    raise RuntimeError("Eldian API and yt-dlp could not resolve this media item")
+    status = downloader_status()
+    if status["shruti"]["state"] == "needs_api_key":
+        raise MediaDownloadError(
+            "Shruti needs an API key, and the backup download methods could not retrieve this track. "
+            "Ask the bot owner to configure YT_API_KEY or try another track."
+        )
+    raise MediaDownloadError(
+        "Shruti and the backup download methods could not retrieve this track. "
+        "Try again later or choose another track."
+    )
 
 
 # ═════════════════════════════════════════════════════════════════════════════
