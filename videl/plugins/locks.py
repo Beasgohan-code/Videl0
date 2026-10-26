@@ -25,7 +25,7 @@ from videl.utils.bot_ui import button
 from videl.utils.automation import in_quiet_hours
 from videl.utils.db import is_approved
 from videl.utils.moderation import LOCK_TYPES, locked_message_reason
-from videl.utils.rich_ui import rich_reply
+from videl.utils.premium_emojis import pe
 
 logger = LOGGER
 
@@ -126,8 +126,9 @@ async def change_lock(ctx, enabled: bool) -> Screen:
     selected = ctx.command.arguments.strip().casefold()
     if selected not in _LOCK_TYPES:
         return Screen(
-            heading("Choose a lock", 3)
-            + body("Available: <code>" + " | ".join(_LOCK_TYPES) + "</code>")
+            heading("🔒 Choose a content lock", 3)
+            + body("Choose one content type or <code>all</code>.")
+            + body("Available: <code>" + " · ".join(_LOCK_TYPES) + "</code>")
         )
     kinds = LOCK_TYPES if selected == "all" else (selected,)
     updates = {f"lock_{kind}": enabled for kind in kinds}
@@ -140,10 +141,13 @@ async def change_lock(ctx, enabled: bool) -> Screen:
         f"{'on' if enabled else 'off'}: {', '.join(sorted(updates))}",
         getattr(ctx.message, "from_user", None),
     )
+    state = "Locked" if enabled else "Open"
+    badge = "🔒" if enabled else "🔓"
     return Screen(
-        heading("Locks updated", 3)
-        + table([("Type", escape(selected)), ("State", "locked" if enabled else "open")])
-        + body("Administrators and approved members are exempt.")
+        heading(f"{badge} Protection updated", 3)
+        + table([("Content type", escape(selected.capitalize())), ("Status", state)])
+        + body("Current group administrators and approved members are exempt from these locks.")
+        + body("View every setting with <code>/locks</code>.")
     )
 
 
@@ -157,13 +161,16 @@ async def unlock(ctx) -> Screen:
 
 async def locks(ctx) -> Screen:
     chat_id = ctx.message.chat.id
-    rows = [(kind.capitalize(), "locked" if _locked(chat_id, kind) else "open") for kind in LOCK_TYPES]
-    antispam = "on" if base.get_setting(chat_id, "antispam", False) else "off"
-    rows.append(("Anti-flood", f"{antispam} · {FLOOD_LIMIT + 1} messages / {FLOOD_WINDOW}s"))
+    rows = []
+    for kind in LOCK_TYPES:
+        active = _locked(chat_id, kind)
+        rows.append(((pe("lock") if active else pe("unlock")) + " " + kind.capitalize(), "On" if active else "Off"))
+    antispam = bool(base.get_setting(chat_id, "antispam", False))
+    rows.append(((pe("rijif_warning") if antispam else pe("ios_controls")) + " Anti-flood", f"{'On' if antispam else 'Off'} · removes a member’s {FLOOD_LIMIT + 1}th message within {FLOOD_WINDOW}s"))
     return Screen(
-        heading("Lock status", 3)
+        heading("🛡 Group protection status", 3)
         + table(rows)
-        + body("Toggle with <code>/lock links</code> or <code>/unlock links</code>."),
+        + body("Change a lock with <code>/lock links</code> or <code>/unlock links</code>. Administrators and approved members are exempt."),
         InlineKeyboardMarkup([[button("Anti-flood", callback_data="help:manage")]]),
     )
 
@@ -172,14 +179,28 @@ async def antispam(ctx) -> Screen:
     chat_id = ctx.message.chat.id
     argument = ctx.command.arguments.strip().casefold()
     if argument not in {"on", "off"}:
-        return Screen(heading("Anti-flood", 3) + body("Usage: <code>/antispam on</code> or <code>/antispam off</code>."))
+        return Screen(
+            heading("⚠️ Anti-flood protection", 3)
+            + body("Use <code>/antispam on</code> to enable protection or <code>/antispam off</code> to disable it.")
+            + body(f"When enabled, a member’s messages above {FLOOD_LIMIT} in {FLOOD_WINDOW} seconds are removed. Administrators and approved members are exempt.")
+        )
     if not base.set_setting(chat_id, "antispam", argument == "on"):
         raise CommandError("MongoDB is not connected, so nothing changed.")
     await _record(
         chat_id, "settings", f"antispam: {argument}",
         getattr(ctx.message, "from_user", None),
     )
-    return Screen(heading("Anti-flood", 3) + body(f"Anti-flood is now <b>{argument}</b>."))
+    state = "enabled" if argument == "on" else "disabled"
+    details = (
+        f"The limit is more than {FLOOD_LIMIT} messages in {FLOOD_WINDOW} seconds; excess messages are deleted."
+        if argument == "on" else "Member messages are no longer rate-limited by this setting."
+    )
+    return Screen(
+        heading("✅ Anti-flood updated", 3)
+        + table([("Status", state.capitalize()), ("Threshold", f"{FLOOD_LIMIT} messages / {FLOOD_WINDOW}s" if argument == "on" else "Not active")])
+        + body(details)
+        + body("Administrators and approved members remain exempt.")
+    )
 
 
 COMMANDS = (

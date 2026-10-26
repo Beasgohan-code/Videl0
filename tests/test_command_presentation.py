@@ -18,6 +18,111 @@ with patch.object(bot,'add_handler'):
     tools=importlib.import_module('videl.modules.api_tools')
 
 class PresentationTests(unittest.IsolatedAsyncioTestCase):
+    def test_status_notices_get_matching_premium_badges_without_duplicate_icons(self):
+        cases = (("success", "✅", "Saved"), ("error", "❌", "Unavailable"),
+                 ("warning", "⚠️", "Check this"), ("info", "ℹ️", "Details"))
+        for status, icon, title in cases:
+            rendered = ui.notice("A safe detail.", status=status, title=title)
+            self.assertIn(title, rendered)
+            self.assertTrue(icon in rendered or "<tg-emoji" in rendered)
+        warning = ui.notice("Check the destination.", status="warning", title="⚠️ Action unconfirmed")
+        self.assertEqual(warning.count("⚠️"), 1)
+
+    def test_legacy_heading_ornaments_are_replaced_by_semantic_icons(self):
+        from videl.utils.rich_ui import rich_heading
+        for source, expected in (("❍ Song blocked", "Song blocked"),
+                                 ("❍ playlist added", "playlist added"),
+                                 ("✫ #leftgroup ✫", "leftgroup")):
+            rendered = rich_heading(source, level=3)
+            self.assertNotIn("❍", rendered)
+            self.assertNotIn("✫", rendered)
+            self.assertIn(expected, rendered)
+            self.assertTrue("<tg-emoji" in rendered or any(icon in rendered for icon in ("❌", "🎵", "✅", "🛡️", "✨")))
+
+    def test_static_headings_in_every_command_module_drop_the_legacy_prefixes(self):
+        from videl.utils.rich_ui import rich_heading
+        paths = list(Path("videl/modules").glob("*.py")) + list(Path("videl/plugins").glob("*.py"))
+        checked = 0
+        for path in paths:
+            for node in ast.walk(ast.parse(path.read_text())):
+                if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "rich_heading" and node.args):
+                    continue
+                try:
+                    label = ast.literal_eval(node.args[0])
+                except (ValueError, TypeError):
+                    continue
+                if not isinstance(label, str):
+                    continue
+                rendered = rich_heading(label)
+                self.assertNotRegex(rendered, r"<h[1-6]>[❍✫⌯◍⬪]")
+                checked += 1
+        self.assertGreater(checked, 80, "command headings should be covered by the text UI audit")
+
+    def test_music_headings_use_command_specific_premium_emojis(self):
+        from videl.utils import premium_emojis
+        from videl.utils.rich_ui import rich_heading
+        cases = (
+            ("Playback paused", "rijif_pause"),
+            ("Playback resumed", "ios_play"),
+            ("Upcoming queue cleared", "ios_trash"),
+            ("Upcoming tracks shuffled", "ios_arrows"),
+            ("Repeat updated", "ios_repeat"),
+            ("Playlist loaded", "ios_folder"),
+            ("Downloading…", "ios_down"),
+            ("Searching lyrics…", "ios_memo"),
+            ("Effects applied", "ios_controls"),
+            ("Seeking…", "ios_arrows"),
+            ("Channel linked", "ios_link"),
+        )
+        with patch.object(premium_emojis, "USE_PREMIUM", True):
+            for label, key in cases:
+                with self.subTest(label=label):
+                    rendered = rich_heading(label, level=3)
+                    self.assertIn(
+                        f'<tg-emoji emoji-id="{premium_emojis.PREMIUM_IDS[key]}">',
+                        rendered,
+                    )
+
+    def test_supplied_pack_ids_are_used_by_shared_command_headings_and_buttons(self):
+        from videl.utils import premium_emojis
+        from videl.utils.rich_ui import rich_heading
+        with patch.object(premium_emojis, "USE_PREMIUM", True):
+            rendered = rich_heading("📺 Media library", level=3)
+        self.assertIn(
+            f'<tg-emoji emoji-id="{premium_emojis.PREMIUM_IDS["ios_tv"]}">📺</tg-emoji>',
+            rendered,
+        )
+        with patch("videl.utils.bot_ui.ICONS_ENABLED", True):
+            self.assertEqual(
+                button("Search videos", callback_data="search").icon_custom_emoji_id,
+                premium_emojis.PREMIUM_IDS["ios_search"],
+            )
+        for source, key in (
+            ("⚠️ Warning issued", "rijif_warning"),
+            ("🚫 Member banned", "rijif_forbid"),
+            ("📷 Profile photo", "rijif_camera"),
+        ):
+            rendered = rich_heading(source, level=3)
+            self.assertIn(
+                f'<tg-emoji emoji-id="{premium_emojis.PREMIUM_IDS[key]}">',
+                rendered,
+            )
+
+    def test_every_user_supplied_pack_entry_has_an_addressable_id_and_fallback(self):
+        from videl.utils import premium_emojis
+        expected = {"tgiosicons": 100, "vector": 118}
+        self.assertEqual(
+            {name: len(rows.strip().splitlines()) for name, rows in premium_emojis.SUPPLIED_EMOJI_PACKS.items()},
+            expected,
+        )
+        for pack, rows in premium_emojis.SUPPLIED_EMOJI_PACKS.items():
+            for index, row in enumerate(rows.strip().splitlines(), start=1):
+                fallback, emoji_id = row.rsplit(maxsplit=1)
+                alias = f"{pack}_{index:03d}"
+                self.assertEqual(premium_emojis.PREMIUM_IDS[alias], emoji_id)
+                self.assertEqual(premium_emojis.FALLBACK[alias], fallback)
+        self.assertFalse(set(premium_emojis.PREMIUM_IDS) - set(premium_emojis.FALLBACK))
+
     def test_card_has_heading_and_real_navigation_without_body_rewriting(self):
         body='<aside>Saved &amp; ready</aside>'
         rendered=ui.present(body)
@@ -29,12 +134,22 @@ class PresentationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(keyboard.inline_keyboard[0][0].style,ButtonStyle.PRIMARY)
         self.assertEqual(keyboard.inline_keyboard[0][1].callback_data,'cmds:all:0')
 
-    def test_existing_heading_and_authored_buttons_are_not_duplicated(self):
+    def test_global_navigation_is_added_alongside_authored_buttons_only_once(self):
         body='<h2>Controls</h2>'+transport.rich_button('Pause',callback_data='pause',style='primary')
-        self.assertEqual(ui.present(body),body)
+        rendered=ui.present(body)
+        self.assertTrue(rendered.startswith(body))
+        self.assertIn('data="help:home"',rendered)
+        self.assertIn('data="cmds:all:0"',rendered)
+        self.assertEqual(rendered.count('data="pause"'),1)
+        already_complete=body+ui.rich_button_row(
+            ui.rich_button('Help center',callback_data='help:home',style='primary'),
+            ui.rich_button('Browse commands',callback_data='cmds:all:0'),
+        )
+        self.assertEqual(ui.present(already_complete),already_complete)
         self.assertIsNone(ui.present(None))
         self.assertEqual(ui.present(''),'')
         self.assertNotIn('tg-button',ui.present('No navigation',navigation=False))
+        self.assertIn('<blockquote>',ui.present('A concise plain reply',navigation=False))
         full='a'*4096
         plain,_=transport._native_buttons(ui.present(full))
         self.assertEqual(plain,full)
@@ -60,13 +175,26 @@ class PresentationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(options['reply_markup'].inline_keyboard[0][0].callback_data,'help:home')
         self.assertIn('Ready',options['text'])
 
-    async def test_explicit_keyboard_is_preserved_and_not_replaced_with_help(self):
+    async def test_explicit_keyboard_is_cloned_with_help_navigation_and_original_actions(self):
         keyboard=InlineKeyboardMarkup([[button('Stop',callback_data='stop',style='danger')]])
         with patch.object(ui,'_send',AsyncMock()) as send:
             await ui.rich_send(object(),123,'<h2>Player</h2>',reply_markup=keyboard,protect_content=True)
-        self.assertIs(send.call_args.kwargs['reply_markup'],keyboard)
+        updated=send.call_args.kwargs['reply_markup']
+        self.assertIsNot(updated,keyboard)
+        self.assertEqual(updated.inline_keyboard[0][0].callback_data,'stop')
+        self.assertEqual([item.callback_data for item in updated.inline_keyboard[-1]],['help:home','cmds:all:0'])
+        self.assertEqual(len(keyboard.inline_keyboard),1)
         self.assertTrue(send.call_args.kwargs['protect_content'])
         self.assertNotIn('help:home',send.call_args.args[2])
+
+    async def test_edit_keeps_action_rows_and_adds_navigation_once(self):
+        keyboard=InlineKeyboardMarkup([[button('Refresh',callback_data='refresh')]])
+        with patch.object(ui,'_edit',AsyncMock()) as edit:
+            await ui.rich_edit(object(),'<h2>Settings</h2>',reply_markup=keyboard)
+        updated=edit.call_args.kwargs['reply_markup']
+        self.assertEqual(updated.inline_keyboard[0][0].callback_data,'refresh')
+        self.assertEqual([item.callback_data for item in updated.inline_keyboard[-1]],['help:home','cmds:all:0'])
+        self.assertEqual(len(keyboard.inline_keyboard),1)
 
     async def test_edit_explicit_none_clears_controls_and_unknown_send_not_retried(self):
         with patch.object(ui,'_edit',AsyncMock()) as edit:

@@ -18,19 +18,20 @@ import tempfile
 import shutil
 from pathlib import Path
 from typing import Optional
+from urllib.parse import parse_qs, urlsplit
 
 import aiofiles
 from pyrogram import filters
 from pyrogram.enums import ParseMode
 from pyrogram.types import Message, InlineKeyboardMarkup, CallbackQuery
-from videl.utils.bot_ui import button as InlineKeyboardButton
+from videl.utils.bot_ui import button as InlineKeyboardButton, visual_call
 
 import config
 from videl import bot, LOGGER
 from videl.modules.block import group_allowed, user_allowed
 from videl.utils.formatters import sc, sb, short
 from videl.utils.rich_ui import rich_esc, rich_heading, rich_kv_table, rich_note, rich_table, rich_details, rich_button, rich_img, rich_send_blocks
-from videl.utils.command_ui import rich_send, rich_edit
+from videl.utils.command_ui import navigation_markup, rich_send, rich_edit
 
 try:
     from videl.utils.premium_emojis import pe
@@ -194,7 +195,11 @@ async def _download_media(source: str, audio_only: bool = True, status_msg: Opti
         log.info(f"Searching for: {source}")
         if status_msg:
             try:
-                await rich_edit(status_msg, rich_heading(f"{pe('circle','')} {sc('searching')} • {sc(source[:40])}", level=3), navigation=False)
+                await rich_edit(
+                    status_msg,
+                    rich_heading("🔎 Searching for your track", level=3)
+                    + rich_note("Looking for a playable match…"),
+                )
             except Exception:
                 pass
         results = await _search_youtube(source, limit=1)
@@ -211,7 +216,16 @@ async def _download_media(source: str, audio_only: bool = True, status_msg: Opti
 
     if status_msg:
         try:
-            await rich_edit(status_msg, rich_heading(f"{pe('diamond','')} {sc('downloading')} • {sc('please wait')}", level=3) + rich_note(f"<code>{rich_esc(url[:60])}</code> • {pe('hex','')} {sc('quality')}: <code>{'MP3 192kbps' if audio_only else 'MP4 1080p'}</code>"), navigation=False)
+            media_label = "MP3 · 192 kbps audio" if audio_only else "MP4 · up to 1080p video"
+            status_text = (
+                rich_heading("⬇️ Preparing your download", level=3)
+                + rich_note(
+                    f"<b>Source</b> · {rich_esc(_source_summary(url))}<br>"
+                    f"<b>Format</b> · {media_label}<br>"
+                    "<i>This may take a few moments.</i>"
+                )
+            )
+            await rich_edit(status_msg, status_text, navigation=False)
         except Exception:
             pass
 
@@ -248,7 +262,44 @@ async def _download_media(source: str, audio_only: bool = True, status_msg: Opti
 
 
 def _hdr(t: str, lvl: int = 3):
-    return rich_heading(pe("orb","") + " " + t + " " + pe("spark",""), level=lvl)
+    return rich_heading(t, level=lvl)
+
+
+def _source_summary(source: str) -> str:
+    """Describe a media source without echoing tracking/auth query parameters."""
+    try:
+        parsed = urlsplit(str(source).strip())
+        host = (parsed.hostname or "").lower().removeprefix("www.")
+        if not host:
+            return "Search result"
+        if host in {"youtube.com", "m.youtube.com", "music.youtube.com"}:
+            video_id = (parse_qs(parsed.query).get("v") or [""])[0]
+            if not video_id and parsed.path.startswith("/shorts/"):
+                video_id = parsed.path.split("/", 2)[2]
+            return "YouTube" + (f" · {video_id[:11]}" if video_id else "")
+        if host == "youtu.be":
+            video_id = parsed.path.strip("/").split("/", 1)[0]
+            return "YouTube" + (f" · {video_id[:11]}" if video_id else "")
+        return host
+    except Exception:
+        return "Provided link"
+
+
+def _friendly_download_error(error: Exception) -> str:
+    """Map noisy extractor/network details to actionable, non-leaking copy."""
+    detail = str(error or "").casefold()
+    if "failed to extract any player response" in detail or "player response" in detail:
+        return "YouTube couldn’t prepare a stream for this video right now. Please try again later or use another link."
+    if "no results" in detail or "no matching" in detail:
+        return "No playable result was found. Try a different title or link."
+    if "unsupported url" in detail or "unsupported site" in detail:
+        return "That link format isn’t supported. Try a direct video link or search by title."
+    if any(term in detail for term in ("private video", "video unavailable", "members-only", "age-restricted", "sign in to confirm")):
+        return "This video may be private, age-restricted, or unavailable to the bot. Try another link."
+    if any(term in detail for term in ("http error 403", "http error 429", "too many requests", "rate limit")):
+        return "The media source is temporarily limiting downloads. Please wait a little and try again."
+    return "The download couldn’t be completed. Check the link and try again in a moment."
+
 
 def _hero_img(url: Optional[str] = None):
     if url and url.startswith("http"):
@@ -257,26 +308,50 @@ def _hero_img(url: Optional[str] = None):
 
 # ── /song — download audio (like ShizuMusic /song) ────────────────────────────
 
-@bot.on_message(filters.command('song') & (filters.group | filters.private))
+@bot.on_message(filters.command('song', prefixes=config.COMMAND_PREFIXES) & (filters.group | filters.private))
 async def song_cmd(_, m: Message):
     query = " ".join(m.command[1:]) if len(m.command) > 1 else ""
     if not query and m.reply_to_message and m.reply_to_message.text:
         query = m.reply_to_message.text.strip()
     if not query:
-        body = _hdr(sc("song downloader") + " • " + pe("music","🎵"), 2)
-        body += rich_note(pe("diamond","") + " " + sc("usage") + ": <code>/song &lt;name or URL&gt;</code><br>" + pe("small","") + " " + sc("e.g.") + " <code>/song Believer Imagine Dragons</code><br>" + pe("small","") + " <code>/song https://youtu.be/dQw4w9WgXcQ</code>")
-        body += rich_table([sc("command"), sc("description")], [("<code>/song</code>", sc("download audio MP3 192kbps")), ("<code>/vsong</code>", sc("download video MP4 1080p")), ("<code>/download</code>", sc("auto-detect audio/video"))])
-        body += rich_details(pe("star","⭐️") + " " + sc("features"), rich_note(pe("line","") + " " + sc("yt-dlp + aria2c + cookies + proxy support") + "<br>" + pe("line","") + " " + sc("supports YouTube, YT Music, SoundCloud, IG, TikTok") + "<br>" + pe("line","") + " " + sc("metadata + thumbnail + progress bar")))
-        body += "<p>" + rich_button(pe("music","🎵") + " " + sc("play in vc"), callback_data="help_play") + " " + rich_button(pe("eyes","👀") + " " + sc("search"), callback_data="song_search") + "</p>"
+        body = (
+            rich_heading("🎵 Audio downloader", level=2)
+            + rich_note(
+                "Send a track name or a direct link to get a high-quality MP3. "
+                "You can also reply to a message containing a title or link."
+            )
+            + rich_table(
+                ["Command", "What it does"],
+                [
+                    ("<code>/song</code>", "Download audio · MP3, 192 kbps"),
+                    ("<code>/vsong</code>", "Download video · MP4, up to 1080p"),
+                    ("<code>/download</code>", "Choose audio or video automatically"),
+                ],
+            )
+            + rich_details(
+                "Supported sources",
+                "YouTube, YouTube Music, SoundCloud, Instagram, TikTok, and more.",
+            )
+        )
+        body += "<p>" + rich_button("🎵 Play in voice chat", callback_data="help_play") + " " + rich_button("🔎 Search", callback_data="song_search") + "</p>"
         return await rich_send(bot, m.chat.id, body)
 
     # Check banned words professionally
     blocked = getattr(config, "BLOCKED_WORDS", []) or ["porn", "xxx", "xnxx", "sex"]
     low = query.lower()
     if any(w in low for w in blocked):
-        return await rich_send(bot, m.chat.id, _hdr(pe("warn","⚠️") + " " + sc("blocked content"),3) + rich_note(sc("this content is not allowed")))
+        return await rich_send(
+            bot, m.chat.id,
+            rich_heading("⚠️ Request not allowed", level=3)
+            + rich_note("This search request isn’t permitted. Try a different title or link."),
+        )
 
-    status = await rich_send(bot, m.chat.id, _hdr(pe("circle","") + " " + sc("preparing") + " • " + sc(query[:30]),3) + rich_note(pe("diamond","") + " " + sc("searching & downloading") + "…<br>" + pe("hex","") + " " + sc("this may take 10-30 seconds")), navigation=False)
+    status = await rich_send(
+        bot, m.chat.id,
+        rich_heading("🎵 Preparing your audio", level=3)
+        + rich_note("Finding the track and preparing a high-quality audio file…"),
+        navigation=False,
+    )
 
     path = None
     try:
@@ -303,7 +378,14 @@ async def song_cmd(_, m: Message):
 
         size_mb = path.stat().st_size / 1024 / 1024
         if size_mb > 50:
-            await rich_edit(status, _hdr(pe("warn","⚠️") + " " + sc("file too large") + f" • {size_mb:.1f} MB",3) + rich_note(sc("Telegram limit 50MB for bots — try shorter track")))
+            await rich_edit(
+                status,
+                rich_heading("⚠️ Audio file is too large", level=3)
+                + rich_note(
+                    f"This file is {size_mb:.1f} MB; Telegram bots can send up to 50 MB. "
+                    "Try a shorter track."
+                ),
+            )
             path.unlink(missing_ok=True)
             shutil.rmtree(path.parent, ignore_errors=True)
             return
@@ -312,17 +394,18 @@ async def song_cmd(_, m: Message):
         cap = _hdr(pe("music","🎵") + " " + rich_esc(title[:60]), 2)
         cap += _hero_img(thumb) if thumb else ""
         cap += rich_kv_table([
-            (pe("target","") + " " + sc("title"), rich_esc(title[:60])),
-            (pe("hex","") + " " + sc("duration"), f"<code>{rich_esc(duration)}</code>"),
-            (pe("diamond","") + " " + sc("size"), f"<code>{size_mb:.2f} MB</code>"),
-            (pe("circle","") + " " + sc("elapsed"), f"<code>{elapsed:.1f}s</code>"),
-            (pe("small","") + " " + sc("requested by"), f"<a href=\"tg://user?id={m.from_user.id}\">{rich_esc(m.from_user.first_name or 'User')}</a>" if m.from_user else "?"),
-        ], headers=[pe("spark","") + " " + sc("downloaded"), ""])
-        cap += rich_note(pe("line","") + " " + sc("via yt-dlp • ffmpeg • aria2c") + " " + pe("spark",""))
+            ("Title", rich_esc(title[:60])),
+            ("Duration", f"<code>{rich_esc(duration)}</code>"),
+            ("File size", f"<code>{size_mb:.2f} MB</code>"),
+            ("Ready in", f"<code>{elapsed:.1f} seconds</code>"),
+            ("Requested by", f"<a href=\"tg://user?id={m.from_user.id}\">{rich_esc(m.from_user.first_name or 'User')}</a>" if m.from_user else "User"),
+        ], headers=["Audio download", ""])
+        cap += rich_note("Audio prepared as an MP3 · 192 kbps")
 
         # Send audio with professional metadata
         try:
-            await bot.send_audio(
+            await visual_call(
+                bot.send_audio,
                 chat_id=m.chat.id,
                 audio=str(path),
                 caption=cap,
@@ -330,12 +413,24 @@ async def song_cmd(_, m: Message):
                 title=title[:60],
                 performer="Videl • Beasgohan-code",
                 reply_to_message_id=m.id,
+                reply_markup=navigation_markup(),
             )
-            await rich_edit(status, _hdr(pe("check","✅") + " " + sc("sent") + " • " + pe("music","🎵"),3) + rich_note(pe("diamond","") + " <code>" + rich_esc(title[:40]) + "</code> " + pe("hex","") + f" {size_mb:.2f} MB " + pe("small","") + f" {elapsed:.1f}s"))
+            await rich_edit(
+                status,
+                rich_heading("✅ Audio sent", level=3)
+                + rich_note(
+                    f"<b>{rich_esc(title[:60])}</b><br>"
+                    f"{size_mb:.2f} MB · ready in {elapsed:.1f} seconds"
+                ),
+                navigation=False,
+            )
             log.info(f"/song by {m.from_user.id} in {m.chat.id}: {title} ({size_mb:.2f} MB, {elapsed:.1f}s)")
         except Exception as e:
             log.error(f"send_audio fail: {e}", exc_info=True)
-            await bot.send_document(m.chat.id, document=str(path), caption=rich_esc(title), reply_to_message_id=m.id)
+            await bot.send_document(
+                m.chat.id, document=str(path), caption=rich_esc(title),
+                reply_to_message_id=m.id, reply_markup=navigation_markup(),
+            )
             try:
                 await status.delete()
             except Exception:
@@ -349,11 +444,19 @@ async def song_cmd(_, m: Message):
                 log.debug(f"Cleanup fail: {e}")
 
     except ValueError as e:
-        await rich_edit(status, _hdr(pe("warn","⚠️") + " " + sc("not found"),3) + rich_note(rich_esc(str(e))))
-        log.warning(f"/song not found: {query} — {e}")
+        log.info("/song could not find a playable result for %r: %s", query[:160], e)
+        await rich_edit(
+            status,
+            rich_heading("🔎 No playable result found", level=3)
+            + rich_note("Try another title or paste a direct audio/video link."),
+        )
     except Exception as e:
         log.error(f"/song error for '{query}': {e}", exc_info=True)
-        await rich_edit(status, _hdr(pe("cross","❌") + " " + sc("download failed"),3) + rich_note(f"<code>{rich_esc(str(e)[:300])}</code><br>" + pe("line","") + " " + sc("try again or use different query") + "<br>" + pe("small","") + " " + sc("check cookies/proxy if YouTube blocked")))
+        await rich_edit(
+            status,
+            rich_heading("⚠️ Download couldn’t be completed", level=3)
+            + rich_note(_friendly_download_error(e)),
+        )
         if path and path.exists():
             try:
                 path.unlink(missing_ok=True)
@@ -362,15 +465,28 @@ async def song_cmd(_, m: Message):
                 pass
 
 
-@bot.on_message(filters.command('vsong') & (filters.group | filters.private))
+@bot.on_message(filters.command('vsong', prefixes=config.COMMAND_PREFIXES) & (filters.group | filters.private))
 async def vsong_cmd(_, m: Message):
     query = " ".join(m.command[1:]) if len(m.command) > 1 else ""
     if not query and m.reply_to_message and m.reply_to_message.text:
         query = m.reply_to_message.text.strip()
     if not query:
-        return await rich_send(bot, m.chat.id, _hdr(sc("video downloader"),2) + rich_note("<code>/vsong &lt;name or URL&gt;</code><br>" + pe("small","") + " <code>/vsong Believer</code> • MP4 1080p"))
+        body = (
+            rich_heading("🎥 Video downloader", level=2)
+            + rich_note(
+                "Send a video title or direct link to download an MP4 (up to 1080p). "
+                "You can also reply to a message containing a title or link."
+            )
+            + rich_details("Example", "<code>/vsong nature documentary</code>")
+        )
+        return await rich_send(bot, m.chat.id, body)
 
-    status = await rich_send(bot, m.chat.id, _hdr(pe("circle","") + " " + sc("preparing video") + " • " + sc(query[:30]),3), navigation=False)
+    status = await rich_send(
+        bot, m.chat.id,
+        rich_heading("🎥 Preparing your video", level=3)
+        + rich_note("Checking the source and preparing an MP4 download…"),
+        navigation=False,
+    )
 
     path = None
     try:
@@ -381,21 +497,46 @@ async def vsong_cmd(_, m: Message):
         if size_mb > 50:
             # Try compress or send as document with warning
             log.warning(f"Video too large: {size_mb:.1f} MB")
-            await rich_edit(status, _hdr(pe("warn","⚠️") + " " + sc("video too large") + f" {size_mb:.1f} MB",3) + rich_note(sc("Telegram 50MB limit — try /song for audio")))
+            await rich_edit(
+                status,
+                rich_heading("⚠️ Video file is too large", level=3)
+                + rich_note(
+                    f"This file is {size_mb:.1f} MB; Telegram bots can send up to 50 MB. "
+                    "Try a shorter video."
+                ),
+            )
             path.unlink(missing_ok=True)
             shutil.rmtree(path.parent, ignore_errors=True)
             return
 
         title = path.stem[:60]
-        cap = _hdr(pe("pin","📌") + " " + rich_esc(title),2) + rich_kv_table([(pe("hex","") + " " + sc("size"), f"<code>{size_mb:.2f} MB</code>"), (pe("circle","") + " " + sc("elapsed"), f"<code>{elapsed:.1f}s</code>")])
-        await bot.send_video(chat_id=m.chat.id, video=str(path), caption=cap, parse_mode=ParseMode.HTML, reply_to_message_id=m.id, supports_streaming=True)
+        cap = (
+            rich_heading(f"🎥 {rich_esc(title)}", level=2)
+            + rich_kv_table([
+                ("File size", f"<code>{size_mb:.2f} MB</code>"),
+                ("Ready in", f"<code>{elapsed:.1f} seconds</code>"),
+            ], headers=["Video download", ""])
+        )
+        await visual_call(
+            bot.send_video,
+            chat_id=m.chat.id,
+            video=str(path),
+            caption=cap,
+            parse_mode=ParseMode.HTML,
+            reply_to_message_id=m.id,
+            supports_streaming=True,
+        )
         await status.delete()
         path.unlink(missing_ok=True)
         shutil.rmtree(path.parent, ignore_errors=True)
         log.info(f"/vsong {m.from_user.id} → {title} {size_mb:.2f} MB")
     except Exception as e:
         log.error(f"/vsong error: {e}", exc_info=True)
-        await rich_edit(status, _hdr(pe("cross","❌") + " " + sc("video download failed"),3) + rich_note(f"<code>{rich_esc(str(e)[:300])}</code>"))
+        await rich_edit(
+            status,
+            rich_heading("⚠️ Video download couldn’t be completed", level=3)
+            + rich_note(_friendly_download_error(e)),
+        )
         if path:
             try:
                 path.unlink(missing_ok=True)
@@ -404,11 +545,23 @@ async def vsong_cmd(_, m: Message):
                 pass
 
 
-@bot.on_message(filters.command('download') & (filters.group | filters.private))
+@bot.on_message(filters.command('download', prefixes=config.COMMAND_PREFIXES) & (filters.group | filters.private))
 async def download_cmd(_, m: Message):
     query = " ".join(m.command[1:]) if len(m.command) > 1 else ""
     if not query:
-        return await rich_send(bot, m.chat.id, _hdr(sc("downloader"),3) + rich_note("<code>/download &lt;URL or name&gt;</code><br>" + pe("small","") + " " + sc("audio if music, video if video URL") + "<br>" + rich_details(sc("supported"), sc("YouTube • TikTok • Instagram • SoundCloud • Twitter • Facebook • 1000+ sites via yt-dlp")) + "<p>" + rich_button(pe("music","🎵") + " " + sc("song"), callback_data="dl:song") + " " + rich_button(pe("pin","📌") + " " + sc("video"), callback_data="dl:video") + "</p>"))
+        body = (
+            rich_heading("⬇️ Media downloader", level=2)
+            + rich_note(
+                "Send a title or link and I’ll prepare audio or video automatically. "
+                "Use <code>/song</code> or <code>/vsong</code> to choose a format yourself."
+            )
+            + rich_details(
+                "Supported sources",
+                "YouTube, TikTok, Instagram, SoundCloud, X, Facebook, and many more.",
+            )
+        )
+        body += "<p>" + rich_button("🎵 Audio help", callback_data="dl:song") + " " + rich_button("📹 Video help", callback_data="dl:video") + "</p>"
+        return await rich_send(bot, m.chat.id, body)
     # Auto-detect: if query contains video keywords, use video, else audio
     is_video = any(x in query.lower() for x in (".mp4", "video", "tiktok", "instagram", "reel"))
     if is_video:
@@ -424,15 +577,23 @@ async def download_cmd(_, m: Message):
 async def dl_cbs(_, q: CallbackQuery):
     data = (q.data or "").split(":")[1] if ":" in (q.data or "") else ""
     if data == "song":
-        await q.answer(sc("use") + " /song <name>")
+        await q.answer("Use /song followed by a title or link")
         try:
-            await rich_edit(q.message, _hdr(sc("song downloader"),3) + rich_note("<code>/song Believer</code> — MP3 192kbps " + pe("music","🎵")))
+            await rich_edit(
+                q.message,
+                rich_heading("🎵 Download audio", level=3)
+                + rich_note("Example: <code>/song Believer</code> · MP3, 192 kbps"),
+            )
         except Exception:
             pass
     elif data == "video":
-        await q.answer(sc("use") + " /vsong <name>")
+        await q.answer("Use /vsong followed by a title or link")
         try:
-            await rich_edit(q.message, _hdr(sc("video downloader"),3) + rich_note("<code>/vsong Believer</code> — MP4 1080p " + pe("pin","📌")))
+            await rich_edit(
+                q.message,
+                rich_heading("🎥 Download video", level=3)
+                + rich_note("Example: <code>/vsong nature documentary</code> · MP4, up to 1080p"),
+            )
         except Exception:
             pass
 

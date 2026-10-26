@@ -98,7 +98,7 @@ async def _send(target_id: int, bm: Message, broadcast_type: str, text: str) -> 
 # ── Main command ───────────────────────────────────────────────────────────────
 
 @bot.on_message(
-    filters.command(["broadcast", "gcast"])
+    filters.command(["broadcast", "gcast"], prefixes=config.COMMAND_PREFIXES)
     & filters.user(config.OWNER_ID)
 )
 async def broadcast_cmd(_, message: Message) -> None:

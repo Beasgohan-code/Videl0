@@ -1,3 +1,4 @@
+import config
 # --------------------------------------------------------------------------------
 #  Videl © 2026 | Developed by Beasgohan-code — Blocklist / Blacklist
 #  FallenRobot blacklist.py + blacklist_stickers — Richgram UI
@@ -29,7 +30,7 @@ def _hdr(t, lvl=3):
 
 VALID_MODES = {"off","del","warn","mute","ban","kick","tban"}
 
-@bot.on_message(filters.command('addblacklist') & filters.group & group_allowed & user_allowed)
+@bot.on_message(filters.command('addblacklist', prefixes=config.COMMAND_PREFIXES) & filters.group & group_allowed & user_allowed)
 async def addbl_cmd(_, m):
     if not await is_user_authorized(m):
         return
@@ -57,7 +58,7 @@ async def addbl_cmd(_, m):
     kb = InlineKeyboardMarkup([[InlineKeyboardButton(pe("eyes","👀") + " " + sc("view all"), callback_data="bl:view")]])
     await rich_send(bot, m.chat.id, body, reply_markup=kb)
 
-@bot.on_message(filters.command(['delblacklist', 'rmblacklist']) & filters.group & group_allowed & user_allowed)
+@bot.on_message(filters.command(['delblacklist', 'rmblacklist'], prefixes=config.COMMAND_PREFIXES) & filters.group & group_allowed & user_allowed)
 async def delbl_cmd(_, m):
     if not await is_user_authorized(m):
         return
@@ -74,9 +75,9 @@ async def delbl_cmd(_, m):
         kb = InlineKeyboardMarkup([[InlineKeyboardButton(pe("eyes","👀") + " " + sc("view list"), callback_data="bl:view")]])
         await rich_send(bot, m.chat.id, body, reply_markup=kb)
     else:
-        await rich_send(bot, m.chat.id, _hdr(pe("warn","⚠️") + " " + sc("not found"),3) + rich_note("<code>" + rich_esc(trig) + "</code>"))
+        await rich_send(bot, m.chat.id, _hdr("⚠️ " + sc("not found"),3) + rich_note("<code>" + rich_esc(trig) + "</code>"))
 
-@bot.on_message(filters.command('blacklist') & filters.group & group_allowed & user_allowed)
+@bot.on_message(filters.command('blacklist', prefixes=config.COMMAND_PREFIXES) & filters.group & group_allowed & user_allowed)
 async def listbl_cmd(_, m):
     bl = get_blacklist(m.chat.id)
     mode = get_blacklist_mode(m.chat.id)
@@ -98,14 +99,22 @@ async def listbl_cmd(_, m):
     kb = InlineKeyboardMarkup([[InlineKeyboardButton(pe("cross","❌") + " " + sc("clear all"), callback_data="bl:clear"), InlineKeyboardButton(pe("target","") + " " + sc("change mode"), callback_data="bl:mode")],[InlineKeyboardButton(pe("spark","") + " " + sc("close"), callback_data="bl:close")]])
     await rich_send(bot, m.chat.id, body, reply_markup=kb)
 
-@bot.on_message(filters.command('blacklistmode') & filters.group & group_allowed & user_allowed)
+@bot.on_message(filters.command('blacklistmode', prefixes=config.COMMAND_PREFIXES) & filters.group & group_allowed & user_allowed)
 async def blmode_cmd(_, m):
     if not await is_user_authorized(m):
         return
     if not m.text or len(m.text.split(maxsplit=1)) < 2:
         cur = get_blacklist_mode(m.chat.id)
         body = _hdr(pe("target","") + " " + sc("blacklist mode"),3) + rich_kv_table([(pe("diamond","") + " " + sc("current"), "<code>" + rich_esc(cur) + "</code>")])
-        body += rich_table([sc("mode"), sc("action")], [("<code>del</code>", pe("cross","❌") + " " + sc("delete message")), ("<code>warn</code>", pe("warn","⚠️") + " " + sc("warn user")), ("<code>mute</code>", pe("lock","🔒") + " " + sc("mute 1h")), ("<code>ban</code>", pe("ban","⛔️") + " " + sc("ban")), ("<code>kick</code>", pe("spark","") + " " + sc("kick")), ("<code>off</code>", pe("circle","") + " " + sc("no action")), ("<code>tban 2h</code>", "⏱ " + sc("temp ban"))])
+        body += rich_table(["Mode", "What happens"], [
+            ("<code>off</code>", pe("cross") + " Remove the matched message; no additional sanction"),
+            ("<code>del</code>", pe("ios_trash") + " Remove the matched message"),
+            ("<code>warn</code>", pe("rijif_warning") + " Record a warning; reaching the group limit can ban the member"),
+            ("<code>mute</code>", pe("boseh_speaker_mute") + " Mute the member for one hour"),
+            ("<code>kick</code>", pe("rijif_forbid") + " Remove the member; they may rejoin"),
+            ("<code>ban</code>", pe("rijif_forbid") + " Ban the member"),
+            ("<code>tban 2h</code>", pe("boseh_clock") + " Ban for the chosen duration (s, m, h, d or w)"),
+        ])
         body += "<p>" + rich_button(pe("check","✅") + " del", callback_data="bl:mode:del") + " " + rich_button(pe("warn","⚠️") + " warn", callback_data="bl:mode:warn") + " " + rich_button(pe("lock","🔒") + " mute", callback_data="bl:mode:mute") + " " + rich_button(pe("ban","⛔️") + " ban", callback_data="bl:mode:ban", style="danger") + "</p>"
         kb = InlineKeyboardMarkup([[InlineKeyboardButton("del", callback_data="bl:mode:del"), InlineKeyboardButton("warn", callback_data="bl:mode:warn"), InlineKeyboardButton("mute", callback_data="bl:mode:mute")],[InlineKeyboardButton("ban", callback_data="bl:mode:ban"), InlineKeyboardButton("kick", callback_data="bl:mode:kick"), InlineKeyboardButton("off", callback_data="bl:mode:off")],[InlineKeyboardButton("tban 1h", callback_data="bl:mode:tban_1h"), InlineKeyboardButton("tban 1d", callback_data="bl:mode:tban_1d")]])
         return await rich_send(bot, m.chat.id, body, reply_markup=kb)
@@ -125,9 +134,15 @@ async def blmode_cmd(_, m):
         record_bot, m.chat.id, "blacklist_mode", action="blacklist_mode",
         detail=f"mode: {mode}"[:40], actor=getattr(m.from_user, "id", None),
     )
-    await rich_send(bot, m.chat.id, _hdr(pe("check","✅") + " " + sc("mode updated"),3) + rich_kv_table([(pe("target","") + " " + sc("mode"), "<code>" + rich_esc(mode) + "</code>")]) + "<p>" + rich_button(pe("eyes","👀") + " " + sc("view list"), callback_data="bl:view") + "</p>")
+    await rich_send(
+        bot, m.chat.id,
+        _hdr(pe("check", "✅") + " " + sc("blacklist action updated"), 3)
+        + rich_kv_table([(pe("target", "") + " " + sc("mode"), "<code>" + rich_esc(mode) + "</code>")])
+        + rich_note("Future blacklist matches will use this action. Your saved blacklist words are unchanged.")
+        + "<p>" + rich_button(pe("eyes", "👀") + " " + sc("view list"), callback_data="bl:view") + "</p>"
+    )
 
-@bot.on_message(filters.command('addblsticker') & filters.group & group_allowed & user_allowed)
+@bot.on_message(filters.command('addblsticker', prefixes=config.COMMAND_PREFIXES) & filters.group & group_allowed & user_allowed)
 async def add_bl_sticker(_, m):
     if not await is_user_authorized(m):
         return
@@ -139,7 +154,7 @@ async def add_bl_sticker(_, m):
     body += "<p>" + rich_button(pe("eyes","👀") + " " + sc("view stickers"), callback_data="bl:stickers") + "</p>"
     await rich_send(bot, m.chat.id, body)
 
-@bot.on_message(filters.command('delblsticker') & filters.group & group_allowed & user_allowed)
+@bot.on_message(filters.command('delblsticker', prefixes=config.COMMAND_PREFIXES) & filters.group & group_allowed & user_allowed)
 async def del_bl_sticker(_, m):
     if not await is_user_authorized(m):
         return
@@ -151,7 +166,7 @@ async def del_bl_sticker(_, m):
     else:
         await rich_send(bot, m.chat.id, _hdr(pe("warn","⚠️") + " " + sc("not blacklisted"),3))
 
-@bot.on_message(filters.command('blstickers') & filters.group & group_allowed & user_allowed)
+@bot.on_message(filters.command('blstickers', prefixes=config.COMMAND_PREFIXES) & filters.group & group_allowed & user_allowed)
 async def list_bl_stickers_cmd(_, m):
     lst = list_bl_stickers(m.chat.id)
     if not lst:
@@ -164,7 +179,7 @@ async def list_bl_stickers_cmd(_, m):
 @bot.on_callback_query(filters.regex(r"^bl:"))
 async def bl_cbs(_, q):
     if not await is_user_authorized(q):
-        return await q.answer(pe("warn","⚠️") + " " + sc("admin only"), show_alert=True)
+        return await q.answer("⚠️ " + sc("admin only"), show_alert=True)
     chat_id = q.message.chat.id if q.message and q.message.chat else 0
     data = (q.data or "").split(":")
     cmd = data[1] if len(data)>1 else ""
@@ -188,7 +203,7 @@ async def bl_cbs(_, q):
     if cmd == "rm" and len(data)>2:
         trig = data[2]
         if remove_blacklist(chat_id, trig):
-            await q.answer(pe("check","✅") + " " + sc("removed") + " " + trig)
+            await q.answer("✅ " + sc("removed") + " " + trig)
             bl = get_blacklist(chat_id)
             mode = get_blacklist_mode(chat_id)
             if not bl:
@@ -204,7 +219,7 @@ async def bl_cbs(_, q):
             except Exception:
                 pass
         else:
-            await q.answer(pe("warn","⚠️") + " " + sc("not found"), show_alert=True)
+            await q.answer("⚠️ " + sc("not found"), show_alert=True)
         return
     if cmd == "mode":
         if len(data)>2:
@@ -212,7 +227,7 @@ async def bl_cbs(_, q):
             if mode_name.startswith("tban"):
                 mode_name = "tban_" + mode_name.split("_")[-1] if "_" in mode_name else "tban_1h"
             set_blacklist_mode(chat_id, mode_name)
-            await q.answer(pe("check","✅") + " " + mode_name)
+            await q.answer("✅ " + mode_name)
             try:
                 await rich_edit(q.message, _hdr(pe("check","✅") + " " + sc("mode updated"),3) + rich_kv_table([(pe("target","") + " " + sc("mode"), "<code>" + rich_esc(mode_name) + "</code>")]))
             except Exception:
@@ -232,7 +247,7 @@ async def bl_cbs(_, q):
         bl = get_blacklist(chat_id)
         for b in bl:
             remove_blacklist(chat_id, b["trigger"])
-        await q.answer(pe("check","✅") + " " + sc("cleared") + " " + str(len(bl)))
+        await q.answer("✅ " + sc("cleared") + " " + str(len(bl)))
         try:
             await rich_edit(q.message, _hdr(pe("check","✅") + " " + sc("blacklist cleared"),3))
         except Exception:

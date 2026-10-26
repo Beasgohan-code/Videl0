@@ -40,6 +40,8 @@ class TagallTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('href="tg://user?id=3"', text)
         self.assertLessEqual(len(text), 3900)
         self.assertEqual(client.sent[0][1]["parse_mode"], "html")
+        callbacks = {button.callback_data for row in client.sent[0][1]["reply_markup"].inline_keyboard for button in row}
+        self.assertTrue({"help:home", "cmds:all:0"}.issubset(callbacks))
 
     async def test_requires_admin_policy_and_is_in_command_manifest(self):
         command = next(entry for entry in COMMANDS if entry.name == "tagall")

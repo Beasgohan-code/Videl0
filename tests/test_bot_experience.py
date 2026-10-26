@@ -12,6 +12,7 @@ from videl.app import music,music_callbacks
 from videl.plugins import start as general
 from videl.app.readiness import inspect_setup
 from videl.core.queue import chat_queues
+from videl.core import player
 
 
 def query(data='pause',uid=42,qid='test'):
@@ -104,6 +105,31 @@ class PlayerExperienceTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(await music_callbacks.handle(client(),q));q.answer.assert_not_awaited()
 
 
+class PlayerCardTests(unittest.TestCase):
+    def test_now_playing_card_has_rich_metadata_and_all_live_controls(self):
+        chat_id=-987654
+        chat_queues[chat_id]=[
+            {'title':'A <bright> night','duration':'3:45'},
+            {'title':'Next song','duration':'2:30'},
+        ]
+        try:
+            caption=player._now_playing_caption(
+                {'title':'A <bright> night','duration':'3:45','requester':'Listener','video':False},
+                elapsed=74,total=225,chat_id=chat_id,
+            )
+            self.assertIn('<details',caption)
+            self.assertIn('&lt;bright&gt;',caption)
+            self.assertIn('Requested by',caption)
+            self.assertIn('Up next',caption)
+            self.assertIn('━',caption)
+            controls=player._now_playing_kb(chat_id)
+            callbacks=[[item.callback_data for item in row] for row in controls.inline_keyboard]
+            self.assertEqual(callbacks,[['pause','skip'],['show_queue','cycle_loop'],['replay','stop'],['help:home','cmds:all:0']])
+        finally:
+            chat_queues.pop(chat_id,None)
+            player.stop_progress(chat_id)
+
+
 class OnboardingTests(unittest.IsolatedAsyncioTestCase):
     async def test_bot_first_actions_and_valid_group_add_link(self):
         keyboard=general.private_keyboard(False,'ExampleBot').inline_keyboard
@@ -111,14 +137,23 @@ class OnboardingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(keyboard[2][0].callback_data,'v2:setup')
         self.assertIsNotNone(keyboard[-1][0].web_app)
 
+    async def test_support_links_are_normalized_and_untrusted_hosts_are_ignored(self):
+        self.assertEqual(general._telegram_link('@ExampleSupport'),'https://t.me/ExampleSupport')
+        self.assertEqual(general._telegram_link('t.me/ExampleUpdates'),'https://t.me/ExampleUpdates')
+        self.assertIsNone(general._telegram_link('https://example.org/support'))
+
     async def test_private_onboarding_does_not_promise_private_voice_playback(self):
         text=general.member_caption('<Visitor>',True)
-        self.assertIn('not in this private chat',text)
+        self.assertIn('Add Videl to a group',text)
         self.assertIn('&lt;Visitor&gt;',text)
+        self.assertIn('<details',text)
         group=general.member_caption('Visitor',False)
         self.assertNotIn('this private chat',group);self.assertIn('Start a voice chat',group)
+        self.assertIn('/welcome on',group)
+        self.assertIn('/setup',group)
         self.assertIn('/tagall [message]',group)
         self.assertIn('up to 50 members',group)
+        self.assertIn('videl-music-hero.png',general._welcome_art())
 
     async def test_private_setup_never_queries_group_membership(self):
         app=client();message=NS(chat=NS(type=ChatType.PRIVATE,id=42))

@@ -37,7 +37,7 @@ def _owner_id(message: Message, group: bool = False) -> int:
 
 
 @bot.on_message(
-    filters.command('saveplaylist')
+    filters.command('saveplaylist', prefixes=config.COMMAND_PREFIXES)
     & filters.group
     & group_allowed
     & user_allowed
@@ -103,7 +103,7 @@ async def save_playlist_cmd(_, message: Message) -> None:
 
 
 @bot.on_message(
-    filters.command('playlist')
+    filters.command('playlist', prefixes=config.COMMAND_PREFIXES)
     & filters.group
     & group_allowed
     & user_allowed
@@ -183,7 +183,7 @@ async def load_playlist_cmd(_, message: Message) -> None:
 
 
 @bot.on_message(
-    filters.command('playlists')
+    filters.command('playlists', prefixes=config.COMMAND_PREFIXES)
     & group_allowed
     & user_allowed
 )
@@ -223,7 +223,7 @@ async def list_playlists_cmd(_, message: Message) -> None:
 
 
 @bot.on_message(
-    filters.command('deleteplaylist')
+    filters.command('deleteplaylist', prefixes=config.COMMAND_PREFIXES)
     & group_allowed
     & user_allowed
 )

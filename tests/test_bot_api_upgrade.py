@@ -149,6 +149,8 @@ class KeyboardTests(unittest.TestCase):
         self.assertEqual(
             button("Resume", callback_data="resume").style, ButtonStyle.SUCCESS
         )
+        self.assertEqual(button("Music & playlists", callback_data="help:music").style, ButtonStyle.PRIMARY)
+        self.assertEqual(button("Help center", callback_data="help:home").style, ButtonStyle.PRIMARY)
         item = button("Previous", callback_data="page_1")
         markup = InlineKeyboardMarkup([[item]])
         basic = plain_keyboard(markup)
@@ -157,10 +159,16 @@ class KeyboardTests(unittest.TestCase):
         self.assertIsNot(basic.inline_keyboard[0][0], item)
 
     def test_emoji_ids_and_fallback_text_are_safe(self):
-        from videl.utils.premium_emojis import tg_emoji
+        from videl.utils import premium_emojis
 
-        self.assertEqual(tg_emoji('1" onclick="bad', "<unsafe>"), "&lt;unsafe&gt;")
-        self.assertEqual(tg_emoji("9999999999999999999", "Hi"), "Hi")
+        self.assertEqual(premium_emojis.tg_emoji('1" onclick="bad', "<unsafe>"), "&lt;unsafe&gt;")
+        self.assertEqual(premium_emojis.tg_emoji("9999999999999999999", "Hi"), "Hi")
+        self.assertEqual(set(premium_emojis.PREMIUM_IDS), set(premium_emojis.FALLBACK))
+        with patch.object(premium_emojis, "USE_PREMIUM", True):
+            self.assertIn('>✨</tg-emoji>', premium_emojis.pe("spark", ""))
+            self.assertIn('>⚡️</tg-emoji>', premium_emojis.pe("line", ""))
+        with patch.object(premium_emojis, "USE_PREMIUM", False):
+            self.assertEqual(premium_emojis.pe("spark", ""), "✨")
 
     def test_start_uses_signed_mini_app_launch_buttons_in_private(self):
         from videl.plugins.start import group_keyboard, private_keyboard

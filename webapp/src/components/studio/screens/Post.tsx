@@ -15,7 +15,7 @@ import {ScheduledPosts} from "@/components/studio/ScheduledPosts";
 import { ImageComposer } from "@/components/studio/ImageComposer";
 import { PostAssetLibrary } from "@/components/studio/PostAssetLibrary";
 import {postChecks,VERSION_KEY} from "@/lib/studio-drafts";
-import { visibleLength, plainPostText } from "@/lib/telegram-format";
+import { visibleLength, plainPostText, previewHtml } from "@/lib/telegram-format";
 import { RichEditor } from "@/components/editor/RichEditor";
 import { ButtonBuilder, BtnRow } from "@/components/editor/ButtonBuilder";
 import { ChannelPreview } from "@/components/channel/Preview";
@@ -47,6 +47,21 @@ const templates = [
     title: "Welcome message",
     tag: "Community",
     text: "<b>Welcome to the community!</b>\n\nIntroduce yourself, explore the pinned messages and make yourself at home.\n\nPlease keep things respectful. We’re glad you’re here!",
+  },
+  {
+    title: "Weekly roundup",
+    tag: "Digest",
+    text: "<b>✨ This week, in a nutshell</b>\n\nHere are the highlights:\n• <b>Big win:</b> add a moment worth celebrating\n• <b>Coming up:</b> share what’s next\n• <b>From the community:</b> add a member shout-out\n\n<blockquote>Thanks for making this community what it is.</blockquote>",
+  },
+  {
+    title: "Product announcement",
+    tag: "Launch",
+    text: "<b>It’s here: introduce your new thing</b>\n\n<i>One clear sentence about why it matters.</i>\n\n<b>What’s new</b>\n• A useful improvement\n• A detail people will notice\n\n<blockquote>Made with your feedback in mind.</blockquote>\n\n<a href=\"https://example.com\">Explore the update</a>",
+  },
+  {
+    title: "Service notice",
+    tag: "Notice",
+    text: "<b>Service notice</b>\n\n<blockquote><b>What:</b> describe the change\n<b>When:</b> include the date, time and timezone\n<b>Impact:</b> say what members should expect</blockquote>\n\nWe’ll share another update when everything is back to normal.",
   },
 ];
 export default function ChannelStudio() {
@@ -729,12 +744,13 @@ export default function ChannelStudio() {
             >
               <span className="ios-pill ios-pill-blue">{template.tag}</span>
               <h2 className="mt-4 text-sm font-semibold">{template.title}</h2>
-              <p className="mt-2 text-xs leading-5 text-stone-400">
-                An editable starting point. Customize every detail before
-                sending.
-              </p>
+              <div
+                aria-label={`Rich text preview of ${template.title}`}
+                className="post-template-preview telegram-rich mt-3 rounded-xl border border-white/10 bg-black/20 p-3 text-left text-xs leading-5 text-stone-200"
+                dangerouslySetInnerHTML={{ __html: previewHtml(template.text) }}
+              />
               <span className="mt-4 block text-xs text-[#c5d6b3]">
-                Use template ↗
+                Use this template <ArrowUpRight size={12} className="inline" aria-hidden />
               </span>
             </button>
           ))}

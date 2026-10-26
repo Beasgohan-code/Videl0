@@ -4,7 +4,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from videl.app.router import Command, Context, Parsed, Screen
+from videl.app.router import Command, CommandError, Context, Parsed, Screen
 from videl.app.routes import COMMANDS
 from videl.plugins import afk, base, group, help as help_plugin, reminder, start
 
@@ -133,6 +133,42 @@ class GroupStatsTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("<footer", owner.html)
 
 
+class GroupMetadataTests(unittest.IsolatedAsyncioTestCase):
+    async def test_set_title_updates_only_after_confirmation_and_reports_utf16_limit(self):
+        chat = message("/settitle New title").chat
+        client = SimpleNamespace(set_chat_title=AsyncMock(return_value=True))
+        ctx = Context(client, message("/settitle New title"), Parsed("settitle", "New title"))
+        screen = await group.set_title(ctx)
+        client.set_chat_title.assert_awaited_once_with(chat.id, "New title")
+        self.assertIn("New title", base.plain(screen.html))
+
+        too_long = "😀" * 65
+        invalid = Context(client, message("/settitle"), Parsed("settitle", too_long))
+        with self.assertRaises(CommandError):
+            await group.set_title(invalid)
+        self.assertEqual(client.set_chat_title.await_count, 1)
+
+    async def test_setdescription_clear_and_group_photo_actions(self):
+        client = SimpleNamespace(
+            set_chat_description=AsyncMock(return_value=True),
+            set_chat_photo=AsyncMock(return_value=True),
+            delete_chat_photo=AsyncMock(return_value=True),
+        )
+        clear_ctx = Context(client, message("/setdescription clear"), Parsed("setdescription", "clear"))
+        cleared = await group.set_description(clear_ctx)
+        client.set_chat_description.assert_awaited_once_with(42, "")
+        self.assertIn("description cleared", base.plain(cleared.html).lower())
+
+        photo_message = message("/setphoto")
+        photo_message.reply_to_message = SimpleNamespace(photo=SimpleNamespace(file_id="photo-file-id"))
+        await group.set_photo(Context(client, photo_message, Parsed("setphoto", "")))
+        client.set_chat_photo.assert_awaited_once_with(42, "photo-file-id")
+
+        removed = await group.delete_photo(Context(client, message("/delphoto"), Parsed("delphoto", "")))
+        client.delete_chat_photo.assert_awaited_once_with(42)
+        self.assertIn("photo removed", base.plain(removed.html).lower())
+
+
 class FakeCollection:
     def __init__(self):
         self.rows = []
@@ -190,3 +226,7 @@ class ManifestTests(unittest.TestCase):
         for command in COMMANDS:
             self.assertIn(command.category, {"tools", "music", "manage", "owner"})
             self.assertIn(command.policy, {"public", "group", "admin", "owner"})
+        by_name = {command.name: command for command in COMMANDS}
+        for name in ("settitle", "setdescription", "setphoto", "delphoto"):
+            self.assertEqual(by_name[name].policy, "admin")
+            self.assertEqual(by_name[name].rights, ("can_change_info",))

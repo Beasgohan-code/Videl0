@@ -1,3 +1,4 @@
+import config
 # --------------------------------------------------------------------------------
 #  Videl © 2026 | Developed by Beasgohan-code
 #  Lyrics — /lyrics + Now Playing button (LRCLIB)
@@ -79,7 +80,7 @@ def _format_lyrics(data: dict, max_chars: int = 3500) -> str:
 
 
 @bot.on_message(
-    filters.command('lyrics')
+    filters.command('lyrics', prefixes=config.COMMAND_PREFIXES)
     & group_allowed
     & user_allowed
 )

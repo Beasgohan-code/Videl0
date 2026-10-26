@@ -1,3 +1,4 @@
+import config
 # --------------------------------------------------------------------------------
 #  Videl © 2026 | Developed by Beasgohan-code — Approvals
 #  FallenRobot approve.py — bypass locks/blacklist/antiflood
@@ -41,7 +42,25 @@ async def _resolve_target(m):
 def _uid_link(uid, name):
     return '<a href="tg://user?id=' + str(uid) + '">' + rich_esc(name or str(uid)) + '</a>'
 
-@bot.on_message(filters.command('approve') & filters.group & group_allowed & user_allowed)
+
+def _approved_keyboard(user_ids, *, allow_clear=False):
+    """Action keyboard mirrors the visible members without mutating callback data."""
+    rows = []
+    visible = list(user_ids[:28])
+    for index in range(0, len(visible), 2):
+        rows.append([
+            InlineKeyboardButton(
+                f"Remove {uid}", callback_data=f"approve:rm:{uid}",
+                style="danger", icon="ios_trash",
+            )
+            for uid in visible[index:index + 2]
+        ])
+    if allow_clear and len(user_ids) > 1:
+        rows.append([InlineKeyboardButton("Clear all", callback_data="approve:clear", style="danger", icon="ios_trash")])
+    rows.append([InlineKeyboardButton("Close", callback_data="approve:close", icon="cross")])
+    return InlineKeyboardMarkup(rows)
+
+@bot.on_message(filters.command('approve', prefixes=config.COMMAND_PREFIXES) & filters.group & group_allowed & user_allowed)
 async def approve_cmd(_, m):
     if not await is_user_authorized(m):
         return
@@ -62,7 +81,7 @@ async def approve_cmd(_, m):
     kb = InlineKeyboardMarkup([[InlineKeyboardButton(pe("cross","❌") + " " + sc("unapprove"), callback_data="approve:rm:" + str(uid)), InlineKeyboardButton(pe("eyes","👀") + " " + sc("view all"), callback_data="approve:list")]])
     await rich_send(bot, m.chat.id, body, reply_markup=kb)
 
-@bot.on_message(filters.command('unapprove') & filters.group & group_allowed & user_allowed)
+@bot.on_message(filters.command('unapprove', prefixes=config.COMMAND_PREFIXES) & filters.group & group_allowed & user_allowed)
 async def unapprove_cmd(_, m):
     if not await is_user_authorized(m):
         return
@@ -78,37 +97,59 @@ async def unapprove_cmd(_, m):
     kb = InlineKeyboardMarkup([[InlineKeyboardButton(pe("eyes","👀") + " " + sc("view all"), callback_data="approve:list")]])
     await rich_send(bot, m.chat.id, body, reply_markup=kb)
 
-@bot.on_message(filters.command('approved') & filters.group & group_allowed & user_allowed)
+@bot.on_message(filters.command('approved', prefixes=config.COMMAND_PREFIXES) & filters.group & group_allowed & user_allowed)
 async def approved_list(_, m):
     arr = list_approved(m.chat.id)
     if not arr:
-        body = _hdr(pe("circle","") + " " + sc("approved users") + " — 0",3) + rich_note(pe("line","") + " " + sc("no approved users yet") + " • " + pe("diamond","") + " <code>/approve</code> " + sc("to add one"))
-        body += rich_details(pe("info","ℹ️") + " " + sc("what is approve"), sc("approved users bypass locks / blacklist / antiflood / captcha") + " " + pe("spark",""))
+        body = (
+            rich_heading("Approved members", level=3)
+            + rich_note("No members are approved in this group yet. Use <code>/approve</code> to add someone.")
+            + rich_details(
+                "What approval changes",
+                "Approved members bypass this group’s content locks, blacklist, anti-flood, and join verification.",
+            )
+        )
         return await rich_send(bot, m.chat.id, body)
-    rows = []
-    for i, uid in enumerate(arr[:28], 1):
-        rows.append(("<code>" + str(i) + "</code>", '<a href="tg://user?id=' + str(uid) + '">' + str(uid) + '</a>', rich_button(pe("cross","❌") + " " + sc("remove"), callback_data="approve:rm:" + str(uid), style="danger")))
-    extra = "<p>" + sc("and") + " " + str(len(arr)-28) + " " + sc("more") + "…</p>" if len(arr) > 28 else ""
-    body = _hdr(sb("Approved") + " • " + str(len(arr)),2) + rich_table([pe("target","") + " #", pe("hex","") + " " + sc("user"), pe("diamond","") + " " + sc("action")], rows)
-    if len(arr) > 1:
-        body += "<p>" + rich_button(pe("cross","❌") + " " + sc("clear all"), callback_data="approve:clear", style="danger") + "</p>"
-    body += rich_note(pe("line","") + " " + sc("tap remove to unapprove") + " • " + pe("diamond","") + " <code>/unapprove</code> " + sc("reply")) + extra
-    kb = InlineKeyboardMarkup([[InlineKeyboardButton(pe("cross","❌") + " " + sc("unapprove first"), callback_data="approve:rm:" + str(arr[0]))] if arr else [], [InlineKeyboardButton(pe("spark","") + " " + sc("close"), callback_data="approve:close")]])
-    await rich_send(bot, m.chat.id, body, reply_markup=kb)
+    visible = arr[:28]
+    rows = [
+        (f"<code>{i}</code>", '<a href="tg://user?id=' + str(uid) + '">' + str(uid) + '</a>')
+        for i, uid in enumerate(visible, 1)
+    ]
+    body = (
+        rich_heading(f"✅ Approved members · {len(arr)}", level=2)
+        + rich_note("Approved members bypass this group’s content locks, blacklist, anti-flood and join verification.")
+        + rich_table(["No.", "Member ID"], rows)
+    )
+    if len(arr) > len(visible):
+        body += rich_note(f"Showing {len(visible)} of {len(arr)} members. Use <code>/unapprove</code> by reply or user ID for someone not shown.")
+    body += rich_note("Use a Remove button below to revoke approval, or reply to the member with <code>/unapprove</code>.")
+    await rich_send(bot, m.chat.id, body, reply_markup=_approved_keyboard(arr, allow_clear=True))
 
-@bot.on_message(filters.command(["approval"]) & filters.group & group_allowed & user_allowed)
+@bot.on_message(filters.command(["approval"], prefixes=config.COMMAND_PREFIXES) & filters.group & group_allowed & user_allowed)
 async def approval_info(_, m):
     arr = list_approved(m.chat.id)
-    body = _hdr(sc("approval") + " • " + str(len(arr)),3) + rich_note(pe("diamond","") + " " + sc("approved bypass locks/blacklist/antiflood"))
-    body += rich_kv_table([(pe("circle","") + " " + sc("count"), "<code>" + str(len(arr)) + "</code>"), (pe("target","") + " " + sc("view"), "<code>/approved</code>")])
-    body += "<p>" + rich_button(pe("eyes","👀") + " " + sc("view approved"), callback_data="approve:list") + "</p>"
-    kb = InlineKeyboardMarkup([[InlineKeyboardButton(pe("eyes","👀") + " " + sc("view approved"), callback_data="approve:list")]])
+    count = len(arr)
+    member_word = "member" if count == 1 else "members"
+    body = (
+        rich_heading("✅ Approved member access", level=2)
+        + rich_note(
+            f"<b>{count} approved {member_word}.</b> They bypass content locks, "
+            "the blacklist, anti-flood, and join verification in this group."
+        )
+        + rich_kv_table([
+            ("View the list", "<code>/approved</code>"),
+            ("Add a member", "<code>/approve</code> · reply to them or use a user ID"),
+            ("Remove a member", "<code>/unapprove</code> · reply to them or use a user ID"),
+        ])
+    )
+    body += "<p>" + rich_button("👀 View approved members", callback_data="approve:list") + "</p>"
+    kb = InlineKeyboardMarkup([[InlineKeyboardButton("👀 View approved members", callback_data="approve:list")]])
     await rich_send(bot, m.chat.id, body, reply_markup=kb)
 
 @bot.on_callback_query(filters.regex(r"^approve:"))
 async def approve_cbs(_, q):
     if not await is_user_authorized(q):
-        return await q.answer(pe("warn","⚠️") + " " + sc("admin only"), show_alert=True)
+        return await q.answer("⚠️ " + sc("admin only"), show_alert=True)
     chat_id = q.message.chat.id if q.message and q.message.chat else 0
     data = q.data or ""
     if data == "approve:list":
@@ -116,15 +157,24 @@ async def approve_cbs(_, q):
         arr = list_approved(chat_id)
         if not arr:
             try:
-                await rich_edit(q.message, _hdr(sc("no approved"),3))
+                await rich_edit(q.message, rich_heading("Approved members", level=3) + rich_note("No members are approved in this group yet. Use <code>/approve</code> to add someone."))
             except Exception:
                 pass
             return
-        rows = [("<code>" + str(i) + "</code>", '<a href="tg://user?id=' + str(uid) + '">' + str(uid) + '</a>', rich_button(pe("cross","❌") + " " + sc("remove"), callback_data="approve:rm:" + str(uid), style="danger")) for i, uid in enumerate(arr[:28], 1)]
-        body = _hdr(sb("Approved") + " • " + str(len(arr)),2) + rich_table([pe("target","") + " #", pe("hex","") + " " + sc("user"), pe("diamond","") + " " + sc("action")], rows)
+        visible = arr[:28]
+        rows = [
+            (f"<code>{i}</code>", '<a href="tg://user?id=' + str(uid) + '">' + str(uid) + '</a>')
+            for i, uid in enumerate(visible, 1)
+        ]
+        body = (
+            rich_heading(f"✅ Approved members · {len(arr)}", level=2)
+            + rich_note("Choose a Remove button below to revoke approval.")
+            + rich_table(["No.", "Member ID"], rows)
+        )
+        if len(arr) > len(visible):
+            body += rich_note(f"Showing {len(visible)} of {len(arr)} members. Use <code>/unapprove</code> for someone not shown.")
         try:
-            kb = InlineKeyboardMarkup([[InlineKeyboardButton(pe("spark","") + " " + sc("close"), callback_data="approve:close")]])
-            await rich_edit(q.message, body, reply_markup=kb)
+            await rich_edit(q.message, body, reply_markup=_approved_keyboard(arr, allow_clear=True))
         except Exception:
             pass
         return
@@ -132,20 +182,30 @@ async def approve_cbs(_, q):
         try:
             uid = int(data.split(":")[2])
         except Exception:
-            return await q.answer(pe("warn","⚠️") + " " + sc("invalid"), show_alert=True)
+            return await q.answer("⚠️ " + sc("invalid"), show_alert=True)
         disapprove_user(chat_id, uid)
-        await q.answer(pe("check","✅") + " " + sc("unapproved") + " " + str(uid))
+        await q.answer("✅ Member removed from the approved list.")
         arr = list_approved(chat_id)
         if not arr:
             try:
-                await rich_edit(q.message, _hdr(pe("circle","") + " " + sc("no approved"),3))
+                await rich_edit(q.message, rich_heading("Approved members", level=3) + rich_note("No members are approved in this group yet. Use <code>/approve</code> to add someone."))
             except Exception:
                 pass
             return
-        rows = [("<code>" + str(i) + "</code>", '<a href="tg://user?id=' + str(uid) + '">' + str(uid) + '</a>', rich_button(pe("cross","❌") + " " + sc("remove"), callback_data="approve:rm:" + str(uid), style="danger")) for i, uid in enumerate(arr[:28], 1)]
-        body = _hdr(sb("Approved") + " • " + str(len(arr)),2) + rich_table([pe("target","") + " #", pe("hex","") + " " + sc("user"), pe("diamond","") + " " + sc("action")], rows)
+        visible = arr[:28]
+        rows = [
+            (f"<code>{i}</code>", '<a href="tg://user?id=' + str(uid) + '">' + str(uid) + '</a>')
+            for i, uid in enumerate(visible, 1)
+        ]
+        body = (
+            rich_heading(f"✅ Approved members · {len(arr)}", level=2)
+            + rich_note("Updated approval list. Use a Remove button below to change another member’s access.")
+            + rich_table(["No.", "Member ID"], rows)
+        )
+        if len(arr) > len(visible):
+            body += rich_note(f"Showing {len(visible)} of {len(arr)} members. Use <code>/unapprove</code> for someone not shown.")
         try:
-            await rich_edit(q.message, body, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(pe("spark","") + " " + sc("close"), callback_data="approve:close")]]))
+            await rich_edit(q.message, body, reply_markup=_approved_keyboard(arr, allow_clear=True))
         except Exception:
             pass
         return
@@ -159,8 +219,8 @@ async def approve_cbs(_, q):
         arr = list_approved(chat_id)
         for uid in arr:
             disapprove_user(chat_id, uid)
-        await q.answer(pe("check","✅") + " " + sc("cleared"))
+        await q.answer("✅ Approved-member list cleared.")
         try:
-            await rich_edit(q.message, _hdr(pe("check","✅") + " " + sc("cleared all approved"),3))
+            await rich_edit(q.message, rich_heading("✅ Approved-member list cleared", level=3) + rich_note("No members are currently approved in this group."))
         except Exception:
             pass

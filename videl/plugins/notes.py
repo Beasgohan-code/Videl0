@@ -18,8 +18,8 @@ from videl.plugins import base
 from videl.plugins.base import body, escape, heading, table
 from videl.utils.audit import record_bot
 from videl.utils.bot_ui import button
-from videl.utils.command_ui import usage
-from videl.utils.rich_ui import rich_reply, rich_send
+from videl.utils.command_ui import navigation_markup, rich_send, usage
+from videl.utils.premium_emojis import pe
 
 NOTES = "mgmt_notes"
 FILTERS = "mgmt_filters"
@@ -82,6 +82,11 @@ async def get(ctx) -> Screen | None:
 async def send_note(chat_id: int, name: str, reply_to=None) -> None:
     store = _notes()
     if store is None:
+        await rich_send(
+            bot, chat_id,
+            heading("⚠️ Saved note unavailable", 3) + body("The notes database is not connected, so I couldn’t look up this item."),
+            reply_to_message_id=reply_to,
+        )
         return
     document = await asyncio.to_thread(store.find_one, {"chat_id": chat_id, "name": name.casefold()})
     if not document:
@@ -92,21 +97,28 @@ async def send_note(chat_id: int, name: str, reply_to=None) -> None:
         )
         return
     kind, content, caption = document.get("type", "text"), document["content"], document.get("caption", "")
+    markup = navigation_markup()
     try:
         if kind == "text":
-            await bot.send_message(chat_id, content, reply_to_message_id=reply_to)
+            await bot.send_message(chat_id, content, reply_to_message_id=reply_to, reply_markup=markup)
         elif kind == "photo":
-            await bot.send_photo(chat_id, content, caption=caption, reply_to_message_id=reply_to)
+            await bot.send_photo(chat_id, content, caption=caption, reply_to_message_id=reply_to, reply_markup=markup)
         elif kind == "document":
-            await bot.send_document(chat_id, content, caption=caption, reply_to_message_id=reply_to)
+            await bot.send_document(chat_id, content, caption=caption, reply_to_message_id=reply_to, reply_markup=markup)
         elif kind == "video":
-            await bot.send_video(chat_id, content, caption=caption, reply_to_message_id=reply_to)
+            await bot.send_video(chat_id, content, caption=caption, reply_to_message_id=reply_to, reply_markup=markup)
         elif kind == "audio":
-            await bot.send_audio(chat_id, content, caption=caption, reply_to_message_id=reply_to)
+            await bot.send_audio(chat_id, content, caption=caption, reply_to_message_id=reply_to, reply_markup=markup)
         elif kind == "sticker":
-            await bot.send_sticker(chat_id, content, reply_to_message_id=reply_to)
+            await bot.send_sticker(chat_id, content, reply_to_message_id=reply_to, reply_markup=markup)
     except Exception:
-        LOGGER.debug("Saved note delivery failed", exc_info=True)
+        LOGGER.exception("Saved note delivery failed for chat %s, name %s", chat_id, name)
+        await rich_send(
+            bot, chat_id,
+            heading("⚠️ Saved note could not be delivered", 3)
+            + body("Telegram did not confirm delivery. Check the chat permissions and try again only if the note did not arrive."),
+            reply_to_message_id=reply_to,
+        )
 
 
 async def delete_note(ctx) -> Screen:
@@ -126,15 +138,28 @@ async def list_notes(ctx) -> Screen:
     store = _notes()
     if store is None:
         raise CommandError("MongoDB is not connected.")
-    documents = await asyncio.to_thread(lambda: list(store.find({"chat_id": ctx.message.chat.id}, {"name": 1})))
-    if not documents:
-        return Screen(heading("Saved notes", 3) + body("Nothing saved yet. Add one with <code>/save rules be nice</code>."))
-    names = sorted({f"#{document['name']}" for document in documents})
-    return Screen(
-        heading("Saved notes", 3)
-        + body(" · ".join(f"<code>{escape(name)}</code>" for name in names))
-        + body(f"{len(names)} notes in this group.")
+    chat_id = ctx.message.chat.id
+    def load_names():
+        total = store.count_documents({"chat_id": chat_id})
+        cursor = store.find({"chat_id": chat_id}, {"name": 1}).sort("name", 1).limit(31)
+        return total, list(cursor)
+    total, documents = await asyncio.to_thread(load_names)
+    if not total:
+        return Screen(heading("📝 No saved notes yet", 3) + body("Save text or replied media with <code>/save name text</code>, then retrieve it with <code>/get name</code>."))
+    names = sorted({str(document.get("name", "")) for document in documents if document.get("name")})
+    shown = names[:30]
+    rows = [
+        (f"{pe('ios_memo')} <code>#{escape(name)}</code>", f"Open with <code>/get {escape(name)}</code>")
+        for name in shown
+    ]
+    text = (
+        heading("📝 Saved notes", 3)
+        + body(f"{total} saved note{'s' if total != 1 else ''} in this group.")
+        + table(rows)
     )
+    if total > len(shown):
+        text += body(f"Showing the first {len(shown)}. Use <code>/get name</code> to open a note directly.")
+    return Screen(text)
 
 
 # ── Filters ─────────────────────────────────────────────────────────────────
@@ -191,11 +216,20 @@ async def list_filters(ctx) -> Screen:
     store = _filters()
     if store is None:
         raise CommandError("MongoDB is not connected.")
-    documents = await asyncio.to_thread(lambda: list(store.find({"chat_id": ctx.message.chat.id}).limit(50)))
-    if not documents:
-        return Screen(heading("Filters", 3) + body("No automatic answers yet."))
-    rows = [(f"<code>{escape(item['keyword'])}</code>", escape((item.get("reply") or "")[:60])) for item in documents]
-    return Screen(heading("Filters", 3) + table(rows))
+    chat_id = ctx.message.chat.id
+    def load_filters():
+        total = store.count_documents({"chat_id": chat_id})
+        cursor = store.find({"chat_id": chat_id}).sort("keyword", 1).limit(21)
+        return total, list(cursor)
+    total, documents = await asyncio.to_thread(load_filters)
+    if not total:
+        return Screen(heading("📝 No automatic filters yet", 3) + body("Create one with <code>/filter keyword response</code>."))
+    shown = documents[:20]
+    rows = [(f"{pe('ios_symbols')} <code>{escape(item['keyword'])}</code>", escape((item.get("reply") or "")[:72])) for item in shown]
+    text = heading("📝 Automatic filters", 3) + body(f"{total} filter{'s' if total != 1 else ''} in this group.") + table(rows)
+    if total > len(shown):
+        text += body("Showing the first 20 alphabetically. Remove one with <code>/stopfilter keyword</code>.")
+    return Screen(text)
 
 
 @bot.on_message(filters.group, group=17)

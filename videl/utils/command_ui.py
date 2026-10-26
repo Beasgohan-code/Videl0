@@ -4,6 +4,8 @@ Bodies are trusted Telegram HTML; escape user values before interpolation.
 Native keyboards stay explicit so styling never replaces actual actions.
 """
 from videl.utils.rich_ui import rich_heading, rich_note, rich_kv_table
+from videl.utils.bot_ui import button as native_button, visual_call
+from pyrogram.types import InlineKeyboardMarkup
 
 TITLES = {"success": "Action complete", "error": "Action unavailable",
           "warning": "Attention needed", "info": "Information"}
@@ -12,7 +14,11 @@ TITLES = {"success": "Action complete", "error": "Action unavailable",
 def notice(body, *, status="info", title=None):
     if status not in TITLES:
         raise ValueError("Unknown notice status")
-    return rich_heading(title or TITLES[status], level=3) + rich_note(body)
+    label = str(title or TITLES[status]).strip()
+    status_icons = {"success": "✅", "error": "❌", "warning": "⚠️", "info": "ℹ️"}
+    if not label.startswith(("✅", "❌", "⚠", "ℹ")):
+        label = f"{status_icons[status]} {label}"
+    return rich_heading(label, level=3) + rich_note(body)
 
 
 def usage(command, explanation):
@@ -49,18 +55,29 @@ def present(html_text, *, navigation=True):
 
     if not re.search(r"<h[1-6]\b", text, re.I):
         # Do not push a previously valid full-length body over Telegram’s limit.
-        framed = rich_heading("Videl · Update", level=3) + text
+        framed = rich_heading("✨ Videl · Update", level=3) + text
         if post_text_length(framed, "HTML") <= 4096:
             text = framed
-    if navigation and not re.search(r"<tg-button\b", text, re.I):
-        footer = rich_button_row(
-            rich_button("Help", callback_data="help:home", style="primary"),
-            rich_button("Commands", callback_data="cmds:all:0"),
-        )
-        # Inline Richgram buttons count toward Telegram's message limit too.
-        # Keep concise actions discoverable without making long results invalid.
-        if post_text_length(text + footer, "HTML") <= 4096:
-            text += footer
+    # Give short, otherwise-unstructured replies the same readable text card as
+    # command results. Existing tables, callouts, detail panels and authored
+    # button rows are left exactly as authored; long messages keep their limit.
+    if (not re.search(r"<(?:h[1-6]|blockquote|table|details|aside|ul|ol|pre|p|tg-button-row)\b", text, re.I)
+            and not re.search(r"<tg-button\b", text, re.I)
+            and post_text_length(text, "HTML") <= 3900):
+        text = rich_note(text)
+    if navigation:
+        # Keep Help and Browse commands visible even when the command already
+        # authored its own action buttons. Do not duplicate either callback.
+        missing = []
+        if not re.search(r'<tg-button\b[^>]*\bdata=["\']help:home["\']', text, re.I):
+            missing.append(rich_button("Help center", callback_data="help:home", style="primary"))
+        if not re.search(r'<tg-button\b[^>]*\bdata=["\']cmds:all:0["\']', text, re.I):
+            missing.append(rich_button("Browse commands", callback_data="cmds:all:0"))
+        if missing:
+            footer = rich_button_row(*missing)
+            # Inline Richgram buttons count toward Telegram's message limit too.
+            if post_text_length(text + footer, "HTML") <= 4096:
+                text += footer
     return text
 
 
@@ -68,15 +85,67 @@ def _has_keyboard(options):
     return options.get("reply_markup") is not None or options.get("markup") is not None
 
 
+def _with_navigation_keyboard(options):
+    """Add the same safe help row to explicit command keyboards without mutation."""
+    updated = dict(options)
+    field = "reply_markup" if options.get("reply_markup") is not None else "markup"
+    markup = options.get(field)
+    if not isinstance(markup, InlineKeyboardMarkup):
+        return updated
+    rows = [list(row) for row in markup.inline_keyboard]
+    callbacks = {getattr(item, "callback_data", None) for row in rows for item in row}
+    missing = []
+    if "help:home" not in callbacks:
+        missing.append(native_button("Help center", callback_data="help:home", style="primary", icon="info"))
+    if "cmds:all:0" not in callbacks:
+        missing.append(native_button("Browse commands", callback_data="cmds:all:0", icon="search"))
+    if not missing:
+        return updated
+    if sum(len(row) for row in rows) + len(missing) > 100 or len(rows) >= 100:
+        return updated
+    rows.append(missing)
+    updated[field] = InlineKeyboardMarkup(rows)
+    return updated
+
+
+def navigation_markup(markup=None):
+    """Return a native inline keyboard with both global navigation actions."""
+    if markup is None:
+        return InlineKeyboardMarkup([[
+            native_button("Help center", callback_data="help:home", style="primary", icon="info"),
+            native_button("Browse commands", callback_data="cmds:all:0", icon="search"),
+        ]])
+    return _with_navigation_keyboard({"reply_markup": markup}).get("reply_markup")
+
+
 async def rich_send(client, chat_id, html_text, *, navigation=True, **options):
-    return await _send(client, chat_id, present(html_text, navigation=navigation and not _has_keyboard(options)), **options)
+    if navigation:
+        options = _with_navigation_keyboard(options)
+    return await visual_call(
+        _send, client, chat_id,
+        present(html_text, navigation=navigation and not _has_keyboard(options)),
+        **options,
+    )
 
 
 async def rich_reply(message, html_text, *, navigation=True, **options):
-    return await _reply(message, present(html_text, navigation=navigation and not _has_keyboard(options)), **options)
+    if navigation:
+        options = _with_navigation_keyboard(options)
+    return await visual_call(
+        _reply, message,
+        present(html_text, navigation=navigation and not _has_keyboard(options)),
+        **options,
+    )
 
 
 async def rich_edit(target, html_text, *, navigation=True, **options):
     # An explicit None on edits means remove the old keyboard; respect it.
     explicit = "reply_markup" in options or "markup" in options
-    return await _edit(target, present(html_text, navigation=navigation and not explicit), **options)
+    clearing = any(key in options and options[key] is None for key in ("reply_markup", "markup"))
+    if navigation and not clearing:
+        options = _with_navigation_keyboard(options)
+    return await visual_call(
+        _edit, target,
+        present(html_text, navigation=navigation and not explicit),
+        **options,
+    )

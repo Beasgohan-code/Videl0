@@ -89,18 +89,106 @@ def visible_commands(owner=False,category='all',query=''):
             and (not query or query in entry['name'] or query in entry['summary'].casefold())]
 
 
+def _command_icon(entry):
+    """Pick a relevant, non-interactive Premium badge for every directory row."""
+    name = entry['name']
+    # High-signal actions first: /banlist and federation ban tools should not
+    # inherit the generic group badge, while unban/unmute remain success actions.
+    if name.startswith('un') and any(part in name for part in ('ban', 'mute', 'approve', 'warn', 'pin', 'lock')):
+        return 'unlock' if name in {'unban', 'unmute', 'unlock', 'unpin'} else 'check'
+    if 'ban' in name or 'kick' in name:
+        return 'rijif_forbid'
+    if 'mute' in name:
+        return 'boseh_speaker_mute'
+    if 'warn' in name:
+        return 'rijif_warning'
+    if name in {'hug', 'kiss'}:
+        return 'vector_102' if name == 'kiss' else 'vector_101'
+    if name == 'like':
+        return 'rijif_heart_fire'
+    if name == 'wave':
+        return 'rijif_speech'
+    if name == 'highfive':
+        return 'rijif_thumbs_up'
+    if name == 'dance':
+        return 'rijif_disco'
+    if name in {'tagall', 'gcast', 'broadcast'}:
+        return 'rijif_megaphone'
+    if name in {'afk', 'afklist', 'back', 'remind', 'reminders'}:
+        return 'boseh_clock'
+    if name in {'apiinfo', 'modernhelp'}:
+        return 'ios_info'
+    if name == 'emojiinfo':
+        return 'ios_symbols'
+    if name == 'topicnew':
+        return 'ios_add'
+    if name == 'topicrename':
+        return 'ios_edit'
+    if name == 'topicclose':
+        return 'ios_close'
+    if name == 'topicopen':
+        return 'ios_check'
+    if name == 'pollstop':
+        return 'ios_close'
+    if name == 'copy':
+        return 'ios_paperclip'
+    if name in {'stats', 'sysinfo', 'watchdog', 'active'}:
+        return 'stats'
+    if name in {'about', 'repo', 'help', 'commands', 'id', 'whois'}:
+        return 'ios_info'
+    if name in {'cleanup', 'purge', 'dbcleanup', 'forget', 'delnote', 'delblacklist', 'delblsticker', 'delphoto', 'deleteplaylist'}:
+        return 'ios_trash'
+    if name == 'settitle':
+        return 'ios_tag'
+    if name == 'setdescription':
+        return 'ios_newspaper'
+    if name in {'approve', 'approved', 'approval', 'saveplaylist', 'save'}:
+        return 'check'
+    if name in {'welcome', 'greetings', 'goodbye', 'setwelcome', 'setgoodbye'}:
+        return 'spark'
+    if name in {'download', 'song', 'vsong'}:
+        return 'ios_file'
+    if entry['category'] == 'music' or any(part in name for part in ('play', 'queue', 'lyric', 'seek', 'speed', 'bass', 'effect')):
+        return 'music'
+    if any(part in name for part in ('sticker', 'photo', 'avatar', 'image', 'kang')):
+        return 'ios_image'
+    if any(part in name for part in ('note', 'filter', 'get', 'copy', 'font', 'rule')):
+        return 'ios_memo'
+    if any(part in name for part in ('poll', 'quiz', 'react', 'topic')):
+        return 'ios_symbols'
+    if any(part in name for part in ('fed', 'invite', 'link')):
+        return 'globe'
+    if entry['category'] == 'owner' or entry['owner']:
+        return 'crown'
+    if entry['category'] == 'manage' or any(part in name for part in ('admin', 'lock', 'approve', 'report', 'group', 'block')):
+        return 'shield'
+    return 'ios_controls'
+
+
+def _command_scope(entry, pe):
+    if entry['owner']:
+        return pe('crown') + ' Owner · private chat'
+    if entry['context'] == 'group':
+        return pe('shield') + ' Group'
+    if entry['context'] == 'private':
+        return pe('boseh_person') + ' Private chat'
+    return pe('globe') + ' Any chat'
+
+
 def directory(category='all',page=0,*,owner=False,query=''):
     from pyrogram.types import InlineKeyboardMarkup
     from videl.utils.bot_ui import button
+    from videl.utils.premium_emojis import pe
     from videl.utils.rich_ui import rich_heading,rich_note,rich_esc,rich_kv_table
     if category not in LABELS or category=='owner' and not owner:category='all'
     entries=visible_commands(owner,category,query)
     size=10;pages=max(1,(len(entries)+size-1)//size);page=max(0,min(int(page),pages-1))
-    text=rich_heading('Command directory',level=2)+rich_note(f'{LABELS[category]} · {len(entries)} commands · Page {page+1}/{pages}')
-    if query:text+=rich_note(f'Search: <code>{rich_esc(query)}</code>')
+    title_icon = {'music': 'music', 'manage': 'shield', 'tools': 'ios_controls', 'owner': 'crown', 'all': 'ios_symbols'}[category]
+    text=rich_heading(pe(title_icon) + ' ' + LABELS[category] + ' · Command directory',level=2)+rich_note(f'{len(entries)} commands · Page {page+1}/{pages}')
+    if query:text+=rich_note(pe('ios_search') + f' Search: <code>{rich_esc(query)}</code>')
     if entries:
         text+=rich_kv_table([
-            (f"<code>/{entry['name']}</code>", f"{rich_esc(entry['summary'])} · {entry['context']}")
+            (f"{pe(_command_icon(entry))} <code>/{entry['name']}</code>", f"{rich_esc(entry['summary'])} · {_command_scope(entry, pe)}")
             for entry in entries[page*size:(page+1)*size]
         ])
     if not entries:text+=rich_note('No matching command. Try /commands music or /commands ban.')

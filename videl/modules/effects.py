@@ -178,21 +178,23 @@ async def apply_effects_now(chat_id: int, message: Message, *, seek_sec: int = -
 
     try:
         src = await resolve_stream(song["url"])
-    except Exception as e:
+    except Exception:
+        LOGGER.exception("Could not resolve audio source while applying effects in chat %s", chat_id)
         await rich_edit(
             pm,
-            rich_heading("❍ stream resolve failed", level=3)
-            + rich_note(f"<code>{rich_esc(e)}</code>"),
+            rich_heading("⚠️ Couldn’t prepare the audio", level=3)
+            + rich_note("The current track is unavailable right now. Try another track or retry shortly."),
         )
         return
 
     try:
         processed = await _process_file(src, speed, bass)
-    except Exception as e:
+    except Exception:
+        LOGGER.exception("Could not process audio effects in chat %s", chat_id)
         await rich_edit(
             pm,
-            rich_heading("❍ ffmpeg error", level=3)
-            + rich_note(f"<code>{rich_esc(e)}</code>"),
+            rich_heading("⚠️ Couldn’t apply the audio effects", level=3)
+            + rich_note("Try a different track or reset the effect settings, then try again."),
         )
         return
 
@@ -200,11 +202,12 @@ async def apply_effects_now(chat_id: int, message: Message, *, seek_sec: int = -
 
     try:
         await _stream_from(chat_id, processed, seek_sec=pos)
-    except Exception as e:
+    except Exception:
+        LOGGER.exception("Could not restart playback after applying effects in chat %s", chat_id)
         await rich_edit(
             pm,
-            rich_heading("❍ playback failed", level=3)
-            + rich_note(f"<code>{rich_esc(e)}</code>"),
+            rich_heading("⚠️ Effects applied, but playback didn’t restart", level=3)
+            + rich_note("Try <code>/play</code> to start the track again."),
         )
         return
 

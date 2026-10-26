@@ -5,7 +5,7 @@ This documents navigation and source coverage, not verified live Telegram behavi
 Aliases are listed separately; permissions remain enforced by the referenced handler.
 Owner operations are hidden from public `/commands` results.
 
-160 distinct command names.
+168 distinct command names.
 
 ## Music & playlists
 
@@ -73,6 +73,7 @@ Owner operations are hidden from public `/commands` results.
 | `/delblsticker` | group | `videl/modules/blocklist.py::del_bl_sticker` |
 | `/delfed` | chat | `videl/modules/federation.py::delfed_cmd` |
 | `/delnote` | group | `videl/plugins/notes.py::delete_note` |
+| `/delphoto` | group | `videl/plugins/group.py::delete_photo` |
 | `/demote` | group | `videl/plugins/moderation.py::demote` |
 | `/dkick` | group | `videl/plugins/moderation.py::moderate` |
 | `/dwarn` | group | `videl/plugins/moderation.py::warn` |
@@ -111,8 +112,11 @@ Owner operations are hidden from public `/commands` results.
 | `/rules` | group | `videl/plugins/welcome.py::rules` |
 | `/save` | group | `videl/plugins/notes.py::save` |
 | `/setcaptcha` | group | `videl/plugins/welcome.py::toggle_captcha` |
+| `/setdescription` | group | `videl/plugins/group.py::set_description` |
 | `/setgoodbye` | group | `videl/plugins/welcome.py::set_goodbye` |
+| `/setphoto` | group | `videl/plugins/group.py::set_photo` |
 | `/setrules` | group | `videl/plugins/welcome.py::set_rules` |
+| `/settitle` | group | `videl/plugins/group.py::set_title` |
 | `/setup` | group | `videl/plugins/setup.py::setup` |
 | `/setwarnlimit` | group | `videl/plugins/moderation.py::set_warn_limit` |
 | `/setwelcome` | group | `videl/plugins/welcome.py::set_welcome` |
@@ -143,14 +147,17 @@ Owner operations are hidden from public `/commands` results.
 | `/back` | chat | `videl/plugins/afk.py::back` |
 | `/commands` | chat | `videl/plugins/help.py::directory_command` |
 | `/copy` | chat | `videl/modules/api_tools.py::copy_command` |
+| `/dance` | chat | `videl/plugins/fun.py::dance` |
 | `/font` | chat | `videl/plugins/fun.py::font` |
 | `/forget` | chat | `videl/plugins/reminder.py::forget` |
 | `/help` | chat | `videl/plugins/help.py::help_command` |
+| `/highfive` | chat | `videl/plugins/fun.py::highfive` |
 | `/hug` | chat | `videl/plugins/fun.py::hug` |
 | `/id` | chat | `videl/plugins/tools.py::identifiers` |
 | `/inbox` | chat | `videl/app/group_view.py::private_recording` |
 | `/kang` | chat | `videl/plugins/stickers.py::kang` |
 | `/kiss` | chat | `videl/plugins/fun.py::kiss` |
+| `/like` | chat | `videl/plugins/fun.py::like` |
 | `/modernhelp` | chat | `videl/modules/api_tools.py::modern_help` |
 | `/ping` | chat | `videl/plugins/tools.py::ping` |
 | `/poll` | chat | `videl/plugins/group.py::poll` |
@@ -167,6 +174,7 @@ Owner operations are hidden from public `/commands` results.
 | `/topicnew` | chat | `videl/modules/api_tools.py::topic_command` |
 | `/topicopen` | chat | `videl/modules/api_tools.py::topic_command` |
 | `/topicrename` | chat | `videl/modules/api_tools.py::topic_command` |
+| `/wave` | chat | `videl/plugins/fun.py::wave` |
 | `/whois` | chat | `videl/plugins/tools.py::whois` |
 
 ## Owner operations

@@ -10,7 +10,7 @@ from pytgcalls.types import AudioQuality, MediaStream, VideoQuality
 import config
 from videl import LOGGER, bot, call_py
 from videl.utils.formatters import parse_dur, short
-from videl.utils.rich_ui import rich_edit, rich_esc, rich_heading, rich_img, rich_kv_table, rich_note, rich_send
+from videl.utils.rich_ui import rich_edit, rich_esc, rich_heading, rich_img, rich_kv_table, rich_note, rich_send, rich_details
 from videl.utils.youtube import resolve_stream
 
 _nf_pills = lambda: (
@@ -96,28 +96,51 @@ def _dot(elapsed: float, total: float) -> str:
 
 def _now_playing_caption(song: dict, elapsed: float=0, total: float=0, chat_id: int|None=None) -> str:
     from videl.core.queue import peek_next, queue_size
-    from videl.utils.premium_emojis import pe
     title=short(str(song.get("title","Untitled track")),60)
     requester=str(song.get("requester","Community"))
     duration=str(song.get("duration","Live"))
     if total<=0: total=parse_dur(duration) or float(song.get("duration_seconds") or 0)
     state="Paused" if chat_id is not None and is_paused(chat_id) else "Now playing"
-    lines=[f"{pe('music', '🎵')} <b>{state}</b>",f"<b>{rich_esc(title)}</b>","",f"{'Video' if song.get('video') else 'Audio'} · {rich_esc(duration)}",f"Requested by <b>{rich_esc(requester)}</b>","",f"<code>{_dot(elapsed,total)}</code>"]
+    kind="Video" if song.get("video") else "Audio"
+    artist=str(song.get("artist") or song.get("uploader") or song.get("channel") or "").strip()
+    metadata=[("Format",kind),("Length",rich_esc(duration))]
+    if artist and artist.casefold()!=title.casefold():
+        metadata.append(("Artist",rich_esc(short(artist,60))))
+    metadata.append(("Requested by",f"<b>{rich_esc(requester)}</b>"))
+    parts=[
+        rich_heading(f"🎵 {state}",level=2),
+        rich_note(f"<b>{rich_esc(title)}</b>"),
+        rich_kv_table(metadata),
+        rich_note(f"<code>{_dot(elapsed,total)}</code>"),
+    ]
     if chat_id is not None:
         loop=get_loop(chat_id)
-        if loop!="off": lines.append(f"Repeat: {'Current track' if loop=='one' else 'Entire queue'}")
         upcoming=peek_next(chat_id)
-        if upcoming: lines.extend(["",f"Up next: <b>{rich_esc(short(str(upcoming.get('title','Untitled track')),48))}</b>"])
-        lines.append(f"Queued tracks: <b>{max(queue_size(chat_id)-1,0)}</b>")
-    return "\n".join(lines)
+        if upcoming:
+            next_title=rich_esc(short(str(upcoming.get("title","Untitled track")),48))
+            parts.append(rich_details("⏭ Up next",f"<b>{next_title}</b> · {rich_esc(str(upcoming.get('duration','Live'))[:12])}"))
+        queued=max(queue_size(chat_id)-1,0)
+        repeat={"off":"Off","one":"This track","all":"Queue"}.get(loop,"Off")
+        parts.append(rich_note(f"<b>{queued}</b> upcoming · Repeat: <b>{repeat}</b>"))
+    return "".join(parts)
 
 
 def _now_playing_kb(chat_id: int|None=None, votes: int=0, votes_needed: int=0) -> InlineKeyboardMarkup:
     paused=is_paused(chat_id) if chat_id is not None else False
     loop=get_loop(chat_id) if chat_id is not None else "off"
-    rows=[[InlineKeyboardButton("Replay",callback_data="replay",icon="music"),InlineKeyboardButton("Resume" if paused else "Pause",callback_data="resume" if paused else "pause",style="success" if paused else "primary",icon="music"),InlineKeyboardButton("Skip",callback_data="skip",icon="right")],
-          [InlineKeyboardButton({"off":"Repeat: Off","one":"Repeat: Track","all":"Repeat: Queue"}.get(loop,"Repeat: Off"),callback_data="cycle_loop",icon="music"),InlineKeyboardButton("Stop playback",callback_data="stop")]]
-    if votes_needed>0: rows.append([InlineKeyboardButton(f"Vote to skip · {votes}/{votes_needed}",callback_data="vote_skip",icon="check")])
+    rows=[
+        [InlineKeyboardButton("Resume" if paused else "Pause",callback_data="resume" if paused else "pause",style="success" if paused else "primary",icon="ios_play" if paused else "rijif_pause"),
+         InlineKeyboardButton("Skip",callback_data="skip",style="primary",icon="ios_play")],
+        [InlineKeyboardButton("Queue",callback_data="show_queue",icon="stats"),
+         InlineKeyboardButton({"off":"Repeat: Off","one":"Repeat: Track","all":"Repeat: Queue"}.get(loop,"Repeat: Off"),callback_data="cycle_loop",icon="ios_repeat")],
+        [InlineKeyboardButton("Replay",callback_data="replay",icon="ios_repeat"),
+         InlineKeyboardButton("Stop",callback_data="stop",style="danger",icon="ios_close")],
+    ]
+    if votes_needed>0: rows.append([InlineKeyboardButton(f"Vote to skip · {votes}/{votes_needed}",callback_data="vote_skip",icon="rijif_thumbs_up")])
+    rows.append([
+        InlineKeyboardButton("Help center",callback_data="help:home",icon="info"),
+        InlineKeyboardButton("Browse commands",callback_data="cmds:all:0",icon="search"),
+    ])
     return InlineKeyboardMarkup(rows)
 
 
@@ -195,11 +218,33 @@ async def play_song(chat_id:int, message:Message, song:dict, *, advance=False, r
             caption=_now_playing_caption(song,0,total,chat_id=chat_id)
             kb=_now_playing_kb(chat_id)
             thumb=_thumb_url(song)
-            if thumb:
-                try:pmsg=await visual_call(bot.send_photo,chat_id,photo=thumb,caption=caption,reply_markup=kb)
+            poster=None
+            try:
+                from videl.utils.player_poster import build as build_player_poster
+                poster_song=dict(song)
+                poster_song['thumbnail']=thumb or str(song.get('thumbnail') or '')
+                poster=await asyncio.wait_for(build_player_poster(poster_song),timeout=5.5)
+            except asyncio.CancelledError:
+                raise
+            except Exception as error:
+                LOGGER.debug('Generated player poster skipped (%s)',type(error).__name__)
+            if poster:
+                import io
+                photo=io.BytesIO(poster)
+                photo.name='videl-now-playing.jpg'
+            else:
+                photo=thumb
+            if photo:
+                try:
+                    pmsg=await visual_call(bot.send_photo,chat_id,photo=photo,caption=caption,reply_markup=kb)
                 except BadRequest:
-                    # A definite thumbnail rejection is safe to fall back from.
-                    pmsg=await rich_edit(message,caption,reply_markup=kb) if message is not None else await rich_send(bot,chat_id,caption,reply_markup=kb)
+                    # A definite rejection is safe to fall back to the original
+                    # provider thumbnail, then the classic rich text player.
+                    if poster and thumb:
+                        try:pmsg=await visual_call(bot.send_photo,chat_id,photo=thumb,caption=caption,reply_markup=kb)
+                        except BadRequest:pmsg=await rich_edit(message,caption,reply_markup=kb) if message is not None else await rich_send(bot,chat_id,caption,reply_markup=kb)
+                    else:
+                        pmsg=await rich_edit(message,caption,reply_markup=kb) if message is not None else await rich_send(bot,chat_id,caption,reply_markup=kb)
             elif message is not None:pmsg=await rich_edit(message,caption,reply_markup=kb)
             else:pmsg=await rich_send(bot,chat_id,caption,reply_markup=kb)
         except Exception as error:

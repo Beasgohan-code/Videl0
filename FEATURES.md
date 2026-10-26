@@ -51,6 +51,7 @@ to code that actually runs:
   same way. A protection-window tick writes runtime state only, so it never
   turns an open panel's next save into a false conflict. Bot-side writes still
   work without a token but advance the counter, so an open panel notices them.
+- **Group profile commands** — `/settitle`, `/setdescription`, `/setphoto` and `/delphoto` update a group’s title, info-page description and avatar. Each is checked against the caller’s Telegram `Change info` right; title/description lengths are validated before the API call, and results are reported only after Telegram confirms them. `/setdescription clear` removes the description; `/setphoto` uses a replied photo.
 - **Command switches** — any registered command can be turned off
   for one group. A handler at group −1 refuses it before every other handler,
   so this also covers commands that never pass through the declarative router.
@@ -90,10 +91,11 @@ to code that actually runs:
   (`p95_ms`, samples) so a slow panel can be attributed to the API or Mongo.
 - **Honest health** — `/health` keeps `status: "ok"` while the HTTP API answers,
   so an uptime monitor does not flap when Telegram is down, and adds `degraded`
-  with one reason per broken part (bot, MongoDB, watchdog) plus a redacted
-  `bot_error` from the last failed start. The panel shows that reason on the
-  control room and in Settings instead of only "connection not confirmed"; the
-  bot token and other long credentials are stripped before the text is served.
+  with one reason per broken part (bot, MongoDB, watchdog and configured voice
+  assistant) plus a redacted `bot_error` from the last failed bot start. The panel
+  shows that reason on the control room and in Settings instead of only
+  "connection not confirmed"; the user session is shown as configured versus
+  actually connected, never by exposing the session string.
 - **Scheduled publishing** — status counts, failure reasons and a retry that is
   only allowed for posts Telegram explicitly rejected; accepted or unconfirmed
   posts are never resent. A rate limit (HTTP 429) is the one failure the queue
@@ -150,7 +152,7 @@ incoming bold, code, spoilers and premium emoji render in the viewer instead of
 being flattened. Premium emoji artwork is resolved server-side through
 `/api/premium-emoji` so the bot token never reaches the browser.
 
-Music playback/queue controls, group moderation and MongoDB-backed rules are retained. New Telegram tools include advanced polls/quizzes, permission-checked reactions and forum-topic actions. See [API details](docs/TELEGRAM_API_UPGRADE.md) for exact commands and eligibility caveats.
+Music playback/queue controls, group moderation and MongoDB-backed rules are retained. Telegram tools include advanced polls/quizzes, permission-checked reactions, forum-topic actions and SFW reaction GIFs for `/hug`, `/kiss`, `/like`, `/wave`, `/highfive` and `/dance` fetched from the [documented Nekos.best API](https://docs.nekos.best/getting-started/api-endpoints.html), with locally drawn original GIFs as an offline fallback. See [API details](docs/TELEGRAM_API_UPGRADE.md) for exact commands and eligibility caveats.
 
 No AI or additional database integration is enabled. Do not infer working delivery, scheduling durability or production playback from UI labels or module counts. Live Telegram checks require the configured bot and appropriate chat permissions.
 

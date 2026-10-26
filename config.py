@@ -75,6 +75,12 @@ API_ID: int = _int("API_ID", 0)
 API_HASH: str = _str("API_HASH", _req("API_HASH"))
 BOT_TOKEN: str = _str("BOT_TOKEN", _req("BOT_TOKEN"))
 BOT_USERNAME: str = _str("BOT_USERNAME", "Videl0Bot")
+# Alternate text-command prefixes. Telegram's native command menu still uses '/'.
+_raw_command_prefixes = _str("COMMAND_PREFIXES", "/!?&.#~$+")
+COMMAND_PREFIXES: str = "".join(dict.fromkeys(
+    char for char in _raw_command_prefixes
+    if len(char) == 1 and not char.isalnum() and not char.isspace() and char != "@"
+)) or "/"
 
 # STRING_SESSION — sanitize: strip quotes/spaces, fix padding
 _raw_session = _str("STRING_SESSION", "")

@@ -56,11 +56,12 @@ async def _seek_to(chat_id: int, target_sec: int, message: Message) -> None:
 
     try:
         media_path = await resolve_stream(song["url"])
-    except Exception as e:
+    except Exception:
+        LOGGER.exception("Could not resolve current playback stream for seek in chat %s", chat_id)
         await rich_edit(
             pm,
-            rich_heading("❍ seek failed — could not resolve stream", level=3)
-            + rich_note(f"<code>{rich_esc(e)}</code>"),
+            rich_heading("⚠️ Couldn’t seek this track", level=3)
+            + rich_note("The current stream is unavailable. Try again shortly or restart with <code>/play</code>."),
         )
         return
 

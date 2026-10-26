@@ -148,10 +148,14 @@ def _health():
     except Exception:
         database = "unknown"
     from videl import build_revision
+    from videl.utils.assistant import assistant_status
+    user_assistant = assistant_status()
     # "status" stays "ok" while the HTTP API answers: uptime monitors must not
     # flap because Telegram is down. ``degraded`` names the parts that are not
     # working, so the panel can say what is wrong instead of only that it is.
     reasons = []
+    if user_assistant["configured"] and not user_assistant["ready"]:
+        reasons.append("Telegram voice assistant is " + user_assistant["state"])
     if _BOT_STATUS != "online":
         reasons.append("Telegram bot is " + _BOT_STATUS)
     if database == "disconnected":
@@ -161,6 +165,7 @@ def _health():
     return jsonify({"status": "ok", "service": "videl-render-backend", "revision": build_revision,
                     "bot_status": _BOT_STATUS, "bot_error": _BOT_ERROR or None,
                     "bot_online_at": _BOT_ONLINE_AT, "bot_attempts": _BOT_ATTEMPTS,
+                    "assistant": user_assistant,
                     "degraded": bool(reasons),
                     "degraded_reasons": reasons, "database": database,
                     "uptime": max(0, int(time.time() - bot_start_time)),
@@ -1168,6 +1173,11 @@ if __name__ == "__main__":
         except Exception:
             pass  # not in main thread on some runners
 
+        # Keep voice commands from racing the user-client startup. A session
+        # string is credentials, not proof that its Client is connected.
+        from videl.utils.assistant import assistant_starting, assistant_startup_complete
+        assistant_starting()
+
         # Start the bot, retrying. A failed start delivered nothing, so trying
         # again is safe; what is not safe is giving up and waiting for a human.
         from videl.utils import boot as boot_policy
@@ -1235,11 +1245,18 @@ if __name__ == "__main__":
                 await _assis.start()
                 am = await _assis.get_me()
                 assistant_username = am.username or str(am.id)
+                assistant_startup_complete(True)
                 LOGGER.info(f"Assistant @{assistant_username} started")
             else:
+                assistant_startup_complete(False)
                 LOGGER.warning("Assistant STRING_SESSION is missing; assistant disabled")
         except Exception as e:
+            assistant_startup_complete(False)
             LOGGER.warning(f"assistant fail: {e}")
+            try:
+                await _assis.stop()
+            except Exception:
+                pass
             try:
                 await log_error(bot, "assistant.start", e)
             except: pass

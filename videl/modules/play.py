@@ -13,7 +13,7 @@ from pyrogram.types import InlineKeyboardMarkup, Message
 from videl.utils.bot_ui import button as InlineKeyboardButton
 
 import config
-from videl import bot
+from videl import bot, LOGGER
 from videl.core.player import play_song
 from videl.core.queue import add_to_queue, peek_current, queue_size
 from videl.modules.block import group_allowed, user_allowed
@@ -166,11 +166,12 @@ async def _play_local_media(message: Message, chat_id: int, user_id: int, force_
             or fresh.video_note or fresh.document or media
         )
         fp = await bot.download_media(target)
-    except Exception as e:
+    except Exception:
+        LOGGER.exception("Could not download replied media in chat %s", chat_id)
         await rich_edit(
             pm,
-            rich_heading(" Download failed", level=3)
-            + rich_note(f"<code>{rich_esc(e)}</code>"),
+            rich_heading("⚠️ Couldn’t retrieve that media", level=3)
+            + rich_note("Check that the bot can access the original message, then try again."),
         )
         return True
 
@@ -310,6 +311,14 @@ async def _process_play(message: Message, query: str, video: bool = False) -> No
         )
         return
 
+    if status == "not_started":
+        await rich_edit(
+            pm,
+            rich_heading("⚠️ Voice assistant is offline", level=3)
+            + rich_note("A session string only authorizes the user client; it must also connect successfully at startup. Check the deployment logs for <code>Assistant started</code> or <code>assistant fail</code>, and verify the current <code>STRING_SESSION</code> secret is set there. Never paste that secret into chat. Retry after the assistant is online."),
+        )
+        return
+
     if not status:
         await rich_edit(pm, rich_heading("👤 Assistant is joining...", level=3), navigation=False)
         ok = await try_join_assistant(chat_id, pm)
@@ -335,11 +344,12 @@ async def _process_play(message: Message, query: str, video: bool = False) -> No
         try:
             from videl.utils.youtube import search_yt_multi
             results = await search_yt_multi(query, limit=5)
-        except Exception as e:
+        except Exception:
+            LOGGER.exception("Track search failed for query in chat %s", chat_id)
             await rich_edit(
                 pm,
-                rich_heading(" Search failed", level=3)
-                + rich_note(f"<code>{rich_esc(e)}</code>"),
+                rich_heading("⚠️ Search couldn’t be completed", level=3)
+                + rich_note("Try another title, paste a direct link, or retry shortly."),
             )
             return
 
@@ -379,11 +389,12 @@ async def _process_play(message: Message, query: str, video: bool = False) -> No
     # URL / playlist path — existing search_yt
     try:
         result = await search_yt(query)
-    except Exception as e:
+    except Exception:
+        LOGGER.exception("Could not resolve media query in chat %s", chat_id)
         await rich_edit(
             pm,
-            rich_heading(" Search failed", level=3)
-            + rich_note(f"<code>{rich_esc(e)}</code>"),
+            rich_heading("⚠️ Couldn’t process that link", level=3)
+            + rich_note("Check that the link is public and supported, then try again."),
         )
         return
 

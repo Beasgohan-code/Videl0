@@ -35,12 +35,24 @@ def button(text: str, *args, style=None, icon=None, **kwargs) -> NativeButton:
     semantic = None
     if any(
         word in lower
-        for word in ("unban", "unlock", "resume", "confirm", "enable", "save")
+        for word in ("unban", "unmute", "unlock", "resume", "confirm", "enable", "save", "restore", "unpin")
     ):
         semantic, inferred = "check", "success"
+    elif "approve" in lower and "unapprove" not in lower:
+        semantic, inferred = "check", "success"
+    elif "unapprove" in lower:
+        semantic, inferred = "cross", "danger"
+    elif "ban" in lower or "kick" in lower:
+        semantic, inferred = "rijif_forbid", "danger"
+    elif lower.strip() == "del" or any(word in lower for word in ("delete", "clear all", "purge", "trash")):
+        semantic, inferred = "ios_trash", "danger"
+    elif any(word in lower for word in ("warn", "warning", "report")):
+        semantic, inferred = "rijif_warning", "default"
+    elif any(word in lower for word in ("mute", "silence")):
+        semantic, inferred = "boseh_speaker_mute", "default"
     elif any(
         word in lower
-        for word in ("delete", "remove", "close", "cancel", "stop", "disable", "ban")
+        for word in ("delete", "remove", "close", "cancel", "stop", "disable")
     ):
         semantic, inferred = "cross", "danger"
     elif any(
@@ -49,18 +61,36 @@ def button(text: str, *args, style=None, icon=None, **kwargs) -> NativeButton:
         semantic, inferred = "crown", "primary"
     else:
         inferred = "default"
-        for terms, key in [
-            (("music", "play", "queue", "audio"), "music"),
-            (("group", "protect", "admin"), "shield"),
-            (("setting", "setup"), "key"),
-            (("support", "chat"), "dash"),
-            (("next",), "right"),
-            (("back", "previous"), "left"),
-            (("stat", "analytic"), "stats"),
-            (("help", "info", "command"), "info"),
+        for terms, key, button_style in [
+            (("game", "arcade", "chess", "ludo", "gomoku", "dice"), "boseh_gamepad", "primary"),
+            (("music", "play", "queue", "audio"), "music", "primary"),
+            (("group", "protect", "admin", "moderation", "blacklist", "captcha", "permission"), "shield", "default"),
+            (("lock", "secure", "safety"), "lock", "default"),
+            (("pin",), "pin", "default"),
+            (("federation", "federations"), "globe", "default"),
+            (("reminder", "afk", "timer"), "boseh_clock", "default"),
+            (("owner", "console"), "crown", "primary"),
+            (("download", "document", "file", "attachment"), "ios_file", "default"),
+            (("photo", "image", "sticker", "avatar"), "ios_image", "default"),
+            (("invite", "link", "url"), "ios_link", "default"),
+            (("welcome", "start"), "spark", "primary"),
+            (("setting", "setup"), "ios_gear", "default"),
+            (("support", "chat"), "dash", "default"),
+            (("next",), "right", "default"),
+            (("back", "previous"), "left", "default"),
+            (("stat", "analytic"), "stats", "default"),
+            (("help", "info", "command"), "info", "primary"),
+            (("search", "find"), "ios_search", "default"),
+            (("video", "screen", "display"), "ios_tv", "default"),
+            (("news", "article"), "ios_newspaper", "default"),
+            (("note", "copy", "edit"), "ios_memo", "default"),
+            (("folder", "archive"), "ios_folder", "default"),
+            (("upload", "share"), "ios_upload", "default"),
+            (("link", "url"), "ios_link", "default"),
+            (("add", "create"), "ios_add", "default"),
         ]:
             if any(term in lower for term in terms):
-                semantic = key
+                semantic, inferred = key, button_style
                 break
     selected = style if style is not None else inferred
     if isinstance(selected, str):
@@ -94,6 +124,31 @@ def button(text: str, *args, style=None, icon=None, **kwargs) -> NativeButton:
     )
 
 
+def icon_keyboard(markup):
+    """Add semantic custom-emoji icons to a copy without changing button actions."""
+    if not isinstance(markup, InlineKeyboardMarkup) or not ICONS_ENABLED:
+        return markup
+    rows = []
+    changed = False
+    for row in markup.inline_keyboard:
+        decorated = []
+        for item in row:
+            icon_id = getattr(item, "icon_custom_emoji_id", None)
+            if not icon_id and getattr(item, "text", None):
+                # Probe only the semantic icon. Keep the original button object
+                # (copied) so URLs, callback data, web apps and other actions
+                # remain byte-for-byte unchanged.
+                probe = button(item.text, callback_data="videl:icon-probe")
+                icon_id = probe.icon_custom_emoji_id
+            if icon_id and not getattr(item, "icon_custom_emoji_id", None):
+                item = copy.copy(item)
+                item.icon_custom_emoji_id = str(icon_id)
+                changed = True
+            decorated.append(item)
+        rows.append(decorated)
+    return InlineKeyboardMarkup(rows) if changed else markup
+
+
 def plain_keyboard(markup):
     """Copy, never mutate actions, when optional styles/icons are rejected."""
     if not isinstance(markup, InlineKeyboardMarkup):
@@ -114,6 +169,10 @@ async def visual_call(function, *args, **kwargs):
     """Retry only rejected custom visuals. Never automatically retry network failures."""
     from pyrogram.errors import BadRequest, MessageNotModified
 
+    kwargs = dict(kwargs)
+    for field in ("reply_markup", "markup"):
+        if kwargs.get(field) is not None:
+            kwargs[field] = icon_keyboard(kwargs[field])
     try:
         return await function(*args, **kwargs)
     except MessageNotModified:
@@ -131,15 +190,16 @@ async def visual_call(function, *args, **kwargs):
                     flags=re.I | re.S,
                 )
                 changed = True
-        markup = safe.get("reply_markup")
-        if any(
-            getattr(item, "icon_custom_emoji_id", None)
-            or getattr(item, "style", None) not in (None, enums.ButtonStyle.DEFAULT)
-            for row in getattr(markup, "inline_keyboard", [])
-            for item in row
-        ):
-            safe["reply_markup"] = plain_keyboard(markup)
-            changed = True
+        for field in ("reply_markup", "markup"):
+            markup = safe.get(field)
+            if any(
+                getattr(item, "icon_custom_emoji_id", None)
+                or getattr(item, "style", None) not in (None, enums.ButtonStyle.DEFAULT)
+                for row in getattr(markup, "inline_keyboard", [])
+                for item in row
+            ):
+                safe[field] = plain_keyboard(markup)
+                changed = True
         if not changed:
             raise
         return await function(*args, **safe)

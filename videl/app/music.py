@@ -9,6 +9,7 @@ from videl import call_py
 from videl.core import queue,player
 from videl.utils.command_ui import result
 from videl.utils.rich_ui import rich_button, rich_button_row
+from videl.utils.premium_emojis import PREMIUM_IDS
 from .router import Screen,CommandError
 
 log=logging.getLogger(__name__)
@@ -22,34 +23,42 @@ async def view_queue(ctx):
         return Screen(
             result("Your queue", body="Nothing is playing yet. Send <code>/play song name</code> in a voice chat to get started.")
             + rich_button_row(
-                rich_button("Music help", callback_data="help:music", style="primary"),
-                rich_button("Browse commands", callback_data="cmds:all:0"),
+                rich_button("Music help", callback_data="help:music", style="primary",
+                            icon_custom_emoji_id=PREMIUM_IDS["music"]),
+                rich_button("Browse commands", callback_data="cmds:all:0",
+                            icon_custom_emoji_id=PREMIUM_IDS["ios_search"]),
             )
         )
 
-    # Keep the player card readable in Telegram while reporting when the list is
-    # longer than the compact view. Titles and metadata are escaped by result().
+    # Keep the player card readable in Telegram while still showing a useful
+    # preview of longer queues. result() escapes every title and duration.
     visible = tracks[:15]
     rows = []
     for index, track in enumerate(visible):
         title = str(track.get("title", "Untitled track"))[:80]
         duration = str(track.get("duration", "Live"))[:12]
-        rows.append(("▶ Playing" if index == 0 else f"{index:02d}", f"{title} · {duration}"))
+        if index == 0:
+            rows.append(("⏸ Paused" if player.is_paused(chat_id) else "▶ Now playing", f"{title} · {duration}"))
+        else:
+            rows.append((f"{index:02d} · 🎶 Up next", f"{title} · {duration}"))
 
     paused = player.is_paused(chat_id)
     loop = player.get_loop(chat_id)
-    repeat_label = {"off": "Repeat off", "one": "Repeat track", "all": "Repeat queue"}.get(loop, "Repeat off")
+    repeat_label = {"off": "Repeat: Off", "one": "Repeat: Track", "all": "Repeat: Queue"}.get(loop, "Repeat: Off")
     controls = "".join([
         rich_button_row(
             rich_button("Resume" if paused else "Pause", callback_data="resume" if paused else "pause",
-                        style="success" if paused else "primary"),
-            rich_button("Skip", callback_data="skip"),
+                        style="success" if paused else "primary",
+                        icon_custom_emoji_id=PREMIUM_IDS["ios_play" if paused else "rijif_pause"]),
+            rich_button("Skip", callback_data="skip", icon_custom_emoji_id=PREMIUM_IDS["ios_play"]),
         ),
         rich_button_row(
-            rich_button(repeat_label, callback_data="cycle_loop"),
-            rich_button("Shuffle", callback_data="shuffle"),
+            rich_button(repeat_label, callback_data="cycle_loop", style="success" if loop != "off" else None,
+                        icon_custom_emoji_id=PREMIUM_IDS["ios_repeat"]),
+            rich_button("Shuffle", callback_data="shuffle", icon_custom_emoji_id=PREMIUM_IDS["ios_arrows"]),
         ),
-        rich_button_row(rich_button("Clear upcoming", callback_data="clear", style="danger")),
+        rich_button_row(rich_button("Clear upcoming", callback_data="clear", style="danger",
+                                    icon_custom_emoji_id=PREMIUM_IDS["ios_trash"])),
     ])
     upcoming = max(0, len(tracks) - 1)
     shown = min(len(tracks), len(visible))

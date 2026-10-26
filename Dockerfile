@@ -14,7 +14,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ffmpeg curl build-essential python3-dev ca-certificates && \
+      ffmpeg curl build-essential python3-dev ca-certificates fonts-dejavu-core fonts-noto-core && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

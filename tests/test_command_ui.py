@@ -57,8 +57,43 @@ class CatalogTests(unittest.TestCase):
         self.assertIn('Action unavailable',text)
         self.assertIn('&lt;name&gt;',text)
         self.assertIn('/copy',usage('/copy <text>','Use a reply'))
-        self.assertIn('&lt;value&gt;',result('Status',[('User','<value>')]))
+        from videl.utils import premium_emojis
+        with patch.object(premium_emojis, 'USE_PREMIUM', True):
+            card = result('Status',[('User','<value>'),('Duration','3:27'),('Channel','@mix')])
+        self.assertIn('&lt;value&gt;',card)
+        for key in ('boseh_person','boseh_clock','ios_link'):
+            self.assertIn(f'emoji-id="{premium_emojis.PREMIUM_IDS[key]}"',card)
+        self.assertIn('<table',card)
+        from videl.utils.rich_ui import rich_table
+        with patch.object(premium_emojis, 'USE_PREMIUM', True):
+            table = rich_table(['Status','Channel'], [('Ready','@mix')])
+        self.assertIn(f'emoji-id="{premium_emojis.PREMIUM_IDS["ios_symbols"]}"', table)
+        self.assertIn(f'emoji-id="{premium_emojis.PREMIUM_IDS["ios_link"]}"', table)
+        with patch.object(premium_emojis, 'USE_PREMIUM', False):
+            fallback = result('Status',[('User','Ready')])
+        self.assertIn(premium_emojis.FALLBACK['boseh_person'], fallback)
         with self.assertRaises(ValueError):notice('bad',status='made-up')
+
+    def test_each_registered_command_has_a_premium_directory_icon(self):
+        from videl.utils.command_catalog import _command_icon
+        from videl.utils.premium_emojis import PREMIUM_IDS, FALLBACK
+        entries = commands()
+        self.assertEqual(len(entries), 168)
+        for entry in entries:
+            key = _command_icon(entry)
+            self.assertIn(key, PREMIUM_IDS, entry['name'])
+            self.assertIn(key, FALLBACK, entry['name'])
+
+    def test_approved_member_actions_are_visible_and_keep_callback_targets(self):
+        from videl.modules.approve import _approved_keyboard
+        from pyrogram.enums import ButtonStyle
+        keyboard = _approved_keyboard(list(range(101, 131)), allow_clear=True)
+        buttons = [button for row in keyboard.inline_keyboard for button in row]
+        removal = [button for button in buttons if button.callback_data and button.callback_data.startswith('approve:rm:')]
+        self.assertEqual([button.callback_data for button in removal], [f'approve:rm:{uid}' for uid in range(101, 129)])
+        self.assertTrue(all(button.style == ButtonStyle.DANGER for button in removal))
+        self.assertIn('approve:clear', [button.callback_data for button in buttons])
+        self.assertIn('approve:close', [button.callback_data for button in buttons])
 
     def test_reference_matches_registered_sources(self):
         from tools.command_reference import reference
@@ -117,7 +152,30 @@ class ModernCommandsTests(unittest.IsolatedAsyncioTestCase):
     def test_public_modern_help_omits_private_operations(self):
         self.assertNotIn('/apiinfo',api.public_help(message(['modernhelp'])))
 
+    def test_telegram_tools_help_uses_rich_sections_and_command_tables(self):
+        public = api.public_help(message(['modernhelp']))
+        self.assertGreaterEqual(public.count('<table'), 3)
+        self.assertIn('<h3>', public)
+        self.assertNotIn('/emojiinfo', public)
+        self.assertIn('/emojiinfo', api.HELP)
+        self.assertTrue('<tg-emoji' in public or '🎛' in public)
+
 class StyledFallbackTests(unittest.IsolatedAsyncioTestCase):
+    async def test_rich_send_retries_premium_emoji_rejection_with_unicode_fallback(self):
+        from pyrogram.errors import BadRequest
+        from videl.utils.command_ui import rich_send
+        send = AsyncMock(side_effect=[BadRequest("CUSTOM_EMOJI_INVALID"), "sent"])
+        with patch("videl.utils.command_ui._send", send):
+            result = await rich_send(
+                SimpleNamespace(), 123,
+                '<tg-emoji emoji-id="123">🎵</tg-emoji>', navigation=False,
+            )
+        self.assertEqual(result, "sent")
+        self.assertEqual(send.await_count, 2)
+        retry_text = send.await_args.args[2]
+        self.assertNotIn("<tg-emoji", retry_text)
+        self.assertIn("🎵", retry_text)
+
     async def test_definite_style_rejection_drops_only_visuals(self):
         from pyrogram.errors import BadRequest
         from pyrogram.enums import ButtonStyle
@@ -138,3 +196,17 @@ class StyledFallbackTests(unittest.IsolatedAsyncioTestCase):
         _,markup=_native_buttons(rich_button('Save changes',callback_data='save:1'))
         self.assertEqual(markup.inline_keyboard[0][0].style,ButtonStyle.SUCCESS)
         self.assertEqual(markup.inline_keyboard[0][0].callback_data,'save:1')
+
+    async def test_unstyled_command_buttons_gain_icons_without_mutating_actions(self):
+        from pyrogram.types import InlineKeyboardButton,InlineKeyboardMarkup
+        from videl.utils import premium_emojis
+        from videl.utils.bot_ui import visual_call
+        from unittest.mock import AsyncMock
+        original=InlineKeyboardMarkup([[InlineKeyboardButton('Ban member',callback_data='ban:7')]])
+        send=AsyncMock(return_value='sent')
+        with patch('videl.utils.bot_ui.ICONS_ENABLED',True):
+            await visual_call(send,reply_markup=original)
+        decorated=send.call_args.kwargs['reply_markup'].inline_keyboard[0][0]
+        self.assertEqual(decorated.callback_data,'ban:7')
+        self.assertEqual(decorated.icon_custom_emoji_id,premium_emojis.PREMIUM_IDS['rijif_forbid'])
+        self.assertIsNone(original.inline_keyboard[0][0].icon_custom_emoji_id)

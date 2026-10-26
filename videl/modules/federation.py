@@ -33,7 +33,7 @@ def _fed_pills(fid=""):
         return "<p>" + rich_button(pe("hex","") + " " + sc("info"), callback_data="fed:info:" + fid) + " " + rich_button(pe("cross","❌") + " " + sc("leave"), callback_data="fed:leave:" + fid, style="danger") + " " + rich_button(pe("ban","⛔️") + " " + sc("fban"), callback_data="fed:fban:" + fid) + "</p>"
     return "<p>" + rich_button(pe("hex","") + " " + sc("my feds"), callback_data="fed:myfeds") + " " + rich_button(pe("target","") + " " + sc("my chats"), callback_data="fed:mychats") + "</p>"
 
-@bot.on_message(filters.command("newfed") & filters.group & group_allowed & user_allowed)
+@bot.on_message(filters.command("newfed", prefixes=config.COMMAND_PREFIXES) & filters.group & group_allowed & user_allowed)
 async def newfed_cmd(_, m):
     if not m.text or len(m.text.split(maxsplit=1)) < 2:
         body = _hero() + _hdr(sc("create federation"),2) + rich_note(pe("diamond","") + " " + sc("usage") + ": <code>/newfed &lt;name&gt;</code> " + pe("small","") + " " + sc("e.g.") + " <code>/newfed VidelElite</code>")
@@ -53,7 +53,7 @@ async def newfed_cmd(_, m):
     kb = InlineKeyboardMarkup([[InlineKeyboardButton(pe("hex","") + " " + sc("info"), callback_data="fed:info:" + fid), InlineKeyboardButton(pe("diamond","") + " " + sc("join this chat"), callback_data="fed:join:" + fid)],[InlineKeyboardButton(pe("eyes","👀") + " " + sc("my feds"), callback_data="fed:myfeds")]])
     await rich_send(bot, m.chat.id, body, reply_markup=kb)
 
-@bot.on_message(filters.command("delfed") & group_allowed & user_allowed)
+@bot.on_message(filters.command("delfed", prefixes=config.COMMAND_PREFIXES) & group_allowed & user_allowed)
 async def delfed_cmd(_, m):
     if not m.text or len(m.text.split(maxsplit=1)) < 2:
         return await rich_send(bot, m.chat.id, _hdr(sc("delete federation"),3) + rich_note("<code>/delfed &lt;fed_id&gt;</code>"))
@@ -66,7 +66,7 @@ async def delfed_cmd(_, m):
     delete_fed(fid)
     await rich_send(bot, m.chat.id, _hdr(pe("cross","❌") + " " + sc("federation deleted"),3) + rich_note("<code>" + rich_esc(fid) + "</code>"))
 
-@bot.on_message(filters.command(["joinfed","chatfed"]) & filters.group & group_allowed & user_allowed)
+@bot.on_message(filters.command(["joinfed","chatfed"], prefixes=config.COMMAND_PREFIXES) & filters.group & group_allowed & user_allowed)
 async def joinfed_cmd(_, m):
     if not await is_user_authorized(m):
         return
@@ -80,7 +80,7 @@ async def joinfed_cmd(_, m):
     kb = InlineKeyboardMarkup([[InlineKeyboardButton(pe("hex","") + " " + sc("info"), callback_data="fed:info:" + fid), InlineKeyboardButton(pe("cross","❌") + " " + sc("leave"), callback_data="fed:leave:" + fid)]])
     await rich_send(bot, m.chat.id, body, reply_markup=kb)
 
-@bot.on_message(filters.command("leavefed") & filters.group & group_allowed & user_allowed)
+@bot.on_message(filters.command("leavefed", prefixes=config.COMMAND_PREFIXES) & filters.group & group_allowed & user_allowed)
 async def leavefed_cmd(_, m):
     if not await is_user_authorized(m):
         return
@@ -90,7 +90,7 @@ async def leavefed_cmd(_, m):
     set_chat_fed(m.chat.id, None)
     await rich_send(bot, m.chat.id, _hdr(pe("cross","❌") + " " + sc("left federation"),3) + rich_note("<code>" + rich_esc(cur) + "</code> " + pe("diamond","")))
 
-@bot.on_message(filters.command("fban") & group_allowed & user_allowed)
+@bot.on_message(filters.command("fban", prefixes=config.COMMAND_PREFIXES) & group_allowed & user_allowed)
 async def fban_cmd(_, m):
     uid = None
     reason = "No reason"
@@ -136,7 +136,7 @@ async def fban_cmd(_, m):
     kb = InlineKeyboardMarkup([[InlineKeyboardButton(pe("check","✅") + " " + sc("unfban"), callback_data="fed:unfban:" + fid + ":" + str(uid))]])
     await rich_send(bot, m.chat.id, body, reply_markup=kb)
 
-@bot.on_message(filters.command("unfban") & group_allowed & user_allowed)
+@bot.on_message(filters.command("unfban", prefixes=config.COMMAND_PREFIXES) & group_allowed & user_allowed)
 async def unfban_cmd(_, m):
     uid = None
     if m.reply_to_message and m.reply_to_message.from_user:
@@ -166,9 +166,9 @@ async def unfban_cmd(_, m):
             await bot.unban_chat_member(cid, uid)
         except Exception:
             pass
-    await rich_send(bot, m.chat.id, _hdr(pe("check","✅") + " " + sc("unfbanned"),3) + rich_kv_table([(pe("hex","") + " " + sc("user"), "<code>" + str(uid) + "</code>")]) + "<p>" + rich_button(pe("ban","⛔️") + " " + sc("fban again"), callback_data="fed:fban:" + fid + ":" + str(uid)) + "</p>")
+    await rich_send(bot, m.chat.id, _hdr("✅ " + sc("unfbanned"),3) + rich_kv_table([(pe("hex","") + " " + sc("user"), "<code>" + str(uid) + "</code>")]) + "<p>" + rich_button(pe("ban","⛔️") + " " + sc("fban again"), callback_data="fed:fban:" + fid + ":" + str(uid)) + "</p>")
 
-@bot.on_message(filters.command(["fedinfo","fedstat"]) & group_allowed & user_allowed)
+@bot.on_message(filters.command(["fedinfo","fedstat"], prefixes=config.COMMAND_PREFIXES) & group_allowed & user_allowed)
 async def fedinfo_cmd(_, m):
     fid = None
     if len(m.text.split(maxsplit=1)) > 1:
@@ -188,7 +188,7 @@ async def fedinfo_cmd(_, m):
     kb = InlineKeyboardMarkup([[InlineKeyboardButton(pe("circle","") + " " + sc("chats") + " (" + str(chats) + ")", callback_data="fed:chats:" + fid), InlineKeyboardButton(pe("ban","⛔️") + " " + sc("bans") + " (" + str(bans) + ")", callback_data="fed:bans:" + fid)],[InlineKeyboardButton(pe("hex","") + " " + sc("add this chat"), callback_data="fed:join:" + fid), InlineKeyboardButton(pe("cross","❌") + " " + sc("leave fed"), callback_data="fed:leave:" + fid)]])
     await rich_send(bot, m.chat.id, body, reply_markup=kb)
 
-@bot.on_message(filters.command("myfeds") & group_allowed)
+@bot.on_message(filters.command("myfeds", prefixes=config.COMMAND_PREFIXES) & group_allowed)
 async def myfeds_cmd(_, m):
     feds = [f for f in list_feds() if f["owner"] == m.from_user.id or is_fed_admin(f["_id"], m.from_user.id)]
     if not feds:
@@ -198,7 +198,7 @@ async def myfeds_cmd(_, m):
     kb = InlineKeyboardMarkup([[InlineKeyboardButton(pe("hex","") + " " + rich_esc(f["_id"]), callback_data="fed:info:" + f["_id"]) for f in feds[:3]]])
     await rich_send(bot, m.chat.id, body, reply_markup=kb)
 
-@bot.on_message(filters.command("fedchats") & group_allowed & user_allowed)
+@bot.on_message(filters.command("fedchats", prefixes=config.COMMAND_PREFIXES) & group_allowed & user_allowed)
 async def fedchats_cmd(_, m):
     fid = get_chat_fed(m.chat.id)
     if len(m.text.split(maxsplit=1)) > 1:
@@ -215,7 +215,7 @@ async def fedchats_cmd(_, m):
     body += "<p>" + rich_button(pe("hex","") + " " + sc("info"), callback_data="fed:info:" + fid) + "</p>"
     await rich_send(bot, m.chat.id, body)
 
-@bot.on_message(filters.command("fedbanlist") & group_allowed & user_allowed)
+@bot.on_message(filters.command("fedbanlist", prefixes=config.COMMAND_PREFIXES) & group_allowed & user_allowed)
 async def fedbanlist_cmd(_, m):
     fid = get_chat_fed(m.chat.id)
     if len(m.text.split(maxsplit=1)) > 1:
@@ -231,7 +231,7 @@ async def fedbanlist_cmd(_, m):
         body += "<p>" + sc("and") + " " + str(len(bans)-20) + " " + sc("more") + "… " + pe("line","") + "</p>"
     await rich_send(bot, m.chat.id, body)
 
-@bot.on_message(filters.command(["fpromote","faddadmin"]) & group_allowed & user_allowed)
+@bot.on_message(filters.command(["fpromote","faddadmin"], prefixes=config.COMMAND_PREFIXES) & group_allowed & user_allowed)
 async def fpromote_cmd(_, m):
     if not m.reply_to_message or not m.reply_to_message.from_user:
         return await rich_send(bot, m.chat.id, _hdr(pe("warn","⚠️") + " " + sc("reply to user"),3))
@@ -244,7 +244,7 @@ async def fpromote_cmd(_, m):
     fed_add_admin(fid, m.reply_to_message.from_user.id)
     await rich_send(bot, m.chat.id, _hdr(pe("check","✅") + " " + sc("fed admin added"),3) + rich_kv_table([(pe("target","") + " " + sc("user"), "<code>" + str(m.reply_to_message.from_user.id) + "</code>")]) + "<p>" + rich_button(pe("cross","❌") + " " + sc("demote"), callback_data="fed:demote:" + fid + ":" + str(m.reply_to_message.from_user.id), style="danger") + "</p>")
 
-@bot.on_message(filters.command(["fdemote","fremadmin"]) & group_allowed & user_allowed)
+@bot.on_message(filters.command(["fdemote","fremadmin"], prefixes=config.COMMAND_PREFIXES) & group_allowed & user_allowed)
 async def fdemote_cmd(_, m):
     if not m.reply_to_message or not m.reply_to_message.from_user:
         return await rich_send(bot, m.chat.id, _hdr(pe("warn","⚠️") + " " + sc("reply to user"),3))
@@ -262,7 +262,7 @@ async def fed_cbs(_, q):
     chat_id = q.message.chat.id if q.message and q.message.chat else 0
     if action in ("join","leave","fban","unfban","info","chats","bans","demote","myfeds","mychats"):
         if not await is_user_authorized(q):
-            return await q.answer(pe("warn","⚠️") + " " + sc("admin only"), show_alert=True)
+            return await q.answer("⚠️ " + sc("admin only"), show_alert=True)
     if action == "myfeds":
         await q.answer()
         feds = [f for f in list_feds() if f["owner"] == q.from_user.id or is_fed_admin(f["_id"], q.from_user.id)]
@@ -292,7 +292,7 @@ async def fed_cbs(_, q):
         if not get_fed(fid):
             return await q.answer(sc("fed not found"), show_alert=True)
         set_chat_fed(chat_id, fid)
-        await q.answer(pe("check","✅") + " " + sc("joined") + " " + fid)
+        await q.answer("✅ " + sc("joined") + " " + fid)
         try:
             await rich_edit(q.message, _hdr(pe("check","✅") + " " + sc("joined federation"),3) + rich_kv_table([(pe("hex","") + " " + sc("fed"), "<code>" + rich_esc(fid) + "</code>")]))
         except Exception:
@@ -300,7 +300,7 @@ async def fed_cbs(_, q):
         return
     if action == "leave" and fid:
         set_chat_fed(chat_id, None)
-        await q.answer(pe("cross","❌") + " " + sc("left") + " " + fid)
+        await q.answer("✅ " + sc("left") + " " + fid)
         try:
             await rich_edit(q.message, _hdr(pe("cross","❌") + " " + sc("left federation"),3))
         except Exception:
@@ -315,9 +315,9 @@ async def fed_cbs(_, q):
                     await bot.unban_chat_member(cid, uid)
                 except Exception:
                     pass
-            await q.answer(pe("check","✅") + " " + sc("unfbanned") + " " + str(uid))
+            await q.answer("✅ " + sc("unfbanned") + " " + str(uid))
         except Exception:
-            await q.answer(pe("warn","⚠️") + " " + sc("failed"), show_alert=True)
+            await q.answer("⚠️ " + sc("failed"), show_alert=True)
         return
     await q.answer()
 

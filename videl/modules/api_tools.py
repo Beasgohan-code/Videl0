@@ -12,31 +12,54 @@ from videl.utils.bot_api import bot_api
 from videl.utils.bot_ui import button
 from videl.utils.permissions import is_user_authorized
 from videl.utils.premium_emojis import PREMIUM_IDS, USE_PREMIUM
-from videl.utils.rich_ui import rich_heading, rich_note
-from videl.utils.command_ui import rich_reply, rich_edit
+from videl.utils.rich_ui import rich_heading, rich_note, rich_kv_table, rich_table, rich_hr
+from videl.utils.command_ui import rich_reply, rich_edit, notice, usage, result as ui_result
 
-HELP = (
+PUBLIC_HELP = (
     rich_heading("Telegram tools", level=2)
-    + rich_note(
-        "Real API actions. No paid gifts, Stars spending or automatic reactions are enabled."
-    )
-    + "<p><b>Polls</b><br><code>/poll Question | A | B</code><br><code>/quiz Question | *Correct | Other</code></p>"
-    + "<p>Flags before the question: <code>--multiple --public --shuffle --revote --add-options --hide-results --members-only --silent --protect --seconds=60</code>. Timers allow 5–600 seconds. Quiz answers marked * can have multiple correct options. Polls are anonymous unless --public is requested.</p>"
-    + "<p><b>Group admins</b><br><code>/react 👍</code> on a replied message; <code>/react clear</code> removes the bot’s reaction.<br><code>/topicnew Topic title</code> in a forum; <code>/topicrename New title</code>, <code>/topicclose</code> and <code>/topicopen</code> inside a topic.</p>"
-    + "<p><b>Useful actions</b><br><code>/copy text</code> creates a native copy button. <code>/pollstop</code> closes a replied bot poll (admins only). Colors and custom emoji icons depend on client support and eligibility.</p>"
-    + "<p><b>Owner diagnostics</b><br><code>/apiinfo</code> checks the bot identity with Telegram.<br><code>/emojiinfo</code> on a custom-emoji message extracts IDs; <code>/emojiinfo check</code> validates the configured IDs with Telegram. Valid IDs alone do not grant permission to render them.</p>"
+    + rich_note("Real Telegram actions with permission checks. No paid gifts, Stars spending or automatic reactions are enabled.")
+    + rich_heading("Polls & quizzes", level=3)
+    + rich_table(["Command", "What it does"], [
+        ("<code>/poll Question | A | B</code>", "Create a poll; polls are anonymous unless <code>--public</code> is set."),
+        ("<code>/quiz Question | *Correct | Other</code>", "Create a quiz; mark correct answer(s) with <code>*</code>."),
+        ("<code>/pollstop</code>", "Close a replied-to poll created by this bot (admins only)."),
+    ])
+    + rich_note("Optional flags: <code>--multiple --public --shuffle --revote --add-options --hide-results --members-only --silent --protect --seconds=60</code>. Timers allow 5–600 seconds.")
+    + rich_hr()
+    + rich_heading("Forum & reaction tools", level=3)
+    + rich_table(["Command", "Where / purpose"], [
+        ("<code>/react 👍</code> · <code>/react clear</code>", "Reply to a message; group admins or the owner can set or clear the bot reaction."),
+        ("<code>/topicnew Title</code>", "Create a topic in a forum supergroup."),
+        ("<code>/topicrename Title</code>", "Rename the topic you are currently in."),
+        ("<code>/topicclose</code> · <code>/topicopen</code>", "Close or reopen the current topic."),
+    ])
+    + rich_hr()
+    + rich_heading("Copy & formatting", level=3)
+    + rich_table(["Command", "Result"], [
+        ("<code>/copy text</code>", "Create a native Telegram copy-text button (or reply to a text message)."),
+    ])
+    + rich_note("Rich cards, custom emoji and styled buttons depend on Telegram client support and the bot owner’s eligibility. Ordinary Unicode emoji fallbacks remain available.")
 )
+
+OWNER_HELP = (
+    rich_hr()
+    + rich_heading("Owner diagnostics", level=3)
+    + rich_table(["Command", "Diagnostic"], [
+        ("<code>/apiinfo</code>", "Verify the bot identity with Telegram."),
+        ("<code>/emojiinfo</code>", "Reply to a custom-emoji message to extract its IDs."),
+        ("<code>/emojiinfo check</code>", "Ask Telegram to resolve configured IDs; lookup does not grant rendering permission."),
+    ])
+)
+HELP = PUBLIC_HELP + OWNER_HELP
 
 
 def public_help(message):
     owner = bool(message and message.from_user and message.from_user.id == 6265999542
                  and str(getattr(message.chat.type, "value", message.chat.type)) == "private")
-    if owner:
-        return HELP
-    return HELP.split("<p><b>Owner diagnostics</b>", 1)[0]
+    return HELP if owner else PUBLIC_HELP
 
 
-@bot.on_message(filters.command("modernhelp"))
+@bot.on_message(filters.command("modernhelp", prefixes=config.COMMAND_PREFIXES))
 async def modern_help(_, message):
     await rich_reply(message, public_help(message))
 
@@ -44,7 +67,7 @@ async def modern_help(_, message):
 @bot.on_callback_query(filters.regex(r"^modern_tools_help$"))
 async def modern_help_callback(_, query):
     await query.answer()
-    await rich_edit(query, HELP.split("<p><b>Owner diagnostics</b>", 1)[0])
+    await rich_edit(query, PUBLIC_HELP)
 
 
 async def outcome(message, method, payload, success, *, forum_controls=False):
@@ -55,7 +78,11 @@ async def outcome(message, method, payload, success, *, forum_controls=False):
         )
         await rich_reply(
             message,
-            rich_heading("Request not confirmed", level=3) + rich_note(description),
+            ui_result(
+                "Telegram request not confirmed",
+                [("Status", "Not confirmed")],
+                body=description,
+            ),
         )
         return None
     result = data.get("result")
@@ -64,23 +91,26 @@ async def outcome(message, method, payload, success, *, forum_controls=False):
         topic_id = payload.get("message_thread_id") or (result.get("message_thread_id") if isinstance(result, dict) else None)
         if topic_id and topic_id != 1:
             markup = topic_keyboard(payload["chat_id"], topic_id)
-    await rich_reply(message, rich_heading(success, level=3), reply_markup=markup)
+    await rich_reply(
+        message,
+        ui_result(success, [("Status", "Confirmed")], body="Telegram confirmed this change."),
+        reply_markup=markup,
+    )
     return result
 
 
-@bot.on_message(filters.command("react"))
+@bot.on_message(filters.command("react", prefixes=config.COMMAND_PREFIXES))
 async def react_command(_, message):
     if not await is_user_authorized(message):
         return await rich_reply(
-            message, rich_note("Group admins or the bot owner can set bot reactions.")
+            message,
+            notice("Only group admins or the bot owner can set bot reactions.", status="error", title="Admin permission required"),
         )
     target = message.reply_to_message
     if not target:
         return await rich_reply(
             message,
-            rich_note(
-                "Reply to a message with <code>/react 👍</code> or <code>/react clear</code>."
-            ),
+            usage("/react 👍 or /react clear", "Reply to the message whose reaction you want to set or remove."),
         )
     emoji = " ".join((message.command or [])[1:]).strip() or "👍"
     if emoji not in {
@@ -98,9 +128,7 @@ async def react_command(_, message):
     }:
         return await rich_reply(
             message,
-            rich_note(
-                "Choose 👍 👎 ❤ 🔥 🥰 👏 🎉 🤔 😢 or clear. The chat must allow the chosen reaction."
-            ),
+            notice("Choose 👍 👎 ❤ 🔥 🥰 👏 🎉 🤔 😢 or clear. The chat must allow the chosen reaction.", status="warning", title="Reaction not supported"),
         )
     if emoji == "❤️":
         emoji = "❤"
@@ -116,7 +144,7 @@ async def react_command(_, message):
     )
 
 
-@bot.on_message(filters.command(["topicnew", "topicrename", "topicclose", "topicopen"]))
+@bot.on_message(filters.command(["topicnew", "topicrename", "topicclose", "topicopen"], prefixes=config.COMMAND_PREFIXES))
 async def topic_command(_, message):
     if (
         not getattr(message.chat, "is_forum", False)
@@ -124,11 +152,12 @@ async def topic_command(_, message):
     ):
         return await rich_reply(
             message,
-            rich_note("This tool requires a forum supergroup with topics enabled."),
+            notice("This tool requires a forum supergroup with topics enabled.", status="warning", title="Forum topics required"),
         )
     if not await is_user_authorized(message):
         return await rich_reply(
-            message, rich_note("Only group admins or the bot owner can manage topics.")
+            message,
+            notice("Only group admins or the bot owner can manage topics.", status="error", title="Admin permission required"),
         )
     command = message.command[0].split("@", 1)[0].lower()
     payload = {"chat_id": message.chat.id}
@@ -137,9 +166,7 @@ async def topic_command(_, message):
         if not title or len(title.encode("utf-16-le")) // 2 > 128:
             return await rich_reply(
                 message,
-                rich_note(
-                    "Use <code>/topicnew Topic title</code> with 1–128 characters."
-                ),
+                usage("/topicnew Topic title", "Use 1–128 Telegram UTF-16 units."),
             )
         payload["name"] = title
         await outcome(message, "createForumTopic", payload, "Topic created", forum_controls=True)
@@ -147,13 +174,13 @@ async def topic_command(_, message):
         topic_id = getattr(message, "message_thread_id", None)
         if not topic_id or topic_id == 1:
             return await rich_reply(
-                message, rich_note("Run this command inside a non-General forum topic.")
+                message,
+                notice("Run this command inside a non-General forum topic.", status="warning", title="Open the target topic first"),
             )
         payload["message_thread_id"] = topic_id
         if command == "topicrename":
             title = " ".join(message.command[1:]).strip()
             if not title or len(title.encode("utf-16-le")) // 2 > 128:
-                from videl.utils.command_ui import usage
                 return await rich_reply(message, usage("/topicrename Topic title", "Use 1–128 Telegram UTF-16 units inside a non-General topic."))
             payload["name"] = title
             return await outcome(message, "editForumTopic", payload, "Topic renamed", forum_controls=True)
@@ -166,61 +193,73 @@ async def topic_command(_, message):
         )
 
 
-@bot.on_message(filters.command("apiinfo") & filters.user(6265999542) & filters.private)
+@bot.on_message(filters.command("apiinfo", prefixes=config.COMMAND_PREFIXES) & filters.user(6265999542) & filters.private)
 async def api_info(_, message):
     status, data = await bot_api("getMe", {})
     if not status or not data.get("ok"):
         return await rich_reply(
             message,
-            rich_note(
-                "Telegram identity could not be verified. Check backend connectivity and configuration."
+            notice(
+                "Telegram identity could not be verified. Check backend connectivity and configuration.",
+                status="error", title="Identity check failed",
             ),
         )
     me = data["result"]
     info = (
-        rich_heading("Telegram API status", level=2)
-        + rich_note(
-            f"Verified bot: <b>{html.escape(me.get('first_name', 'Bot'))}</b> · @{html.escape(me.get('username', ''))}"
-        )
-        + f"<p>Bot ID: <code>{me['id']}</code><br>Kurigram: <code>{version('kurigram')}</code><br>Visual emoji configuration: <b>{'Enabled' if USE_PREMIUM else 'Disabled'}</b></p>"
-        + "<p>Rich cards, styled keyboards, forum-aware replies, copy buttons and advanced polls are integrated. Server permission and client support still apply. Telegram does not expose a Bot API version through getMe.</p>"
+        rich_heading("Verified Telegram bot", level=2)
+        + rich_kv_table([
+            ("Bot name", html.escape(me.get("first_name", "Bot"))),
+            ("Username", "@" + html.escape(me.get("username", ""))),
+            ("Bot ID", f"<code>{me['id']}</code>"),
+            ("Kurigram", f"<code>{html.escape(version('kurigram'))}</code>"),
+            ("Custom emoji", "Enabled" if USE_PREMIUM else "Unicode fallback"),
+        ])
+        + rich_note("Rich cards, styled keyboards, forum-aware replies, copy buttons and advanced polls are integrated. Telegram does not expose a Bot API version through <code>getMe</code>; actual rendering also depends on client support and eligibility.")
     )
     await rich_reply(
         message,
         info,
         reply_markup=InlineKeyboardMarkup(
-            [[button("Copy bot ID", copy_text=CopyTextButton(text=str(me["id"])))]]
+            [[button("Copy bot ID", copy_text=CopyTextButton(text=str(me["id"])), icon="ios_file")]]
         ),
     )
 
 
-@bot.on_message(filters.command("emojiinfo") & filters.user(6265999542) & filters.private)
+@bot.on_message(filters.command("emojiinfo", prefixes=config.COMMAND_PREFIXES) & filters.user(6265999542) & filters.private)
 async def emoji_info(_, message):
     if len(message.command) > 1 and message.command[1].lower() == "check":
-        ids = list(dict.fromkeys(PREMIUM_IDS.values()))[:200]
-        status, data = await bot_api(
-            "getCustomEmojiStickers", {"custom_emoji_ids": ids}
-        )
-        if not status or not data.get("ok"):
-            return await rich_reply(
-                message,
-                rich_note(
-                    "Telegram could not validate the configured IDs. No IDs were marked verified."
-                ),
+        ids = list(dict.fromkeys(PREMIUM_IDS.values()))
+        valid = set()
+        for offset in range(0, len(ids), 200):
+            chunk = ids[offset:offset + 200]
+            status, data = await bot_api(
+                "getCustomEmojiStickers", {"custom_emoji_ids": chunk}
             )
-        valid = {str(item.get("custom_emoji_id")) for item in data.get("result", [])}
+            if not status or not data.get("ok"):
+                return await rich_reply(
+                    message,
+                    notice(
+                        "Telegram could not validate this batch of configured IDs. No IDs in that batch were marked verified.",
+                        status="error", title="Emoji lookup unavailable",
+                    ),
+                )
+            valid.update(
+                str(item.get("custom_emoji_id")) for item in data.get("result", [])
+            )
         missing = [emoji_id for emoji_id in ids if emoji_id not in valid]
-        text = f"Telegram resolved <b>{len(valid)} / {len(ids)}</b> configured IDs."
-        if missing:
-            text += "<br>Unresolved: " + ", ".join(
-                f"<code>{html.escape(x)}</code>" for x in missing
-            )
-        return await rich_reply(
-            message,
-            rich_heading("Emoji lookup", level=3)
-            + rich_note(text)
-            + "<p>Lookup success does not confirm Premium rendering eligibility. Rejected icons fall back to readable buttons.</p>",
-        )
+        shown = missing[:20]
+        fields = [
+            ("Resolved", f"{len(valid)} / {len(ids)}"),
+            ("Status", "All IDs resolved" if not missing else f"{len(missing)} unresolved"),
+        ]
+        body = "Lookup confirms only that Telegram can resolve an ID; it does not grant permission to render custom emoji. Unicode fallbacks remain available."
+        if len(missing) > len(shown):
+            body += f" Showing the first {len(shown)} unresolved IDs; {len(missing) - len(shown)} more are omitted."
+        card = rich_heading("Configured custom emoji lookup", level=2) + rich_kv_table(fields)
+        if shown:
+            card += rich_table(["Unresolved custom emoji ID"], [(f"<code>{html.escape(value)}</code>",) for value in shown])
+        card += rich_note(body)
+        return await rich_reply(message, card)
     source = message.reply_to_message
     ids = (
         list(
@@ -240,23 +279,24 @@ async def emoji_info(_, message):
     if not ids:
         return await rich_reply(
             message,
-            rich_note(
-                "Reply to a custom-emoji message with <code>/emojiinfo</code>, or use <code>/emojiinfo check</code> to look up the configured IDs."
-            ),
+            usage("/emojiinfo", "Reply to a message containing custom emoji to extract their IDs. Use /emojiinfo check to query the configured catalog."),
         )
-    text = "<br>".join(f"<code>{html.escape(value)}</code>" for value in ids[:50])
+    shown = ids[:50]
+    table = rich_table(
+        ["No.", "Custom emoji ID"],
+        [(str(index), f"<code>{html.escape(value)}</code>") for index, value in enumerate(shown, 1)],
+    )
     keys = [
-        [button(f"Copy ID {i+1}", copy_text=CopyTextButton(text=value))]
+        [button(f"Copy ID {i+1}", copy_text=CopyTextButton(text=value), icon="ios_file")]
         for i, value in enumerate(ids[:6])
     ]
-    await rich_reply(
-        message,
-        rich_heading("Custom emoji IDs", level=3) + rich_note(text),
-        reply_markup=InlineKeyboardMarkup(keys),
-    )
+    card = rich_heading("Custom emoji IDs", level=2) + table
+    if len(ids) > len(shown):
+        card += rich_note(f"Showing {len(shown)} of {len(ids)} IDs. Reply to a smaller selection to copy a specific one.")
+    await rich_reply(message, card, reply_markup=InlineKeyboardMarkup(keys))
 
 
-@bot.on_message(filters.command("copy"))
+@bot.on_message(filters.command("copy", prefixes=config.COMMAND_PREFIXES))
 async def copy_command(_, message):
     """Create a native copy-text button from up to 256 UTF-16 units."""
     from videl.utils.command_ui import usage, notice
@@ -265,13 +305,13 @@ async def copy_command(_, message):
         text=(message.reply_to_message.text or message.reply_to_message.caption or '').strip()
     if not text or len(text.encode('utf-16-le'))//2>256:
         return await rich_reply(message,usage('/copy Text to copy','Or reply to a text message. Copy payloads allow 1–256 Telegram UTF-16 units.'))
-    keyboard=InlineKeyboardMarkup([[button('Copy text',copy_text=CopyTextButton(text=text),style='primary')]])
+    keyboard=InlineKeyboardMarkup([[button('Copy text',copy_text=CopyTextButton(text=text),style='primary',icon='ios_paperclip')]])
     await rich_reply(message,notice(f'<code>{html.escape(text)}</code>',title='Ready to copy'),reply_markup=keyboard)
 
 
 
 
-@bot.on_message(filters.command("pollstop"))
+@bot.on_message(filters.command("pollstop", prefixes=config.COMMAND_PREFIXES))
 async def stop_poll_command(_, message):
     """Admin: stop a replied poll sent by this bot."""
     from videl.utils.command_ui import usage,notice
@@ -285,9 +325,9 @@ async def stop_poll_command(_, message):
 
 def topic_keyboard(chat_id, topic_id):
     return InlineKeyboardMarkup([
-        [button("Close topic", callback_data=f"topicctl:close:{chat_id}:{topic_id}", style="danger"),
-         button("Reopen topic", callback_data=f"topicctl:open:{chat_id}:{topic_id}", style="success")],
-        [button("Forum commands", callback_data="cmds:tools:0", style="primary")],
+        [button("Close topic", callback_data=f"topicctl:close:{chat_id}:{topic_id}", style="danger", icon="ios_close"),
+         button("Reopen topic", callback_data=f"topicctl:open:{chat_id}:{topic_id}", style="success", icon="ios_check")],
+        [button("Forum commands", callback_data="cmds:tools:0", style="primary", icon="ios_symbols")],
     ])
 
 

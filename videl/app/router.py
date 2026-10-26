@@ -2,6 +2,7 @@
 from __future__ import annotations
 import asyncio
 import logging
+import config
 import re
 from collections import OrderedDict
 from dataclasses import dataclass
@@ -12,7 +13,8 @@ from videl.utils.command_ui import notice, rich_reply
 
 log=logging.getLogger(__name__)
 OWNER_ID=6265999542
-_PATTERN=re.compile(r'^/([a-zA-Z0-9_]{1,32})(?:@([a-zA-Z0-9_]{1,32}))?(?:\s+([\s\S]*))?$')
+COMMAND_PREFIXES = config.COMMAND_PREFIXES
+_PATTERN=re.compile(r'^([' + re.escape(COMMAND_PREFIXES) + r'])' + r'([a-zA-Z0-9_]{1,32})(?:@([a-zA-Z0-9_]{1,32}))?(?:\s+([\s\S]*))?$')
 
 
 class CommandError(ValueError):
@@ -29,7 +31,7 @@ def parse(text, username=''):
     if not isinstance(text,str) or len(text)>65536:return None
     match=_PATTERN.fullmatch(text.strip())
     if not match:return None
-    name,mention,args=match.groups()
+    _prefix,name,mention,args=match.groups()
     if mention and (not username or mention.casefold()!=username.lstrip('@').casefold()):return None
     return Parsed(name.casefold(),(args or '').strip())
 
@@ -48,6 +50,7 @@ def private_owner(message,actor=None):
 class Screen:
     html:str
     keyboard:object=None
+    animation:bytes|None=None
 
 
 @dataclass(frozen=True)
@@ -79,7 +82,7 @@ class Command:
         if self.policy not in {'public','group','admin','owner'}:raise ValueError('Invalid command policy')
         if self.category not in {'tools','music','manage','owner'}:raise ValueError('Invalid command category')
         if self.block_policy not in {'none','user','chat'}:raise ValueError('Invalid block policy')
-        if self.rights and (self.policy!='admin' or any(right not in {'can_restrict_members','can_delete_messages','can_manage_topics','can_pin_messages','can_promote_members','can_invite_users'} for right in self.rights)):
+        if self.rights and (self.policy!='admin' or any(right not in {'can_restrict_members','can_delete_messages','can_manage_topics','can_pin_messages','can_promote_members','can_invite_users','can_change_info'} for right in self.rights)):
             raise ValueError('Invalid command administrator rights')
 
 
@@ -123,7 +126,30 @@ class Router:
         command=self.commands[parsed.name]
         ctx=Context(client,message,parsed)
         if not await authorize(command,ctx):
-            await rich_reply(message,notice('This command requires '+{'group':'a group chat','admin':'current group admin privileges','owner':'the verified owner in a private chat'}.get(command.policy,'permission')+'. Blocked users or chats cannot use this action.',status='error',title='Access restricted'),client=client)
+            requirement = {
+                'group': 'a group chat',
+                'admin': 'current group administrator privileges',
+                'owner': 'the verified owner in a private chat',
+            }.get(command.policy, 'the required permission')
+            if command.policy == 'admin' and command.rights:
+                labels = {
+                    'can_restrict_members': 'Restrict members',
+                    'can_delete_messages': 'Delete messages',
+                    'can_manage_topics': 'Manage topics',
+                    'can_pin_messages': 'Pin messages',
+                    'can_promote_members': 'Promote members',
+                    'can_invite_users': 'Invite users',
+                    'can_change_info': 'Change group info',
+                }
+                requirement += ' and the Telegram right: ' + ', '.join(labels.get(right, right) for right in command.rights)
+            await rich_reply(
+                message,
+                notice(
+                    f'This command requires {requirement}. Blocked users or chats cannot use this action.',
+                    status='error', title='Access restricted',
+                ),
+                client=client,
+            )
             return True
         # A group admin may disable a command for their own group from the panel.
         # Owners are never locked out of their own bot.
@@ -150,12 +176,46 @@ class Router:
                 screen=Screen(notice(escape(str(error)),status='warning',title='Check command details'))
             except asyncio.CancelledError:raise
             except Exception as error:
-                log.warning('Command %s unconfirmed (%s); no retry',command.name,type(error).__name__)
-                screen=Screen(notice('The action could not be confirmed. Check the destination before retrying.',status='warning',title='Action unconfirmed'))
+                log.warning('Command %s unconfirmed (%s); no automatic retry to avoid duplicate effects',command.name,type(error).__name__,exc_info=True)
+                screen=Screen(notice('Something went wrong while processing this command, so I cannot confirm whether it completed. Check the destination first; retry only if the action did not happen.',status='warning',title='⚠️ Action unconfirmed'))
             # Rendering is outside the action exception handler: a render error
             # cannot trigger a second send or reinterpret an acknowledged action.
             if screen is not None:
-                await rich_reply(message,screen.html,reply_markup=screen.keyboard,client=client)
+                if screen.animation is None:
+                    await rich_reply(message,screen.html,reply_markup=screen.keyboard,client=client)
+                else:
+                    # GIF delivery is a single media send. Retry only a definite
+                    # visual rejection; never send a second copy after a timeout.
+                    from io import BytesIO
+                    from pyrogram.enums import ParseMode
+                    from pyrogram.errors import BadRequest
+                    from videl.utils.bot_ui import visual_call
+                    from videl.utils.command_ui import navigation_markup
+                    animation=BytesIO(screen.animation)
+                    animation.name='videl-fun.gif'
+                    options={
+                        'chat_id':message.chat.id,
+                        'animation':animation,
+                        'caption':screen.html,
+                        'parse_mode':ParseMode.HTML,
+                        'reply_to_message_id':getattr(message,'id',None),
+                    }
+                    thread=getattr(message,'message_thread_id',None)
+                    if thread is not None:options['message_thread_id']=thread
+                    options['reply_markup']=navigation_markup(screen.keyboard)
+                    try:
+                        await visual_call(client.send_animation,**options)
+                    except BadRequest:
+                        await rich_reply(
+                            message,
+                            notice('Telegram rejected the animation, so here is the reaction as a text reply.',status='warning',title='GIF unavailable'),
+                            client=client,
+                        )
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as error:
+                        log.warning('Animation delivery unconfirmed (%s); no second send',type(error).__name__)
+
         finally:
             self._active.discard(key)
             self._completed[key]=None

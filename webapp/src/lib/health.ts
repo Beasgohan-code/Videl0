@@ -17,6 +17,7 @@ export type HealthLike = {
   bot_error?: string | null;
   bot_online_at?: number | null;
   bot_attempts?: number | null;
+  assistant?: { configured?: boolean; ready?: boolean; state?: string };
   /** Round trip to MongoDB, measured separately from the HTTP API. */
   db?: { p95_ms?: number | null; samples?: number; connected?: boolean; last_ms?: number } | null;
 };
@@ -27,12 +28,20 @@ export function healthProblems(health: HealthLike | null | undefined): string[] 
   const reported = Array.isArray(health.degraded_reasons)
     ? health.degraded_reasons.filter((reason) => typeof reason === "string" && reason.trim())
     : [];
-  if (reported.length) return reported;
+  const assistantProblem = health.assistant?.configured && !health.assistant.ready
+    ? `Telegram voice assistant is ${health.assistant.state || "not connected"}`
+    : "";
+  if (reported.length) {
+    return assistantProblem && !reported.includes(assistantProblem)
+      ? [...reported, assistantProblem]
+      : reported;
+  }
   // A backend deployed before `degraded_reasons` existed still reports the two
   // facts that matter, so fall back to reading those rather than guessing "ok".
   const inferred: string[] = [];
   if (health.bot_status && health.bot_status !== "online") inferred.push(`Telegram bot is ${health.bot_status}`);
   if (health.database === "disconnected") inferred.push("MongoDB is disconnected");
+  if (assistantProblem) inferred.push(assistantProblem);
   return inferred;
 }
 
@@ -41,6 +50,9 @@ export function healthCaption(health: HealthLike | null | undefined): string {
   if (!health?.ok) return "Health check unavailable";
   const parts = [`API reachable`, `bot ${health.bot_status || "status unknown"}`];
   if (health.database) parts.push(`DB ${health.database}`);
+  if (health.assistant?.configured) {
+    parts.push(`voice assistant ${health.assistant.ready ? "connected" : health.assistant.state || "not ready"}`);
+  }
   if (typeof health.uptime === "number") {
     parts.push(`uptime ${Math.floor(health.uptime / 3600)}h ${Math.floor((health.uptime % 3600) / 60)}m`);
   }

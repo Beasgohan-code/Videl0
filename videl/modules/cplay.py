@@ -25,7 +25,7 @@ from videl.utils.db import (
 )
 from videl.utils.permissions import is_user_authorized
 from videl.utils.rich_ui import rich_esc, rich_heading, rich_kv_table, rich_note
-from videl.utils.command_ui import rich_send
+from videl.utils.command_ui import rich_send, rich_edit
 
 
 async def _resolve_channel(chat_id: int, arg: str | None = None) -> int | None:
@@ -44,7 +44,7 @@ async def _resolve_channel(chat_id: int, arg: str | None = None) -> int | None:
 
 
 @bot.on_message(
-    filters.command('channelplay')
+    filters.command('channelplay', prefixes=config.COMMAND_PREFIXES)
     & filters.group
     & group_allowed
     & user_allowed
@@ -92,10 +92,11 @@ async def channelplay_cmd(_, message: Message) -> None:
             await rich_send(bot, chat_id, rich_heading(" Target must be a channel/supergroup", level=3))
             return
     except Exception as e:
+        LOGGER.exception("Could not access linked channel %s for chat %s", channel_id, chat_id)
         await rich_send(
             bot, chat_id,
-            rich_heading(" Cannot access channel", level=3)
-            + rich_note(f"<code>{rich_esc(str(e))}</code>\nAdd the bot as admin in the channel first."),
+            rich_heading("⚠️ Couldn’t access that channel", level=3)
+            + rich_note("Check that the bot is a channel admin and can view the channel, then try again."),
         )
         return
 
@@ -178,7 +179,15 @@ async def cplay_handler(_, message: Message) -> None:
                 )
                 fp = await bot.download_media(target)
             except Exception as e:
-                await rich_send(bot, group_id, rich_heading(" Download failed", level=3) + rich_note(str(e)))
+                LOGGER.exception("Could not download channel media for chat %s", group_id)
+                await rich_edit(
+                    pm,
+                    rich_heading("⚠️ Couldn’t retrieve that media", level=3)
+                    + rich_note(
+                        "I couldn’t access the selected media from the linked channel. "
+                        "Check that the bot can view the post, then try again."
+                    ),
+                )
                 return
 
             is_video = force_video or bool(reply.video or reply.video_note)
@@ -245,7 +254,14 @@ async def cplay_handler(_, message: Message) -> None:
         from videl.utils.assistant import is_assistant_in, try_join_assistant
         status = await is_assistant_in(channel_id)
         if status == "banned":
-            await rich_send(bot, group_id, rich_heading(" Assistant banned in channel", level=3))
+            await rich_edit(pm, rich_heading(" Assistant banned in channel", level=3))
+            return
+        if status == "not_started":
+            await rich_edit(
+                pm,
+                rich_heading("⚠️ Voice assistant is offline", level=3)
+                + rich_note("A session string must also connect successfully at startup. Check the deployment logs and confirm the current <code>STRING_SESSION</code> secret is set; never paste it into chat. Retry after the assistant starts."),
+            )
             return
         if not status:
             ok = await try_join_assistant(channel_id, pm)
@@ -334,9 +350,12 @@ async def cplay_handler(_, message: Message) -> None:
         if pos == 1:
             await play_song(channel_id, pm, song)
     except Exception as e:
-        LOGGER.error(f"[cplay] {e}")
-        await rich_send(
-            bot, group_id,
-            rich_heading(" Channel play failed", level=3)
-            + rich_note(f"<code>{rich_esc(str(e))}</code>"),
+        LOGGER.exception("Channel playback failed for group %s and channel %s", group_id, channel_id)
+        await rich_edit(
+            pm,
+            rich_heading("⚠️ Channel playback failed", level=3)
+            + rich_note(
+                "I couldn’t start playback in the linked channel. Check the channel’s "
+                "voice-chat and assistant permissions, then try again."
+            ),
         )

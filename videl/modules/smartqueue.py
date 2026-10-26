@@ -39,7 +39,7 @@ def _track_key(song: dict | None) -> str:
 
 
 @bot.on_message(
-    filters.command('voteskip')
+    filters.command('voteskip', prefixes=config.COMMAND_PREFIXES)
     & filters.group
     & group_allowed
     & user_allowed

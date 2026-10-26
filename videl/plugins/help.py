@@ -11,8 +11,9 @@ from videl.plugins import base
 from videl.plugins.base import body, escape, heading, table
 from videl.utils.command_catalog import directory, visible_commands
 from videl.utils.rich_ui import (
-    rich_esc, rich_footer, rich_hr, rich_button, rich_button_row,
+    rich_esc, rich_footer, rich_hr, rich_img, rich_button, rich_button_row,
 )
+from videl.utils.premium_emojis import pe
 
 SECTION_META = {
     "music": ("Music", "Voice-chat playback, queues and playlists", "music"),
@@ -91,24 +92,25 @@ def render_section(section: str = "home", page: int = 0, *, owner: bool = False)
     counts = {name: len(visible_commands(owner=owner, category=meta[2])) for name, meta in SECTION_META.items()}
     text = (
         heading("Videl · Help center", 2)
+        + rich_img(base.studio_url() + "/videl-music-hero.png")
         + body("Find the right command fast. This guide follows the commands installed in the bot.")
         + rich_hr()
         + heading("Quick starts", 3)
         + table([
-            ("🎵 Play", "<code>/play song name</code> · starts voice-chat music"),
-            ("🛡 Protect", "<code>/setup</code> checks access · <code>/lock links</code> blocks links"),
-            ("👋 Welcome", "<code>/welcome on</code> · <code>/rules</code> · <code>/save name text</code>"),
-            ("✨ Create", "<code>/poll</code> · <code>/font bold text</code> · <code>/remind 10m call</code>"),
+            (pe("music") + " Play", "<code>/play song name</code> · start music in a group voice chat"),
+            (pe("shield") + " Protect", "<code>/setup</code> checks access · <code>/lock links</code> blocks links"),
+            (pe("spark") + " Welcome", "<code>/welcome on</code> · <code>/rules</code> · <code>/save name text</code>"),
+            (pe("ios_add") + " Create", "<code>/poll</code> · <code>/font bold text</code> · <code>/remind 10m call</code>"),
         ])
         + rich_hr()
         + heading("Browse a section", 3)
         + table([
-            ("Music", f"{counts['music']} commands · playback, queues, playlists"),
-            ("Groups", f"{counts['manage']} commands · moderation, locks, notes, welcomes"),
-            ("Tools", f"{counts['tools']} commands · polls, ids, reminders, AFK"),
-            ("Owner", (f"{counts['owner']} private commands" if owner else "Private owner controls")),
+            (pe("music") + " Music", f"{counts['music']} commands · playback, queues and playlists"),
+            (pe("shield") + " Groups", f"{counts['manage']} commands · moderation, locks, notes and welcomes"),
+            (pe("ios_controls") + " Tools", f"{counts['tools']} commands · polls, IDs, reminders and AFK"),
+            (pe("key") + " Owner", (f"{counts['owner']} private commands" if owner else "Private owner controls")),
         ])
-        + rich_footer("Tip: search with <code>/commands keyword</code> · buttons below open each section")
+        + rich_footer("Prefixes: <code>/ ! ? &amp; . # ~ $ +</code> · search with <code>/commands keyword</code>")
         + body("Permission checks happen when an action runs. Browsing this guide never grants access.")
     )
     actions = (
@@ -132,7 +134,7 @@ def render_section(section: str = "home", page: int = 0, *, owner: bool = False)
 
 def search(query: str, *, owner: bool = False):
     matches = visible_commands(owner=owner, query=query)[:20]
-    text = heading("Search results", 2) + body(f"Matches for <code>{escape(query)}</code>")
+    text = heading("🔎 Command search", 2) + body(f"Matches for <code>{escape(query)}</code>")
     if matches:
         text += table([(f"<code>/{rich_esc(item['name'])}</code>", rich_esc(item["summary"])) for item in matches])
     else:

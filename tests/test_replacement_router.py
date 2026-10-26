@@ -20,6 +20,10 @@ class ParserTests(unittest.TestCase):
         self.assertIsNone(parse('/help@OtherBot','Videl0Bot'))
         self.assertIsNone(parse('/help@OtherBot',''))
         self.assertEqual(parse('/id 123\nignored').arguments,'123\nignored')
+        for prefix in '!?&.#~$+':
+            self.assertEqual(parse(f'{prefix}help music'),Parsed('help','music'))
+            self.assertEqual(parse(f'{prefix}help@Videl0Bot','videl0bot'),Parsed('help',''))
+        self.assertIsNone(parse('!help@OtherBot','Videl0Bot'))
         for text in ['plain text','/','/bad-name','/a'*40000,None]:self.assertIsNone(parse(text))
 
     def test_manifest_is_unique_and_has_no_import_time_registration(self):
