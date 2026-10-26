@@ -79,9 +79,19 @@ async def is_assistant_in(chat_id: int):
         return "not_started"
 
     try:
-        me     = await assistant.get_me()
+        me = await assistant.get_me()
         member = await assistant.get_chat_member(chat_id, me.id)
-        return member.status is not None
+        status = getattr(member, "status", None)
+        status = str(getattr(status, "value", status) or "").casefold()
+        if status == "banned":
+            return "banned"
+        if status in {"owner", "administrator", "member"}:
+            return True
+        if status == "restricted":
+            return bool(getattr(member, "is_member", False))
+        # LEFT/unknown statuses are not group membership; allow try_join_assistant
+        # to repair the state instead of pretending the assistant is present.
+        return False
 
     except Exception as e:
         err = str(e)
