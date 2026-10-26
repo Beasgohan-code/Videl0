@@ -1177,7 +1177,7 @@ if __name__ == "__main__":
 
         # Keep voice commands from racing the user-client startup. A session
         # string is credentials, not proof that its Client is connected.
-        from videl.utils.assistant import assistant_starting, assistant_startup_complete
+        from videl.utils.assistant import assistant_starting, assistant_startup_complete, start_voice_engine
         assistant_starting()
 
         # Start the bot, retrying. A failed start delivered nothing, so trying
@@ -1247,6 +1247,10 @@ if __name__ == "__main__":
                 await _assis.start()
                 am = await _assis.get_me()
                 assistant_username = am.username or str(am.id)
+                # PyTgCalls owns the actual voice-chat engine. Starting only the
+                # Telegram user client leaves play() raising ClientNotStarted.
+                await start_voice_engine()
+                LOGGER.info("PyTgCalls voice engine started")
                 assistant_startup_complete(True)
                 LOGGER.info(f"Assistant @{assistant_username} started")
             else:

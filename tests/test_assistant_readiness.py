@@ -50,3 +50,14 @@ class AssistantReadinessTests(unittest.IsolatedAsyncioTestCase):
              patch.object(assistant_utils.assistant, "get_me", AsyncMock(return_value=SimpleNamespace(id=51))), \
              patch.object(assistant_utils.assistant, "get_chat_member", AsyncMock(return_value=SimpleNamespace(status="banned"))):
             self.assertEqual(await assistant_utils.is_assistant_in(-1001), "banned")
+
+    async def test_voice_engine_starts_before_assistant_readiness_is_published(self):
+        voice_engine = SimpleNamespace(start=AsyncMock())
+        with patch("videl.call_py", voice_engine):
+            await assistant_utils.start_voice_engine()
+        voice_engine.start.assert_awaited_once()
+
+    async def test_missing_voice_engine_fails_readiness_startup_clearly(self):
+        with patch("videl.call_py", None):
+            with self.assertRaisesRegex(RuntimeError, "PyTgCalls is unavailable"):
+                await assistant_utils.start_voice_engine()

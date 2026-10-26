@@ -40,6 +40,14 @@ def assistant_startup_complete(ready: bool) -> None:
     _ASSISTANT_START_COMPLETE.set()
 
 
+async def start_voice_engine() -> None:
+    """Start PyTgCalls after the assistant client is connected, before readiness."""
+    from videl import call_py
+    if call_py is None:
+        raise RuntimeError("PyTgCalls is unavailable; voice playback cannot start")
+    await call_py.start()
+
+
 def assistant_ready() -> bool:
     return _ASSISTANT_READY and bool(getattr(assistant, "is_connected", False))
 
