@@ -8,6 +8,7 @@ import logging
 import os
 import re
 from typing import Union
+from urllib.parse import urlsplit
 
 import aiofiles
 import aiohttp
@@ -24,7 +25,11 @@ logger = logging.getLogger(__name__)
 # Configure ELDIAN_API_URL to use a separate trusted Eldian deployment.
 ELDIAN_API_URL = (os.environ.get("ELDIAN_API_URL") or f"http://127.0.0.1:{os.environ.get('PORT', '10000')}").strip().rstrip("/")
 ELDIAN_API_KEY = (os.environ.get("ELDIAN_API_KEY") or os.environ.get("WEBAPP_SECRET") or "").strip()
-DOWNLOAD_DIR = "downloads"
+# ShizuMusic-compatible external downloader (Shruti API contract). Optional; when
+# configured it is attempted before the built-in/local providers.
+YT_API_URL = (os.environ.get("YT_API_URL") or "").strip().rstrip("/")
+YT_API_KEY = (os.environ.get("YT_API_KEY") or "").strip()
+DOWNLOAD_DIR = os.environ.get("DOWNLOAD_DIR", "downloads").strip() or "downloads"
 
 # Cookies — YTDLP_COOKIES path or YTDLP_COOKIES_URL (auto-downloaded & saved)
 _COOKIES_FILE = os.environ.get("YTDLP_COOKIES") or os.environ.get("YT_COOKIES_FILE") or os.environ.get("COOKIES_PATH") or ""
@@ -212,6 +217,8 @@ async def download_song(link: str) -> str | None:
     os.makedirs(DOWNLOAD_DIR,exist_ok=True)
     cached=_find_file(video_id,video=False)
     if cached:return cached
+    path=await _download_via_external_api(video_id,video=False)
+    if path:return path
     path=await _download_via_eldian(video_id,video=False)
     if path:return path
     try:
@@ -232,9 +239,69 @@ async def download_video(link: str) -> str | None:
     os.makedirs(DOWNLOAD_DIR,exist_ok=True)
     cached=_find_file(video_id,video=True)
     if cached:return cached
+    path=await _download_via_external_api(video_id,video=True)
+    if path:return path
     path=await _download_via_eldian(video_id,video=True)
     if path:return path
     return await asyncio.get_running_loop().run_in_executor(None,lambda:_sync_ytdlp(link,video=True))
+
+
+async def _download_via_external_api(video_id: str, video: bool = False) -> str | None:
+    """Download a direct media response from the ShizuMusic-compatible API.
+
+    Contract: GET {YT_API_URL}/download?url=VIDEO_ID&type=audio|video&api_key=KEY.
+    The API must be explicitly configured; credentials are never sent to HTTP or
+    redirected hosts. Failures are non-fatal so the existing providers still run.
+    """
+    if not YT_API_URL or not YT_API_KEY or not re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id or ""):
+        return None
+    try:
+        parsed = urlsplit(YT_API_URL)
+        if parsed.scheme != "https" or not parsed.netloc or parsed.username or parsed.password or parsed.query or parsed.fragment:
+            logger.warning("[external-downloader] URL must be a clean HTTPS base URL")
+            return None
+    except ValueError:
+        logger.warning("[external-downloader] invalid configured URL")
+        return None
+
+    os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+    ext = ".mp4" if video else ".mp3"
+    target = os.path.join(DOWNLOAD_DIR, f"{video_id}.external{ext}")
+    partial = target + ".part"
+    timeout = aiohttp.ClientTimeout(total=300, connect=20)
+    params = {"url": video_id, "type": "video" if video else "audio", "api_key": YT_API_KEY}
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.get(f"{YT_API_URL}/download", params=params, allow_redirects=False) as response:
+                if response.status != 200:
+                    logger.warning("[external-downloader] HTTP %s", response.status)
+                    return None
+                content_type = (response.headers.get("Content-Type") or "").lower()
+                if "json" in content_type or "text/" in content_type:
+                    logger.warning("[external-downloader] API returned non-media content (%s)", content_type)
+                    return None
+                declared = response.content_length
+                max_bytes = 300 * 1024 * 1024
+                if declared is not None and declared > max_bytes:
+                    logger.warning("[external-downloader] response exceeds size limit")
+                    return None
+                size = 0
+                async with aiofiles.open(partial, "wb") as output:
+                    async for chunk in response.content.iter_chunked(131072):
+                        size += len(chunk)
+                        if size > max_bytes:
+                            raise ValueError("response exceeds size limit")
+                        await output.write(chunk)
+        if size <= 1024:
+            _cleanup(partial)
+            return None
+        os.replace(partial, target)
+        logger.info("[external-downloader] downloaded %s KB", size // 1024)
+        return target
+    except Exception as exc:
+        logger.warning("[external-downloader] request failed (%s)", type(exc).__name__)
+        _cleanup(partial)
+        return None
 
 
 async def _download_via_eldian(video_id: str, video: bool = False) -> str | None:
