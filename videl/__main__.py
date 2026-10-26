@@ -1125,9 +1125,10 @@ def _log_all_urls_console():
         LOGGER.debug("Flask route map logging failed", exc_info=True)
 
 def _run_flask():
-    LOGGER.info("Videl Render backend listening on 0.0.0.0:%s", BACKEND_PORT)
+    from waitress import serve
+    LOGGER.info("Videl production WSGI backend listening on 0.0.0.0:%s", BACKEND_PORT)
     _log_all_urls_console()
-    _flask.run(host="0.0.0.0", port=BACKEND_PORT, use_reloader=False, threaded=True)
+    serve(_flask, host="0.0.0.0", port=BACKEND_PORT, threads=8, channel_timeout=30, ident="Videl")
 
 def _keep_alive():
     """Ping Render's public health route and publish a secret-free heartbeat."""

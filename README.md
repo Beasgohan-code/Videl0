@@ -12,7 +12,7 @@ Telegram music and group management with a separate, privacy-first creative weba
 
 ## Structure
 
-- `videl/`: Python bot, Flask internal API, voice streaming and MongoDB-backed management.
+- `videl/`: Python bot, Flask internal API served through Waitress, voice streaming and MongoDB-backed management.
 - `webapp/`: Next.js app deployed on Vercel; all workspace panels use one root URL.
 - `vendor/eldian_music_api/`: licensed Eldian Network downloader integration.
 - `vendor/richgram/`: licensed Richgram UI fork with safe rejection fallbacks.
