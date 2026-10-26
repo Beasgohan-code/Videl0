@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from pytgcalls.exceptions import NoActiveGroupCall
-from videl.core import voice_chat
+from videl.core import voice_chat, playback_state
 
 
 class VoiceChatRecoveryTests(unittest.IsolatedAsyncioTestCase):
@@ -67,3 +67,8 @@ class VoiceChatRecoveryTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaisesRegex(voice_chat.VoiceChatStartError, "Manage Video Chats"):
                 await voice_chat.play_with_auto_start(player, -100123, "stream")
         self.assertEqual(player.play.await_count, 1)
+
+    def test_expected_local_leave_update_is_consumed_once(self):
+        playback_state.expect_voice_exit(-100123)
+        self.assertTrue(playback_state.consume_expected_voice_exit(-100123))
+        self.assertFalse(playback_state.consume_expected_voice_exit(-100123))

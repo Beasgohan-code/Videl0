@@ -49,6 +49,22 @@ class Session:
 
 
 sessions={}
+_expected_voice_exits: dict[int, float] = {}
+_EXPECTED_EXIT_TTL = 20.0
+
+
+def expect_voice_exit(chat_id: int) -> None:
+    """Fence the ChatUpdate emitted by our own acknowledged leave_call."""
+    _expected_voice_exits[chat_id] = time.monotonic()
+
+
+def cancel_expected_voice_exit(chat_id: int) -> None:
+    _expected_voice_exits.pop(chat_id, None)
+
+
+def consume_expected_voice_exit(chat_id: int) -> bool:
+    started = _expected_voice_exits.pop(chat_id, None)
+    return started is not None and time.monotonic() - started <= _EXPECTED_EXIT_TTL
 
 
 def acknowledged(chat_id,song):

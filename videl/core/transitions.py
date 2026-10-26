@@ -29,10 +29,16 @@ def cleanup(songs):
 
 async def stop(chat_id):
     async with lock(chat_id):
+        from videl.core.playback_state import expect_voice_exit, cancel_expected_voice_exit
+        expect_voice_exit(chat_id)
         try:
             response=await asyncio.wait_for(call_py.leave_call(chat_id),30)
             if response is False:raise RuntimeError('Leave not acknowledged')
-        except NoActiveGroupCall:pass
+        except NoActiveGroupCall:
+            cancel_expected_voice_exit(chat_id)
+        except Exception:
+            cancel_expected_voice_exit(chat_id)
+            raise
         # Any other exception propagates BEFORE irreversible local cleanup.
         from videl.core.autoplay import stop_autoplay
         stop_autoplay(chat_id)
