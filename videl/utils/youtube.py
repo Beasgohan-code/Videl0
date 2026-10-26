@@ -211,7 +211,7 @@ def _sync_ytdlp(url: str, video: bool = False) -> str | None:
 
 
 async def download_song(link: str) -> str | None:
-    """Download audio through Eldian first, then the local yt-dlp fallback."""
+    """Try Shruti first for music playback, then retain the existing providers as fallbacks."""
     video_id=_extract_video_id(link)
     if not re.fullmatch(r"[A-Za-z0-9_-]{11}",video_id or ""):return None
     os.makedirs(DOWNLOAD_DIR,exist_ok=True)
@@ -233,7 +233,7 @@ async def download_song(link: str) -> str | None:
 
 
 async def download_video(link: str) -> str | None:
-    """Download video through Eldian's built-in endpoint, then yt-dlp."""
+    """Try Shruti first for video downloads, then retain the existing providers as fallbacks."""
     video_id=_extract_video_id(link)
     if not re.fullmatch(r"[A-Za-z0-9_-]{11}",video_id or ""):return None
     os.makedirs(DOWNLOAD_DIR,exist_ok=True)
