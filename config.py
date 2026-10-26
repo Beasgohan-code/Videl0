@@ -81,6 +81,9 @@ COMMAND_PREFIXES: str = "".join(dict.fromkeys(
     char for char in _raw_command_prefixes
     if len(char) == 1 and not char.isalnum() and not char.isspace() and char != "@"
 )) or "/"
+# Pyrogram treats a string as ONE prefix, not a set of prefix characters.
+# Keep the joined form for regex parsing and pass this list to filters.command.
+COMMAND_PREFIX_LIST: list[str] = list(COMMAND_PREFIXES)
 
 # STRING_SESSION — sanitize: strip quotes/spaces, fix padding
 _raw_session = _str("STRING_SESSION", "")

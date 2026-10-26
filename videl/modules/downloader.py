@@ -308,7 +308,7 @@ def _hero_img(url: Optional[str] = None):
 
 # ── /song — download audio (like ShizuMusic /song) ────────────────────────────
 
-@bot.on_message(filters.command('song', prefixes=config.COMMAND_PREFIXES) & (filters.group | filters.private))
+@bot.on_message(filters.command('song', prefixes=config.COMMAND_PREFIX_LIST) & (filters.group | filters.private))
 async def song_cmd(_, m: Message):
     query = " ".join(m.command[1:]) if len(m.command) > 1 else ""
     if not query and m.reply_to_message and m.reply_to_message.text:
@@ -465,7 +465,7 @@ async def song_cmd(_, m: Message):
                 pass
 
 
-@bot.on_message(filters.command('vsong', prefixes=config.COMMAND_PREFIXES) & (filters.group | filters.private))
+@bot.on_message(filters.command('vsong', prefixes=config.COMMAND_PREFIX_LIST) & (filters.group | filters.private))
 async def vsong_cmd(_, m: Message):
     query = " ".join(m.command[1:]) if len(m.command) > 1 else ""
     if not query and m.reply_to_message and m.reply_to_message.text:
@@ -545,7 +545,7 @@ async def vsong_cmd(_, m: Message):
                 pass
 
 
-@bot.on_message(filters.command('download', prefixes=config.COMMAND_PREFIXES) & (filters.group | filters.private))
+@bot.on_message(filters.command('download', prefixes=config.COMMAND_PREFIX_LIST) & (filters.group | filters.private))
 async def download_cmd(_, m: Message):
     query = " ".join(m.command[1:]) if len(m.command) > 1 else ""
     if not query:

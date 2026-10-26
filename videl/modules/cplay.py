@@ -44,7 +44,7 @@ async def _resolve_channel(chat_id: int, arg: str | None = None) -> int | None:
 
 
 @bot.on_message(
-    filters.command('channelplay', prefixes=config.COMMAND_PREFIXES)
+    filters.command('channelplay', prefixes=config.COMMAND_PREFIX_LIST)
     & filters.group
     & group_allowed
     & user_allowed

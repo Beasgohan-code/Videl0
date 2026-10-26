@@ -787,6 +787,10 @@ class InternalRouteTests(unittest.TestCase):
         self.assertEqual(payload["status"], "ok")
         self.assertGreaterEqual(payload["api"]["samples"], 1)
         self.assertGreaterEqual(payload["api"]["p95_ms"], 0.0)
+        self.assertIn("running", payload["keepalive"])
+        self.assertEqual(payload["keepalive"]["consecutive_failures"], 0)
+        self.assertIn("running", payload["watchdog"])
+        self.assertIn("checks", payload["watchdog"])
         providers = payload["media_downloaders"]
         self.assertEqual(providers["primary"], "shruti")
         self.assertIn(providers["shruti"]["state"], {"configured", "needs_api_key", "invalid_url"})

@@ -59,7 +59,7 @@ def public_help(message):
     return HELP if owner else PUBLIC_HELP
 
 
-@bot.on_message(filters.command("modernhelp", prefixes=config.COMMAND_PREFIXES))
+@bot.on_message(filters.command("modernhelp", prefixes=config.COMMAND_PREFIX_LIST))
 async def modern_help(_, message):
     await rich_reply(message, public_help(message))
 
@@ -99,7 +99,7 @@ async def outcome(message, method, payload, success, *, forum_controls=False):
     return result
 
 
-@bot.on_message(filters.command("react", prefixes=config.COMMAND_PREFIXES))
+@bot.on_message(filters.command("react", prefixes=config.COMMAND_PREFIX_LIST))
 async def react_command(_, message):
     if not await is_user_authorized(message):
         return await rich_reply(
@@ -144,7 +144,7 @@ async def react_command(_, message):
     )
 
 
-@bot.on_message(filters.command(["topicnew", "topicrename", "topicclose", "topicopen"], prefixes=config.COMMAND_PREFIXES))
+@bot.on_message(filters.command(["topicnew", "topicrename", "topicclose", "topicopen"], prefixes=config.COMMAND_PREFIX_LIST))
 async def topic_command(_, message):
     if (
         not getattr(message.chat, "is_forum", False)
@@ -193,7 +193,7 @@ async def topic_command(_, message):
         )
 
 
-@bot.on_message(filters.command("apiinfo", prefixes=config.COMMAND_PREFIXES) & filters.user(6265999542) & filters.private)
+@bot.on_message(filters.command("apiinfo", prefixes=config.COMMAND_PREFIX_LIST) & filters.user(6265999542) & filters.private)
 async def api_info(_, message):
     status, data = await bot_api("getMe", {})
     if not status or not data.get("ok"):
@@ -225,7 +225,7 @@ async def api_info(_, message):
     )
 
 
-@bot.on_message(filters.command("emojiinfo", prefixes=config.COMMAND_PREFIXES) & filters.user(6265999542) & filters.private)
+@bot.on_message(filters.command("emojiinfo", prefixes=config.COMMAND_PREFIX_LIST) & filters.user(6265999542) & filters.private)
 async def emoji_info(_, message):
     if len(message.command) > 1 and message.command[1].lower() == "check":
         ids = list(dict.fromkeys(PREMIUM_IDS.values()))
@@ -296,7 +296,7 @@ async def emoji_info(_, message):
     await rich_reply(message, card, reply_markup=InlineKeyboardMarkup(keys))
 
 
-@bot.on_message(filters.command("copy", prefixes=config.COMMAND_PREFIXES))
+@bot.on_message(filters.command("copy", prefixes=config.COMMAND_PREFIX_LIST))
 async def copy_command(_, message):
     """Create a native copy-text button from up to 256 UTF-16 units."""
     from videl.utils.command_ui import usage, notice
@@ -311,7 +311,7 @@ async def copy_command(_, message):
 
 
 
-@bot.on_message(filters.command("pollstop", prefixes=config.COMMAND_PREFIXES))
+@bot.on_message(filters.command("pollstop", prefixes=config.COMMAND_PREFIX_LIST))
 async def stop_poll_command(_, message):
     """Admin: stop a replied poll sent by this bot."""
     from videl.utils.command_ui import usage,notice

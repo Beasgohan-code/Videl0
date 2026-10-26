@@ -80,7 +80,7 @@ def _format_lyrics(data: dict, max_chars: int = 3500) -> str:
 
 
 @bot.on_message(
-    filters.command('lyrics', prefixes=config.COMMAND_PREFIXES)
+    filters.command('lyrics', prefixes=config.COMMAND_PREFIX_LIST)
     & group_allowed
     & user_allowed
 )

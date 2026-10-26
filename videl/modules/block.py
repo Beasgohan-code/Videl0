@@ -48,7 +48,7 @@ user_allowed  = filters.create(_user_not_blocked)
 
 # ── /gblock ────────────────────────────────────────────────────────────────────
 
-@bot.on_message(filters.command("gblock", prefixes=config.COMMAND_PREFIXES) & filters.user(config.OWNER_ID))
+@bot.on_message(filters.command("gblock", prefixes=config.COMMAND_PREFIX_LIST) & filters.user(config.OWNER_ID))
 async def gblock_cmd(_, message: Message) -> None:
     """Block a group — /gblock or /gblock -100xxxxxxx"""
     chat_id = message.chat.id
@@ -93,7 +93,7 @@ async def gblock_cmd(_, message: Message) -> None:
 
 # ── /gunblock ──────────────────────────────────────────────────────────────────
 
-@bot.on_message(filters.command("gunblock", prefixes=config.COMMAND_PREFIXES) & filters.user(config.OWNER_ID))
+@bot.on_message(filters.command("gunblock", prefixes=config.COMMAND_PREFIX_LIST) & filters.user(config.OWNER_ID))
 async def gunblock_cmd(_, message: Message) -> None:
     """Unblock a group — /gunblock or /gunblock -100xxxxxxx"""
     chat_id = message.chat.id
@@ -138,7 +138,7 @@ async def gunblock_cmd(_, message: Message) -> None:
 
 # ── /ublock ────────────────────────────────────────────────────────────────────
 
-@bot.on_message(filters.command("ublock", prefixes=config.COMMAND_PREFIXES) & filters.user(config.OWNER_ID))
+@bot.on_message(filters.command("ublock", prefixes=config.COMMAND_PREFIX_LIST) & filters.user(config.OWNER_ID))
 async def ublock_cmd(_, message: Message) -> None:
     """Block a user — reply to their message or /ublock 123456789"""
     chat_id   = message.chat.id
@@ -193,7 +193,7 @@ async def ublock_cmd(_, message: Message) -> None:
 
 # ── /uunblock ──────────────────────────────────────────────────────────────────
 
-@bot.on_message(filters.command("uunblock", prefixes=config.COMMAND_PREFIXES) & filters.user(config.OWNER_ID))
+@bot.on_message(filters.command("uunblock", prefixes=config.COMMAND_PREFIX_LIST) & filters.user(config.OWNER_ID))
 async def uunblock_cmd(_, message: Message) -> None:
     """Unblock a user — reply to their message or /uunblock 123456789"""
     chat_id   = message.chat.id
@@ -244,7 +244,7 @@ async def uunblock_cmd(_, message: Message) -> None:
 
 # ── /blocklist ─────────────────────────────────────────────────────────────────
 
-@bot.on_message(filters.command("blocklist", prefixes=config.COMMAND_PREFIXES) & filters.user(config.OWNER_ID))
+@bot.on_message(filters.command("blocklist", prefixes=config.COMMAND_PREFIX_LIST) & filters.user(config.OWNER_ID))
 async def blocklist_cmd(_, message: Message) -> None:
     """Show all blocked groups and users."""
     groups = get_blocked_groups()

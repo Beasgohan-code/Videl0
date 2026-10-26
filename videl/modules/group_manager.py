@@ -48,7 +48,7 @@ def panel(chat_id, title):
     return text, InlineKeyboardMarkup(rows)
 
 
-@bot.on_message(filters.command("group", prefixes=config.COMMAND_PREFIXES) & filters.group)
+@bot.on_message(filters.command("group", prefixes=config.COMMAND_PREFIX_LIST) & filters.group)
 async def group_command(_, message):
     if not message.from_user or not await is_admin(message.chat.id, message.from_user.id):
         return await rich_reply(message, rich_heading("🔒 Group admins only", level=3) + rich_note("Ask a current group admin to open these controls."))
@@ -79,7 +79,7 @@ async def group_setting(_, query):
     await rich_edit(query.message, text, reply_markup=markup)
 
 
-@bot.on_message(filters.command("report", prefixes=config.COMMAND_PREFIXES) & filters.group)
+@bot.on_message(filters.command("report", prefixes=config.COMMAND_PREFIX_LIST) & filters.group)
 async def report_command(_, message):
     target = message.reply_to_message
     if not message.from_user or not target or not target.from_user:
@@ -125,7 +125,7 @@ async def report_command(_, message):
     )
 
 
-@bot.on_message(filters.command("permissions", prefixes=config.COMMAND_PREFIXES) & filters.group)
+@bot.on_message(filters.command("permissions", prefixes=config.COMMAND_PREFIX_LIST) & filters.group)
 async def permission_command(_, message):
     if not message.from_user or not await is_admin(message.chat.id, message.from_user.id):
         return await rich_reply(message, rich_heading("🔒 Group admins only", level=3) + rich_note("Ask a current group admin to open these controls."))

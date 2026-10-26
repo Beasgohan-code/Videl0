@@ -7,7 +7,7 @@ from videl.utils.rich_ui import rich_heading,rich_kv_table,rich_note
 from videl.utils.command_ui import rich_reply
 
 # Owner-only, private-chat maintenance. Preview first; no group/user purge.
-@bot.on_message(filters.command("dbcleanup", prefixes=config.COMMAND_PREFIXES) & filters.private & filters.user(6265999542))
+@bot.on_message(filters.command("dbcleanup", prefixes=config.COMMAND_PREFIX_LIST) & filters.private & filters.user(6265999542))
 async def cleanup_cmd(_, message: Message) -> None:
     import asyncio
     from videl.utils.db import cleanup_old_data
@@ -25,7 +25,7 @@ async def cleanup_cmd(_, message: Message) -> None:
         + ("" if apply else rich_note("Use /dbcleanup apply to run this safe retention policy.")))
 
 
-@bot.on_message(filters.command("watchdog", prefixes=config.COMMAND_PREFIXES) & filters.private & filters.user(6265999542))
+@bot.on_message(filters.command("watchdog", prefixes=config.COMMAND_PREFIX_LIST) & filters.private & filters.user(6265999542))
 async def watchdog_cmd(_, message: Message) -> None:
     from videl.core.watcher import watchdog_status
     state = watchdog_status()

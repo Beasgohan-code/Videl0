@@ -60,7 +60,7 @@ def _approved_keyboard(user_ids, *, allow_clear=False):
     rows.append([InlineKeyboardButton("Close", callback_data="approve:close", icon="cross")])
     return InlineKeyboardMarkup(rows)
 
-@bot.on_message(filters.command('approve', prefixes=config.COMMAND_PREFIXES) & filters.group & group_allowed & user_allowed)
+@bot.on_message(filters.command('approve', prefixes=config.COMMAND_PREFIX_LIST) & filters.group & group_allowed & user_allowed)
 async def approve_cmd(_, m):
     if not await is_user_authorized(m):
         return
@@ -81,7 +81,7 @@ async def approve_cmd(_, m):
     kb = InlineKeyboardMarkup([[InlineKeyboardButton(pe("cross","❌") + " " + sc("unapprove"), callback_data="approve:rm:" + str(uid)), InlineKeyboardButton(pe("eyes","👀") + " " + sc("view all"), callback_data="approve:list")]])
     await rich_send(bot, m.chat.id, body, reply_markup=kb)
 
-@bot.on_message(filters.command('unapprove', prefixes=config.COMMAND_PREFIXES) & filters.group & group_allowed & user_allowed)
+@bot.on_message(filters.command('unapprove', prefixes=config.COMMAND_PREFIX_LIST) & filters.group & group_allowed & user_allowed)
 async def unapprove_cmd(_, m):
     if not await is_user_authorized(m):
         return
@@ -97,7 +97,7 @@ async def unapprove_cmd(_, m):
     kb = InlineKeyboardMarkup([[InlineKeyboardButton(pe("eyes","👀") + " " + sc("view all"), callback_data="approve:list")]])
     await rich_send(bot, m.chat.id, body, reply_markup=kb)
 
-@bot.on_message(filters.command('approved', prefixes=config.COMMAND_PREFIXES) & filters.group & group_allowed & user_allowed)
+@bot.on_message(filters.command('approved', prefixes=config.COMMAND_PREFIX_LIST) & filters.group & group_allowed & user_allowed)
 async def approved_list(_, m):
     arr = list_approved(m.chat.id)
     if not arr:
@@ -125,7 +125,7 @@ async def approved_list(_, m):
     body += rich_note("Use a Remove button below to revoke approval, or reply to the member with <code>/unapprove</code>.")
     await rich_send(bot, m.chat.id, body, reply_markup=_approved_keyboard(arr, allow_clear=True))
 
-@bot.on_message(filters.command(["approval"], prefixes=config.COMMAND_PREFIXES) & filters.group & group_allowed & user_allowed)
+@bot.on_message(filters.command(["approval"], prefixes=config.COMMAND_PREFIX_LIST) & filters.group & group_allowed & user_allowed)
 async def approval_info(_, m):
     arr = list_approved(m.chat.id)
     count = len(arr)

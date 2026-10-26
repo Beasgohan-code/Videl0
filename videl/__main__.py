@@ -37,6 +37,8 @@ _API_TIMINGS: deque = deque(maxlen=400)
 _DB_TIMINGS: deque = deque(maxlen=200)
 _TIMING_LOCK = threading.Lock()
 _TIMED_PREFIXES = ("/internal/", "/api/")
+_KEEPALIVE_THREAD = None
+_KEEPALIVE_STATE = {"last_success": None, "consecutive_failures": 0, "last_error": None}
 
 
 @_flask.before_request
@@ -61,6 +63,14 @@ def _api_latency() -> dict:
     ordered = sorted(samples)
     index = max(0, min(len(ordered) - 1, int(len(ordered) * 0.95) - 1))
     return {"p95_ms": round(ordered[index], 1), "samples": len(ordered)}
+
+
+def _keepalive_status() -> dict:
+    return {
+        "running": bool(_KEEPALIVE_THREAD and _KEEPALIVE_THREAD.is_alive()),
+        **dict(_KEEPALIVE_STATE),
+    }
+
 
 try:
     from videl.api.eldian_routes import register_eldian_routes
@@ -172,7 +182,8 @@ def _health():
                     "degraded_reasons": reasons, "database": database,
                     "uptime": max(0, int(time.time() - bot_start_time)),
                     "api": _api_latency(), "db": _db_latency(),
-                    "watchdog": {key: maintenance[key] for key in ("running", "healthy", "last_tick")}}), 200
+                    "keepalive": _keepalive_status(),
+                    "watchdog": {key: maintenance.get(key) for key in ("running", "healthy", "last_tick", "checks")}}), 200
 
 @_flask.route("/internal/auth", methods=["POST"])
 def _internal_auth():
@@ -1119,15 +1130,21 @@ def _run_flask():
     _flask.run(host="0.0.0.0", port=BACKEND_PORT, use_reloader=False, threaded=True)
 
 def _keep_alive():
-    # keep-alive ping self (Render free tier sleep prevention)
+    """Ping Render's public health route and publish a secret-free heartbeat."""
     url = os.getenv("RENDER_EXTERNAL_URL", f"http://127.0.0.1:{os.getenv('PORT', config.PORT)}")
-    # use public URL if available, else localhost
     public = os.getenv("RENDER_EXTERNAL_URL", "https://videl0.onrender.com")
     target = public if public.startswith("http") else url
     while True:
         try:
-            requests.get(target + "/health", timeout=10)
-        except: pass
+            response = requests.get(target.rstrip("/") + "/health", timeout=10)
+            response.raise_for_status()
+            _KEEPALIVE_STATE["last_success"] = int(time.time())
+            _KEEPALIVE_STATE["consecutive_failures"] = 0
+            _KEEPALIVE_STATE["last_error"] = None
+        except Exception as error:
+            _KEEPALIVE_STATE["consecutive_failures"] += 1
+            _KEEPALIVE_STATE["last_error"] = type(error).__name__
+            LOGGER.warning("[keepalive] health ping failed (%s)", type(error).__name__)
         time.sleep(300)
 
 if __name__ == "__main__":
@@ -1139,7 +1156,8 @@ if __name__ == "__main__":
         LOGGER.warning(f"mongo: {e}")
 
     threading.Thread(target=_run_flask, daemon=True).start()
-    threading.Thread(target=_keep_alive, daemon=True).start()
+    _KEEPALIVE_THREAD = threading.Thread(target=_keep_alive, name="videl-render-keepalive", daemon=True)
+    _KEEPALIVE_THREAD.start()
     LOGGER.info(f"Render backend health on {BACKEND_PORT} — Vercel frontend URL: {getattr(config, 'WEBAPP_URL', 'not configured')}")
 
     missing = [k for k in ("API_ID","API_HASH","BOT_TOKEN","MONGO_DB_URL") if not os.getenv(k)]
@@ -1195,7 +1213,7 @@ if __name__ == "__main__":
                 break
             except Exception as e:
                 kind = boot_policy.classify(e)
-                delay = boot_policy.retry_delay(_BOT_ATTEMPTS, kind)
+                delay = boot_policy.retry_delay_for_error(_BOT_ATTEMPTS, e)
                 _BOT_STATUS = "failed"
                 _BOT_ERROR = _health_text(e) or type(e).__name__
                 LOGGER.error("bot.start attempt %s failed (%s): %s — retrying in %ss",
