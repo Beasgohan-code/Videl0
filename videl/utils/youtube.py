@@ -27,7 +27,7 @@ ELDIAN_API_URL = (os.environ.get("ELDIAN_API_URL") or f"http://127.0.0.1:{os.env
 ELDIAN_API_KEY = (os.environ.get("ELDIAN_API_KEY") or os.environ.get("WEBAPP_SECRET") or "").strip()
 # ShizuMusic-compatible external downloader (Shruti API contract). Optional; when
 # configured it is attempted before the built-in/local providers.
-YT_API_URL = (os.environ.get("YT_API_URL") or "").strip().rstrip("/")
+YT_API_URL = (os.environ.get("YT_API_URL") or "https://api.shrutibots.in").strip().rstrip("/")
 YT_API_KEY = (os.environ.get("YT_API_KEY") or "").strip()
 DOWNLOAD_DIR = os.environ.get("DOWNLOAD_DIR", "downloads").strip() or "downloads"
 

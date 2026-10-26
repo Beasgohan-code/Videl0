@@ -152,7 +152,8 @@ ENV: str = _str("ENV", "production")
 ELDIAN_API_URL: str = _str("ELDIAN_API_URL", f"http://127.0.0.1:{PORT}")
 ELDIAN_API_KEY: str = _str("ELDIAN_API_KEY", _str("WEBAPP_SECRET", ""))
 # Optional ShizuMusic-compatible external downloader API (GET /download, YT_API_URL/KEY).
-YT_API_URL: str = _str("YT_API_URL", "")
+# The previous .site hostname is being discontinued; keep an env override available.
+YT_API_URL: str = _str("YT_API_URL", "https://api.shrutibots.in")
 YT_API_KEY: str = _str("YT_API_KEY", "")
 SPOTIFY_CLIENT_ID: str = _str("SPOTIFY_CLIENT_ID", "")
 SPOTIFY_CLIENT_SECRET: str = _str("SPOTIFY_CLIENT_SECRET", "")
