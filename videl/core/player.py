@@ -167,6 +167,24 @@ async def _update_progress(chat_id:int, msg:Message, start_t:float, total:float,
                 break
         await asyncio.sleep(12)
 
+
+async def _delete_message(message) -> bool:
+    if message is None:
+        return False
+    try:
+        await message.delete()
+        return True
+    except Exception as error:
+        LOGGER.debug("Player card cleanup failed (%s)", type(error).__name__)
+        return False
+
+
+def _same_message(first, second) -> bool:
+    if first is second:
+        return True
+    first_id, second_id = getattr(first, "id", None), getattr(second, "id", None)
+    return first_id is not None and second_id is not None and first_id == second_id
+
 # ── Acknowledged playback transaction ──────────────────────────────────────────
 async def play_song(chat_id:int, message:Message, song:dict, *, advance=False, rotate=False)->bool:
     """Resolve before changing streams; commit queue changes only after engine ack.
@@ -177,6 +195,7 @@ async def play_song(chat_id:int, message:Message, song:dict, *, advance=False, r
     from videl.core.playback_state import lock,acknowledged
     from videl.core.queue import peek_current,get_queue,pop_current,add_to_queue
     async with lock(chat_id):
+        previous_card = _np_msg.get(chat_id)
         expected=peek_current(chat_id)
         tracks=get_queue(chat_id)
         if (advance and (len(tracks)<2 or tracks[1] is not song)) or (not advance and expected is not song):
@@ -266,6 +285,10 @@ async def play_song(chat_id:int, message:Message, song:dict, *, advance=False, r
         except Exception as error:
             LOGGER.warning('Player card unconfirmed after playback ack (%s); no resend',type(error).__name__)
         if pmsg is not None:
+            # Replace the previous card only after the new card was delivered;
+            # this keeps the old controls available if Telegram rejects the new one.
+            if previous_card is not None and not _same_message(previous_card, pmsg):
+                await _delete_message(previous_card)
             # Preserve the acknowledgement-time clock (UI delivery can be slow).
             _np_msg[chat_id]=pmsg
             _progress_tasks[chat_id]=asyncio.create_task(_update_progress(chat_id,pmsg,_np_start[chat_id],total,song))

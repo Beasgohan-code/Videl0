@@ -27,9 +27,10 @@ def cleanup(songs):
         if path and str(path) not in used:delete_file(path)
 
 
-async def stop(chat_id):
+async def stop(chat_id, *, delete_player_card=False):
     async with lock(chat_id):
         from videl.core.playback_state import expect_voice_exit, cancel_expected_voice_exit
+        player_card = player._np_msg.get(chat_id) if delete_player_card else None
         expect_voice_exit(chat_id)
         try:
             response=await asyncio.wait_for(call_py.leave_call(chat_id),30)
@@ -50,6 +51,8 @@ async def stop(chat_id):
         except Exception:pass
         removed=queue.clear_queue(chat_id)
         cleanup(removed)
+        if player_card is not None:
+            await player._delete_message(player_card)
         return Outcome('Playback stopped','Voice chat exit confirmed. Queue, repeat and AutoPlay have been cleared.')
 
 
@@ -95,4 +98,4 @@ async def finished(chat_id,observed):
             if await player.play_song(chat_id,None,next_song,advance=True,rotate=mode=='all'):
                 if mode!='all':cleanup([current])
             return
-        await stop(chat_id)
+        await stop(chat_id, delete_player_card=True)

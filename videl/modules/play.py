@@ -561,7 +561,6 @@ async def ytpick_callback(_, cq: CallbackQuery) -> None:
 
     r = results[idx]
     _search_cache.pop(key, None)
-    await cq.answer(f"Selected: {short(r['title'], 30)}")
 
     chat_id = cq.message.chat.id if cq.message and cq.message.chat else 0
     secs = iso_to_sec(r.get("duration_iso", "PT0S"))
@@ -589,17 +588,22 @@ async def ytpick_callback(_, cq: CallbackQuery) -> None:
     }
 
     pos = add_to_queue(chat_id, song)
+    await cq.answer("Starting playback" if pos == 1 else f"Queued · #{pos - 1}")
 
     if pos == 1:
         await play_song(chat_id, cq.message, song)
+        from videl.core import player as player_core
+        player_card = player_core._np_msg.get(chat_id)
+        # If the search message was reused as the player card, keep it; otherwise
+        # remove the now-obsolete result list after playback has been attempted.
+        if cq.message and (player_card is None or not player_core._same_message(cq.message, player_card)):
+            try:
+                await cq.message.delete()
+            except Exception:
+                LOGGER.debug("Selected track picker cleanup failed", exc_info=True)
     else:
-        await rich_edit(
-            cq.message,
-            rich_heading("➕ Added to queue", level=3)
-            + rich_kv_table([
-                ("Title", f"<code>{rich_esc(short(r['title']))}</code>"),
-                ("Dur", f"<code>{r.get('duration', '?')}</code>"),
-                ("Pos", f"<code>#{pos - 1}</code>"),
-            ]),
-        )
+        try:
+            await cq.message.delete()
+        except Exception:
+            LOGGER.debug("Queued track picker cleanup failed", exc_info=True)
 
