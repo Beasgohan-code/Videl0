@@ -149,6 +149,22 @@ export const BOT_COMMANDS: BotCommand[] = [
     "owner": false
   },
   {
+    "name": "connect",
+    "usage": "/connect",
+    "summary": "Connect a group to your dm for admin controls",
+    "category": "manage",
+    "context": "chat",
+    "owner": false
+  },
+  {
+    "name": "connection",
+    "usage": "/connection",
+    "summary": "Show your connected-group status",
+    "category": "manage",
+    "context": "chat",
+    "owner": false
+  },
+  {
     "name": "dban",
     "usage": "/dban",
     "summary": "Ban a member and delete their message",
@@ -202,6 +218,14 @@ export const BOT_COMMANDS: BotCommand[] = [
     "summary": "Remove administrator rights",
     "category": "manage",
     "context": "group",
+    "owner": false
+  },
+  {
+    "name": "disconnect",
+    "usage": "/disconnect",
+    "summary": "Remove your private-chat group connection",
+    "category": "manage",
+    "context": "chat",
     "owner": false
   },
   {
@@ -464,6 +488,22 @@ export const BOT_COMMANDS: BotCommand[] = [
     "name": "report",
     "usage": "/report",
     "summary": "Report a message to the group admins",
+    "category": "manage",
+    "context": "group",
+    "owner": false
+  },
+  {
+    "name": "reports",
+    "usage": "/reports",
+    "summary": "Review open reports for this group",
+    "category": "manage",
+    "context": "group",
+    "owner": false
+  },
+  {
+    "name": "resolve",
+    "usage": "/resolve",
+    "summary": "Mark a report as resolved",
     "category": "manage",
     "context": "group",
     "owner": false
@@ -834,6 +874,14 @@ export const BOT_COMMANDS: BotCommand[] = [
     "summary": "List your saved playlists",
     "category": "music",
     "context": "chat",
+    "owner": false
+  },
+  {
+    "name": "playnext",
+    "usage": "/playnext <song name or link>",
+    "summary": "Play a track right after the currently playing track",
+    "category": "music",
+    "context": "group",
     "owner": false
   },
   {

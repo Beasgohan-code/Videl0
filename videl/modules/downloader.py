@@ -306,7 +306,7 @@ def _hero_img(url: Optional[str] = None):
         return rich_img(url)
     return rich_img("https://files.catbox.moe/f084wg.png")
 
-# ── /song — download audio (like ShizuMusic /song) ────────────────────────────
+# ── /song — download audio ────────────────────────────────────────────────────
 
 @bot.on_message(filters.command('song', prefixes=config.COMMAND_PREFIX_LIST) & (filters.group | filters.private))
 async def song_cmd(_, m: Message):

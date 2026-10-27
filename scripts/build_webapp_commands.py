@@ -62,6 +62,7 @@ USAGE = {
     "afk": "/afk [reason]",
     "remind": "/remind 10m <text>",
     "invite": "/invite [title]",
+    "playnext": "/playnext <song name or link>",
 }
 
 # The legacy modules document themselves with terse docstrings ("Addbl").
@@ -117,6 +118,7 @@ SUMMARY_OVERRIDES = {
     "lyrics": "Find lyrics for the current track",
     "permissions": "Show or edit a member's permissions",
     "play": "Play a track, album or playlist from a link or search",
+    "playnext": "Play a track right after the currently playing track",
     "playlist": "Load a saved playlist into the queue",
     "playlists": "List your saved playlists",
     "pollstop": "Stop a poll the bot posted and show the result",

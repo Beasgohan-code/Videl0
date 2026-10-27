@@ -50,7 +50,8 @@ def commands():
                             isinstance(part,ast.FormattedValue) and 'COMMAND_PREFIX_PATTERN' in ast.unparse(part.value)
                             for part in expression.values))
                         if not (pattern.startswith('^/') or dynamic_prefix):continue
-                        if '(?P<cmd>v?play)' in pattern:names=['play','vplay']
+                        if '(?P<cmd>v?play|playnext)' in pattern:names=['play','vplay','playnext']
+                        elif '(?P<cmd>v?play)' in pattern:names=['play','vplay']
                         elif '(?P<cmd>c(?:v)?play)' in pattern:names=['cplay','cvplay']
                         else:
                             match=re.match(r'^\^/?([a-z_]+)',pattern)
@@ -64,9 +65,10 @@ def commands():
                         owner=name in OWNER_NAMES or 'filters.user(config.OWNER_ID)' in guard or 'filters.user(6265999542)' in guard or path.stem in CATEGORIES['owner']
                         category='owner' if owner else next((key for key,modules in CATEGORIES.items() if path.stem in modules),'tools')
                         context='group' if 'filters.group' in guard else 'private' if 'filters.private' in guard or path.stem=='owner_utils' else 'chat'
+                        summary = ('Queue a track to play immediately after the current track' if name == 'playnext'
+                                   else (ast.get_docstring(node) or node.name.replace('_cmd','').replace('_command','').replace('_',' ').capitalize()).splitlines()[0][:120])
                         entries.append({'name':name,'category':category,'context':context,'owner':owner,
-                            'source':str(path.relative_to(ROOT)),'handler':node.name,
-                            'summary':(ast.get_docstring(node) or node.name.replace('_cmd','').replace('_command','').replace('_',' ').capitalize()).splitlines()[0][:120]})
+                            'source':str(path.relative_to(ROOT)),'handler':node.name,'summary':summary})
     from videl.app.routes import COMMANDS
     for command in COMMANDS:
         module = command.handler.__module__

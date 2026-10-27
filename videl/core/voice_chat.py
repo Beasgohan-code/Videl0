@@ -97,9 +97,8 @@ async def play_with_auto_start(call_py, chat_id: int, stream):
         if not is_missing_voice_chat(play_error):
             raise
         try:
-            # ShizuMusic's current player waits for Telegram's call creation to
-            # settle before retrying PyTgCalls. Allow slow Render/Telegram RPCs
-            # more than one short network timeout, while keeping it bounded.
+            # Allow Telegram time to finish creating a call before the
+            # playback retry; slow hosted/network RPCs need a longer bound.
             created = await asyncio.wait_for(ensure_active_voice_chat(chat_id), 45)
         except asyncio.TimeoutError as startup_error:
             logger.warning("Voice-chat auto-start timed out in %s", chat_id)

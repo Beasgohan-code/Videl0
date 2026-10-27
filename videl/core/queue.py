@@ -16,6 +16,18 @@ def add_to_queue(chat_id: int, song: dict) -> int:
     return len(queue)
 
 
+def insert_next(chat_id: int, song: dict, *, offset: int = 0) -> int:
+    """Insert after the current item, preserving order for a batch of tracks.
+
+    Returns the one-based queue position (current item is position one).
+    When the queue is empty, the track becomes the current item.
+    """
+    queue = chat_queues.setdefault(chat_id, [])
+    index = min(1 + max(0, int(offset)), len(queue)) if queue else 0
+    queue.insert(index, song)
+    return index + 1
+
+
 def pop_current(chat_id: int) -> dict | None:
     queue = chat_queues.get(chat_id)
 

@@ -31,7 +31,7 @@ class MediaDownloadError(RuntimeError):
 # Configure ELDIAN_API_URL to use a separate trusted Eldian deployment.
 ELDIAN_API_URL = (os.environ.get("ELDIAN_API_URL") or f"http://127.0.0.1:{os.environ.get('PORT', '10000')}").strip().rstrip("/")
 ELDIAN_API_KEY = (os.environ.get("ELDIAN_API_KEY") or os.environ.get("WEBAPP_SECRET") or "").strip()
-# ShizuMusic-compatible external downloader (Shruti API contract). Optional; when
+# Optional external downloader (Shruti API contract); when
 # configured it is attempted before the built-in/local providers.
 YT_API_URL = (os.environ.get("YT_API_URL") or "https://api.shrutibots.in").strip().rstrip("/")
 YT_API_KEY = (os.environ.get("YT_API_KEY") or "").strip()
@@ -267,7 +267,7 @@ def _shruti_quota_exhausted(status: int, body: str) -> bool:
 
 
 async def _download_via_external_api(video_id: str, video: bool = False) -> str | None:
-    """Download a direct media response from the ShizuMusic-compatible API.
+    """Download a direct media response from the configured external API.
 
     Contract: GET {YT_API_URL}/download?url=VIDEO_ID&type=audio|video&api_key=KEY.
     The API must be explicitly configured; credentials are never sent to HTTP or

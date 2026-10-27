@@ -15,7 +15,7 @@ from videl.utils.bot_ui import button as InlineKeyboardButton
 import config
 from videl import bot, LOGGER
 from videl.core.player import play_song
-from videl.core.queue import add_to_queue, peek_current, queue_size
+from videl.core.queue import add_to_queue, insert_next, peek_current, queue_size
 from videl.modules.block import group_allowed, user_allowed
 from videl.utils.assistant import is_assistant_in, try_join_assistant
 from videl.utils.db import add_served_chat, add_served_user
@@ -95,7 +95,7 @@ def _is_playable_document(doc) -> tuple[bool, bool]:
     return False, False
 
 
-async def _play_local_media(message: Message, chat_id: int, user_id: int, force_video: bool = False) -> bool:
+async def _play_local_media(message: Message, chat_id: int, user_id: int, force_video: bool = False, play_next: bool = False) -> bool:
     """
     Handle reply-to audio / video / document (mkv, mp4, …).
     Returns True if handled.
@@ -204,13 +204,13 @@ async def _play_local_media(message: Message, chat_id: int, user_id: int, force_
         "local_file": True,
     }
 
-    pos = add_to_queue(chat_id, song)
+    pos = insert_next(chat_id, song) if play_next else add_to_queue(chat_id, song)
     if pos == 1:
         await play_song(chat_id, pm, song)
     else:
         await rich_edit(
             pm,
-            rich_heading("➕ Added to queue", level=3)
+            rich_heading("⏭️ Added next" if play_next else "➕ Added to queue", level=3)
             + rich_kv_table([
                 ("Title", f"<code>{rich_esc(short(title))}</code>"),
                 ("Type", "Video" if is_video else "Audio"),
@@ -224,7 +224,7 @@ async def _play_local_media(message: Message, chat_id: int, user_id: int, force_
 
 @bot.on_message(
     filters.group
-    & filters.regex(rf"^{config.COMMAND_PREFIX_PATTERN}(?P<cmd>v?play)(?:@\w+)?(?:\s+(?P<q>.+))?$")
+    & filters.regex(rf"^{config.COMMAND_PREFIX_PATTERN}(?P<cmd>v?play|playnext)(?:@\w+)?(?:\s+(?P<q>.+))?$")
     & group_allowed
     & user_allowed
 )
@@ -238,10 +238,11 @@ async def play_handler(_, message: Message) -> None:
     cmd_match = message.matches[0] if message.matches else None
     cmd = (cmd_match.group("cmd") if cmd_match else "play") or "play"
     force_video = cmd == "vplay"
+    play_next = cmd == "playnext"
 
     # ── Replied audio / video / document (mkv, mp4, …) ─────────────────────────
     if message.reply_to_message:
-        handled = await _play_local_media(message, chat_id, user_id, force_video=force_video)
+        handled = await _play_local_media(message, chat_id, user_id, force_video=force_video, play_next=play_next)
         if handled:
             return
 
@@ -282,6 +283,7 @@ async def play_handler(_, message: Message) -> None:
             rich_heading("ℹ️ Usage", level=3)
             + rich_kv_table([
                 ("Audio", "<code>/play song name</code>"),
+                ("Next up", "<code>/playnext song name</code>"),
                 ("Video", "<code>/vplay song name</code>"),
                 ("Channel", "<code>/cplay song name</code>"),
                 ("File", "Reply to audio/video/mkv/mp4 with /play or /vplay"),
@@ -290,12 +292,12 @@ async def play_handler(_, message: Message) -> None:
         )
         return
 
-    await _process_play(message, query, video=force_video)
+    await _process_play(message, query, video=force_video, play_next=play_next)
 
 
 # ── Process play ───────────────────────────────────────────────────────────────
 
-async def _process_play(message: Message, query: str, video: bool = False) -> None:
+async def _process_play(message: Message, query: str, video: bool = False, play_next: bool = False) -> None:
     chat_id = message.chat.id
 
     pm = await rich_send(bot, chat_id, rich_heading(" Processing...", level=3), navigation=False)
@@ -362,6 +364,7 @@ async def _process_play(message: Message, query: str, video: bool = False) -> No
         _search_cache[key] = {
             "results": results,
             "video": video,
+            "play_next": play_next,
             "requester": message.from_user.first_name if message.from_user else "Unknown",
             "requester_id": message.from_user.id if message.from_user else 0,
             "ts": time.time(),
@@ -410,8 +413,8 @@ async def _process_play(message: Message, query: str, video: bool = False) -> No
 
         first_was_empty = queue_size(chat_id) == 0
 
-        for item in items:
-            add_to_queue(chat_id, {
+        for offset, item in enumerate(items):
+            song = {
                 "url":              item["link"],
                 "title":            item["title"],
                 "duration":         iso_to_human(item["duration"]),
@@ -419,7 +422,11 @@ async def _process_play(message: Message, query: str, video: bool = False) -> No
                 "requester":        req,
                 "requester_id":     req_id,
                 "thumbnail":        item["thumbnail"],
-            })
+            }
+            if play_next:
+                insert_next(chat_id, song, offset=offset)
+            else:
+                add_to_queue(chat_id, song)
 
         rows = [
             ("songs", f"<code>{len(items)}</code>"),
@@ -484,7 +491,7 @@ async def _process_play(message: Message, query: str, video: bool = False) -> No
         "video_id":         vid,
     }
 
-    pos = add_to_queue(chat_id, song)
+    pos = insert_next(chat_id, song) if play_next else add_to_queue(chat_id, song)
 
     if pos == 1:
         await play_song(chat_id, pm, song)
@@ -495,7 +502,7 @@ async def _process_play(message: Message, query: str, video: bool = False) -> No
         ]])
         await rich_send(
             bot, chat_id,
-            rich_heading("➕ Added to queue", level=3)
+            rich_heading("⏭️ Added next" if play_next else "➕ Added to queue", level=3)
             + rich_kv_table([
                 ("title", f"<code>{rich_esc(short(title))}</code>"),
                 ("dur", f"<code>{iso_to_human(dur_iso)}</code>"),
@@ -587,8 +594,15 @@ async def ytpick_callback(_, cq: CallbackQuery) -> None:
         "video_id": r.get("video_id", ""),
     }
 
-    pos = add_to_queue(chat_id, song)
-    await cq.answer("Starting playback" if pos == 1 else f"Queued · #{pos - 1}")
+    play_next = bool(cache.get("play_next"))
+    pos = insert_next(chat_id, song) if play_next else add_to_queue(chat_id, song)
+    if pos == 1:
+        status = "Starting playback"
+    elif play_next and pos == 2:
+        status = "Added next"
+    else:
+        status = f"Queued · #{pos - 1}"
+    await cq.answer(status)
 
     if pos == 1:
         await play_song(chat_id, cq.message, song)

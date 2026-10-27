@@ -65,8 +65,8 @@ assistant = Client(
 
 # ── PyTgCalls ─────────────────────────────────────────────────────────────────
 if PyTgCalls:
-    # Follow Badmunda05/ShizuMusic's shorter call cache to avoid stale call state
-    # when Render restarts or Telegram ends/recreates a group voice chat.
+    # Keep call-state caching short so recreated Telegram voice chats are
+    # detected quickly after a restart or externally ended session.
     call_py = PyTgCalls(assistant, cache_duration=100)
 else:
     call_py = None

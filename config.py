@@ -156,7 +156,7 @@ ENV: str = _str("ENV", "production")
 # Built-in Eldian routes on the local Flask server are used by default.
 ELDIAN_API_URL: str = _str("ELDIAN_API_URL", f"http://127.0.0.1:{PORT}")
 ELDIAN_API_KEY: str = _str("ELDIAN_API_KEY", _str("WEBAPP_SECRET", ""))
-# Optional ShizuMusic-compatible external downloader API (GET /download, YT_API_URL/KEY).
+# Optional external media downloader API (GET /download, YT_API_URL/KEY).
 # The previous .site hostname is being discontinued; keep an env override available.
 YT_API_URL: str = _str("YT_API_URL", "https://api.shrutibots.in")
 YT_API_KEY: str = _str("YT_API_KEY", "")
