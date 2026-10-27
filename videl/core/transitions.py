@@ -27,7 +27,26 @@ def cleanup(songs):
         if path and str(path) not in used:delete_file(path)
 
 
-async def stop(chat_id, *, delete_player_card=False):
+async def announce_queue_finished(chat_id, song=None):
+    """Send a concise end-of-queue card to the group, with Help/Commands nav."""
+    from videl.utils.command_ui import rich_send
+    from videl.utils.rich_ui import rich_esc, rich_heading, rich_note
+
+    title = str((song or {}).get("title") or "Your playlist")[:140]
+    requester = str((song or {}).get("requester") or "A group member")[:80]
+    text = (
+        rich_heading("🎉 Queue complete", level=3)
+        + "\n\n"
+        + rich_note(f"<b>{rich_esc(title)}</b> finished.")
+        + "\n\n"
+        + rich_note(f"Requested by <b>{rich_esc(requester)}</b>.")
+        + "\n\n"
+        + rich_note("That was the last track. Add another with <code>/play</code>.")
+    )
+    await rich_send(player.bot, chat_id, text)
+
+
+async def stop(chat_id, *, delete_player_card=False, queue_finished=False, completed_song=None):
     async with lock(chat_id):
         from videl.core.playback_state import expect_voice_exit, cancel_expected_voice_exit
         player_card = player._np_msg.get(chat_id) if delete_player_card else None
@@ -53,6 +72,11 @@ async def stop(chat_id, *, delete_player_card=False):
         cleanup(removed)
         if player_card is not None:
             await player._delete_message(player_card)
+        if queue_finished:
+            try:
+                await announce_queue_finished(chat_id, completed_song)
+            except Exception as error:
+                log.warning('Queue completion notice unavailable (%s)', type(error).__name__)
         return Outcome('Playback stopped','Voice chat exit confirmed. Queue, repeat and AutoPlay have been cleared.')
 
 
@@ -98,4 +122,4 @@ async def finished(chat_id,observed):
             if await player.play_song(chat_id,None,next_song,advance=True,rotate=mode=='all'):
                 if mode!='all':cleanup([current])
             return
-        await stop(chat_id, delete_player_card=True)
+        await stop(chat_id, delete_player_card=True, queue_finished=True, completed_song=current)

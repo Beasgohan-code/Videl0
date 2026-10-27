@@ -20,10 +20,27 @@ class PlayerCardCleanupTests(unittest.IsolatedAsyncioTestCase):
                  patch("videl.core.autoplay.refill", new=AsyncMock()), \
                  patch.object(transitions, "stop", new=AsyncMock()) as stop:
                 await transitions.finished(chat_id, observed)
-            stop.assert_awaited_once_with(chat_id, delete_player_card=True)
+            stop.assert_awaited_once_with(
+                chat_id,
+                delete_player_card=True,
+                queue_finished=True,
+                completed_song=song,
+            )
         finally:
             chat_queues.pop(chat_id, None)
             sessions.pop(chat_id, None)
+
+    async def test_queue_completion_notice_includes_track_and_navigation(self):
+        chat_id = -700003
+        song = {"title": "A <bright> finale", "requester": "Listener"}
+        with patch("videl.utils.command_ui.rich_send", new=AsyncMock()) as send:
+            await transitions.announce_queue_finished(chat_id, song)
+        self.assertEqual(send.call_args.args[:2], (player.bot, chat_id))
+        body = send.call_args.args[2]
+        self.assertIn("Queue complete", body)
+        self.assertIn("A &lt;bright&gt; finale", body)
+        self.assertIn("Requested by", body)
+        self.assertIn("/play", body)
 
     async def test_picker_is_deleted_after_track_is_selected_and_started(self):
         chat_id, user_id = -700002, 700002
