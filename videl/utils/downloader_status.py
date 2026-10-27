@@ -11,7 +11,10 @@ def downloader_status(environ=None) -> dict:
     """Return configuration readiness without exposing credentials or probing APIs."""
     env = os.environ if environ is None else environ
     url = (env.get("YT_API_URL") or DEFAULT_SHRUTI_URL).strip().rstrip("/")
-    key_set = bool((env.get("YT_API_KEY") or "").strip())
+    configured_keys = {(env.get(name) or "").strip() for name in ("YT_API_KEY", "YT_API_KEY_FALLBACK")}
+    configured_keys.discard("")
+    keys_configured = len(configured_keys)
+    key_set = keys_configured > 0
     try:
         parsed = urlsplit(url)
         valid_url = (
@@ -30,6 +33,6 @@ def downloader_status(environ=None) -> dict:
     )
     return {
         "primary": "shruti",
-        "shruti": {"state": shruti_state, "configured": key_set and valid_url},
+        "shruti": {"state": shruti_state, "configured": key_set and valid_url, "keys_configured": keys_configured if valid_url else 0},
         "fallbacks": ["eldian", "local_yt_dlp"],
     }

@@ -978,7 +978,7 @@ class GroupView:
             for row in self.db['mgmt_reports'].find({'chat_id':cid,'status':'open'}).sort('ts',-1).limit(30):
                 reports.append({'id':str(row.get('_id')),'reporter':row.get('reporter'),
                     'target':row.get('target'),'message_id':row.get('message_id'),
-                    'text':str(row.get('text') or '')[:180],
+                    'text':str(row.get('text') or row.get('reason') or '')[:180],
                     'at':aware(row.get('ts')).isoformat() if row.get('ts') else None})
         except Exception:reports=[]
         try:

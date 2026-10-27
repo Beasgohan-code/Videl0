@@ -35,6 +35,7 @@ ELDIAN_API_KEY = (os.environ.get("ELDIAN_API_KEY") or os.environ.get("WEBAPP_SEC
 # configured it is attempted before the built-in/local providers.
 YT_API_URL = (os.environ.get("YT_API_URL") or "https://api.shrutibots.in").strip().rstrip("/")
 YT_API_KEY = (os.environ.get("YT_API_KEY") or "").strip()
+YT_API_KEY_FALLBACK = (os.environ.get("YT_API_KEY_FALLBACK") or "").strip()
 DOWNLOAD_DIR = os.environ.get("DOWNLOAD_DIR", "downloads").strip() or "downloads"
 
 # Cookies — YTDLP_COOKIES path or YTDLP_COOKIES_URL (auto-downloaded & saved)
@@ -252,6 +253,15 @@ async def download_video(link: str) -> str | None:
     return await asyncio.get_running_loop().run_in_executor(None,lambda:_sync_ytdlp(link,video=True))
 
 
+def _shruti_quota_exhausted(status: int, body: str) -> bool:
+    """Recognize common quota/rate-limit responses without logging response text."""
+    if status == 429:
+        return True
+    text = str(body or "").casefold()
+    quota_terms = ("quota", "rate limit", "too many requests", "daily limit", "limit exceeded", "limit reached")
+    return status in {200, 400, 403} and any(term in text for term in quota_terms)
+
+
 async def _download_via_external_api(video_id: str, video: bool = False) -> str | None:
     """Download a direct media response from the ShizuMusic-compatible API.
 
@@ -259,7 +269,8 @@ async def _download_via_external_api(video_id: str, video: bool = False) -> str 
     The API must be explicitly configured; credentials are never sent to HTTP or
     redirected hosts. Failures are non-fatal so the existing providers still run.
     """
-    if not YT_API_URL or not YT_API_KEY or not re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id or ""):
+    keys = list(dict.fromkeys(key for key in (YT_API_KEY, YT_API_KEY_FALLBACK) if key))
+    if not YT_API_URL or not keys or not re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id or ""):
         return None
     try:
         parsed = urlsplit(YT_API_URL)
@@ -275,35 +286,55 @@ async def _download_via_external_api(video_id: str, video: bool = False) -> str 
     target = os.path.join(DOWNLOAD_DIR, f"{video_id}.external{ext}")
     partial = target + ".part"
     timeout = aiohttp.ClientTimeout(total=300, connect=20)
-    params = {"url": video_id, "type": "video" if video else "audio", "api_key": YT_API_KEY}
+    params = {"url": video_id, "type": "video" if video else "audio"}
     try:
         async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.get(f"{YT_API_URL}/download", params=params, allow_redirects=False) as response:
-                if response.status != 200:
-                    logger.warning("[external-downloader] HTTP %s", response.status)
+            for key_index, key in enumerate(keys):
+                request_params = {**params, "api_key": key}
+                try:
+                    async with session.get(
+                        f"{YT_API_URL}/download", params=request_params, allow_redirects=False
+                    ) as response:
+                        content_type = (response.headers.get("Content-Type") or "").lower()
+                        if response.status != 200:
+                            error_text = (await response.text())[:2000]
+                            if _shruti_quota_exhausted(response.status, error_text) and key_index + 1 < len(keys):
+                                logger.info("[external-downloader] key quota exhausted; trying configured fallback key")
+                                _cleanup(partial)
+                                continue
+                            logger.warning("[external-downloader] HTTP %s", response.status)
+                            return None
+                        if "json" in content_type or "text/" in content_type:
+                            error_text = (await response.text())[:2000]
+                            if _shruti_quota_exhausted(response.status, error_text) and key_index + 1 < len(keys):
+                                logger.info("[external-downloader] API quota exhausted; trying configured fallback key")
+                                _cleanup(partial)
+                                continue
+                            logger.warning("[external-downloader] API returned non-media content (%s)", content_type)
+                            return None
+                        declared = response.content_length
+                        max_bytes = 300 * 1024 * 1024
+                        if declared is not None and declared > max_bytes:
+                            logger.warning("[external-downloader] response exceeds size limit")
+                            return None
+                        size = 0
+                        async with aiofiles.open(partial, "wb") as output:
+                            async for chunk in response.content.iter_chunked(131072):
+                                size += len(chunk)
+                                if size > max_bytes:
+                                    raise ValueError("response exceeds size limit")
+                                await output.write(chunk)
+                    if size <= 1024:
+                        _cleanup(partial)
+                        return None
+                    os.replace(partial, target)
+                    logger.info("[external-downloader] downloaded %s KB", size // 1024)
+                    return target
+                except Exception as exc:
+                    _cleanup(partial)
+                    logger.warning("[external-downloader] request failed (%s)", type(exc).__name__)
                     return None
-                content_type = (response.headers.get("Content-Type") or "").lower()
-                if "json" in content_type or "text/" in content_type:
-                    logger.warning("[external-downloader] API returned non-media content (%s)", content_type)
-                    return None
-                declared = response.content_length
-                max_bytes = 300 * 1024 * 1024
-                if declared is not None and declared > max_bytes:
-                    logger.warning("[external-downloader] response exceeds size limit")
-                    return None
-                size = 0
-                async with aiofiles.open(partial, "wb") as output:
-                    async for chunk in response.content.iter_chunked(131072):
-                        size += len(chunk)
-                        if size > max_bytes:
-                            raise ValueError("response exceeds size limit")
-                        await output.write(chunk)
-        if size <= 1024:
-            _cleanup(partial)
-            return None
-        os.replace(partial, target)
-        logger.info("[external-downloader] downloaded %s KB", size // 1024)
-        return target
+        return None
     except Exception as exc:
         logger.warning("[external-downloader] request failed (%s)", type(exc).__name__)
         _cleanup(partial)
