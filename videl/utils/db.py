@@ -1349,17 +1349,25 @@ def list_disabled(chat_id: int) -> list:
 
 # ── Connections (admin controls group via PM) ─────────────────────────────────
 
-def connect_user(user_id: int, chat_id: int) -> None:
+def connect_user(user_id: int, chat_id: int) -> bool:
+    """Persist the user's personal group link; false means no durable save."""
     col = _col("connections")
-    if col is None: return
-    try: col.update_one({"user": user_id}, {"$set": {"user": user_id, "chat": chat_id}}, upsert=True)
-    except: pass
+    if col is None: return False
+    try:
+        result = col.update_one({"user": int(user_id)}, {"$set": {"user": int(user_id), "chat": int(chat_id)}}, upsert=True)
+        return bool(getattr(result, "acknowledged", True))
+    except Exception:
+        return False
 
-def disconnect_user(user_id: int) -> None:
+def disconnect_user(user_id: int) -> bool:
+    """Remove only this user's personal group link."""
     col = _col("connections")
-    if col is None: return
-    try: col.delete_one({"user": user_id})
-    except: pass
+    if col is None: return False
+    try:
+        result = col.delete_one({"user": int(user_id)})
+        return bool(getattr(result, "acknowledged", True))
+    except Exception:
+        return False
 
 def get_connected_chat(user_id: int) -> int | None:
     col = _col("connections")

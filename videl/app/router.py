@@ -124,7 +124,21 @@ class Router:
         parsed=parse(getattr(message,'text',None),getattr(me,'username','') or '')
         if parsed is None or parsed.name not in self.commands:return False
         command=self.commands[parsed.name]
-        ctx=Context(client,message,parsed)
+        original_message=message
+        actor=getattr(message,'from_user',None)
+        # Only the explicit connected-command allowlist may use a saved group
+        # context. Keep the real Telegram actor and retain private reply target.
+        if chat_kind(message)=='private':
+            from videl.app.connections import CONNECTED_COMMANDS, connected_message
+            if parsed.name in CONNECTED_COMMANDS:
+                proxy,error=await connected_message(client,message,parsed.name)
+                if error:
+                    await rich_reply(message,notice(error,status='warning',title='Connected group'),client=client)
+                    return True
+                if proxy is None:
+                    return False
+                message=proxy
+        ctx=Context(client,message,parsed,actor)
         if not await authorize(command,ctx):
             requirement = {
                 'group': 'a group chat',
@@ -143,7 +157,7 @@ class Router:
                 }
                 requirement += ' and the Telegram right: ' + ', '.join(labels.get(right, right) for right in command.rights)
             await rich_reply(
-                message,
+                original_message,
                 notice(
                     f'This command requires {requirement}. Blocked users or chats cannot use this action.',
                     status='error', title='Access restricted',
@@ -159,13 +173,13 @@ class Router:
                 disabled=await asyncio.to_thread(is_disabled,message.chat.id,command.name)
             except Exception:disabled=False
             if disabled:
-                await rich_reply(message,notice('The group administrators have turned this command off. Ask an admin to re-enable it in the group manager.',status='warning',title='Command turned off'),client=client)
+                await rich_reply(original_message,notice('The group administrators have turned this command off. Ask an admin to re-enable it in the group manager.',status='warning',title='Command turned off'),client=client)
                 return True
         # A repeated Telegram update must not overlap a still-running action.
-        key=(message.chat.id,getattr(message,'id',None))
+        key=(original_message.chat.id,getattr(original_message,'id',None))
         if key in self._active or key in self._completed:return True
         if len(self._active)>=self._limit:
-            await rich_reply(message,notice('The bot is handling several requests. Please try again shortly.',status='warning',title='Busy'),client=client)
+            await rich_reply(original_message,notice('The bot is handling several requests. Please try again shortly.',status='warning',title='Busy'),client=client)
             return True
         self._active.add(key)
         try:
@@ -182,7 +196,7 @@ class Router:
             # cannot trigger a second send or reinterpret an acknowledged action.
             if screen is not None:
                 if screen.animation is None:
-                    await rich_reply(message,screen.html,reply_markup=screen.keyboard,client=client)
+                    await rich_reply(original_message,screen.html,reply_markup=screen.keyboard,client=client)
                 else:
                     # GIF delivery is a single media send. Retry only a definite
                     # visual rejection; never send a second copy after a timeout.
@@ -194,11 +208,11 @@ class Router:
                     animation=BytesIO(screen.animation)
                     animation.name='videl-fun.gif'
                     options={
-                        'chat_id':message.chat.id,
+                        'chat_id':original_message.chat.id,
                         'animation':animation,
                         'caption':screen.html,
                         'parse_mode':ParseMode.HTML,
-                        'reply_to_message_id':getattr(message,'id',None),
+                        'reply_to_message_id':getattr(original_message,'id',None),
                     }
                     thread=getattr(message,'message_thread_id',None)
                     if thread is not None:options['message_thread_id']=thread
@@ -207,7 +221,7 @@ class Router:
                         await visual_call(client.send_animation,**options)
                     except BadRequest:
                         await rich_reply(
-                            message,
+                            original_message,
                             notice('Telegram rejected the animation, so here is the reaction as a text reply.',status='warning',title='GIF unavailable'),
                             client=client,
                         )

@@ -152,6 +152,8 @@ incoming bold, code, spoilers and premium emoji render in the viewer instead of
 being flattened. Premium emoji artwork is resolved server-side through
 `/api/premium-emoji` so the bot token never reaches the browser.
 
+Rose-style connected-group management is supported per administrator: run `/connect` in a group as a current Telegram admin, then use the supported moderation, rules, notes, group-setting and music commands from private chat. `/connection` checks the saved association and `/disconnect` removes only that user's link. Remote routing uses the server-stored group ID, checks the user is still a group admin on each request, and never forwards private-chat reply IDs into the group; reply-based target commands should use a username or numeric Telegram ID in DM instead. The explicit remote command allowlist is maintained in `videl/app/connections.py`.
+
 Music playback/queue controls, group moderation and MongoDB-backed rules are retained. Telegram tools include advanced polls/quizzes, permission-checked reactions, forum-topic actions and SFW reaction GIFs for `/hug`, `/kiss`, `/like`, `/wave`, `/highfive` and `/dance` fetched from the [documented Nekos.best API](https://docs.nekos.best/getting-started/api-endpoints.html), with locally drawn original GIFs as an offline fallback. See [API details](docs/TELEGRAM_API_UPGRADE.md) for exact commands and eligibility caveats.
 
 No AI or additional database integration is enabled. Do not infer working delivery, scheduling durability or production playback from UI labels or module counts. Live Telegram checks require the configured bot and appropriate chat permissions.
