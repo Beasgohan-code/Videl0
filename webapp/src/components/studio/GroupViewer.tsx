@@ -226,7 +226,7 @@ export default function GroupViewer() {
     setRecent(previous=>previous[data.chat_id]?.text===preview.text&&previous[data.chat_id]?.date===preview.date?previous:{...previous,[data.chat_id]:preview});
   },[data,receipts,older,search,sender]);
   const contextLink=chosen?telegramMessageLink(chosen.chat_id,chosen.message_id):null;
-  const outgoing=(message:GroupMessage)=>sentByThisBot(message,process.env.NEXT_PUBLIC_BOT_USERNAME||'Videl0Bot');
+  const outgoing=(message:GroupMessage)=>sentByThisBot(message,process.env.NEXT_PUBLIC_BOT_USERNAME||'videlapp');
   const clock=(value:string)=>new Date(value).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
   const day=(value:string)=>new Date(value).toLocaleDateString([], {month:'long',day:'numeric',year:'numeric'});
   const visibleGroups=orderConversations(groups.filter(item=>{

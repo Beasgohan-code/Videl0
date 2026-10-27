@@ -1020,7 +1020,7 @@ export default function ChannelStudio() {
                 <Clipboard size={14} /> Copy text
               </button>
               <a
-                href="https://t.me/Videl0Bot"
+                href="https://t.me/videlapp"
                 target="_blank"
                 rel="noreferrer"
                 className="ios-btn ios-btn-glass text-xs"

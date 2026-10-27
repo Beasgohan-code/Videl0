@@ -110,7 +110,7 @@ export function InviteRoom({ code }: { code: string }) {
 
           <ol className="invite-steps">
             <li>
-              <b>1</b> Open <span className="mono">@Videl0Bot</span> in Telegram.
+              <b>1</b> Open <span className="mono">@videlapp</span> in Telegram.
             </li>
             <li>
               <b>2</b> Pick the <span className="mono">Arcade</span> button — the room opens

@@ -190,7 +190,7 @@ test("a pasted invite is understood as a code, a link or a Telegram payload", as
   // The canon of an invite: a real page, and Telegram's own door.
   assert.equal(inviteLink("k7m2qx", "https://videl.example/"), "https://videl.example/play/K7M2QX");
   assert.equal(inviteLink("K7M2QX"), "/play/K7M2QX");
-  assert.equal(telegramInvite("k7m2qx"), "https://t.me/Videl0Bot?startapp=K7M2QX");
+  assert.equal(telegramInvite("k7m2qx"), "https://t.me/videlapp?startapp=K7M2QX");
 });
 
 test("checkers chains are only the ones the server already offered", async () => {
@@ -258,7 +258,7 @@ test("the invite page renders the code before anyone signs in", async () => {
   for (const character of ["K", "7", "M", "2", "Q", "X"]) {
     assert.match(html, new RegExp(`>${character}<`), "the code is readable without a session");
   }
-  assert.match(html, /https:\/\/t\.me\/Videl0Bot\?startapp=K7M2QX/);
+  assert.match(html, /https:\/\/t\.me\/videlapp\?startapp=K7M2QX/);
   assert.match(html, /Copy link/);
   assert.ok(!/undefined/.test(html), "no undefined leaks into the invite");
 });

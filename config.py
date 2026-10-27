@@ -75,7 +75,7 @@ def _list_str(name: str) -> list[str]:
 API_ID: int = _int("API_ID", 0)
 API_HASH: str = _str("API_HASH", _req("API_HASH"))
 BOT_TOKEN: str = _str("BOT_TOKEN", _req("BOT_TOKEN"))
-BOT_USERNAME: str = _str("BOT_USERNAME", "Videl0Bot")
+BOT_USERNAME: str = _str("BOT_USERNAME", "videlapp")
 # Alternate text-command prefixes. Telegram's native command menu still uses '/'.
 _raw_command_prefixes = _str("COMMAND_PREFIXES", "/!?&.#~$+")
 COMMAND_PREFIXES: str = "".join(dict.fromkeys(

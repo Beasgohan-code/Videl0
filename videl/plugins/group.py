@@ -167,7 +167,7 @@ async def stats(ctx) -> Screen:
         ("Configured groups", counts["groups"]),
         ("Warnings stored", counts["warnings"]),
         ("Notes stored", counts["notes"]),
-        ("Bot", "@" + escape(getattr(config, "BOT_USERNAME", "Videl0Bot"))),
+        ("Bot", "@" + escape(getattr(config, "BOT_USERNAME", "videlapp"))),
     ]
     next_action = (
         rich_button("Owner workspace", callback_data="help:owner:0", style="primary")

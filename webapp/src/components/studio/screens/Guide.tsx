@@ -144,7 +144,7 @@ export default function Guide() {
     window.setTimeout(() => setLinked((value) => (value === command.name ? "" : value)), 1600);
   }
 
-  const bot = (process.env.NEXT_PUBLIC_BOT_USERNAME || "Videl0Bot").replace(/^@/, "");
+  const bot = (process.env.NEXT_PUBLIC_BOT_USERNAME || "videlapp").replace(/^@/, "");
 
   return (
     <main className="ios-page ios-page-narrow">

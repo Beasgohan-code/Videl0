@@ -10,7 +10,7 @@ const nextConfig = {
   },
   experimental: { optimizePackageImports: ["lucide-react"] },
   env: {
-    NEXT_PUBLIC_BOT_USERNAME: process.env.BOT_USERNAME || process.env.NEXT_PUBLIC_BOT_USERNAME || "Videl0Bot",
+    NEXT_PUBLIC_BOT_USERNAME: process.env.BOT_USERNAME || process.env.NEXT_PUBLIC_BOT_USERNAME || "videlapp",
   },
 };
 export default nextConfig;

@@ -34,7 +34,7 @@ def _mask_url(url: str) -> str:
 
 
 async def log_all_urls(client, me=None, assistant_username: str = "", mongo_ok: bool = False):
-    bot_username = getattr(me, "username", "Videl0Bot") if me else getattr(config, "BOT_USERNAME", "Videl0Bot")
+    bot_username = getattr(me, "username", "videlapp") if me else getattr(config, "BOT_USERNAME", "videlapp")
     bot_id = getattr(me, "id", "0") if me else "—"
 
     port = getattr(config, "PORT", 10000)

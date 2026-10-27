@@ -107,7 +107,7 @@ def _status_json():
     return jsonify({
         "service": "Videl Render backend",
         "status": "running",
-        "bot": getattr(config, "BOT_USERNAME", "Videl0Bot"),
+        "bot": getattr(config, "BOT_USERNAME", "videlapp"),
         "webapp": getattr(config, "WEBAPP_URL", ""),
         "health": "/health",
         "api_index": "/api",
@@ -539,7 +539,7 @@ def _internal_stats():
                 "chats": totals["chats"],
                 "plays": totals["plays"],
                 "uptime": max(0, int(time.time() - bot_start_time)),
-                "bot_username": getattr(config, "BOT_USERNAME", "Videl0Bot"),
+                "bot_username": getattr(config, "BOT_USERNAME", "videlapp"),
                 "bot_name": getattr(config, "BOT_NAME", "Videl Studio"),
                 "owner_username": getattr(config, "OWNER_USERNAME", "Beasgohan"),
                 "database": "connected",

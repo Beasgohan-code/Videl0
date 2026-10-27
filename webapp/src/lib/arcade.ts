@@ -288,7 +288,7 @@ export function inviteLink(code: string, origin = ""): string {
 }
 
 /** Telegram's own door: tapping this opens the Mini App with the room seated. */
-export function telegramInvite(code: string, bot = "Videl0Bot"): string {
+export function telegramInvite(code: string, bot = "videlapp"): string {
   return `https://t.me/${bot}?startapp=${String(code).toUpperCase()}`;
 }
 

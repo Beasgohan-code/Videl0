@@ -83,7 +83,7 @@ async def source(ctx) -> Screen:
         heading("Source and credits", 3)
         + body("Videl by Beasgohan-code. Rich UI uses the MIT-licensed Badmunda05 Richgram fork. "
                "Eldian music components keep their original attribution.")
-        + table([("Repository", "github.com/Beasgohan-code/Videl0"), ("Bot", "@" + escape(getattr(config, "BOT_USERNAME", "Videl0Bot")))]),
+        + table([("Repository", "github.com/Beasgohan-code/Videl0"), ("Bot", "@" + escape(getattr(config, "BOT_USERNAME", "videlapp")))]),
         InlineKeyboardMarkup([[button("Open repository", url=REPOSITORY, style="primary")]]),
     )
 
