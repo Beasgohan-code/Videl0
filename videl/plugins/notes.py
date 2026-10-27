@@ -8,21 +8,28 @@ from __future__ import annotations
 
 import asyncio
 import re
+import secrets
+import time
+from collections import OrderedDict
 
 from pyrogram import filters
-from pyrogram.types import InlineKeyboardMarkup
+from pyrogram.enums import ChatMemberStatus
+from pyrogram.types import CallbackQuery, InlineKeyboardMarkup
 
+import config
 from videl import LOGGER, bot
 from videl.app.router import Command, CommandError, Screen
 from videl.plugins import base
 from videl.plugins.base import body, escape, heading, table
 from videl.utils.audit import record_bot
 from videl.utils.bot_ui import button
-from videl.utils.command_ui import navigation_markup, rich_send, usage
+from videl.utils.command_ui import navigation_markup, rich_edit, rich_send, usage
 from videl.utils.premium_emojis import pe
 
 NOTES = "mgmt_notes"
 FILTERS = "mgmt_filters"
+_FILTER_DELETE_ACTIONS: OrderedDict[str, tuple[int, str, int, float]] = OrderedDict()
+_FILTER_ACTION_TTL = 900
 HASHTAG = re.compile(r"^#([A-Za-z0-9_]{1,32})")
 
 
@@ -174,6 +181,7 @@ async def add_filter(ctx) -> Screen:
     replied = getattr(ctx.message, "reply_to_message", None)
     if replied is not None and replied.text:
         reply = replied.text
+    reply = reply[:400]
     store = _filters()
     if store is None:
         raise CommandError("MongoDB is not connected.")
@@ -212,42 +220,208 @@ async def remove_filter(ctx) -> Screen:
     return Screen(heading("Filter removed", 3) + body(f"<code>{escape(keyword)}</code> is silent again."))
 
 
+FILTER_PAGE_SIZE = 8
+
+
+def _remember_filter_delete(chat_id: int, keyword: str, page: int) -> str:
+    now = time.monotonic()
+    for token, value in list(_FILTER_DELETE_ACTIONS.items()):
+        if now - value[3] > _FILTER_ACTION_TTL:
+            _FILTER_DELETE_ACTIONS.pop(token, None)
+    token = secrets.token_urlsafe(6)
+    _FILTER_DELETE_ACTIONS[token] = (chat_id, keyword, page, now)
+    _FILTER_DELETE_ACTIONS.move_to_end(token)
+    while len(_FILTER_DELETE_ACTIONS) > 4096:
+        _FILTER_DELETE_ACTIONS.popitem(last=False)
+    return token
+
+
+def _filter_markup(documents, page: int, total: int, *, chat_id: int, can_manage: bool):
+    rows = []
+    if can_manage:
+        for index, item in enumerate(documents):
+            keyword = str(item.get("keyword", ""))
+            label = re.sub(r"\s+", " ", keyword).strip()[:30] or "unnamed filter"
+            token = _remember_filter_delete(chat_id, keyword, page)
+            rows.append([button(f"🗑 Remove · {label}", callback_data=f"mgmt_filter:delete:{token}", style="danger")])
+    pages = max(1, (total + FILTER_PAGE_SIZE - 1) // FILTER_PAGE_SIZE)
+    if pages > 1:
+        nav = []
+        if page > 0:
+            nav.append(button("‹ Previous", callback_data=f"mgmt_filter:page:{page - 1}"))
+        nav.append(button(f"{page + 1}/{pages}", callback_data="mgmt_filter:noop"))
+        if page + 1 < pages:
+            nav.append(button("Next ›", callback_data=f"mgmt_filter:page:{page + 1}"))
+        rows.append(nav)
+    if rows:
+        rows.append([button("Close", callback_data="mgmt_filter:close")])
+    return InlineKeyboardMarkup(rows) if rows else None
+
+
+async def _filter_page(store, chat_id: int, page: int):
+    def load():
+        total = store.count_documents({"chat_id": chat_id})
+        pages = max(1, (total + FILTER_PAGE_SIZE - 1) // FILTER_PAGE_SIZE)
+        safe_page = min(max(0, page), pages - 1)
+        documents = list(
+            store.find({"chat_id": chat_id})
+            .sort("keyword", 1)
+            .skip(safe_page * FILTER_PAGE_SIZE)
+            .limit(FILTER_PAGE_SIZE)
+        )
+        return total, safe_page, documents
+    return await asyncio.to_thread(load)
+
+
+async def _live_group_admin(client, chat_id: int, user_id: int) -> bool:
+    if not user_id:
+        return False
+    try:
+        member = await client.get_chat_member(chat_id, user_id)
+    except Exception:
+        return False
+    return getattr(member, "status", None) in {
+        ChatMemberStatus.OWNER,
+        ChatMemberStatus.ADMINISTRATOR,
+    }
+
+
+def _filter_page_text(total: int, documents, page: int, can_manage: bool) -> str:
+    if not total:
+        return heading("📝 No automatic filters yet", 3) + body("Create one with <code>/filter keyword response</code>.")
+    rows = [
+        (f"{pe('ios_symbols')} <code>{escape(str(item.get('keyword', '')))}</code>", escape((item.get("reply") or "")[:72]))
+        for item in documents
+    ]
+    pages = max(1, (total + FILTER_PAGE_SIZE - 1) // FILTER_PAGE_SIZE)
+    text = (
+        heading("📝 Automatic filters", 3)
+        + body(f"{total} filter{'s' if total != 1 else ''} in this group · page {page + 1}/{pages}.")
+        + table(rows)
+    )
+    text += body("Tap a filter button below to remove it." if can_manage else "Only a current group admin can remove filters; use <code>/stopfilter keyword</code>.")
+    return text
+
+
 async def list_filters(ctx) -> Screen:
     store = _filters()
     if store is None:
         raise CommandError("MongoDB is not connected.")
     chat_id = ctx.message.chat.id
-    def load_filters():
-        total = store.count_documents({"chat_id": chat_id})
-        cursor = store.find({"chat_id": chat_id}).sort("keyword", 1).limit(21)
-        return total, list(cursor)
-    total, documents = await asyncio.to_thread(load_filters)
-    if not total:
-        return Screen(heading("📝 No automatic filters yet", 3) + body("Create one with <code>/filter keyword response</code>."))
-    shown = documents[:20]
-    rows = [(f"{pe('ios_symbols')} <code>{escape(item['keyword'])}</code>", escape((item.get("reply") or "")[:72])) for item in shown]
-    text = heading("📝 Automatic filters", 3) + body(f"{total} filter{'s' if total != 1 else ''} in this group.") + table(rows)
-    if total > len(shown):
-        text += body("Showing the first 20 alphabetically. Remove one with <code>/stopfilter keyword</code>.")
-    return Screen(text)
+    total, page, documents = await _filter_page(store, chat_id, 0)
+    user = ctx.user
+    can_manage = await _live_group_admin(ctx.client, chat_id, getattr(user, "id", 0))
+    return Screen(
+        _filter_page_text(total, documents, page, can_manage),
+        _filter_markup(documents, page, total, chat_id=chat_id, can_manage=can_manage),
+    )
 
+
+@bot.on_callback_query(filters.regex(r"^mgmt_filter:"))
+async def filter_management_callback(client, query: CallbackQuery) -> None:
+    message = getattr(query, "message", None)
+    if message is None or base.chat_kind(message) not in {"group", "supergroup"}:
+        await query.answer("Open this panel in the group.", show_alert=True)
+        return
+    parts = (query.data or "").split(":")
+    if len(parts) < 2 or parts[0] != "mgmt_filter":
+        await query.answer("This filter action is invalid.", show_alert=True)
+        return
+    action = parts[1]
+    if action == "close":
+        await query.answer("Panel closed")
+        await rich_edit(message, heading("Filter panel closed", 3) + body("Run <code>/filters</code> to open it again."), navigation=False, reply_markup=None)
+        return
+    if action == "noop":
+        await query.answer()
+        return
+    if action not in {"page", "delete"} or len(parts) != 3:
+        await query.answer("This filter action is invalid.", show_alert=True)
+        return
+    try:
+        if not parts[2].isdigit() or len(parts[2]) > 6:
+            if action != "delete" or not re.fullmatch(r"[A-Za-z0-9_-]{6,12}", parts[2]):
+                raise ValueError
+        page = int(parts[2]) if action == "page" else 0
+        token = parts[2] if action == "delete" else ""
+    except ValueError:
+        await query.answer("This filter action is invalid.", show_alert=True)
+        return
+
+    chat_id = message.chat.id
+    actor_id = getattr(getattr(query, "from_user", None), "id", 0)
+    can_manage = await _live_group_admin(client, chat_id, actor_id)
+    if action == "delete" and not can_manage:
+        await query.answer("A current group admin is required to remove filters.", show_alert=True)
+        return
+    store = _filters()
+    if store is None:
+        await query.answer("The filters database is unavailable.", show_alert=True)
+        return
+
+    if action == "delete":
+        token_entry = _FILTER_DELETE_ACTIONS.get(token)
+        if token_entry is None or time.monotonic() - token_entry[3] > _FILTER_ACTION_TTL:
+            _FILTER_DELETE_ACTIONS.pop(token, None)
+            await query.answer("This button expired. Reopen /filters and try again.", show_alert=True)
+            return
+        token_chat_id, keyword, page, _created = token_entry
+        if token_chat_id != chat_id:
+            await query.answer("This filter button belongs to another group.", show_alert=True)
+            return
+        _FILTER_DELETE_ACTIONS.pop(token, None)
+        result = await asyncio.to_thread(store.delete_one, {"chat_id": chat_id, "keyword": keyword})
+        if result.deleted_count:
+            await asyncio.to_thread(
+                record_bot, chat_id, "filter", action="filter_delete",
+                detail=f"keyword: {keyword}"[:80], actor=actor_id,
+            )
+            await query.answer("Filter removed")
+        else:
+            await query.answer("That filter was already removed")
+    else:
+        await query.answer()
+
+    total, page, documents = await _filter_page(store, chat_id, page)
+    can_manage = await _live_group_admin(client, chat_id, actor_id)
+    await rich_edit(
+        message,
+        _filter_page_text(total, documents, page, can_manage),
+        reply_markup=_filter_markup(documents, page, total, chat_id=chat_id, can_manage=can_manage),
+    )
 
 @bot.on_message(filters.group, group=17)
 async def filter_watcher(_, message) -> None:
-    text = (message.text or "").casefold()
-    if not text:
+    raw_text = message.text or ""
+    text = raw_text.casefold().strip()
+    user = getattr(message, "from_user", None)
+    if not text or user is None or getattr(user, "is_bot", False):
+        return
+    # Filters answer conversation, not bot commands. This prevents a keyword
+    # such as "ban" or "rules" from adding noise to management actions.
+    if re.match(rf"^{config.COMMAND_PREFIX_PATTERN}\w+", text):
         return
     store = _filters()
     if store is None:
         return
-    documents = await asyncio.to_thread(lambda: list(store.find({"chat_id": message.chat.id}).limit(50)))
-    for document in documents:
-        if document["keyword"] in text:
-            try:
-                await message.reply_text(document["reply"])
-            except Exception:
-                LOGGER.debug("Filter reply failed", exc_info=True)
-            return
+    documents = await asyncio.to_thread(lambda: list(store.find({"chat_id": message.chat.id}).limit(100)))
+    matches = [
+        item for item in documents
+        if isinstance(item.get("keyword"), str)
+        and item["keyword"].strip()
+        and item["keyword"].casefold() in text
+        and isinstance(item.get("reply"), str)
+        and item["reply"]
+    ]
+    if not matches:
+        return
+    # Prefer the most specific phrase; storage order must not change which
+    # automatic answer wins when filters overlap (e.g. "hello" / "hello all").
+    selected = max(matches, key=lambda item: len(item["keyword"].strip()))
+    try:
+        await message.reply_text(selected["reply"], parse_mode=None)
+    except Exception:
+        LOGGER.debug("Filter reply failed", exc_info=True)
 
 
 @bot.on_message(filters.group, group=18)

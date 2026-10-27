@@ -7,7 +7,8 @@ Placeholders available in a welcome: ``{name}``, ``{id}``, ``{title}``.
 from __future__ import annotations
 
 from pyrogram import filters
-from pyrogram.types import InlineKeyboardMarkup
+from pyrogram.enums import ChatMemberStatus
+from pyrogram.types import CallbackQuery, CopyTextButton, InlineKeyboardMarkup
 
 from videl import LOGGER, bot
 from videl.app.router import Command, CommandError, Screen
@@ -17,6 +18,7 @@ from videl.utils.bot_ui import button
 from videl.utils.captcha import answer_challenge, issue_challenge
 from videl.utils.db import is_approved
 from videl.utils.premium_emojis import pe
+from videl.utils.command_ui import rich_edit
 
 DEFAULT_WELCOME = "Welcome {name} to {title}!"
 DEFAULT_GOODBYE = "Goodbye {name}."
@@ -141,19 +143,71 @@ async def toggle_captcha(ctx) -> Screen:
     )
 
 
-async def greeting_status(ctx) -> Screen:
-    chat_id = ctx.message.chat.id
+def greeting_status_screen(chat_id: int) -> Screen:
+    states = {
+        "welcome_enabled": bool(base.get_setting(chat_id, "welcome_enabled", True)),
+        "goodbye_enabled": bool(base.get_setting(chat_id, "goodbye_enabled", False)),
+        "captcha_enabled": bool(base.get_setting(chat_id, "captcha_enabled", False)),
+    }
     rows = [
-        ("Welcome messages", (pe("check") + " On") if base.get_setting(chat_id, "welcome_enabled", True) else (pe("cross") + " Off")),
-        ("Goodbye messages", (pe("check") + " On") if base.get_setting(chat_id, "goodbye_enabled", False) else (pe("cross") + " Off")),
-        ("Join verification", (pe("check") + " On") if base.get_setting(chat_id, "captcha_enabled", False) else (pe("cross") + " Off")),
+        ("Welcome messages", (pe("check") + " On") if states["welcome_enabled"] else (pe("cross") + " Off")),
+        ("Goodbye messages", (pe("check") + " On") if states["goodbye_enabled"] else (pe("cross") + " Off")),
+        ("Join verification", (pe("check") + " On") if states["captcha_enabled"] else (pe("cross") + " Off")),
         ("Group rules", (pe("check") + " Published") if base.get_setting(chat_id, "rules") else (pe("cross") + " Not set")),
     ]
+    controls = [
+        button("Welcome off" if states["welcome_enabled"] else "Welcome on",
+               callback_data=f"mgmt_greeting:welcome_enabled:{0 if states['welcome_enabled'] else 1}",
+               style="success" if states["welcome_enabled"] else "default"),
+        button("Goodbye off" if states["goodbye_enabled"] else "Goodbye on",
+               callback_data=f"mgmt_greeting:goodbye_enabled:{0 if states['goodbye_enabled'] else 1}",
+               style="success" if states["goodbye_enabled"] else "default"),
+        button("Captcha off" if states["captcha_enabled"] else "Captcha on",
+               callback_data=f"mgmt_greeting:captcha_enabled:{0 if states['captcha_enabled'] else 1}",
+               style="success" if states["captcha_enabled"] else "default"),
+        button("Copy /setrules", copy_text=CopyTextButton(text="/setrules ")),
+    ]
+    keyboard = InlineKeyboardMarkup([controls[:2], controls[2:]])
     return Screen(
-        heading("👋 Greetings & rules status", 3) + table(rows),
-        InlineKeyboardMarkup([[button("Rules", callback_data="help:manage"), button("Locks", callback_data="help:manage")]]),
+        heading("👋 Greetings & rules status", 3)
+        + table(rows)
+        + body("Use the buttons to toggle welcome, goodbye, and join verification. Each change checks current admin status."),
+        keyboard,
     )
 
+
+async def greeting_status(ctx) -> Screen:
+    return greeting_status_screen(ctx.message.chat.id)
+
+
+@bot.on_callback_query(filters.regex(r"^mgmt_greeting:"))
+async def greeting_toggle_callback(client, query: CallbackQuery) -> None:
+    message = getattr(query, "message", None)
+    if message is None or base.chat_kind(message) not in {"group", "supergroup"}:
+        await query.answer("Open greetings settings in the group.", show_alert=True)
+        return
+    parts = (query.data or "").split(":")
+    allowed = {"welcome_enabled", "goodbye_enabled", "captcha_enabled"}
+    if len(parts) != 3 or parts[1] not in allowed or parts[2] not in {"0", "1"}:
+        await query.answer("This greetings action is invalid.", show_alert=True)
+        return
+    chat_id = message.chat.id
+    actor_id = getattr(getattr(query, "from_user", None), "id", 0)
+    try:
+        member = await client.get_chat_member(chat_id, actor_id)
+    except Exception:
+        await query.answer("I couldn’t verify your current admin status.", show_alert=True)
+        return
+    if getattr(member, "status", None) not in {ChatMemberStatus.OWNER, ChatMemberStatus.ADMINISTRATOR}:
+        await query.answer("A current group admin is required to change greetings.", show_alert=True)
+        return
+    enabled = parts[2] == "1"
+    if not base.set_setting(chat_id, parts[1], enabled):
+        await query.answer("The settings database is unavailable; nothing changed.", show_alert=True)
+        return
+    await query.answer("Setting updated")
+    screen = greeting_status_screen(chat_id)
+    await rich_edit(message, screen.html, reply_markup=screen.keyboard)
 
 @bot.on_message(filters.new_chat_members, group=5)
 async def welcome_handler(_, message) -> None:
