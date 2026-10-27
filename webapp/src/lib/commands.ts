@@ -1029,6 +1029,14 @@ export const BOT_COMMANDS: BotCommand[] = [
     "owner": true
   },
   {
+    "name": "addsudo",
+    "usage": "/addsudo <@user|user_id> (owner, private chat)",
+    "summary": "Grant limited bot-blocklist operator access to a trusted user",
+    "category": "owner",
+    "context": "private",
+    "owner": true
+  },
+  {
     "name": "apiinfo",
     "usage": "/apiinfo",
     "summary": "Show telegram api and library versions",
@@ -1056,6 +1064,14 @@ export const BOT_COMMANDS: BotCommand[] = [
     "name": "dbcleanup",
     "usage": "/dbcleanup",
     "summary": "Delete stored data for a chat",
+    "category": "owner",
+    "context": "private",
+    "owner": true
+  },
+  {
+    "name": "delsudo",
+    "usage": "/delsudo <@user|user_id> (owner, private chat)",
+    "summary": "Revoke a bot sudo operator",
     "category": "owner",
     "context": "private",
     "owner": true
@@ -1090,6 +1106,22 @@ export const BOT_COMMANDS: BotCommand[] = [
     "summary": "Allow a blocked group again",
     "category": "owner",
     "context": "chat",
+    "owner": true
+  },
+  {
+    "name": "rmsudo",
+    "usage": "/rmsudo <@user|user_id> (owner, private chat)",
+    "summary": "Revoke a bot sudo operator",
+    "category": "owner",
+    "context": "private",
+    "owner": true
+  },
+  {
+    "name": "sudolist",
+    "usage": "/sudolist",
+    "summary": "List bot sudo operators and remove access inline",
+    "category": "owner",
+    "context": "private",
     "owner": true
   },
   {
@@ -1344,6 +1376,14 @@ export const BOT_COMMANDS: BotCommand[] = [
     "name": "stickerid",
     "usage": "/stickerid",
     "summary": "Read the file id of a sticker",
+    "category": "tools",
+    "context": "chat",
+    "owner": false
+  },
+  {
+    "name": "sudohelp",
+    "usage": "/sudohelp",
+    "summary": "Show the limited bot sudo command scope",
     "category": "tools",
     "context": "chat",
     "owner": false

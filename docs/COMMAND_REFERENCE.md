@@ -5,7 +5,7 @@ This documents navigation and source coverage, not verified live Telegram behavi
 Aliases are listed separately; permissions remain enforced by the referenced handler.
 Owner operations are hidden from public `/commands` results.
 
-173 distinct command names.
+178 distinct command names.
 
 ## Music & playlists
 
@@ -175,6 +175,7 @@ Owner operations are hidden from public `/commands` results.
 | `/start` | chat | `videl/plugins/start.py::start` |
 | `/stats` | chat | `videl/plugins/group.py::stats` |
 | `/stickerid` | chat | `videl/plugins/group.py::sticker_id` |
+| `/sudohelp` | chat | `videl/plugins/sudo.py::sudo_help` |
 | `/topicclose` | chat | `videl/modules/api_tools.py::topic_command` |
 | `/topicnew` | chat | `videl/modules/api_tools.py::topic_command` |
 | `/topicopen` | chat | `videl/modules/api_tools.py::topic_command` |
@@ -187,14 +188,18 @@ Owner operations are hidden from public `/commands` results.
 | Command | Context | Handler |
 |---|---|---|
 | `/active` | private | `videl/modules/owner_utils.py::active` |
+| `/addsudo` | private | `videl/plugins/sudo.py::add_sudo` |
 | `/apiinfo` | private | `videl/modules/api_tools.py::api_info` |
 | `/blocklist` | chat | `videl/modules/block.py::blocklist_cmd` |
 | `/broadcast` | chat | `videl/modules/broadcast.py::broadcast_cmd` |
 | `/dbcleanup` | private | `videl/modules/misc.py::cleanup_cmd` |
+| `/delsudo` | private | `videl/plugins/sudo.py::remove_sudo` |
 | `/emojiinfo` | private | `videl/modules/api_tools.py::emoji_info` |
 | `/gblock` | chat | `videl/modules/block.py::gblock_cmd` |
 | `/gcast` | chat | `videl/modules/broadcast.py::broadcast_cmd` |
 | `/gunblock` | chat | `videl/modules/block.py::gunblock_cmd` |
+| `/rmsudo` | private | `videl/plugins/sudo.py::remove_sudo` |
+| `/sudolist` | private | `videl/plugins/sudo.py::sudo_list` |
 | `/sysinfo` | private | `videl/modules/owner_utils.py::system_info` |
 | `/ublock` | chat | `videl/modules/block.py::ublock_cmd` |
 | `/uunblock` | chat | `videl/modules/block.py::uunblock_cmd` |

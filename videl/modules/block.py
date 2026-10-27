@@ -6,6 +6,8 @@
 from pyrogram import filters
 from pyrogram.types import Message
 
+import asyncio
+
 import config
 from videl import bot
 from videl.utils.db import (
@@ -17,6 +19,7 @@ from videl.utils.db import (
     unblock_user,
     is_user_blocked_db,
     get_blocked_users,
+    is_sudo_user,
 )
 from videl.utils.rich_ui import rich_esc, rich_heading, rich_kv_table, rich_note, sanitize_display_name
 from videl.utils.command_ui import rich_send
@@ -46,9 +49,30 @@ group_allowed = filters.create(_group_not_blocked)
 user_allowed  = filters.create(_user_not_blocked)
 
 
+async def _owner_or_sudo(_, __, message: Message) -> bool:
+    """Owner everywhere; sudo users only in private chat for the blocklist allowlist."""
+    user = getattr(message, "from_user", None)
+    user_id = int(getattr(user, "id", 0) or 0)
+    if not user_id:
+        return False
+    if user_id == int(config.OWNER_ID):
+        return True
+    chat_type = getattr(getattr(message, "chat", None), "type", None)
+    chat_type = str(getattr(chat_type, "value", chat_type)).casefold()
+    if chat_type != "private":
+        return False
+    try:
+        return await asyncio.to_thread(is_sudo_user, user_id)
+    except Exception:
+        return False
+
+
+owner_or_sudo = filters.create(_owner_or_sudo)
+
+
 # ── /gblock ────────────────────────────────────────────────────────────────────
 
-@bot.on_message(filters.command("gblock", prefixes=config.COMMAND_PREFIX_LIST) & filters.user(config.OWNER_ID))
+@bot.on_message(filters.command("gblock", prefixes=config.COMMAND_PREFIX_LIST) & owner_or_sudo)
 async def gblock_cmd(_, message: Message) -> None:
     """Block a group — /gblock or /gblock -100xxxxxxx"""
     chat_id = message.chat.id
@@ -93,7 +117,7 @@ async def gblock_cmd(_, message: Message) -> None:
 
 # ── /gunblock ──────────────────────────────────────────────────────────────────
 
-@bot.on_message(filters.command("gunblock", prefixes=config.COMMAND_PREFIX_LIST) & filters.user(config.OWNER_ID))
+@bot.on_message(filters.command("gunblock", prefixes=config.COMMAND_PREFIX_LIST) & owner_or_sudo)
 async def gunblock_cmd(_, message: Message) -> None:
     """Unblock a group — /gunblock or /gunblock -100xxxxxxx"""
     chat_id = message.chat.id
@@ -138,7 +162,7 @@ async def gunblock_cmd(_, message: Message) -> None:
 
 # ── /ublock ────────────────────────────────────────────────────────────────────
 
-@bot.on_message(filters.command("ublock", prefixes=config.COMMAND_PREFIX_LIST) & filters.user(config.OWNER_ID))
+@bot.on_message(filters.command("ublock", prefixes=config.COMMAND_PREFIX_LIST) & owner_or_sudo)
 async def ublock_cmd(_, message: Message) -> None:
     """Block a user — reply to their message or /ublock 123456789"""
     chat_id   = message.chat.id
@@ -193,7 +217,7 @@ async def ublock_cmd(_, message: Message) -> None:
 
 # ── /uunblock ──────────────────────────────────────────────────────────────────
 
-@bot.on_message(filters.command("uunblock", prefixes=config.COMMAND_PREFIX_LIST) & filters.user(config.OWNER_ID))
+@bot.on_message(filters.command("uunblock", prefixes=config.COMMAND_PREFIX_LIST) & owner_or_sudo)
 async def uunblock_cmd(_, message: Message) -> None:
     """Unblock a user — reply to their message or /uunblock 123456789"""
     chat_id   = message.chat.id
@@ -244,7 +268,7 @@ async def uunblock_cmd(_, message: Message) -> None:
 
 # ── /blocklist ─────────────────────────────────────────────────────────────────
 
-@bot.on_message(filters.command("blocklist", prefixes=config.COMMAND_PREFIX_LIST) & filters.user(config.OWNER_ID))
+@bot.on_message(filters.command("blocklist", prefixes=config.COMMAND_PREFIX_LIST) & owner_or_sudo)
 async def blocklist_cmd(_, message: Message) -> None:
     """Show all blocked groups and users."""
     groups = get_blocked_groups()

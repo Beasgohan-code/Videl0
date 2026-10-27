@@ -63,6 +63,9 @@ USAGE = {
     "remind": "/remind 10m <text>",
     "invite": "/invite [title]",
     "playnext": "/playnext <song name or link>",
+    "addsudo": "/addsudo <@user|user_id> (owner, private chat)",
+    "delsudo": "/delsudo <@user|user_id> (owner, private chat)",
+    "rmsudo": "/rmsudo <@user|user_id> (owner, private chat)",
 }
 
 # The legacy modules document themselves with terse docstrings ("Addbl").
@@ -71,6 +74,11 @@ USAGE = {
 SUMMARY_OVERRIDES = {
     "active": "Show whether the bot is online",
     "adminlist": "List group administrators (Rose-compatible alias for /admins)",
+    "addsudo": "Grant limited bot-blocklist operator access to a trusted user",
+    "delsudo": "Revoke a bot sudo operator",
+    "rmsudo": "Revoke a bot sudo operator",
+    "sudolist": "List bot sudo operators and remove access inline",
+    "sudohelp": "Show the limited bot sudo command scope",
     "addblacklist": "Add a user to the anti-spam blocklist",
     "addblsticker": "Block a sticker pack from being sent",
     "apiinfo": "Show Telegram API and library versions",

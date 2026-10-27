@@ -56,6 +56,13 @@ to code that actually runs:
   for one group. A handler at group −1 refuses it before every other handler,
   so this also covers commands that never pass through the declarative router.
   Group admins and the bot owner stay exempt.
+- **Limited bot sudo** — the owner can add or remove up to 25 trusted operators
+  from private chat with `/addsudo`, `/delsudo` or `/rmsudo`; `/sudolist` has
+  inline revoke buttons. Sudo is useful for delegating bot-wide group/user
+  blocklist maintenance (`/gblock`, `/gunblock`, `/ublock`, `/uunblock`,
+  `/blocklist`) without sharing the owner account. It works only from private
+  chat, never substitutes for Telegram group-admin rights, and cannot access
+  owner fleet, backup, recording, deployment or sudo-management controls.
 - **Warning ladder and decay** — the warning limit can run an ordered ladder
   (`mute → kick → ban`): the first time a member reaches the limit the first
   step runs, the next time the second, and the last step repeats. A ladder is
