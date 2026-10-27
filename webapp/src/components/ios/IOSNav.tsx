@@ -15,6 +15,7 @@ import {
   Send,
   Settings2,
   BookOpen,
+  Gamepad2,
   ChevronRight,
   LogOut,
   MoreHorizontal,
@@ -34,6 +35,7 @@ const tabs: NavItem[] = [
   { tab: "post", label: "Post Studio", icon: Palette },
   { tab: "tools", label: "Creator Tools", icon: Wand2 },
   { tab: "guide", label: "Command Guide", icon: BookOpen },
+  { tab: "arcade", label: "Arcade", icon: Gamepad2 },
   { tab: "chat", label: "Bot Inbox", icon: MessageCircle, ownerOnly: true },
   { tab: "groups", label: "Group Manager", icon: Users, ownerOnly: true },
   { tab: "automation", label: "Automation", icon: Zap, ownerOnly: true },
@@ -44,6 +46,7 @@ const tabs: NavItem[] = [
 
 const groups: { label: string; tabs: Section[] }[] = [
   { label: "Create", tabs: ["home", "post", "tools", "guide"] },
+  { label: "Play", tabs: ["arcade"] },
   { label: "Operate", tabs: ["chat", "groups", "automation", "analytics", "broadcast"] },
   { label: "System", tabs: ["settings", "auth"] },
 ];
