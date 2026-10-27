@@ -72,6 +72,16 @@ class VoiceChatRecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(voice_chat.is_missing_voice_chat(RuntimeError("GROUPCALL_NOT_FOUND")))
         self.assertFalse(voice_chat.is_missing_voice_chat(RuntimeError("ClientNotStarted")))
         self.assertFalse(voice_chat.is_missing_voice_chat(RuntimeError("CHAT_ADMIN_REQUIRED")))
+        self.assertFalse(voice_chat.is_missing_voice_chat(RuntimeError("GROUPCALL_FORBIDDEN")))
+        self.assertFalse(voice_chat.is_missing_voice_chat(RuntimeError("NOT_IN_GROUP_CALL")))
+
+    async def test_forbidden_call_error_does_not_trigger_creation_retry(self):
+        player = SimpleNamespace(play=AsyncMock(side_effect=RuntimeError("GROUPCALL_FORBIDDEN")))
+        with patch.object(voice_chat, "ensure_active_voice_chat", new=AsyncMock()) as ensure:
+            with self.assertRaisesRegex(RuntimeError, "GROUPCALL_FORBIDDEN"):
+                await voice_chat.play_with_auto_start(player, -100123, "stream")
+        ensure.assert_not_awaited()
+        self.assertEqual(player.play.await_count, 1)
 
     async def test_no_active_call_creates_call_then_retries_play_once(self):
         player = SimpleNamespace(play=AsyncMock(side_effect=[NoActiveGroupCall(), "playing"]))

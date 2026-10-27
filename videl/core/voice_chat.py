@@ -33,8 +33,13 @@ async def _create_group_call(client, chat_id: int, client_label: str) -> bool:
         logger.info("Started a Telegram voice chat in %s using %s client", chat_id, client_label)
         return True
     except Exception as exc:
-        text = f"{type(exc).__name__} {exc}".casefold()
-        if "already" in text or "groupcall_already_started" in text:
+        text = f"{type(exc).__name__} {exc}".casefold().replace(" ", "_")
+        if any(marker in text for marker in (
+            "groupcall_already_started",
+            "groupcallalreadystarted",
+            "group_call_already_started",
+            "already_started",
+        )):
             return True
         logger.warning("Could not start voice chat using %s client (%s)", client_label, type(exc).__name__)
         return False
@@ -79,8 +84,6 @@ def is_missing_voice_chat(error: BaseException) -> bool:
     return any(marker in text for marker in (
         "groupcallnotfound",
         "groupcall_not_found",
-        "not_in_group_call",
-        "groupcall_forbidden",
         "no_active_group_call",
         "noactivegroupcall",
     ))
