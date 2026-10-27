@@ -501,5 +501,6 @@ COMMANDS = (
     Command("promote", promote, "Promote a member with moderation rights", category="manage", policy="admin",
             rights=("can_promote_members",)),
     Command("demote", demote, "Remove administrator rights", category="manage", policy="admin", rights=("can_promote_members",)),
-    Command("admins", admins, "List group administrators", category="manage"),
+    Command("admins", admins, "List group administrators", category="manage", policy="group"),
+    Command("adminlist", admins, "List group administrators (Rose-style /admins alias)", category="manage", policy="group"),
 )

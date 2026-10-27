@@ -59,11 +59,6 @@ def public_help(message):
     return HELP if owner else PUBLIC_HELP
 
 
-@bot.on_message(filters.command("modernhelp", prefixes=config.COMMAND_PREFIX_LIST))
-async def modern_help(_, message):
-    await rich_reply(message, public_help(message))
-
-
 @bot.on_callback_query(filters.regex(r"^modern_tools_help$"))
 async def modern_help_callback(_, query):
     await query.answer()

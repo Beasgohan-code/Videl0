@@ -29,11 +29,19 @@ export const BOT_COMMANDS: BotCommand[] = [
     "owner": false
   },
   {
+    "name": "adminlist",
+    "usage": "/adminlist",
+    "summary": "List group administrators (rose-compatible alias for /admins)",
+    "category": "manage",
+    "context": "group",
+    "owner": false
+  },
+  {
     "name": "admins",
     "usage": "/admins",
     "summary": "List group administrators",
     "category": "manage",
-    "context": "chat",
+    "context": "group",
     "owner": false
   },
   {
@@ -176,6 +184,14 @@ export const BOT_COMMANDS: BotCommand[] = [
     "name": "delnote",
     "usage": "/delnote <name>",
     "summary": "Delete a saved note",
+    "category": "manage",
+    "context": "group",
+    "owner": false
+  },
+  {
+    "name": "delphoto",
+    "usage": "/delphoto",
+    "summary": "Remove the group photo",
     "category": "manage",
     "context": "group",
     "owner": false
@@ -485,9 +501,25 @@ export const BOT_COMMANDS: BotCommand[] = [
     "owner": false
   },
   {
+    "name": "setdescription",
+    "usage": "/setdescription",
+    "summary": "Update or clear the group description",
+    "category": "manage",
+    "context": "group",
+    "owner": false
+  },
+  {
     "name": "setgoodbye",
     "usage": "/setgoodbye <text>",
     "summary": "Set the message shown when a member leaves",
+    "category": "manage",
+    "context": "group",
+    "owner": false
+  },
+  {
+    "name": "setphoto",
+    "usage": "/setphoto",
+    "summary": "Set the group photo from a replied photo",
     "category": "manage",
     "context": "group",
     "owner": false
@@ -501,9 +533,9 @@ export const BOT_COMMANDS: BotCommand[] = [
     "owner": false
   },
   {
-    "name": "setup",
-    "usage": "/setup",
-    "summary": "Check the bot's group permissions and setup readiness",
+    "name": "settitle",
+    "usage": "/settitle",
+    "summary": "Update the group title",
     "category": "manage",
     "context": "group",
     "owner": false
@@ -1093,6 +1125,14 @@ export const BOT_COMMANDS: BotCommand[] = [
     "owner": false
   },
   {
+    "name": "dance",
+    "usage": "/dance",
+    "summary": "Start an animated group dance break",
+    "category": "tools",
+    "context": "chat",
+    "owner": false
+  },
+  {
     "name": "font",
     "usage": "/font <bold|italic|script|mono> <text>",
     "summary": "Style text in bold, italic, script or monospace",
@@ -1117,9 +1157,17 @@ export const BOT_COMMANDS: BotCommand[] = [
     "owner": false
   },
   {
+    "name": "highfive",
+    "usage": "/highfive",
+    "summary": "Share an animated high five",
+    "category": "tools",
+    "context": "chat",
+    "owner": false
+  },
+  {
     "name": "hug",
     "usage": "/hug [reply or @user]",
-    "summary": "Send a friendly hug to a member or the group",
+    "summary": "Send an original animated friendly hug",
     "category": "tools",
     "context": "chat",
     "owner": false
@@ -1151,15 +1199,15 @@ export const BOT_COMMANDS: BotCommand[] = [
   {
     "name": "kiss",
     "usage": "/kiss [reply or @user]",
-    "summary": "Send a playful, respectful kiss",
+    "summary": "Send a respectful, animated cheek-kiss reaction",
     "category": "tools",
     "context": "chat",
     "owner": false
   },
   {
-    "name": "modernhelp",
-    "usage": "/modernhelp",
-    "summary": "Open the help center",
+    "name": "like",
+    "usage": "/like",
+    "summary": "Send an animated appreciation reaction",
     "category": "tools",
     "context": "chat",
     "owner": false
@@ -1280,6 +1328,14 @@ export const BOT_COMMANDS: BotCommand[] = [
     "name": "topicrename",
     "usage": "/topicrename",
     "summary": "Rename a forum topic",
+    "category": "tools",
+    "context": "chat",
+    "owner": false
+  },
+  {
+    "name": "wave",
+    "usage": "/wave",
+    "summary": "Send an original animated hello",
     "category": "tools",
     "context": "chat",
     "owner": false

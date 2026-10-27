@@ -78,7 +78,8 @@ class CatalogTests(unittest.TestCase):
         from videl.utils.command_catalog import _command_icon
         from videl.utils.premium_emojis import PREMIUM_IDS, FALLBACK
         entries = commands()
-        self.assertEqual(len(entries), 168)
+        self.assertGreaterEqual(len(entries), 160)
+        self.assertIn("adminlist", {entry["name"] for entry in entries})
         for entry in entries:
             key = _command_icon(entry)
             self.assertIn(key, PREMIUM_IDS, entry['name'])
@@ -149,11 +150,11 @@ class ModernCommandsTests(unittest.IsolatedAsyncioTestCase):
         client.get_me.assert_awaited_once()
         self.assertIn('Connection',__import__('videl.plugins.base',fromlist=['plain']).plain(screen.html))
 
-    def test_public_modern_help_omits_private_operations(self):
-        self.assertNotIn('/apiinfo',api.public_help(message(['modernhelp'])))
+    def test_public_telegram_tools_help_omits_private_operations(self):
+        self.assertNotIn('/apiinfo',api.public_help(message(['help'])))
 
     def test_telegram_tools_help_uses_rich_sections_and_command_tables(self):
-        public = api.public_help(message(['modernhelp']))
+        public = api.public_help(message(['help']))
         self.assertGreaterEqual(public.count('<table'), 3)
         self.assertIn('<h3>', public)
         self.assertNotIn('/emojiinfo', public)

@@ -155,7 +155,9 @@ class OnboardingTests(unittest.IsolatedAsyncioTestCase):
         group=general.member_caption('Visitor',False)
         self.assertNotIn('this private chat',group);self.assertIn('Start a voice chat',group)
         self.assertIn('/welcome on',group)
-        self.assertIn('/setup',group)
+        self.assertIn('Group setup button',group)
+        from videl.app.routes import router
+        self.assertNotIn('setup', router.commands)
         self.assertIn('/tagall [message]',group)
         self.assertIn('up to 50 members',group)
         self.assertIn('videl-music-hero.png',general._welcome_art())

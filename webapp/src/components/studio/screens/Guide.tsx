@@ -11,6 +11,7 @@ import {
   Music4,
   Search,
   ShieldCheck,
+  Users,
   Wrench,
 } from "lucide-react";
 import { useTelegram } from "@/components/TelegramProvider";
@@ -32,6 +33,22 @@ const ICONS: Record<CommandCategory, typeof BookOpen> = {
 };
 
 const ORDER: CommandCategory[] = ["manage", "music", "tools", "owner"];
+
+const QUICK_STARTS = [
+  { title: "Listen together", detail: "Start a group voice chat, then request a song.", command: "play", category: "music" as const },
+  { title: "Protect links", detail: "Turn on the link lock, then review group locks.", command: "lock", category: "manage" as const },
+  { title: "Welcome members", detail: "Set a greeting and enable welcome messages.", command: "setwelcome", category: "manage" as const },
+];
+
+function openExternalTelegram(event: { preventDefault: () => void; currentTarget: { href: string } }) {
+  const webApp = (window as Window & {
+    Telegram?: { WebApp?: { openLink?: (href: string, options?: { try_instant_view?: boolean }) => void } };
+  }).Telegram?.WebApp;
+  if (webApp?.openLink) {
+    event.preventDefault();
+    webApp.openLink(event.currentTarget.href, { try_instant_view: false });
+  }
+}
 
 function copyText(value: string) {
   const command = value.split(" · ")[0];
@@ -127,7 +144,7 @@ export default function Guide() {
     window.setTimeout(() => setLinked((value) => (value === command.name ? "" : value)), 1600);
   }
 
-  const bot = process.env.NEXT_PUBLIC_BOT_USERNAME || "Videl0Bot";
+  const bot = (process.env.NEXT_PUBLIC_BOT_USERNAME || "Videl0Bot").replace(/^@/, "");
 
   return (
     <main className="ios-page ios-page-narrow">
@@ -137,7 +154,10 @@ export default function Guide() {
         subtitle={`All ${COMMAND_COUNT} commands the bot registers, grouped by what they are for. Type the command in Telegram — a group command replies in the group, a tool works in any chat. ${authenticated === true ? "Owner operations are included because this session is signed in." : "Owner operations stay hidden until you sign in."}`}
         actions={
           <>
-            <a href={`https://t.me/${bot}`} target="_blank" rel="noreferrer" className="ios-btn ios-btn-primary text-sm">
+            <a href={`https://t.me/${bot}?startgroup=true`} target="_blank" rel="noreferrer" onClick={openExternalTelegram} className="ios-btn ios-btn-primary text-sm">
+              <Users size={15} aria-hidden /> Add to a group <ExternalLink size={15} aria-hidden />
+            </a>
+            <a href={`https://t.me/${bot}`} target="_blank" rel="noreferrer" onClick={openExternalTelegram} className="ios-btn ios-btn-glass text-sm">
               Open @{bot} <ExternalLink size={15} aria-hidden />
             </a>
             <span className="ios-caps text-[11px] text-[var(--ios-label-tertiary)]">/start · /help · /commands</span>
@@ -189,6 +209,36 @@ export default function Guide() {
           })}
         </div>
       </div>
+
+      <section className="ios-card mt-4 p-4 sm:p-5" aria-labelledby="guide-quick-starts">
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <div>
+            <p className="ios-caps text-[10px] text-indigo-200/60">Quick workflows</p>
+            <h2 id="guide-quick-starts" className="mt-1 text-base font-semibold text-white">Get started in a few taps</h2>
+          </div>
+          <span className="text-xs text-[var(--ios-label-tertiary)]">Choose a recipe to filter its commands</span>
+        </div>
+        <div className="mt-4 grid gap-2 sm:grid-cols-3">
+          {QUICK_STARTS.map((workflow) => {
+            const Icon = ICONS[workflow.category];
+            return (
+              <button
+                key={workflow.command}
+                type="button"
+                onClick={() => {
+                  setCategory(workflow.category);
+                  setQuery(workflow.command);
+                }}
+                className="rounded-xl border border-white/[0.07] bg-white/[0.025] p-3 text-left transition hover:border-indigo-300/25 hover:bg-indigo-300/[0.06]"
+              >
+                <span className="flex items-center gap-2 text-sm font-medium text-white/90"><Icon size={15} className="text-indigo-200" />{workflow.title}</span>
+                <span className="mt-1.5 block text-xs leading-5 text-[var(--ios-label-secondary)]">{workflow.detail}</span>
+                <code className="mono mt-2 inline-block text-[11px] text-indigo-200">/{workflow.command}</code>
+              </button>
+            );
+          })}
+        </div>
+      </section>
 
       {!authenticated && (
         <Callout tone="info" className="mt-4" icon={<Lock size={16} aria-hidden />}>

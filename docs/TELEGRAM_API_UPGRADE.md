@@ -26,7 +26,7 @@ No external bot code or emoji packs were blindly imported. Existing configured I
 | Topics | `/topicnew Title`, `/topicclose`, `/topicopen`; forum/admin checks, explicit refusal to alter the General topic through these commands. Bot must have Telegram topic-management permission. |
 | Copy buttons | Actual `CopyTextButton` actions in owner ID/emoji diagnostics. |
 | Diagnostics | Owner-only `/apiinfo` verifies bot identity; `/emojiinfo` extracts replied custom emoji IDs; `/emojiinfo check` resolves configured IDs without claiming rendering eligibility. |
-| Menus | A canonical public command menu used by startup and Studio sync; an additional owner-private menu on startup. `/modernhelp` and start/help buttons explain the new tools. |
+| Menus | A canonical public command menu used by startup and Studio sync; an additional owner-private menu on startup. `/help`, `/commands` and the Start/help buttons explain the new tools. |
 | Transport | Bounded HTTP calls outside the event loop; no tokens/URLs in exception logs. A definite HTTP 400 may retry without visual extras, preserving destinations, privacy options and button actions. Timeouts, 429s and server errors are never automatically retried. |
 
 ## Eligibility and safety

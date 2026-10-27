@@ -28,6 +28,7 @@ test("essential bot commands are documented", () => {
     "start",
     "help",
     "commands",
+    "adminlist",
     "afk",
     "back",
     "remind",
@@ -51,6 +52,13 @@ test("essential bot commands are documented", () => {
     "kiss",
   ])
     assert.ok(documented.has(name), `missing /${name}`);
+});
+
+test("retired setup and modernhelp commands are absent from the public web guide", () => {
+  const names = new Set(BOT_COMMANDS.map((command) => command.name));
+  assert.equal(names.has("setup"), false);
+  assert.equal(names.has("modernhelp"), false);
+  assert.equal(names.has("adminlist"), true);
 });
 
 test("legacy docstrings are replaced with readable copy", () => {

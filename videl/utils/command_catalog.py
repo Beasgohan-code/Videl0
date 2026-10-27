@@ -116,7 +116,7 @@ def _command_icon(entry):
         return 'rijif_megaphone'
     if name in {'afk', 'afklist', 'back', 'remind', 'reminders'}:
         return 'boseh_clock'
-    if name in {'apiinfo', 'modernhelp'}:
+    if name == 'apiinfo':
         return 'ios_info'
     if name == 'emojiinfo':
         return 'ios_symbols'

@@ -5,7 +5,7 @@ This documents navigation and source coverage, not verified live Telegram behavi
 Aliases are listed separately; permissions remain enforced by the referenced handler.
 Owner operations are hidden from public `/commands` results.
 
-168 distinct command names.
+167 distinct command names.
 
 ## Music & playlists
 
@@ -54,7 +54,8 @@ Owner operations are hidden from public `/commands` results.
 |---|---|---|
 | `/addblacklist` | group | `videl/modules/blocklist.py::addbl_cmd` |
 | `/addblsticker` | group | `videl/modules/blocklist.py::add_bl_sticker` |
-| `/admins` | chat | `videl/plugins/moderation.py::admins` |
+| `/adminlist` | group | `videl/plugins/moderation.py::admins` |
+| `/admins` | group | `videl/plugins/moderation.py::admins` |
 | `/antispam` | group | `videl/plugins/locks.py::antispam` |
 | `/approval` | group | `videl/modules/approve.py::approval_info` |
 | `/approve` | group | `videl/modules/approve.py::approve_cmd` |
@@ -117,7 +118,6 @@ Owner operations are hidden from public `/commands` results.
 | `/setphoto` | group | `videl/plugins/group.py::set_photo` |
 | `/setrules` | group | `videl/plugins/welcome.py::set_rules` |
 | `/settitle` | group | `videl/plugins/group.py::set_title` |
-| `/setup` | group | `videl/plugins/setup.py::setup` |
 | `/setwarnlimit` | group | `videl/plugins/moderation.py::set_warn_limit` |
 | `/setwelcome` | group | `videl/plugins/welcome.py::set_welcome` |
 | `/slowmode` | group | `videl/plugins/group.py::slowmode` |
@@ -158,7 +158,6 @@ Owner operations are hidden from public `/commands` results.
 | `/kang` | chat | `videl/plugins/stickers.py::kang` |
 | `/kiss` | chat | `videl/plugins/fun.py::kiss` |
 | `/like` | chat | `videl/plugins/fun.py::like` |
-| `/modernhelp` | chat | `videl/modules/api_tools.py::modern_help` |
 | `/ping` | chat | `videl/plugins/tools.py::ping` |
 | `/poll` | chat | `videl/plugins/group.py::poll` |
 | `/pollstop` | chat | `videl/modules/api_tools.py::stop_poll_command` |

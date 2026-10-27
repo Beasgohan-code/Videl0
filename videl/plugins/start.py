@@ -122,7 +122,7 @@ def member_caption(name: str, private: bool) -> str:
              if private else "I’m ready to help this group. Pick a quick start below or open Help for the full guide.")
     steps = [
         (pe("music") + " Music", "<code>/play song or link</code> in a group voice chat"),
-        (pe("shield") + " Group safety", "<code>/setup</code> checks access · <code>/lock links</code> protects links"),
+        (pe("shield") + " Group safety", "Group setup button checks access · <code>/lock links</code> protects links"),
         (pe("spark") + " Community", "<code>/welcome on</code> · <code>/rules</code> · <code>/save name text</code>"),
         (pe("ios_add") + " Admin tools", "<code>/tagall [message]</code> mentions up to 50 members"),
         (pe("ios_controls") + " More tools", "Try <code>/poll</code>, <code>/remind 10m call</code> or browse commands"),

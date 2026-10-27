@@ -98,7 +98,7 @@ def render_section(section: str = "home", page: int = 0, *, owner: bool = False)
         + heading("Quick starts", 3)
         + table([
             (pe("music") + " Play", "<code>/play song name</code> · start music in a group voice chat"),
-            (pe("shield") + " Protect", "<code>/setup</code> checks access · <code>/lock links</code> blocks links"),
+            (pe("shield") + " Protect", "Group setup button checks access · <code>/lock links</code> blocks links"),
             (pe("spark") + " Welcome", "<code>/welcome on</code> · <code>/rules</code> · <code>/save name text</code>"),
             (pe("ios_add") + " Create", "<code>/poll</code> · <code>/font bold text</code> · <code>/remind 10m call</code>"),
         ])

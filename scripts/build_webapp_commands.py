@@ -69,6 +69,7 @@ USAGE = {
 # the category, context and owner flag still come from the registered source.
 SUMMARY_OVERRIDES = {
     "active": "Show whether the bot is online",
+    "adminlist": "List group administrators (Rose-compatible alias for /admins)",
     "addblacklist": "Add a user to the anti-spam blocklist",
     "addblsticker": "Block a sticker pack from being sent",
     "apiinfo": "Show Telegram API and library versions",
@@ -114,7 +115,6 @@ SUMMARY_OVERRIDES = {
     "joinfed": "Join a federation",
     "leavefed": "Leave a federation",
     "lyrics": "Find lyrics for the current track",
-    "modernhelp": "Open the help center",
     "permissions": "Show or edit a member's permissions",
     "play": "Play a track, album or playlist from a link or search",
     "playlist": "Load a saved playlist into the queue",
@@ -126,7 +126,6 @@ SUMMARY_OVERRIDES = {
     "saveplaylist": "Save the current queue as a playlist",
     "seek": "Jump forward in the current track",
     "seekback": "Jump backward in the current track",
-    "setup": "Check the bot's group permissions and setup readiness",
     "song": "Download an audio track",
     "speed": "Change playback speed",
     "speedreset": "Reset playback speed to normal",
