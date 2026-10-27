@@ -103,15 +103,19 @@ def _now_playing_caption(song: dict, elapsed: float=0, total: float=0, chat_id: 
     state="Paused" if chat_id is not None and is_paused(chat_id) else "Now playing"
     kind="Video" if song.get("video") else "Audio"
     artist=str(song.get("artist") or song.get("uploader") or song.get("channel") or "").strip()
-    metadata=[("Format",kind),("Length",rich_esc(duration))]
+    from videl.utils.premium_emojis import pe
+    metadata=[(pe("ios_symbols"),"Format",rich_esc(kind)),(pe("boseh_clock"),"Length",rich_esc(duration))]
     if artist and artist.casefold()!=title.casefold():
-        metadata.append(("Artist",rich_esc(short(artist,60))))
-    metadata.append(("Requested by",f"<b>{rich_esc(requester)}</b>"))
+        metadata.append((pe("music2"),"Artist",rich_esc(short(artist,60))))
+    metadata.append((pe("boseh_person"),"Requested by",f"<b>{rich_esc(requester)}</b>"))
+    # Avoid HTML tables here: Telegram may flatten unsupported table markup in
+    # captions. Explicit line breaks keep every Premium Emoji label readable.
+    metadata_lines="\n".join(f"{icon} <b>{label}</b> · {value}" for icon,label,value in metadata)
     parts=[
         rich_heading(f"🎵 {state}",level=2),
-        rich_note(f"<b>{rich_esc(title)}</b>"),
-        rich_kv_table(metadata),
-        rich_note(f"<code>{_dot(elapsed,total)}</code>"),
+        f"<b>{rich_esc(title)}</b>",
+        metadata_lines,
+        f"<code>{_dot(elapsed,total)}</code>",
     ]
     if chat_id is not None:
         loop=get_loop(chat_id)
@@ -122,7 +126,7 @@ def _now_playing_caption(song: dict, elapsed: float=0, total: float=0, chat_id: 
         queued=max(queue_size(chat_id)-1,0)
         repeat={"off":"Off","one":"This track","all":"Queue"}.get(loop,"Off")
         parts.append(rich_note(f"<b>{queued}</b> upcoming · Repeat: <b>{repeat}</b>"))
-    return "".join(parts)
+    return "\n\n".join(parts)
 
 
 def _now_playing_kb(chat_id: int|None=None, votes: int=0, votes_needed: int=0) -> InlineKeyboardMarkup:

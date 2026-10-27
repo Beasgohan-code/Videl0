@@ -121,6 +121,11 @@ class PlayerCardTests(unittest.TestCase):
             self.assertIn('&lt;bright&gt;',caption)
             self.assertIn('Requested by',caption)
             self.assertIn('Up next',caption)
+            self.assertIn('\n\n',caption)
+            self.assertIn('<b>Format</b> · Audio\n',caption)
+            self.assertNotIn('<table',caption)
+            self.assertLess(caption.index('Now playing'),caption.index('A &lt;bright&gt; night'))
+            self.assertLess(caption.index('Format'),caption.index('Requested by'))
             self.assertIn('━',caption)
             controls=player._now_playing_kb(chat_id)
             callbacks=[[item.callback_data for item in row] for row in controls.inline_keyboard]
