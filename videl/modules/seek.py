@@ -38,7 +38,8 @@ def clear_seek_state(chat_id: int) -> None:
 # ── Internal seek ──────────────────────────────────────────────────────────────
 
 async def _seek_to(chat_id: int, target_sec: int, message: Message) -> None:
-    from pytgcalls.types import AudioQuality, MediaStream
+    from pytgcalls.types import MediaStream
+    from videl.core.audio_quality import audio_quality
 
     song = peek_current(chat_id)
     if not song:
@@ -70,7 +71,7 @@ async def _seek_to(chat_id: int, target_sec: int, message: Message) -> None:
             chat_id,
             MediaStream(
                 media_path,
-                audio_parameters=AudioQuality.HIGH,
+                audio_parameters=audio_quality(),
                 video_flags=MediaStream.Flags.IGNORE,
                 ffmpeg_parameters=f"-ss {target_sec}",
             ),
@@ -81,7 +82,7 @@ async def _seek_to(chat_id: int, target_sec: int, message: Message) -> None:
                 chat_id,
                 MediaStream(
                     media_path,
-                    audio_parameters=AudioQuality.HIGH,
+                    audio_parameters=audio_quality(),
                     video_flags=MediaStream.Flags.IGNORE,
                     ffmpeg_parameters=f"-ss {target_sec}",
                 ),

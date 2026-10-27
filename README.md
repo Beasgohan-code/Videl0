@@ -24,7 +24,7 @@ MongoDB is the only application database. No AI, Dropbox or Supabase integration
 
 The current web URL is **https://videl-studio.vercel.app**. The Python bot/internal API runs separately on Render; deploying Vercel does not update a running bot.
 
-Backend settings are documented in `.env.example`. Set `API_ID`, `API_HASH`, `BOT_TOKEN`, `MONGO_DB_URL`, `OWNER_ID=6265999542`, `WEBAPP_URL` and `WEBAPP_SECRET`. Voice-chat streaming also needs an authorized `STRING_SESSION` and group permissions. Never commit real cookies, tokens or session strings.
+Backend settings are documented in `.env.example`. Set `API_ID`, `API_HASH`, `BOT_TOKEN`, `MONGO_DB_URL`, `OWNER_ID=6265999542`, `WEBAPP_URL` and `WEBAPP_SECRET`. Voice-chat streaming also needs an authorized `STRING_SESSION` and group permissions. It defaults to PyTgCalls Studio output (96 kbps stereo); set `VOICE_AUDIO_QUALITY=high`, `medium` or `low` if listeners on weak connections experience stutter. Output bitrate cannot restore detail missing from the source recording. Never commit real cookies, tokens or session strings.
 
 Vercel needs `VIDEL_BACKEND_URL` and the same server-only `WEBAPP_SECRET`. Browser Login Widget sign-in also requires the production web domain to be configured with BotFather; Mini App launch buttons provide signed Telegram launch data directly. No bot token belongs in `NEXT_PUBLIC_*` settings.
 

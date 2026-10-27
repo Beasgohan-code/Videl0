@@ -113,13 +113,16 @@ class PlayerCardTests(unittest.TestCase):
             {'title':'Next song','duration':'2:30'},
         ]
         try:
-            caption=player._now_playing_caption(
-                {'title':'A <bright> night','duration':'3:45','requester':'Listener','video':False},
-                elapsed=74,total=225,chat_id=chat_id,
-            )
+            with patch('videl.core.audio_quality.config.VOICE_AUDIO_QUALITY','studio'):
+                caption=player._now_playing_caption(
+                    {'title':'A <bright> night','duration':'3:45','requester':'Listener','video':False},
+                    elapsed=74,total=225,chat_id=chat_id,
+                )
             self.assertIn('<details',caption)
             self.assertIn('&lt;bright&gt;',caption)
             self.assertIn('Requested by',caption)
+            self.assertIn('Voice quality',caption)
+            self.assertIn('96 kbps stereo',caption)
             self.assertIn('Up next',caption)
             self.assertIn('\n\n',caption)
             self.assertIn('<b>Format</b> · Audio\n',caption)

@@ -6,7 +6,7 @@ import asyncio, time
 from pyrogram.errors import BadRequest
 from pyrogram.types import InlineKeyboardMarkup, Message
 from videl.utils.bot_ui import button as InlineKeyboardButton, visual_call
-from pytgcalls.types import AudioQuality, MediaStream, VideoQuality
+from pytgcalls.types import MediaStream, VideoQuality
 import config
 from videl import LOGGER, bot, call_py
 from videl.utils.formatters import parse_dur, short
@@ -103,8 +103,10 @@ def _now_playing_caption(song: dict, elapsed: float=0, total: float=0, chat_id: 
     state="Paused" if chat_id is not None and is_paused(chat_id) else "Now playing"
     kind="Video" if song.get("video") else "Audio"
     artist=str(song.get("artist") or song.get("uploader") or song.get("channel") or "").strip()
+    from videl.core.audio_quality import audio_quality_label
     from videl.utils.premium_emojis import pe
-    metadata=[(pe("ios_symbols"),"Format",rich_esc(kind)),(pe("boseh_clock"),"Length",rich_esc(duration))]
+    metadata=[(pe("ios_symbols"),"Format",rich_esc(kind)),(pe("boseh_clock"),"Length",rich_esc(duration)),
+              (pe("ios_controls"),"Voice quality",rich_esc(audio_quality_label()))]
     if artist and artist.casefold()!=title.casefold():
         metadata.append((pe("music2"),"Artist",rich_esc(short(artist,60))))
     metadata.append((pe("boseh_person"),"Requested by",f"<b>{rich_esc(requester)}</b>"))
@@ -211,7 +213,8 @@ async def play_song(chat_id:int, message:Message, song:dict, *, advance=False, r
             # Other legacy producers may append while resolution awaits, but
             # cannot silently substitute a different queue head for this request.
             if peek_current(chat_id) is not expected:return False
-            stream=MediaStream(media_path,audio_parameters=AudioQuality.HIGH,
+            from videl.core.audio_quality import audio_quality
+            stream=MediaStream(media_path,audio_parameters=audio_quality(),
                 **({'video_parameters':VideoQuality.HD_720p} if want_video else {'video_flags':MediaStream.Flags.IGNORE}))
             from videl.core.voice_chat import play_with_auto_start
             response=await play_with_auto_start(call_py,chat_id,stream)

@@ -116,7 +116,7 @@ async def _process_file(src: str, speed: float, bass: int) -> str:
 
     os.makedirs("downloads/effects", exist_ok=True)
     base = os.path.splitext(os.path.basename(src))[0]
-    tag  = f"s{str(speed).replace('.', '')}_b{bass}"
+    tag  = f"hq256_s{str(speed).replace('.', '')}_b{bass}"
     out  = f"downloads/effects/{base}_{tag}.mp3"
 
     if os.path.exists(out) and os.path.getsize(out) > 0:
@@ -125,7 +125,7 @@ async def _process_file(src: str, speed: float, bass: int) -> str:
     cmd = [
         "ffmpeg", "-y", "-i", src,
         "-af", af,
-        "-vn", "-acodec", "libmp3lame", "-b:a", "192k",
+        "-vn", "-ac", "2", "-ar", "48000", "-acodec", "libmp3lame", "-b:a", "256k",
         out,
     ]
     proc = await asyncio.create_subprocess_exec(
@@ -144,10 +144,11 @@ async def _process_file(src: str, speed: float, bass: int) -> str:
 # ── Stream helper ──────────────────────────────────────────────────────────────
 
 async def _stream_from(chat_id: int, file_path: str, seek_sec: int = 0) -> None:
-    from pytgcalls.types import AudioQuality, MediaStream
+    from pytgcalls.types import MediaStream
+    from videl.core.audio_quality import audio_quality
 
     ms_kwargs = dict(
-        audio_parameters=AudioQuality.HIGH,
+        audio_parameters=audio_quality(),
         video_flags=MediaStream.Flags.IGNORE,
     )
     if seek_sec > 0:

@@ -189,7 +189,7 @@ def _sync_ytdlp(url: str, video: bool = False) -> str | None:
     found=_find_file(video_id,video=video)
     if found:return found
     watch=_yt_url(url); cookiefile=_cookies_path(); outtmpl=os.path.join(DOWNLOAD_DIR,f"{video_id}.%(ext)s")
-    fmt="best[height<=720]/best" if video else "bestaudio[ext=m4a]/bestaudio/best"
+    fmt="best[height<=720]/best" if video else "bestaudio/best"
     base={"format":fmt,"outtmpl":outtmpl,"noplaylist":True,"quiet":True,"no_warnings":True,"noprogress":True,"geo_bypass":True,"nocheckcertificate":True,"retries":2,"fragment_retries":2,"socket_timeout":20}
     if cookiefile:base["cookiefile"]=cookiefile
     proxies=_load_proxy_list()[:3]

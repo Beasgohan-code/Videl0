@@ -181,6 +181,11 @@ START_PHOTO: str = START_PHOTOS[0] if START_PHOTOS else "https://iili.io/n5ClDil
 # ── Limits & Behaviour ────────────────────────────────────────────────────────
 MAX_DURATION_SECONDS: int = _int("MAX_DURATION_SECONDS", 1800)  # 30 min
 MUSIC_MAX_DURATION: int = _int("MUSIC_MAX_DURATION", 600)
+# PyTgCalls audio uplink preset: studio (96 kbps stereo), high (48 kbps stereo),
+# medium (36 kbps mono) or low (24 kbps mono). Studio is the quality-first default.
+VOICE_AUDIO_QUALITY: str = _str("VOICE_AUDIO_QUALITY", "studio").casefold()
+if VOICE_AUDIO_QUALITY not in {"studio", "high", "medium", "low"}:
+    VOICE_AUDIO_QUALITY = "studio"
 QUEUE_LIMIT: int = _int("QUEUE_LIMIT", 20)
 COOLDOWN: int = _int("COOLDOWN", 5)
 PLAYLIST_LIMIT: int = _int("PLAYLIST_LIMIT", 10)
