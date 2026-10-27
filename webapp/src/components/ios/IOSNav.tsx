@@ -70,8 +70,15 @@ export function IOSNav() {
   return (
     <>
       <aside className="fixed inset-y-0 left-0 z-50 hidden w-60 flex-col border-r border-indigo-300/10 bg-[#080b1a]/95 px-4 py-7 lg:flex">
-        <Link href="/" className="px-3 text-2xl font-bold">
-          Videl <span className="text-indigo-300">Studio</span>
+        <Link href="/" className="flex items-center gap-3 px-3 text-2xl font-bold">
+          <img
+            src="/videl-bot-pfp.png"
+            alt=""
+            width={42}
+            height={42}
+            className="h-[42px] w-[42px] rounded-full border border-indigo-300/30 object-cover shadow-[0_0_24px_rgba(129,140,248,0.18)]"
+          />
+          <span>Videl <span className="text-indigo-300">Studio</span></span>
         </Link>
         <p className="ios-caps mb-2 mt-8 px-3 text-[11px] text-white/30">
           {telegram.authenticated ? "Owner workspace" : "Create & share"}
@@ -123,7 +130,14 @@ export function IOSNav() {
 
       <header className="flex h-16 items-center justify-between gap-3 border-b border-indigo-200/10">
         <div className="flex min-w-0 items-center gap-2 text-xs">
-          <Link href="/" className="shrink-0 font-semibold">
+          <Link href="/" className="flex shrink-0 items-center gap-2 font-semibold">
+            <img
+              src="/videl-bot-pfp.png"
+              alt=""
+              width={28}
+              height={28}
+              className="h-7 w-7 rounded-full border border-indigo-300/30 object-cover"
+            />
             Videl Studio
           </Link>
           <ChevronRight size={12} aria-hidden className="shrink-0 text-indigo-100/25" />

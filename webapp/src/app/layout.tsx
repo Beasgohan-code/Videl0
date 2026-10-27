@@ -12,10 +12,15 @@ const siteUrl =
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
-  title: "Videl 👑 Studio",
+  title: "Videl Studio",
+  applicationName: "Videl Studio",
+  icons: {
+    icon: "/videl-bot-pfp.png",
+    apple: "/videl-bot-pfp.png",
+  },
   description: "Create polished Telegram posts and custom images with a private, browser-based creative workspace.",
   openGraph: {
-    title: "Videl 👑 Studio",
+    title: "Videl Studio",
     description: "Design, format and export your next Telegram post.",
     images: [{ url: "/og/arcade.jpg", width: 1200, height: 634, alt: "Videl Arcade" }],
   },
