@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from pytgcalls.exceptions import NoActiveGroupCall
+from pyrogram.enums import ChatMemberStatus
 from videl.core import voice_chat, playback_state
 
 
@@ -21,6 +22,28 @@ class VoiceChatRecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(request.peer, "peer")
         self.assertGreater(request.random_id, 0)
 
+    async def test_bot_can_start_call_if_it_already_has_manage_video_chats(self):
+        assistant = SimpleNamespace(
+            get_chat=AsyncMock(side_effect=RuntimeError("CHAT_ADMIN_REQUIRED")),
+            resolve_peer=AsyncMock(),
+            invoke=AsyncMock(),
+        )
+        privileges = SimpleNamespace(can_manage_video_chats=True)
+        bot = SimpleNamespace(
+            me=SimpleNamespace(id=99),
+            get_chat_member=AsyncMock(return_value=SimpleNamespace(
+                status=ChatMemberStatus.ADMINISTRATOR, privileges=privileges,
+            )),
+            get_chat=AsyncMock(return_value=SimpleNamespace(id=-100123)),
+            resolve_peer=AsyncMock(return_value="bot-peer"),
+            invoke=AsyncMock(),
+        )
+        with patch.object(voice_chat, "assistant", assistant), patch.object(voice_chat, "bot", bot), patch.object(
+            voice_chat.asyncio, "sleep", new=AsyncMock()
+        ):
+            self.assertTrue(await voice_chat.ensure_active_voice_chat(-100123))
+        bot.invoke.assert_awaited_once()
+
     async def test_existing_call_is_treated_as_success(self):
         assistant = SimpleNamespace(
             get_chat=AsyncMock(side_effect=RuntimeError("GROUPCALL_ALREADY_STARTED")),
@@ -37,7 +60,11 @@ class VoiceChatRecoveryTests(unittest.IsolatedAsyncioTestCase):
             resolve_peer=AsyncMock(),
             invoke=AsyncMock(),
         )
-        with patch.object(voice_chat, "assistant", assistant):
+        bot = SimpleNamespace(
+            me=SimpleNamespace(id=99),
+            get_chat_member=AsyncMock(return_value=SimpleNamespace(status="member", privileges=None)),
+        )
+        with patch.object(voice_chat, "assistant", assistant), patch.object(voice_chat, "bot", bot):
             self.assertFalse(await voice_chat.ensure_active_voice_chat(-100123))
 
     def test_only_known_missing_call_errors_are_retryable(self):
@@ -64,7 +91,7 @@ class VoiceChatRecoveryTests(unittest.IsolatedAsyncioTestCase):
     async def test_no_admin_rights_gives_actionable_voice_chat_failure(self):
         player = SimpleNamespace(play=AsyncMock(side_effect=NoActiveGroupCall()))
         with patch.object(voice_chat, "ensure_active_voice_chat", new=AsyncMock(return_value=False)):
-            with self.assertRaisesRegex(voice_chat.VoiceChatStartError, "Manage Video Chats"):
+            with self.assertRaisesRegex(voice_chat.VoiceChatStartError, "change permissions automatically"):
                 await voice_chat.play_with_auto_start(player, -100123, "stream")
         self.assertEqual(player.play.await_count, 1)
 

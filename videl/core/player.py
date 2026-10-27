@@ -231,9 +231,9 @@ async def play_song(chat_id:int, message:Message, song:dict, *, advance=False, r
                 detail = str(error)
             else:
                 title = 'Playback not confirmed'
-                detail = ('The queue was preserved. Videl can join and play in an active voice chat, but it cannot start one. '
-                          'Start a voice chat in Telegram and make sure the assistant can join and speak; then use /replay. '
-                          'No permissions were changed.')
+                detail = ('The queue was preserved, but Telegram did not confirm voice-chat start or join. '
+                          'Videl tried the assistant and, when its rights allowed, the bot client; it changed no permissions. '
+                          'Start a voice chat in Telegram and make sure the assistant can join and speak, then use /replay.')
             try:
                 await rich_send(bot,chat_id,rich_heading(title,level=3)+rich_note(detail))
             except Exception:pass
