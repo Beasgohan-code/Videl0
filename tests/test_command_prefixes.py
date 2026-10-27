@@ -1,4 +1,6 @@
+import re
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 
 from pyrogram import filters
@@ -22,6 +24,28 @@ class CommandPrefixTests(unittest.IsolatedAsyncioTestCase):
                 parsed = parse(f"{prefix}help", "VidelBot")
                 self.assertIsNotNone(parsed)
                 self.assertEqual(parsed.name, "help")
+
+    def test_regex_based_commands_share_prefix_config(self):
+        sources = (
+            Path("videl/modules/play.py"),
+            Path("videl/modules/cplay.py"),
+            Path("videl/modules/autoplay.py"),
+            Path("videl/modules/effects.py"),
+            Path("videl/modules/seek.py"),
+        )
+        for path in sources:
+            source = path.read_text()
+            with self.subTest(path=path):
+                self.assertIn("config.COMMAND_PREFIX_PATTERN", source)
+                self.assertNotRegex(source, r"filters\.regex\(r['\"]\^/")
+
+        play = re.compile(
+            rf"^{config.COMMAND_PREFIX_PATTERN}(?P<command>v?play)(?:@VidelBot)?(?:\s+(?P<query>.+))?$",
+            re.IGNORECASE,
+        )
+        for prefix in config.COMMAND_PREFIX_LIST:
+            with self.subTest(prefix=prefix):
+                self.assertIsNotNone(play.fullmatch(f"{prefix}play Daylight"))
 
     def test_prefix_list_is_characterwise_not_one_combined_prefix(self):
         self.assertEqual(config.COMMAND_PREFIX_LIST, list(config.COMMAND_PREFIXES))

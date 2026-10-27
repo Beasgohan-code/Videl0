@@ -115,7 +115,7 @@ async def channelplay_cmd(_, message: Message) -> None:
 
 @bot.on_message(
     filters.group
-    & filters.regex(r"^/(?P<cmd>c(?:v)?play)(?:@\w+)?(?:\s+(?P<q>.+))?$")
+    & filters.regex(rf"^{config.COMMAND_PREFIX_PATTERN}(?P<cmd>c(?:v)?play)(?:@\w+)?(?:\s+(?P<q>.+))?$")
     & group_allowed
     & user_allowed
 )

@@ -1,3 +1,4 @@
+import asyncio
 import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -101,9 +102,25 @@ class VoiceChatRecoveryTests(unittest.IsolatedAsyncioTestCase):
     async def test_no_admin_rights_gives_actionable_voice_chat_failure(self):
         player = SimpleNamespace(play=AsyncMock(side_effect=NoActiveGroupCall()))
         with patch.object(voice_chat, "ensure_active_voice_chat", new=AsyncMock(return_value=False)):
-            with self.assertRaisesRegex(voice_chat.VoiceChatStartError, "change permissions automatically"):
+            with self.assertRaisesRegex(voice_chat.VoiceChatStartError, "Manage Video Chats permission"):
                 await voice_chat.play_with_auto_start(player, -100123, "stream")
         self.assertEqual(player.play.await_count, 1)
+
+    async def test_voice_chat_start_timeout_becomes_actionable_error(self):
+        player = SimpleNamespace(play=AsyncMock())
+
+        async def wait_for(awaitable, timeout):
+            close = getattr(awaitable, "close", None)
+            if close:
+                close()
+            if timeout == 30:
+                raise NoActiveGroupCall()
+            raise asyncio.TimeoutError()
+
+        with patch.object(voice_chat.asyncio, "wait_for", side_effect=wait_for), \
+             patch.object(voice_chat, "ensure_active_voice_chat", new=AsyncMock()):
+            with self.assertRaisesRegex(voice_chat.VoiceChatStartError, "did not finish creating the voice chat in time"):
+                await voice_chat.play_with_auto_start(player, -100123, "stream")
 
     def test_expected_local_leave_update_is_consumed_once(self):
         playback_state.expect_voice_exit(-100123)

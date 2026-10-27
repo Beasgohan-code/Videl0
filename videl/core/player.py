@@ -204,15 +204,20 @@ async def play_song(chat_id:int, message:Message, song:dict, *, advance=False, r
             return False
         url=song.get('url')
         if not url:return False
+        stage = "media download"
         try:
             want_video=bool(song.get('video',False))
             media_path=await asyncio.wait_for(resolve_stream(url,video=want_video),45)
             if not want_video:
+                stage = "optional audio effects"
                 from videl.modules.effects import maybe_apply_effects
-                media_path=await asyncio.wait_for(maybe_apply_effects(chat_id,media_path),20)
+                # Effects are optional and internally bounded; a slow effect
+                # lookup must not abort an otherwise playable track.
+                media_path=await maybe_apply_effects(chat_id,media_path)
             # Other legacy producers may append while resolution awaits, but
             # cannot silently substitute a different queue head for this request.
             if peek_current(chat_id) is not expected:return False
+            stage = "voice-chat playback"
             from videl.core.audio_quality import audio_quality
             stream=MediaStream(media_path,audio_parameters=audio_quality(),
                 **({'video_parameters':VideoQuality.HD_720p} if want_video else {'video_flags':MediaStream.Flags.IGNORE}))
@@ -221,7 +226,7 @@ async def play_song(chat_id:int, message:Message, song:dict, *, advance=False, r
             if response is False:raise RuntimeError('Voice engine did not acknowledge playback')
         except asyncio.CancelledError:raise
         except Exception as error:
-            LOGGER.warning('Playback unconfirmed (%s); queue preserved, no retry',type(error).__name__)
+            LOGGER.warning('Playback unconfirmed during %s (%s); queue preserved, no retry',stage,type(error).__name__)
             from videl.core.voice_chat import VoiceChatStartError
             if isinstance(error, MediaDownloadError):
                 title = 'Track unavailable'
@@ -229,13 +234,29 @@ async def play_song(chat_id:int, message:Message, song:dict, *, advance=False, r
             elif isinstance(error, VoiceChatStartError):
                 title = 'Voice chat unavailable'
                 detail = str(error)
+            elif isinstance(error, (asyncio.TimeoutError, TimeoutError)) and stage == "voice-chat playback":
+                title = 'Voice chat timed out'
+                detail = ('The audio downloaded, but Telegram did not confirm voice-chat playback in time. '
+                          'Start a voice chat in the group, check that the assistant can join and speak, then use /replay.')
+            elif isinstance(error, (asyncio.TimeoutError, TimeoutError)):
+                title = 'Track preparation timed out'
+                detail = 'The queue was preserved. Try again shortly; optional audio effects will be skipped if their settings are slow to load.'
             else:
                 title = 'Playback not confirmed'
                 detail = ('The queue was preserved, but Telegram did not confirm voice-chat start or join. '
                           'Videl tried the assistant and, when its rights allowed, the bot client; it changed no permissions. '
                           'Start a voice chat in Telegram and make sure the assistant can join and speak, then use /replay.')
             try:
-                await rich_send(bot,chat_id,rich_heading(title,level=3)+rich_note(detail))
+                from videl.utils.command_ui import rich_send as command_rich_send
+                retry_keyboard = InlineKeyboardMarkup([[
+                    InlineKeyboardButton("Replay current track", callback_data="replay", style="primary", icon="ios_repeat")
+                ]])
+                await command_rich_send(
+                    bot,
+                    chat_id,
+                    rich_heading(title, level=3) + rich_note(detail),
+                    reply_markup=retry_keyboard,
+                )
             except Exception:pass
             return False
         if advance:

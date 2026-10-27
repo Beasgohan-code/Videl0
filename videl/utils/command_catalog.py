@@ -37,12 +37,23 @@ def commands():
                         value=ast.literal_eval(call.args[0])
                         names=[value] if isinstance(value,str) else list(value)
                     elif call.func.attr=='regex':
-                        pattern=ast.literal_eval(call.args[0])
-                        if not isinstance(pattern,str) or not pattern.startswith('^/'):continue
+                        expression=call.args[0]
+                        if isinstance(expression,ast.JoinedStr):
+                            # Runtime-configured prefixes are f-strings; retain
+                            # their literal regex fragments for command discovery.
+                            pattern=''.join(part.value for part in expression.values
+                                if isinstance(part,ast.Constant) and isinstance(part.value,str))
+                        else:
+                            pattern=ast.literal_eval(expression)
+                        if not isinstance(pattern,str):continue
+                        dynamic_prefix=(isinstance(expression,ast.JoinedStr) and any(
+                            isinstance(part,ast.FormattedValue) and 'COMMAND_PREFIX_PATTERN' in ast.unparse(part.value)
+                            for part in expression.values))
+                        if not (pattern.startswith('^/') or dynamic_prefix):continue
                         if '(?P<cmd>v?play)' in pattern:names=['play','vplay']
                         elif '(?P<cmd>c(?:v)?play)' in pattern:names=['cplay','cvplay']
                         else:
-                            match=re.match(r'^\^/([a-z_]+)',pattern)
+                            match=re.match(r'^\^/?([a-z_]+)',pattern)
                             if not match:raise ValueError(f'Uncatalogued command regex: {pattern}')
                             names=[match[1]]
                     else:continue

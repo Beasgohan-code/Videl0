@@ -6,6 +6,8 @@
 import time
 
 from pyrogram import filters
+
+import config
 from pyrogram.enums import ParseMode
 from pyrogram.types import InlineKeyboardMarkup, Message
 from videl.utils.bot_ui import button as InlineKeyboardButton
@@ -135,7 +137,7 @@ async def _seek_to(chat_id: int, target_sec: int, message: Message) -> None:
 
 @bot.on_message(
     filters.group
-    & filters.regex(r"^/seek(?:@\w+)?\s+(?P<sec>\d+)$")
+    & filters.regex(rf"^{config.COMMAND_PREFIX_PATTERN}seek(?:@\w+)?\s+(?P<sec>\d+)$")
     & group_allowed
     & user_allowed
 )
@@ -187,7 +189,7 @@ async def seek_cmd(_, message: Message) -> None:
 
 @bot.on_message(
     filters.group
-    & filters.regex(r"^/seekback(?:@\w+)?\s+(?P<sec>\d+)$")
+    & filters.regex(rf"^{config.COMMAND_PREFIX_PATTERN}seekback(?:@\w+)?\s+(?P<sec>\d+)$")
     & group_allowed
     & user_allowed
 )
@@ -222,7 +224,7 @@ async def seekback_cmd(_, message: Message) -> None:
 
 @bot.on_message(
     filters.group
-    & filters.regex(r"^/seek(?:@\w+)?$")
+    & filters.regex(rf"^{config.COMMAND_PREFIX_PATTERN}seek(?:@\w+)?$")
     & group_allowed
     & user_allowed
 )

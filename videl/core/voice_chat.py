@@ -96,11 +96,20 @@ async def play_with_auto_start(call_py, chat_id: int, stream):
     except Exception as play_error:
         if not is_missing_voice_chat(play_error):
             raise
-        created = await asyncio.wait_for(ensure_active_voice_chat(chat_id), 20)
+        try:
+            # ShizuMusic's current player waits for Telegram's call creation to
+            # settle before retrying PyTgCalls. Allow slow Render/Telegram RPCs
+            # more than one short network timeout, while keeping it bounded.
+            created = await asyncio.wait_for(ensure_active_voice_chat(chat_id), 45)
+        except asyncio.TimeoutError as startup_error:
+            logger.warning("Voice-chat auto-start timed out in %s", chat_id)
+            raise VoiceChatStartError(
+                "Telegram did not finish creating the voice chat in time. Start one in the group manually and use /replay. For automatic creation, the assistant must already be a member with permission to manage video chats; Videl will not promote it or change group permissions."
+            ) from startup_error
         if not created:
             raise VoiceChatStartError(
-                "Telegram had no active voice chat. Videl tried the assistant and, if it already has the required right, the bot client. "
-                "Neither client can change permissions automatically. Start a voice chat in Telegram and make sure the assistant can join and speak."
+                "Telegram had no active voice chat, and no already-authorized client could create one. "
+                "Start a voice chat manually, then use /replay. For automatic creation, the assistant or bot must already have Telegram’s Manage Video Chats permission; Videl never grants or changes permissions."
             ) from play_error
         try:
             return await asyncio.wait_for(call_py.play(chat_id, stream), 30)

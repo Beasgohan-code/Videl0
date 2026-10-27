@@ -190,6 +190,10 @@ def _sync_ytdlp(url: str, video: bool = False) -> str | None:
     found=_find_file(video_id,video=video)
     if found:return found
     watch=_yt_url(url); cookiefile=_cookies_path(); outtmpl=os.path.join(DOWNLOAD_DIR,f"{video_id}.%(ext)s")
+    if cookiefile:
+        logger.info("[yt-dlp] validated YouTube cookies are available")
+    else:
+        logger.warning("[yt-dlp] no valid YouTube auth cookie file found; downloads may hit YouTube's sign-in challenge")
     fmt="best[height<=720]/best" if video else "bestaudio/best"
     base={"format":fmt,"outtmpl":outtmpl,"noplaylist":True,"quiet":True,"no_warnings":True,"noprogress":True,"geo_bypass":True,"nocheckcertificate":True,"retries":2,"fragment_retries":2,"socket_timeout":20}
     if cookiefile:base["cookiefile"]=cookiefile
@@ -302,7 +306,18 @@ async def _download_via_external_api(video_id: str, video: bool = False) -> str 
                                 logger.info("[external-downloader] key quota exhausted; trying configured fallback key")
                                 _cleanup(partial)
                                 continue
-                            logger.warning("[external-downloader] HTTP %s", response.status)
+                            if response.status == 404:
+                                logger.warning(
+                                    "[external-downloader] Shruti returned HTTP 404; check that YT_API_URL is the base URL "
+                                    "https://api.shrutibots.in (without /download) and that the provider route is available"
+                                )
+                            elif response.status in (401, 403):
+                                logger.warning(
+                                    "[external-downloader] Shruti rejected the request (HTTP %s); check that the primary API key is active",
+                                    response.status,
+                                )
+                            else:
+                                logger.warning("[external-downloader] HTTP %s", response.status)
                             return None
                         if "json" in content_type or "text/" in content_type:
                             error_text = (await response.text())[:2000]

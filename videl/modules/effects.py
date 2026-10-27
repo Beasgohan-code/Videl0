@@ -7,6 +7,8 @@ import asyncio
 import os
 
 from pyrogram import filters
+
+import config
 from pyrogram.enums import ParseMode
 from pyrogram.types import Message
 
@@ -233,7 +235,24 @@ async def apply_effects_now(chat_id: int, message: Message, *, seek_sec: int = -
 # ── Auto-apply effects (called from player.py) ────────────────────────────────
 
 async def maybe_apply_effects(chat_id: int, file_path: str) -> str:
-    state = _get(chat_id)
+    """Apply optional effects without letting a slow DB read block playback.
+
+    Effect settings are optional; if their database lookup is slow, continue with
+    the original audio rather than failing the track. FFmpeg has its own bounded
+    processing timeout and also falls back to the original source on failure.
+    """
+    state = _cache.get(chat_id)
+    if state is None:
+        try:
+            loaded = await asyncio.wait_for(asyncio.to_thread(_db_load, chat_id), timeout=5)
+        except asyncio.TimeoutError:
+            LOGGER.warning("[Effects] Settings lookup timed out for %s; continuing with original audio", chat_id)
+            return file_path
+        except Exception as error:
+            LOGGER.warning("[Effects] Settings lookup failed for %s (%s); continuing with original audio", chat_id, type(error).__name__)
+            return file_path
+        state = _cache.setdefault(chat_id, loaded)
+
     if not state.get("enabled", False):
         return file_path
     speed = state["speed"]
@@ -242,8 +261,8 @@ async def maybe_apply_effects(chat_id: int, file_path: str) -> str:
         return file_path
     try:
         return await _process_file(file_path, speed, bass)
-    except Exception as e:
-        LOGGER.warning(f"[Effects] Auto-apply failed for {chat_id}: {e}")
+    except Exception as error:
+        LOGGER.warning("[Effects] Auto-apply failed for %s (%s); continuing with original audio", chat_id, type(error).__name__)
         return file_path
 
 
@@ -253,7 +272,7 @@ async def maybe_apply_effects(chat_id: int, file_path: str) -> str:
 
 @bot.on_message(
     filters.group
-    & filters.regex(r"^/speed(?:@\w+)?\s+(?P<val>[\d.]+)$")
+    & filters.regex(rf"^{config.COMMAND_PREFIX_PATTERN}speed(?:@\w+)?\s+(?P<val>[\d.]+)$")
     & group_allowed & user_allowed
 )
 async def speed_cmd(_, message: Message) -> None:
@@ -285,7 +304,7 @@ async def speed_cmd(_, message: Message) -> None:
 
 @bot.on_message(
     filters.group
-    & filters.regex(r"^/speedreset(?:@\w+)?$")
+    & filters.regex(rf"^{config.COMMAND_PREFIX_PATTERN}speedreset(?:@\w+)?$")
     & group_allowed & user_allowed
 )
 async def speedreset_cmd(_, message: Message) -> None:
@@ -300,7 +319,7 @@ async def speedreset_cmd(_, message: Message) -> None:
 
 @bot.on_message(
     filters.group
-    & filters.regex(r"^/bass(?:@\w+)?\s+(?P<val>\d+)$")
+    & filters.regex(rf"^{config.COMMAND_PREFIX_PATTERN}bass(?:@\w+)?\s+(?P<val>\d+)$")
     & group_allowed & user_allowed
 )
 async def bass_cmd(_, message: Message) -> None:
@@ -332,7 +351,7 @@ async def bass_cmd(_, message: Message) -> None:
 
 @bot.on_message(
     filters.group
-    & filters.regex(r"^/bassoff(?:@\w+)?$")
+    & filters.regex(rf"^{config.COMMAND_PREFIX_PATTERN}bassoff(?:@\w+)?$")
     & group_allowed & user_allowed
 )
 async def bassoff_cmd(_, message: Message) -> None:
@@ -347,7 +366,7 @@ async def bassoff_cmd(_, message: Message) -> None:
 
 @bot.on_message(
     filters.group
-    & filters.regex(r"^/effecton(?:@\w+)?$")
+    & filters.regex(rf"^{config.COMMAND_PREFIX_PATTERN}effecton(?:@\w+)?$")
     & group_allowed & user_allowed
 )
 async def effecton_cmd(_, message: Message) -> None:
@@ -367,7 +386,7 @@ async def effecton_cmd(_, message: Message) -> None:
 
 @bot.on_message(
     filters.group
-    & filters.regex(r"^/effectoff(?:@\w+)?$")
+    & filters.regex(rf"^{config.COMMAND_PREFIX_PATTERN}effectoff(?:@\w+)?$")
     & group_allowed & user_allowed
 )
 async def effectoff_cmd(_, message: Message) -> None:
@@ -383,7 +402,7 @@ async def effectoff_cmd(_, message: Message) -> None:
 
 @bot.on_message(
     filters.group
-    & filters.regex(r"^/effects(?:@\w+)?$")
+    & filters.regex(rf"^{config.COMMAND_PREFIX_PATTERN}effects(?:@\w+)?$")
     & group_allowed & user_allowed
 )
 async def effects_status_cmd(_, message: Message) -> None:

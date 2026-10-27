@@ -20,10 +20,10 @@ LABELS = {
 
 def audio_quality() -> AudioQuality:
     """Return the configured uplink preset; malformed values safely use Studio."""
-    return PRESETS.get(str(getattr(config, "VOICE_AUDIO_QUALITY", "studio")).casefold(), AudioQuality.STUDIO)
+    return PRESETS.get(str(getattr(config, "VOICE_AUDIO_QUALITY", "high")).casefold(), AudioQuality.HIGH)
 
 
 def audio_quality_label() -> str:
     """A human-readable label for the now-playing card and diagnostics."""
     key = str(getattr(config, "VOICE_AUDIO_QUALITY", "studio")).casefold()
-    return LABELS.get(key, LABELS["studio"])
+    return LABELS.get(key, LABELS["high"])

@@ -224,7 +224,7 @@ async def _play_local_media(message: Message, chat_id: int, user_id: int, force_
 
 @bot.on_message(
     filters.group
-    & filters.regex(r"^/(?P<cmd>v?play)(?:@\w+)?(?:\s+(?P<q>.+))?$")
+    & filters.regex(rf"^{config.COMMAND_PREFIX_PATTERN}(?P<cmd>v?play)(?:@\w+)?(?:\s+(?P<q>.+))?$")
     & group_allowed
     & user_allowed
 )

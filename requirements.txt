@@ -6,8 +6,10 @@
 # Do not install archived pyrogram alongside it (both write the same package).
 kurigram==2.2.26
 tgcrypto==1.2.5
-py-tgcalls==2.2.11
-ntgcalls==2.2.5
+# Match Badmunda05/ShizuMusic's tested voice-stack baseline for its
+# assistant-client auto-create and playback-retry flow.
+py-tgcalls==2.3.3
+ntgcalls>=2.2.4,<3.0.0
 yt-dlp==2026.8.19
 py-yt-search==0.6.2
 

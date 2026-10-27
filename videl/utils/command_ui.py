@@ -5,7 +5,7 @@ Native keyboards stay explicit so styling never replaces actual actions.
 """
 from videl.utils.rich_ui import rich_heading, rich_note, rich_kv_table
 from videl.utils.bot_ui import button as native_button, visual_call
-from pyrogram.types import InlineKeyboardMarkup
+from pyrogram.types import InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 
 TITLES = {"success": "Action complete", "error": "Action unavailable",
           "warning": "Attention needed", "info": "Information"}
@@ -85,15 +85,49 @@ def present(html_text, *, navigation=True):
     return text
 
 
-def _has_keyboard(options):
-    return options.get("reply_markup") is not None or options.get("markup") is not None
+def _has_navigation_keyboard(options):
+    """True only when an actual keyboard exposes both global navigation actions."""
+    markup = options.get("reply_markup") if options.get("reply_markup") is not None else options.get("markup")
+    if isinstance(markup, InlineKeyboardMarkup):
+        callbacks = {
+            getattr(item, "callback_data", None)
+            for row in markup.inline_keyboard
+            for item in row
+        }
+        return {"help:home", "cmds:all:0"}.issubset(callbacks)
+    if isinstance(markup, ReplyKeyboardMarkup):
+        commands = {
+            str(getattr(item, "text", "")).strip().casefold()
+            for row in markup.keyboard
+            for item in row
+        }
+        return {"/help", "/commands"}.issubset(commands)
+    return False
 
 
 def _with_navigation_keyboard(options):
-    """Add the same safe help row to explicit command keyboards without mutation."""
+    """Add global navigation actions to explicit command keyboards without mutation."""
     updated = dict(options)
     field = "reply_markup" if options.get("reply_markup") is not None else "markup"
     markup = options.get(field)
+    if isinstance(markup, ReplyKeyboardMarkup):
+        rows = [list(row) for row in markup.keyboard]
+        present = {
+            str(getattr(item, "text", "")).strip().casefold()
+            for row in rows
+            for item in row
+        }
+        missing = [KeyboardButton(command) for command in ("/help", "/commands") if command not in present]
+        if not missing:
+            return updated
+        rows.append(missing)
+        keyboard_options = {
+            name: getattr(markup, name)
+            for name in ("is_persistent", "resize_keyboard", "one_time_keyboard", "input_field_placeholder", "selective")
+            if getattr(markup, name, None) is not None
+        }
+        updated[field] = ReplyKeyboardMarkup(keyboard=rows, **keyboard_options)
+        return updated
     if not isinstance(markup, InlineKeyboardMarkup):
         return updated
     rows = [list(row) for row in markup.inline_keyboard]
@@ -127,7 +161,7 @@ async def rich_send(client, chat_id, html_text, *, navigation=True, **options):
         options = _with_navigation_keyboard(options)
     return await visual_call(
         _send, client, chat_id,
-        present(html_text, navigation=navigation and not _has_keyboard(options)),
+        present(html_text, navigation=navigation and not _has_navigation_keyboard(options)),
         **options,
     )
 
@@ -137,19 +171,18 @@ async def rich_reply(message, html_text, *, navigation=True, **options):
         options = _with_navigation_keyboard(options)
     return await visual_call(
         _reply, message,
-        present(html_text, navigation=navigation and not _has_keyboard(options)),
+        present(html_text, navigation=navigation and not _has_navigation_keyboard(options)),
         **options,
     )
 
 
 async def rich_edit(target, html_text, *, navigation=True, **options):
     # An explicit None on edits means remove the old keyboard; respect it.
-    explicit = "reply_markup" in options or "markup" in options
     clearing = any(key in options and options[key] is None for key in ("reply_markup", "markup"))
     if navigation and not clearing:
         options = _with_navigation_keyboard(options)
     return await visual_call(
         _edit, target,
-        present(html_text, navigation=navigation and not explicit),
+        present(html_text, navigation=navigation and not clearing and not _has_navigation_keyboard(options)),
         **options,
     )

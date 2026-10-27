@@ -6,6 +6,8 @@
 import asyncio
 
 from pyrogram import filters
+
+import config
 from pyrogram.enums import ParseMode
 from pyrogram.types import Message
 
@@ -28,7 +30,7 @@ from videl.utils.command_ui import rich_edit, rich_send
 
 @bot.on_message(
     filters.group
-    & filters.regex(r"^/autoplay(?:@\w+)?(?:\s+(?P<q>.+))?$")
+    & filters.regex(rf"^{config.COMMAND_PREFIX_PATTERN}autoplay(?:@\w+)?(?:\s+(?P<q>.+))?$")
     & group_allowed
     & user_allowed
 )

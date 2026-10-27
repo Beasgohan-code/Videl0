@@ -7,6 +7,7 @@ Usage: import config (root module).
 """
 from __future__ import annotations
 import os
+import re
 import sys
 from pathlib import Path
 from dotenv import load_dotenv
@@ -84,6 +85,7 @@ COMMAND_PREFIXES: str = "".join(dict.fromkeys(
 # Pyrogram treats a string as ONE prefix, not a set of prefix characters.
 # Keep the joined form for regex parsing and pass this list to filters.command.
 COMMAND_PREFIX_LIST: list[str] = list(COMMAND_PREFIXES)
+COMMAND_PREFIX_PATTERN: str = f"[{re.escape(COMMAND_PREFIXES)}]"
 
 # STRING_SESSION — sanitize: strip quotes/spaces, fix padding
 _raw_session = _str("STRING_SESSION", "")
@@ -184,9 +186,9 @@ MAX_DURATION_SECONDS: int = _int("MAX_DURATION_SECONDS", 1800)  # 30 min
 MUSIC_MAX_DURATION: int = _int("MUSIC_MAX_DURATION", 600)
 # PyTgCalls audio uplink preset: studio (96 kbps stereo), high (48 kbps stereo),
 # medium (36 kbps mono) or low (24 kbps mono). Studio is the quality-first default.
-VOICE_AUDIO_QUALITY: str = _str("VOICE_AUDIO_QUALITY", "studio").casefold()
+VOICE_AUDIO_QUALITY: str = _str("VOICE_AUDIO_QUALITY", "high").casefold()
 if VOICE_AUDIO_QUALITY not in {"studio", "high", "medium", "low"}:
-    VOICE_AUDIO_QUALITY = "studio"
+    VOICE_AUDIO_QUALITY = "high"
 QUEUE_LIMIT: int = _int("QUEUE_LIMIT", 20)
 COOLDOWN: int = _int("COOLDOWN", 5)
 PLAYLIST_LIMIT: int = _int("PLAYLIST_LIMIT", 10)

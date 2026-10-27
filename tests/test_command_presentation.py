@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock,patch
 from pathlib import Path
 from pyrogram.enums import ButtonStyle,ChatType
-from pyrogram.types import InlineKeyboardMarkup
+from pyrogram.types import InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 from videl.utils import command_ui as ui
 from videl.utils.bot_ui import button
 from videl.utils.command_catalog import source_paths
@@ -195,6 +195,15 @@ class PresentationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(updated.inline_keyboard[0][0].callback_data,'refresh')
         self.assertEqual([item.callback_data for item in updated.inline_keyboard[-1]],['help:home','cmds:all:0'])
         self.assertEqual(len(keyboard.inline_keyboard),1)
+
+    async def test_reply_keyboard_keeps_existing_actions_and_adds_help_commands(self):
+        keyboard=ReplyKeyboardMarkup([[KeyboardButton('Continue')]],resize_keyboard=True)
+        with patch.object(ui,'_send',AsyncMock()) as send:
+            await ui.rich_send(object(),123,'<h3>Choose an action</h3>',reply_markup=keyboard)
+        updated=send.call_args.kwargs['reply_markup']
+        self.assertEqual(updated.keyboard[0][0].text,'Continue')
+        self.assertEqual([item.text for item in updated.keyboard[-1]],['/help','/commands'])
+        self.assertEqual(len(keyboard.keyboard),1)
 
     async def test_edit_explicit_none_clears_controls_and_unknown_send_not_retried(self):
         with patch.object(ui,'_edit',AsyncMock()) as edit:
