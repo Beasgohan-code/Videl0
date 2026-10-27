@@ -31,6 +31,19 @@ class SudoDatabaseTests(unittest.TestCase):
         self.assertFalse(db.is_sudo_user(701))
         self.assertFalse(db.remove_sudo_user(701))
 
+    def test_expiring_sudo_is_denied_and_removed_from_roster(self):
+        from datetime import datetime, timedelta, timezone
+        expiry = datetime.now(timezone.utc) + timedelta(hours=2)
+        self.assertEqual(db.add_sudo_user(702, OWNER_ID, expiry), "added")
+        self.assertTrue(db.is_sudo_user(702))
+        stored_expiry = db.get_sudo_users()[0]["expires_at"]
+        if stored_expiry.tzinfo is None:
+            stored_expiry = stored_expiry.replace(tzinfo=timezone.utc)
+        self.assertLess(abs((stored_expiry - expiry).total_seconds()), 1)
+        self.database.bot_sudo_users.update_one({"_id": 702}, {"$set": {"expires_at": datetime.now(timezone.utc) - timedelta(seconds=1)}})
+        self.assertFalse(db.is_sudo_user(702))
+        self.assertEqual(db.get_sudo_users(), [])
+
     def test_sudo_membership_fails_closed_when_database_is_unavailable(self):
         with patch.object(db, "_db", None):
             self.assertFalse(db.is_sudo_user(701))
@@ -71,9 +84,25 @@ class SudoScopeTests(unittest.IsolatedAsyncioTestCase):
              patch.object(sudo, "add_sudo_user", return_value="added") as add, \
              patch.object(sudo, "record_bot"):
             screen = await sudo.add_sudo(ctx)
-        add.assert_called_once_with(701, OWNER_ID)
+        add.assert_called_once_with(701, OWNER_ID, None)
         self.assertIn("/gblock", screen.html)
         self.assertIn("does not grant Telegram administrator rights", screen.html)
+
+    async def test_owner_can_issue_a_time_limited_grant(self):
+        ctx = NS(
+            command=NS(arguments="701 7d", name="addsudo"),
+            message=NS(reply_to_message=None),
+            client=NS(get_users=AsyncMock()),
+            user=NS(id=OWNER_ID),
+        )
+        with patch.object(sudo, "get_sudo_users", return_value=[]), \
+             patch.object(sudo, "add_sudo_user", return_value="added") as add, \
+             patch.object(sudo, "record_bot"):
+            screen = await sudo.add_sudo(ctx)
+        args = add.call_args.args
+        self.assertEqual(args[:2], (701, OWNER_ID))
+        self.assertIsNotNone(args[2])
+        self.assertIn("Expires", screen.html)
 
     async def test_inline_remove_requires_owner_private_and_bot_authored_panel(self):
         message = NS(

@@ -476,24 +476,42 @@ def is_sudo_user(user_id: int) -> bool:
         user_id = int(user_id)
         if _db["blocked_users"].find_one({"_id": user_id}) is not None:
             return False
-        return col.find_one({"_id": user_id}) is not None
+        document = col.find_one({"_id": user_id})
+        if document is None:
+            return False
+        expires_at = document.get("expires_at")
+        if expires_at is None:
+            return True
+        if not isinstance(expires_at, datetime):
+            return False
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at <= datetime.now(timezone.utc):
+            col.delete_one({"_id": user_id, "expires_at": document["expires_at"]})
+            return False
+        return True
     except Exception:
         logger.warning("Sudo membership lookup failed; denying elevated bot command")
         return False
 
 
-def add_sudo_user(user_id: int, actor_id: int) -> str | None:
+def add_sudo_user(user_id: int, actor_id: int, expires_at: datetime | None = None) -> str | None:
     """Return added/exists, or None when storage cannot confirm the change."""
     col = _col("bot_sudo_users")
     if col is None:
         return None
     user_id, actor_id = int(user_id), int(actor_id)
     try:
-        col.insert_one({
+        document = {
             "_id": user_id,
             "added_by": actor_id,
             "added_at": datetime.now(timezone.utc),
-        })
+        }
+        if expires_at is not None:
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            document["expires_at"] = expires_at.astimezone(timezone.utc)
+        col.insert_one(document)
         return "added"
     except DuplicateKeyError:
         return "exists"
@@ -515,12 +533,13 @@ def remove_sudo_user(user_id: int) -> bool | None:
 
 
 def get_sudo_users() -> list | None:
-    """Return a stable sudo roster, or None when the database is unavailable."""
+    """Return an active, stable sudo roster, or None when storage is unavailable."""
     col = _col("bot_sudo_users")
     if col is None:
         return None
     try:
-        return list(col.find({}, {"_id": 1, "added_by": 1, "added_at": 1}).sort("_id", 1))
+        col.delete_many({"expires_at": {"$lte": datetime.now(timezone.utc)}})
+        return list(col.find({}, {"_id": 1, "added_by": 1, "added_at": 1, "expires_at": 1}).sort("_id", 1))
     except Exception:
         logger.exception("Could not read bot sudo roster")
         return None

@@ -63,7 +63,8 @@ USAGE = {
     "remind": "/remind 10m <text>",
     "invite": "/invite [title]",
     "playnext": "/playnext <song name or link>",
-    "addsudo": "/addsudo <@user|user_id> (owner, private chat)",
+    "addsudo": "/addsudo <@user|user_id> [duration] (owner, private chat)",
+    "sudolist": "/sudolist (owner, private chat) — shows grant expiry",
     "delsudo": "/delsudo <@user|user_id> (owner, private chat)",
     "rmsudo": "/rmsudo <@user|user_id> (owner, private chat)",
 }

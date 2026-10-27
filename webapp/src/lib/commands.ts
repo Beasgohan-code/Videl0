@@ -1030,7 +1030,7 @@ export const BOT_COMMANDS: BotCommand[] = [
   },
   {
     "name": "addsudo",
-    "usage": "/addsudo <@user|user_id> (owner, private chat)",
+    "usage": "/addsudo <@user|user_id> [duration] (owner, private chat)",
     "summary": "Grant limited bot-blocklist operator access to a trusted user",
     "category": "owner",
     "context": "private",
@@ -1118,7 +1118,7 @@ export const BOT_COMMANDS: BotCommand[] = [
   },
   {
     "name": "sudolist",
-    "usage": "/sudolist",
+    "usage": "/sudolist (owner, private chat) — shows grant expiry",
     "summary": "List bot sudo operators and remove access inline",
     "category": "owner",
     "context": "private",

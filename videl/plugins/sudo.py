@@ -44,15 +44,17 @@ def _sudo_screen(documents) -> Screen:
         return Screen(
             heading("🛡 Bot sudo", 3)
             + body("No sudo operators are configured.")
-            + body("Add one with <code>/addsudo user_id</code> or by replying to a user's message with <code>/addsudo</code>."),
+            + body("Add one with <code>/addsudo user_id [duration]</code> or reply with <code>/addsudo [duration]</code>. Omit duration for permanent access; for example, <code>7d</code> expires after seven days."),
         )
     rows = []
     buttons = []
     for item in documents[:MAX_SUDO_USERS]:
         user_id = int(item.get("_id", 0))
         added_by = int(item.get("added_by", 0) or 0)
+        expires_at = item.get("expires_at")
+        expiry = "Never" if expires_at is None else escape(expires_at.strftime("%Y-%m-%d %H:%M UTC"))
         rows.append((f'<a href="tg://user?id={user_id}">User {user_id}</a>',
-                     f"<code>{user_id}</code> · added by <code>{added_by}</code>"))
+                     f"<code>{user_id}</code> · added by <code>{added_by}</code> · expires: {expiry}"))
         buttons.append([button(f"Remove {user_id}", callback_data=f"sudoadmin:remove:{user_id}", style="danger")])
     text = (
         heading(f"🛡 Bot sudo operators · {len(documents)}", 3)
@@ -69,7 +71,7 @@ async def _resolve_operator(ctx):
     if replied_user is not None:
         user_id = int(getattr(replied_user, "id", 0) or 0)
         label = f'<a href="tg://user?id={user_id}">{escape(getattr(replied_user, "first_name", None) or f"User {user_id}")}</a>'
-        return user_id, label, [], bool(getattr(replied_user, "is_bot", False))
+        return user_id, label, ctx.command.arguments.split(), bool(getattr(replied_user, "is_bot", False))
     tokens = ctx.command.arguments.split()
     if not tokens:
         return 0, "", [], False
@@ -92,8 +94,14 @@ async def add_sudo(ctx) -> Screen:
     user_id, label, remainder, is_bot = await _resolve_operator(ctx)
     if not user_id:
         return Screen(usage("/addsudo @username", "Or reply to a user message, or use /addsudo numeric_id."))
+    expires_at = None
+    if len(remainder) > 1:
+        return Screen(usage("/addsudo @username [duration]", "Use one optional duration such as 7d, 12h, or 30m."))
     if remainder:
-        return Screen(usage("/addsudo @username", "Add exactly one user; extra text is not interpreted."))
+        seconds = base.parse_duration(remainder[0])
+        if seconds is None:
+            return Screen(usage("/addsudo @username [duration]", "Duration must be 60 seconds to 365 days, for example 7d."))
+        expires_at = base.until(seconds)
     if user_id <= 0 or user_id > 9_223_372_036_854_775_807 or is_bot:
         raise CommandError("Sudo can only be assigned to a valid human Telegram user ID.")
     if user_id == int(config.OWNER_ID):
@@ -104,7 +112,7 @@ async def add_sudo(ctx) -> Screen:
         raise CommandError("The sudo database is unavailable; no change was made.")
     if user_id not in {int(item.get("_id", 0)) for item in documents} and len(documents) >= MAX_SUDO_USERS:
         raise CommandError(f"The sudo roster is limited to {MAX_SUDO_USERS} operators. Remove one before adding another.")
-    status = await asyncio.to_thread(add_sudo_user, user_id, int(ctx.user.id))
+    status = await asyncio.to_thread(add_sudo_user, user_id, int(ctx.user.id), expires_at)
     if status is None:
         raise CommandError("The database could not confirm the sudo change.")
     if status == "exists":
@@ -116,7 +124,7 @@ async def add_sudo(ctx) -> Screen:
     screen = _sudo_screen(await asyncio.to_thread(get_sudo_users))
     return Screen(
         heading("✅ Sudo operator added", 3)
-        + table([("User", label), ("User ID", f"<code>{user_id}</code>"), ("Scope", "Bot group/user blocklists only")])
+        + table([("User", label), ("User ID", f"<code>{user_id}</code>"), ("Expires", "Never" if expires_at is None else escape(expires_at.strftime("%Y-%m-%d %H:%M UTC"))), ("Scope", "Bot group/user blocklists only")])
         + body("Allowed in private chat only: <code>/gblock</code>, <code>/gunblock</code>, <code>/ublock</code>, <code>/uunblock</code>, and <code>/blocklist</code>.")
         + body("This does not grant Telegram administrator rights or access to owner-only fleet, backup, recording, deployment, or sudo commands."),
         screen.keyboard,

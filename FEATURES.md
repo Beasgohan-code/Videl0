@@ -57,8 +57,9 @@ to code that actually runs:
   so this also covers commands that never pass through the declarative router.
   Group admins and the bot owner stay exempt.
 - **Limited bot sudo** — the owner can add or remove up to 25 trusted operators
-  from private chat with `/addsudo`, `/delsudo` or `/rmsudo`; `/sudolist` has
-  inline revoke buttons. Sudo is useful for delegating bot-wide group/user
+  from private chat with `/addsudo` (optionally with a duration such as `7d`),
+  `/delsudo` or `/rmsudo`; temporary grants expire automatically, and `/sudolist`
+  shows expiry times and inline revoke buttons. Sudo is useful for delegating bot-wide group/user
   blocklist maintenance (`/gblock`, `/gunblock`, `/ublock`, `/uunblock`,
   `/blocklist`) without sharing the owner account. It works only from private
   chat, never substitutes for Telegram group-admin rights, and cannot access
