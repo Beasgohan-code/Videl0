@@ -52,6 +52,17 @@ test("real editor selection formats words and undo restores them",async()=>{
  editor.destroy();dom.window.close();
 });
 
+test("the user-provided Telegram Android emoji set is available in the editor picker", async () => {
+ const { PREMIUM_EMOJI, PREMIUM_GROUPS } = await import("../src/lib/premium-emoji");
+ const android = PREMIUM_EMOJI.filter((item) => item.group === "Telegram Android");
+ assert.equal(android.length, 100);
+ assert.equal(new Set(android.map((item) => item.id)).size, 100);
+ assert.ok(android.every((item) => /^\d{1,20}$/.test(item.id) && item.char && item.label));
+ assert.ok(PREMIUM_GROUPS.includes("Telegram Android"));
+ assert.ok(android.some((item) => item.id === "5875465628285931233" && item.char === "✈️"));
+ assert.ok(android.some((item) => item.id === "5877530150345641603" && item.char === "👤"));
+});
+
 test("premium emoji tags survive sanitization and render as chat badges",()=>{
  const html='<tg-emoji emoji-id="5368324170671202286">🔥</tg-emoji> <b>launch</b>';
  const cleaned=cleanTelegramHtml(html);
