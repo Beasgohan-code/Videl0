@@ -95,6 +95,27 @@ _RICH_TAGS_RE = re.compile(
 )
 _BUTTON_RE = re.compile(r"<tg-button\b([^>]*)>(.*?)</tg-button>", re.I | re.S)
 _ATTR_RE = re.compile(r'([\w-]+)\s*=\s*"([^"]*)"')
+_VISUAL_REJECTION_MARKERS = (
+    "custom_emoji", "custom emoji", "icon_custom_emoji", "button_style",
+    "style_invalid", "button_type_invalid", "unsupported button style",
+    "unsupported start tag 'tg-emoji'", 'unsupported start tag "tg-emoji"',
+)
+
+
+def _is_optional_visual_rejection(error, html_text: str, reply_markup=None) -> bool:
+    """Only strip premium visuals when Telegram's error points at those visuals."""
+    message = str(error).casefold()
+    if not any(marker in message for marker in _VISUAL_REJECTION_MARKERS):
+        return False
+    has_emoji = "<tg-emoji" in str(html_text or "").casefold()
+    has_button_visual = any(
+        getattr(button, "icon_custom_emoji_id", None)
+        or getattr(getattr(button, "style", None), "value", "default") != "default"
+        for row in getattr(reply_markup, "inline_keyboard", [])
+        for button in row
+    )
+    return has_emoji or has_button_visual
+
 
 _html_hooks = []
 
@@ -541,7 +562,8 @@ async def rich_send(
         )
     except Exception as e:
         # Only retry a definite Telegram rejection, never an ambiguous network failure.
-        if isinstance(e, BadRequest) and not markdown and ("<tg-emoji" in html_text or any(getattr(btn, "icon_custom_emoji_id", None) or getattr(getattr(btn, "style", None), "value", "default") != "default" for row in getattr(reply_markup, "inline_keyboard", []) for btn in row)):
+        if isinstance(e, BadRequest) and not markdown and _is_optional_visual_rejection(e, html_text, reply_markup):
+            logger.info("[rich_send] Telegram rejected optional custom visuals; retrying with Unicode/default visuals")
             import copy
             from pyrogram.types import InlineKeyboardMarkup
             plain = _EMOJI_TAG_RE.sub(r"\1", _plain_fallback(html_text))
@@ -927,7 +949,8 @@ async def _rich_edit_via_client(
     except MessageNotModified:
         return None
     except Exception as e:
-        if isinstance(e, BadRequest) and not markdown:
+        if isinstance(e, BadRequest) and not markdown and _is_optional_visual_rejection(e, html_text, reply_markup):
+            logger.info("[rich_edit] Telegram rejected optional custom visuals; retrying with Unicode/default visuals")
             from videl.utils.bot_ui import plain_keyboard
             try:
                 return await app.edit_message_text(chat_id=chat_id, message_id=message_id,

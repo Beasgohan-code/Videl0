@@ -209,11 +209,30 @@ class AsyncBehaviorTests(unittest.IsolatedAsyncioTestCase):
             "stop",
         )
 
+    async def test_rich_bad_request_for_an_unrelated_reason_does_not_strip_custom_emoji(self):
+        from vendor.richgram.richgram import rich_ui as transport
+        client = SimpleNamespace(send_message=AsyncMock(side_effect=BadRequest("CHAT_WRITE_FORBIDDEN")))
+        with patch.object(transport, "RICH_AVAILABLE", False):
+            result = await transport.rich_send(client, 1, '<tg-emoji emoji-id="123">🎵</tg-emoji> Track')
+        self.assertIsNone(result)
+        client.send_message.assert_awaited_once()
+        self.assertIn("<tg-emoji", client.send_message.await_args.kwargs["text"])
+
     async def test_native_network_error_does_not_send_twice(self):
         send = AsyncMock(side_effect=TimeoutError())
         with self.assertRaises(TimeoutError):
             await visual_call(send, 1, text="Hello")
         send.assert_awaited_once()
+
+    async def test_rich_edit_unrelated_bad_request_keeps_emoji_and_does_not_retry(self):
+        from vendor.richgram.richgram.rich_ui import _rich_edit_via_client
+        client = SimpleNamespace(edit_message_text=AsyncMock(side_effect=BadRequest("CHAT_WRITE_FORBIDDEN")))
+        result = await _rich_edit_via_client(
+            client, 1, 2, '<tg-emoji emoji-id="123">🎵</tg-emoji> Track', None
+        )
+        self.assertIsNone(result)
+        client.edit_message_text.assert_awaited_once()
+        self.assertIn("<tg-emoji", client.edit_message_text.await_args.kwargs["text"])
 
     async def test_rich_timeout_does_not_fall_through_to_a_second_send(self):
         from vendor.richgram.richgram.rich_ui import rich_send

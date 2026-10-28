@@ -3,6 +3,7 @@
 from __future__ import annotations
 import html
 import copy
+import logging
 import os
 import re
 from pyrogram import enums
@@ -18,6 +19,36 @@ _STYLES = {
     "success": enums.ButtonStyle.SUCCESS,
     "danger": enums.ButtonStyle.DANGER,
 }
+_VISUAL_REJECTION_MARKERS = (
+    "custom_emoji", "custom emoji", "icon_custom_emoji", "button_style",
+    "style_invalid", "style is not allowed", "button_type_invalid",
+    "unsupported button style", "unsupported start tag 'tg-emoji'",
+    'unsupported start tag "tg-emoji"',
+)
+
+
+def _has_visual_content(args, kwargs) -> tuple[bool, bool]:
+    texts = [value for value in args if isinstance(value, str)]
+    texts.extend(kwargs.get(name) for name in ("text", "caption") if isinstance(kwargs.get(name), str))
+    has_custom_emoji = any("<tg-emoji" in value.casefold() for value in texts)
+    markups = [kwargs.get(name) for name in ("reply_markup", "markup")]
+    has_button_visual = any(
+        getattr(item, "icon_custom_emoji_id", None)
+        or getattr(getattr(item, "style", None), "value", "default") != "default"
+        for markup in markups
+        for row in getattr(markup, "inline_keyboard", [])
+        for item in row
+    )
+    return has_custom_emoji, has_button_visual
+
+
+def _is_visual_rejection(error, args, kwargs) -> bool:
+    message = str(error).casefold()
+    has_custom_emoji, has_button_visual = _has_visual_content(args, kwargs)
+    return bool(
+        any(marker in message for marker in _VISUAL_REJECTION_MARKERS)
+        and (has_custom_emoji or has_button_visual)
+    )
 
 
 def button(text: str, *args, style=None, icon=None, **kwargs) -> NativeButton:
@@ -177,7 +208,12 @@ async def visual_call(function, *args, **kwargs):
         return await function(*args, **kwargs)
     except MessageNotModified:
         return None
-    except BadRequest:
+    except BadRequest as error:
+        if not _is_visual_rejection(error, args, kwargs):
+            raise
+        logging.getLogger(__name__).info(
+            "Telegram rejected optional custom emoji/button visuals; retrying this message with standard visuals"
+        )
         safe = dict(kwargs)
         safe_args = list(args)
         changed = False

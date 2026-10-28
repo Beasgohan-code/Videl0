@@ -177,6 +177,14 @@ class StyledFallbackTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("<tg-emoji", retry_text)
         self.assertIn("🎵", retry_text)
 
+    async def test_unrelated_bad_request_does_not_strip_premium_emoji_or_retry(self):
+        from pyrogram.errors import BadRequest
+        from videl.utils.bot_ui import visual_call
+        send = AsyncMock(side_effect=BadRequest("CHAT_WRITE_FORBIDDEN"))
+        with self.assertRaises(BadRequest):
+            await visual_call(send, text='<tg-emoji emoji-id="123">🎵</tg-emoji> Track')
+        send.assert_awaited_once()
+
     async def test_definite_style_rejection_drops_only_visuals(self):
         from pyrogram.errors import BadRequest
         from pyrogram.enums import ButtonStyle
