@@ -14,6 +14,7 @@ from videl import assistant, bot
 logger = logging.getLogger(__name__)
 PLAY_ACK_TIMEOUT_SECONDS = 60
 CALL_START_TIMEOUT_SECONDS = 45
+PLAY_CLEANUP_TIMEOUT_SECONDS = 15
 
 
 class VoiceChatStartError(RuntimeError):
@@ -92,16 +93,50 @@ def is_missing_voice_chat(error: BaseException) -> bool:
 
 
 async def play_with_auto_start(call_py, chat_id: int, stream):
-    """Play once, creating a missing Telegram call and retrying only that case."""
+    """Play, recover one ambiguous timeout by leaving then replaying once.
+
+    A timed-out play may already be live. Confirm that the old PyTgCalls
+    session has left before retrying so recovery cannot stack duplicate audio.
+    """
+    play_error = None
     try:
         # Slow hosted assistants can take longer to negotiate/join the stream;
         # keep a firm bound, but avoid declaring failure during a normal join.
         return await asyncio.wait_for(
             call_py.play(chat_id, stream), PLAY_ACK_TIMEOUT_SECONDS
         )
-    except Exception as play_error:
+    except asyncio.TimeoutError:
+        logger.warning("Playback acknowledgement timed out in %s; resetting session before one retry", chat_id)
+        try:
+            left = await asyncio.wait_for(call_py.leave_call(chat_id), PLAY_CLEANUP_TIMEOUT_SECONDS)
+            if left is False:
+                raise RuntimeError("Timed-out playback session leave was not acknowledged")
+        except NoActiveGroupCall:
+            pass
+        except Exception as cleanup_error:
+            logger.warning("Could not reset timed-out playback in %s (%s); not retrying", chat_id, type(cleanup_error).__name__)
+            raise
+        try:
+            return await asyncio.wait_for(
+                call_py.play(chat_id, stream), PLAY_ACK_TIMEOUT_SECONDS
+            )
+        except Exception as retry_error:
+            play_error = retry_error
+            logger.warning("Single playback recovery retry failed in %s (%s)", chat_id, type(retry_error).__name__)
+            if is_missing_voice_chat(retry_error):
+                # Preserve the established safe recovery for a definitively
+                # missing group call, but don't repeat an ambiguous timeout.
+                pass
+            else:
+                raise
+        # The one retry may have surfaced an explicit missing-call error; fall
+        # through to the existing authorized call-creation recovery below.
+        play_error = retry_error
+    except Exception as initial_error:
+        play_error = initial_error
         if not is_missing_voice_chat(play_error):
             raise
+    if play_error is not None and is_missing_voice_chat(play_error):
         try:
             # Allow Telegram time to finish creating a call before the
             # playback retry; slow hosted/network RPCs need a longer bound.

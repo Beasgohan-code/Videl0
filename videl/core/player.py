@@ -237,9 +237,9 @@ async def play_song(chat_id:int, message:Message, song:dict, *, advance=False, r
             elif isinstance(error, (asyncio.TimeoutError, TimeoutError)) and stage == "voice-chat playback":
                 title = 'Voice chat timed out'
                 detail = ('The audio downloaded, but PyTgCalls did not confirm the stream within 60 seconds. '
-                          'The queue is preserved. Videl does not auto-retry an unconfirmed stream because Telegram may already be playing it. '
+                          'Videl reset the playback session and retried once; the queue is preserved. '
                           'Check that the assistant session is online, the assistant is in this group and can join/speak, and a voice chat is active; '
-                          'if nothing is playing, use /replay once.')
+                          'if nothing is playing, use Replay current track once.')
             elif isinstance(error, (asyncio.TimeoutError, TimeoutError)):
                 title = 'Track preparation timed out'
                 detail = 'The queue was preserved. Try again shortly; optional audio effects will be skipped if their settings are slow to load.'

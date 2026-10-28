@@ -92,13 +92,27 @@ class VoiceChatRecoveryTests(unittest.IsolatedAsyncioTestCase):
         ensure.assert_awaited_once_with(-100123)
         self.assertEqual(player.play.await_count, 2)
 
-    async def test_play_timeout_is_not_retried_because_start_may_be_ambiguous(self):
-        player = SimpleNamespace(play=AsyncMock(side_effect=asyncio.TimeoutError()))
+    async def test_play_timeout_resets_session_then_retries_once(self):
+        player = SimpleNamespace(
+            play=AsyncMock(side_effect=[asyncio.TimeoutError(), "playing"]),
+            leave_call=AsyncMock(return_value=True),
+        )
         with patch.object(voice_chat, "ensure_active_voice_chat", new=AsyncMock()) as ensure:
-            with self.assertRaises(asyncio.TimeoutError):
-                await voice_chat.play_with_auto_start(player, -100123, "stream")
-        player.play.assert_awaited_once()
+            result = await voice_chat.play_with_auto_start(player, -100123, "stream")
+        self.assertEqual(result, "playing")
+        player.leave_call.assert_awaited_once_with(-100123)
+        self.assertEqual(player.play.await_count, 2)
         ensure.assert_not_awaited()
+
+    async def test_play_timeout_does_not_retry_if_reset_is_unconfirmed(self):
+        player = SimpleNamespace(
+            play=AsyncMock(side_effect=asyncio.TimeoutError()),
+            leave_call=AsyncMock(return_value=False),
+        )
+        with self.assertRaisesRegex(RuntimeError, "leave was not acknowledged"):
+            await voice_chat.play_with_auto_start(player, -100123, "stream")
+        player.play.assert_awaited_once()
+        player.leave_call.assert_awaited_once_with(-100123)
 
     async def test_client_not_started_is_not_misdiagnosed_as_missing_call(self):
         player = SimpleNamespace(play=AsyncMock(side_effect=RuntimeError("ClientNotStarted")))
