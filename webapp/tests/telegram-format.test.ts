@@ -1,5 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createElement } from "react";
+import { render } from "./dom";
 import { telegramHtml, cleanTelegramHtml, previewHtml, editorHtml, safeLink, visibleLength, chatPreviewHtml, wrapWithTag } from "../src/lib/telegram-format";
 test("selected text marks become Telegram formatting without exposing tags",()=>{
  assert.equal(telegramHtml({type:"text",text:"Hello & <friends>",marks:[{type:"bold"},{type:"italic"}]}),"<i><b>Hello &amp; &lt;friends&gt;</b></i>");
@@ -71,6 +73,14 @@ test("the user-provided Telegram Android emoji set is available in the editor pi
  assert.equal(new Set(vector.map((item) => item.id)).size, 118);
  assert.ok(vector.some((item) => item.id === "5219899949281453881" && item.char === "✅"));
  assert.ok(vector.some((item) => item.id === "5454310635707853545" && item.char === "🚩"));
+});
+
+test("large emoji catalogs render a bounded first page with a load-more affordance", async () => {
+ const { PremiumEmojiPicker } = await import("../src/components/editor/PremiumEmojiPicker");
+ const html = render(createElement(PremiumEmojiPicker, { onInsert: () => {} }));
+ assert.equal((html.match(/aria-label="Insert .*? premium emoji"/g) || []).length, 64);
+ assert.match(html, /Showing 64 of \d+ emojis/);
+ assert.match(html, /Load 64 more/);
 });
 
 test("premium emoji tags survive sanitization and render as chat badges",()=>{
