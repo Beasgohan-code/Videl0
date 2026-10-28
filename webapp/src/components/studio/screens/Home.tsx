@@ -8,6 +8,7 @@ import {
   BookOpen,
   Images,
   Gamepad2,
+  Music2,
 } from "lucide-react";
 import { useTelegram } from "@/components/TelegramProvider";
 import { GAME_ART } from "@/lib/arcade";
@@ -50,6 +51,9 @@ export default function Home() {
         </button>
         <button onClick={() => open("arcade")} className="ios-btn ios-btn-glass">
           <Gamepad2 size={16} aria-hidden /> Play in the arcade
+        </button>
+        <button onClick={() => open("auth")} className="ios-btn ios-btn-glass">
+          <Music2 size={16} aria-hidden /> Sign in for Videl Music
         </button>
       </div>
 

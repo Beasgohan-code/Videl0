@@ -5,6 +5,7 @@ No endpoint accepts arbitrary hosts, cookie uploads, proxies or shell commands.
 """
 from __future__ import annotations
 
+import asyncio
 import hmac
 import logging
 import mimetypes
@@ -114,6 +115,63 @@ def _download(video_id: str, video: bool, directory: Path) -> Path:
 
 
 def register_eldian_routes(app: Flask) -> None:
+    def internal_authorized() -> bool:
+        expected = (os.environ.get("WEBAPP_SECRET") or "").strip()
+        supplied = request.headers.get("X-Videl-Internal", "")
+        return bool(expected) and hmac.compare_digest(supplied, expected)
+
+    @app.get("/internal/music/search")
+    def internal_music_search():
+        if not internal_authorized():
+            return jsonify({"ok": False, "error": "unauthorized"}), 403
+        query = str(request.args.get("q", "")).strip()
+        if not query or len(query) > 120:
+            return jsonify({"ok": False, "error": "Enter a search up to 120 characters"}), 400
+        try:
+            limit = max(1, min(8, int(request.args.get("limit", "8"))))
+            from videl.utils.youtube import search_yt_multi
+            tracks = asyncio.run(asyncio.wait_for(search_yt_multi(query, limit), timeout=20))
+            safe_tracks = [
+                {
+                    "video_id": str(item.get("video_id", "")),
+                    "title": str(item.get("title", ""))[:240],
+                    "channel": str(item.get("channel", ""))[:120],
+                    "duration": str(item.get("duration", ""))[:20],
+                    "thumbnail": str(item.get("thumbnail", "")),
+                }
+                for item in tracks
+                if re.fullmatch(r"[A-Za-z0-9_-]{11}", str(item.get("video_id", "")))
+            ]
+            return jsonify({"ok": True, "tracks": safe_tracks}), 200
+        except Exception as exc:
+            logger.warning("Music search failed (%s)", type(exc).__name__)
+            return jsonify({"ok": False, "error": "Search is temporarily unavailable; try again shortly"}), 503
+
+    @app.get("/internal/music/track/<video_id>")
+    def internal_music_track(video_id: str):
+        if not internal_authorized():
+            return jsonify({"ok": False, "error": "unauthorized"}), 403
+        if not re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id or ""):
+            return jsonify({"ok": False, "error": "Invalid track ID"}), 400
+        try:
+            from videl.utils.youtube import download_song
+            path = asyncio.run(asyncio.wait_for(download_song(video_id), timeout=300))
+            if not path or not Path(path).is_file():
+                return jsonify({"ok": False, "error": "Track could not be prepared"}), 502
+            response = send_file(
+                path,
+                mimetype=mimetypes.guess_type(path)[0] or "audio/mpeg",
+                as_attachment=False,
+                conditional=True,
+                max_age=0,
+            )
+            response.headers["Cache-Control"] = "private, no-store"
+            response.headers["X-Content-Type-Options"] = "nosniff"
+            return response
+        except Exception as exc:
+            logger.warning("Music track preparation failed (%s)", type(exc).__name__)
+            return jsonify({"ok": False, "error": "Track could not be prepared; check the downloader status"}), 502
+
     @app.get("/api/music")
     def music_contract():
         return jsonify({"service": "Videl music API", "version": 1,

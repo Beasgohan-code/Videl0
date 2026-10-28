@@ -40,6 +40,7 @@ const screens = {
   }),
   auth: dynamic(() => import("@/components/studio/screens/Auth"), { loading }),
   arcade: dynamic(() => import("@/components/studio/screens/Arcade"), { loading }),
+  music: dynamic(() => import("@/components/studio/screens/Music"), { loading }),
 };
 export default function Studio() {
   const { tab } = useStudio();
@@ -68,6 +69,7 @@ export default function Studio() {
                 "analytics",
                 "broadcast",
                 "settings",
+                "music",
               ].includes(key) ? (
                 <OwnerGate>
                   <Screen />

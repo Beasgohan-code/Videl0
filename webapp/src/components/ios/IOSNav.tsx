@@ -21,6 +21,7 @@ import {
   MoreHorizontal,
   X,
   ShieldCheck,
+  Music2,
 } from "lucide-react";
 
 type NavItem = {
@@ -36,6 +37,7 @@ const tabs: NavItem[] = [
   { tab: "tools", label: "Creator Tools", icon: Wand2 },
   { tab: "guide", label: "Command Guide", icon: BookOpen },
   { tab: "arcade", label: "Arcade", icon: Gamepad2 },
+  { tab: "music", label: "Videl Music", icon: Music2, ownerOnly: true },
   { tab: "chat", label: "Bot Inbox", icon: MessageCircle, ownerOnly: true },
   { tab: "groups", label: "Group Manager", icon: Users, ownerOnly: true },
   { tab: "automation", label: "Automation", icon: Zap, ownerOnly: true },
@@ -47,11 +49,12 @@ const tabs: NavItem[] = [
 const groups: { label: string; tabs: Section[] }[] = [
   { label: "Create", tabs: ["home", "post", "tools", "guide"] },
   { label: "Play", tabs: ["arcade"] },
+  { label: "Listen", tabs: ["music"] },
   { label: "Operate", tabs: ["chat", "groups", "automation", "analytics", "broadcast"] },
   { label: "System", tabs: ["settings", "auth"] },
 ];
 
-const primaryTabs: Section[] = ["home", "post", "chat", "groups"];
+const primaryTabs: Section[] = ["home", "music", "post", "groups"];
 
 const ownerAccess: NavItem = {
   tab: "auth",

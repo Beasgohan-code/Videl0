@@ -14,10 +14,12 @@ test("public, loading and non-owner sessions never unlock private sections", () 
       "analytics",
       "broadcast",
       "settings",
+      "music",
     ])
       assert.equal(canOpenSection(section, owner), false);
   }
   assert.equal(canOpenSection("settings", true), true);
+  assert.equal(canOpenSection("music", true), true);
 });
 test("creator tools count Telegram UTF16 units and unique Unicode hashtags", () => {
   assert.deepEqual(textInsights("Hi 😀 #Hello #HELLO #കേരളം"), {

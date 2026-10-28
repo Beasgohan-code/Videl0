@@ -12,6 +12,7 @@ import {
   MessageCircle,
   Crown,
   Activity,
+  Music2,
 } from "lucide-react";
 import { useTelegram } from "@/components/TelegramProvider";
 import { useStudio, Section } from "@/components/studio/StudioProvider";
@@ -32,6 +33,12 @@ const actions: {
   icon: typeof Send;
   color: string;
 }[] = [
+  {
+    tab: "music",
+    label: "Listen to music",
+    icon: Music2,
+    color: "from-emerald-400 to-teal-600",
+  },
   {
     tab: "post",
     label: "Create Post",
