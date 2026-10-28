@@ -61,6 +61,16 @@ test("the user-provided Telegram Android emoji set is available in the editor pi
  assert.ok(PREMIUM_GROUPS.includes("Telegram Android"));
  assert.ok(android.some((item) => item.id === "5875465628285931233" && item.char === "✈️"));
  assert.ok(android.some((item) => item.id === "5877530150345641603" && item.char === "👤"));
+ const packs = PREMIUM_EMOJI.filter((item) => item.group === "Telegram Packs");
+ assert.equal(packs.length, 200);
+ assert.equal(new Set(packs.map((item) => item.id)).size, 200);
+ assert.ok(packs.some((item) => item.id === "4956222745814762495" && item.char === "❤️‍🔥"));
+ assert.ok(packs.some((item) => item.id === "4958597497657230624" && item.char === "🌹"));
+ const vector = PREMIUM_EMOJI.filter((item) => item.group === "Telegram Vector");
+ assert.equal(vector.length, 118);
+ assert.equal(new Set(vector.map((item) => item.id)).size, 118);
+ assert.ok(vector.some((item) => item.id === "5219899949281453881" && item.char === "✅"));
+ assert.ok(vector.some((item) => item.id === "5454310635707853545" && item.char === "🚩"));
 });
 
 test("premium emoji tags survive sanitization and render as chat badges",()=>{

@@ -110,7 +110,13 @@ class PresentationTests(unittest.IsolatedAsyncioTestCase):
 
     def test_every_user_supplied_pack_entry_has_an_addressable_id_and_fallback(self):
         from videl.utils import premium_emojis
-        expected = {"tgiosicons": 100, "vector": 118}
+        expected = {
+            "tgiosicons": 100,
+            "vector": 118,
+            "android": 100,
+            "emoji_fan": 100,
+            "tgemoji": 100,
+        }
         self.assertEqual(
             {name: len(rows.strip().splitlines()) for name, rows in premium_emojis.SUPPLIED_EMOJI_PACKS.items()},
             expected,
