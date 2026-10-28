@@ -152,6 +152,18 @@ class TransportTests(unittest.TestCase):
 
 
 class BotProfileTests(unittest.TestCase):
+    def test_image_bytes_become_square_jpeg_for_telegram(self):
+        from io import BytesIO
+        from PIL import Image
+        from videl.utils.bot_profile import profile_photo_upload
+
+        source = BytesIO()
+        Image.new("RGB", (800, 400), (40, 90, 140)).save(source, format="PNG")
+        payload, files = profile_photo_upload(source.getvalue())
+        self.assertEqual(payload["photo"]["type"], "static")
+        with Image.open(BytesIO(files["profile_photo"][1])) as converted:
+            self.assertEqual((converted.format, converted.size), ("JPEG", (640, 640)))
+
     def test_bundled_profile_asset_becomes_square_jpeg_for_telegram(self):
         from io import BytesIO
         from PIL import Image
@@ -177,6 +189,33 @@ class BotProfileCommandTests(unittest.IsolatedAsyncioTestCase):
             await api_tools_module.set_bot_profile_photo(None, SimpleNamespace())
         call.assert_awaited_once_with("setMyProfilePhoto", payload, files=files)
         reply.assert_awaited_once()
+
+    async def test_owner_profile_command_accepts_a_direct_image_url(self):
+        payload = {"photo": {"type": "static", "photo": "attach://profile_photo"}}
+        files = {"profile_photo": ("videl-bot-pfp.jpg", b"jpeg", "image/jpeg")}
+        client = SimpleNamespace()
+        message = SimpleNamespace(command=["/setbotphoto", "https://iili.io/nvbEFV9.jpg"])
+        with patch("videl.utils.bot_profile.download_profile_image", return_value=b"image") as download, \
+             patch("videl.utils.bot_profile.profile_photo_upload", return_value=(payload, files)) as prepare, \
+             patch.object(api_tools_module, "bot_api", AsyncMock(return_value=(200, {"ok": True}))), \
+             patch.object(api_tools_module, "rich_reply", AsyncMock()):
+            await api_tools_module.set_bot_profile_photo(client, message)
+        download.assert_called_once_with("https://iili.io/nvbEFV9.jpg")
+        prepare.assert_called_once_with(b"image")
+
+    async def test_owner_profile_command_accepts_a_replied_photo(self):
+        from io import BytesIO
+        payload = {"photo": {"type": "static", "photo": "attach://profile_photo"}}
+        files = {"profile_photo": ("videl-bot-pfp.jpg", b"jpeg", "image/jpeg")}
+        client = SimpleNamespace(download_media=AsyncMock(return_value=BytesIO(b"image")))
+        media = SimpleNamespace(file_id="telegram-file-id", mime_type="image/jpeg")
+        message = SimpleNamespace(reply_to_message=SimpleNamespace(photo=media), command=["/setbotphoto"])
+        with patch("videl.utils.bot_profile.profile_photo_upload", return_value=(payload, files)) as prepare, \
+             patch.object(api_tools_module, "bot_api", AsyncMock(return_value=(200, {"ok": True}))), \
+             patch.object(api_tools_module, "rich_reply", AsyncMock()):
+            await api_tools_module.set_bot_profile_photo(client, message)
+        client.download_media.assert_awaited_once_with("telegram-file-id", in_memory=True)
+        prepare.assert_called_once_with(b"image")
 
 
 class KeyboardTests(unittest.TestCase):

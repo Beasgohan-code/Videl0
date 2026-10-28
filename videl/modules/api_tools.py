@@ -1,6 +1,7 @@
 """Modern Telegram tools; every action is permission-checked and actually calls Telegram."""
 
 from __future__ import annotations
+import asyncio
 import html
 from importlib.metadata import version
 from pyrogram import filters
@@ -49,7 +50,7 @@ OWNER_HELP = (
         ("<code>/emojiinfo</code>", "Reply to a custom-emoji message to extract its IDs."),
         ("<code>/emojiinfo list</code>", "Browse, preview, and copy IDs from every supplied emoji pack."),
         ("<code>/emojiinfo check</code>", "Ask Telegram to resolve configured IDs; lookup does not grant rendering permission."),
-        ("<code>/setbotphoto</code>", "Owner-only: set the Telegram bot profile photo to the bundled Videl image."),
+        ("<code>/setbotphoto</code>", "Owner-only: use the bundled image, a replied photo, or a direct HTTPS image URL. Examples: <code>/setbotphoto https://example.com/photo.jpg</code>, or reply to a photo with <code>/setbotphoto</code>."),
     ])
 )
 HELP = PUBLIC_HELP + OWNER_HELP
@@ -382,12 +383,29 @@ async def emoji_browser_callback(_, query):
 
 
 @bot.on_message(filters.command("setbotphoto", prefixes=config.COMMAND_PREFIX_LIST) & filters.user(config.OWNER_ID) & filters.private)
-async def set_bot_profile_photo(_, message):
-    """Set the bot's Telegram avatar from the versioned Studio profile asset."""
-    from videl.utils.bot_profile import profile_photo_upload
+async def set_bot_profile_photo(client, message):
+    """Set the bot avatar from a replied photo, HTTPS image URL, or bundled default."""
+    from videl.utils.bot_profile import download_profile_image, profile_photo_upload
 
     try:
-        payload, files = profile_photo_upload()
+        target = getattr(message, "reply_to_message", None)
+        supplied = " ".join((getattr(message, "command", None) or [])[1:]).strip()
+        if target and (getattr(target, "photo", None) or getattr(target, "document", None)):
+            media = target.photo or target.document
+            if getattr(media, "mime_type", "image/unknown").startswith("image/"):
+                image_file = await client.download_media(media.file_id, in_memory=True)
+                if image_file is None:
+                    raise ValueError("Telegram could not download the replied image.")
+                payload, files = profile_photo_upload(image_file.getvalue())
+            else:
+                raise ValueError("Reply to a photo or image document to use it as the bot photo.")
+        elif supplied:
+            # Accept a bare URL, optionally wrapped in angle brackets.
+            image_url = supplied.strip("<>")
+            source = await asyncio.to_thread(download_profile_image, image_url)
+            payload, files = profile_photo_upload(source)
+        else:
+            payload, files = profile_photo_upload()
     except (OSError, ValueError) as error:
         return await rich_reply(
             message,
