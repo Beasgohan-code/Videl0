@@ -204,7 +204,7 @@ async def warn(ctx) -> Screen:
         + body(" ".join(notes) or "The warning is saved. Admins can review the member’s history with /warnings.")
         + (body(f"{plan['decayed']} older warning{'s' if plan['decayed'] != 1 else ''} no longer count towards this limit.")
            if plan["decayed"] else body("")),
-        InlineKeyboardMarkup([[button("All warnings", callback_data="help:manage")]]),
+        InlineKeyboardMarkup([[button("View member warnings", callback_data=f"warns:{user.id}")]]),
     )
 
 
@@ -364,9 +364,10 @@ async def moderate(ctx) -> Screen:
             raise CommandError("Telegram did not confirm the unban.")
         title = "Member unbanned"
         try:
-            await asyncio.to_thread(_audit, chat_id, user.id, reason, True)
+            if not await asyncio.to_thread(_audit, chat_id, user.id, reason, True):
+                notes.append("Telegram confirmed the unban; the local ban record could not be updated.")
         except Exception:
-            notes.append("Telegram confirmed the unban; the local record could not be updated.")
+            notes.append("Telegram confirmed the unban; the local ban record could not be updated.")
     elif name in {"mute", "tmute", "unmute"}:
         await _require(ctx, ("can_restrict_members",))
         if name == "unmute":
@@ -393,13 +394,19 @@ async def moderate(ctx) -> Screen:
 
     # The action is already confirmed by Telegram; the trail records who did it
     # and why, so the panel can answer "who removed this member?" later.
-    await asyncio.to_thread(
-        record_bot, chat_id, "moderation",
-        action=name,
-        detail=f"member {user.id}: {reason}"[:240]
-               + (f" until {until_date.strftime('%d %b %Y %H:%M')} UTC" if until_date else ""),
-        actor=getattr(getattr(ctx.message, "from_user", None), "id", None),
-    )
+    try:
+        recorded = await asyncio.to_thread(
+            record_bot, chat_id, "moderation",
+            action=name,
+            detail=f"member {user.id}: {reason}"[:240]
+                   + (f" until {until_date.strftime('%d %b %Y %H:%M')} UTC" if until_date else ""),
+            actor=getattr(getattr(ctx.message, "from_user", None), "id", None),
+        )
+        if not recorded:
+            notes.append("Telegram confirmed the action, but the Studio audit event could not be written.")
+    except Exception:
+        LOGGER.exception("Moderation action %s was confirmed but its audit event failed", name)
+        notes.append("Telegram confirmed the action, but the Studio audit event could not be written.")
     rows = [("Member", target_link(user)), ("User ID", f"<code>{user.id}</code>"), ("Reason", escape(reason))]
     if until_date is not None:
         rows.append(("Until (UTC)", until_date.strftime("%d %b %Y %H:%M")))
@@ -417,7 +424,7 @@ async def moderate(ctx) -> Screen:
         heading(f"{status_icon} {title}", 3)
         + table(rows)
         + body(" ".join(notes) or "Telegram acknowledged the action."),
-        InlineKeyboardMarkup([[button("Warnings", callback_data="help:manage")]]),
+        InlineKeyboardMarkup([[button("View member warnings", callback_data=f"warns:{user.id}")]]),
     )
 
 

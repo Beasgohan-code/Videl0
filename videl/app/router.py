@@ -196,7 +196,7 @@ class Router:
             # cannot trigger a second send or reinterpret an acknowledged action.
             if screen is not None:
                 if screen.animation is None:
-                    await rich_reply(original_message,screen.html,reply_markup=screen.keyboard,client=client)
+                    await rich_reply(original_message,screen.html,reply_markup=screen.keyboard,client=client,navigation=False)
                 else:
                     # GIF delivery is a single media send. Retry only a definite
                     # visual rejection; never send a second copy after a timeout.
@@ -204,7 +204,6 @@ class Router:
                     from pyrogram.enums import ParseMode
                     from pyrogram.errors import BadRequest
                     from videl.utils.bot_ui import visual_call
-                    from videl.utils.command_ui import navigation_markup
                     animation=BytesIO(screen.animation)
                     animation.name='videl-fun.gif'
                     options={
@@ -216,7 +215,8 @@ class Router:
                     }
                     thread=getattr(message,'message_thread_id',None)
                     if thread is not None:options['message_thread_id']=thread
-                    options['reply_markup']=navigation_markup(screen.keyboard)
+                    if screen.keyboard is not None:
+                        options['reply_markup']=screen.keyboard
                     try:
                         await visual_call(client.send_animation,**options)
                     except BadRequest:

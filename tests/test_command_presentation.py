@@ -125,7 +125,7 @@ class PresentationTests(unittest.IsolatedAsyncioTestCase):
 
     def test_card_has_heading_and_real_navigation_without_body_rewriting(self):
         body='<aside>Saved &amp; ready</aside>'
-        rendered=ui.present(body)
+        rendered=ui.present(body,navigation=True)
         self.assertIn(body,rendered)
         self.assertIn('<h3>',rendered)
         plain,keyboard=transport._native_buttons(rendered)
@@ -134,9 +134,15 @@ class PresentationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(keyboard.inline_keyboard[0][0].style,ButtonStyle.PRIMARY)
         self.assertEqual(keyboard.inline_keyboard[0][1].callback_data,'cmds:all:0')
 
+    def test_global_navigation_is_opt_in_not_added_to_every_command_reply(self):
+        rendered = ui.present('<h3>Ban confirmed</h3><blockquote>Telegram acknowledged the action.</blockquote>')
+        self.assertNotIn('tg-button', rendered)
+        self.assertNotIn('help:home', rendered)
+        self.assertNotIn('cmds:all:0', rendered)
+
     def test_global_navigation_is_added_alongside_authored_buttons_only_once(self):
         body='<h2>Controls</h2>'+transport.rich_button('Pause',callback_data='pause',style='primary')
-        rendered=ui.present(body)
+        rendered=ui.present(body,navigation=True)
         self.assertTrue(rendered.startswith(body))
         self.assertIn('data="help:home"',rendered)
         self.assertIn('data="cmds:all:0"',rendered)
@@ -145,7 +151,7 @@ class PresentationTests(unittest.IsolatedAsyncioTestCase):
             ui.rich_button('Help center',callback_data='help:home',style='primary'),
             ui.rich_button('Browse commands',callback_data='cmds:all:0'),
         )
-        self.assertEqual(ui.present(already_complete),already_complete)
+        self.assertEqual(ui.present(already_complete,navigation=True),already_complete)
         self.assertIsNone(ui.present(None))
         self.assertEqual(ui.present(''),'')
         self.assertNotIn('tg-button',ui.present('No navigation',navigation=False))
@@ -156,7 +162,7 @@ class PresentationTests(unittest.IsolatedAsyncioTestCase):
 
     def test_narrow_footer_never_overflows_telegram_text_limit(self):
         long = '<h2>Result</h2>' + 'x' * 4088
-        rendered = ui.present(long)
+        rendered = ui.present(long,navigation=True)
         from videl.utils.post_format import post_text_length
         self.assertLessEqual(post_text_length(rendered, "HTML"), 4096)
         self.assertNotIn('tg-button', rendered)
@@ -167,7 +173,7 @@ class PresentationTests(unittest.IsolatedAsyncioTestCase):
         message=SimpleNamespace(_client=app,chat=SimpleNamespace(id=-1001,type=ChatType.SUPERGROUP),
                                 id=7,message_thread_id=22,from_user=SimpleNamespace(id=42))
         with patch.object(transport,'RICH_AVAILABLE',False):
-            await ui.rich_reply(message,'<aside>Ready</aside>')
+            await ui.rich_reply(message,'<aside>Ready</aside>',navigation=True)
         options=app.send_message.call_args.kwargs
         self.assertEqual(options['chat_id'],-1001)
         self.assertEqual(options['message_thread_id'],22)
@@ -178,7 +184,7 @@ class PresentationTests(unittest.IsolatedAsyncioTestCase):
     async def test_explicit_keyboard_is_cloned_with_help_navigation_and_original_actions(self):
         keyboard=InlineKeyboardMarkup([[button('Stop',callback_data='stop',style='danger')]])
         with patch.object(ui,'_send',AsyncMock()) as send:
-            await ui.rich_send(object(),123,'<h2>Player</h2>',reply_markup=keyboard,protect_content=True)
+            await ui.rich_send(object(),123,'<h2>Player</h2>',reply_markup=keyboard,protect_content=True,navigation=True)
         updated=send.call_args.kwargs['reply_markup']
         self.assertIsNot(updated,keyboard)
         self.assertEqual(updated.inline_keyboard[0][0].callback_data,'stop')
@@ -190,7 +196,7 @@ class PresentationTests(unittest.IsolatedAsyncioTestCase):
     async def test_edit_keeps_action_rows_and_adds_navigation_once(self):
         keyboard=InlineKeyboardMarkup([[button('Refresh',callback_data='refresh')]])
         with patch.object(ui,'_edit',AsyncMock()) as edit:
-            await ui.rich_edit(object(),'<h2>Settings</h2>',reply_markup=keyboard)
+            await ui.rich_edit(object(),'<h2>Settings</h2>',reply_markup=keyboard,navigation=True)
         updated=edit.call_args.kwargs['reply_markup']
         self.assertEqual(updated.inline_keyboard[0][0].callback_data,'refresh')
         self.assertEqual([item.callback_data for item in updated.inline_keyboard[-1]],['help:home','cmds:all:0'])
@@ -199,7 +205,7 @@ class PresentationTests(unittest.IsolatedAsyncioTestCase):
     async def test_reply_keyboard_keeps_existing_actions_and_adds_help_commands(self):
         keyboard=ReplyKeyboardMarkup([[KeyboardButton('Continue')]],resize_keyboard=True)
         with patch.object(ui,'_send',AsyncMock()) as send:
-            await ui.rich_send(object(),123,'<h3>Choose an action</h3>',reply_markup=keyboard)
+            await ui.rich_send(object(),123,'<h3>Choose an action</h3>',reply_markup=keyboard,navigation=True)
         updated=send.call_args.kwargs['reply_markup']
         self.assertEqual(updated.keyboard[0][0].text,'Continue')
         self.assertEqual([item.text for item in updated.keyboard[-1]],['/help','/commands'])

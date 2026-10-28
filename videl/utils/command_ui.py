@@ -42,7 +42,7 @@ from videl.utils.rich_ui import (
 )
 
 
-def present(html_text, *, navigation=True):
+def present(html_text, *, navigation=False):
     """Frame authored feedback without rewriting its body or existing actions.
 
     Never call this for user-authored delivery payloads (saved notes, broadcasts,
@@ -156,7 +156,7 @@ def navigation_markup(markup=None):
     return _with_navigation_keyboard({"reply_markup": markup}).get("reply_markup")
 
 
-async def rich_send(client, chat_id, html_text, *, navigation=True, **options):
+async def rich_send(client, chat_id, html_text, *, navigation=False, **options):
     if navigation:
         options = _with_navigation_keyboard(options)
     return await visual_call(
@@ -166,7 +166,7 @@ async def rich_send(client, chat_id, html_text, *, navigation=True, **options):
     )
 
 
-async def rich_reply(message, html_text, *, navigation=True, **options):
+async def rich_reply(message, html_text, *, navigation=False, **options):
     if navigation:
         options = _with_navigation_keyboard(options)
     return await visual_call(
@@ -176,7 +176,7 @@ async def rich_reply(message, html_text, *, navigation=True, **options):
     )
 
 
-async def rich_edit(target, html_text, *, navigation=True, **options):
+async def rich_edit(target, html_text, *, navigation=False, **options):
     # An explicit None on edits means remove the old keyboard; respect it.
     clearing = any(key in options and options[key] is None for key in ("reply_markup", "markup"))
     if navigation and not clearing:

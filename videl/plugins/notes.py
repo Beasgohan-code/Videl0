@@ -23,7 +23,7 @@ from videl.plugins import base
 from videl.plugins.base import body, escape, heading, table
 from videl.utils.audit import record_bot
 from videl.utils.bot_ui import button
-from videl.utils.command_ui import navigation_markup, rich_edit, rich_send, usage
+from videl.utils.command_ui import rich_edit, rich_send, usage
 from videl.utils.premium_emojis import pe
 
 NOTES = "mgmt_notes"
@@ -104,20 +104,19 @@ async def send_note(chat_id: int, name: str, reply_to=None) -> None:
         )
         return
     kind, content, caption = document.get("type", "text"), document["content"], document.get("caption", "")
-    markup = navigation_markup()
     try:
         if kind == "text":
-            await bot.send_message(chat_id, content, reply_to_message_id=reply_to, reply_markup=markup)
+            await bot.send_message(chat_id, content, reply_to_message_id=reply_to)
         elif kind == "photo":
-            await bot.send_photo(chat_id, content, caption=caption, reply_to_message_id=reply_to, reply_markup=markup)
+            await bot.send_photo(chat_id, content, caption=caption, reply_to_message_id=reply_to)
         elif kind == "document":
-            await bot.send_document(chat_id, content, caption=caption, reply_to_message_id=reply_to, reply_markup=markup)
+            await bot.send_document(chat_id, content, caption=caption, reply_to_message_id=reply_to)
         elif kind == "video":
-            await bot.send_video(chat_id, content, caption=caption, reply_to_message_id=reply_to, reply_markup=markup)
+            await bot.send_video(chat_id, content, caption=caption, reply_to_message_id=reply_to)
         elif kind == "audio":
-            await bot.send_audio(chat_id, content, caption=caption, reply_to_message_id=reply_to, reply_markup=markup)
+            await bot.send_audio(chat_id, content, caption=caption, reply_to_message_id=reply_to)
         elif kind == "sticker":
-            await bot.send_sticker(chat_id, content, reply_to_message_id=reply_to, reply_markup=markup)
+            await bot.send_sticker(chat_id, content, reply_to_message_id=reply_to)
     except Exception:
         LOGGER.exception("Saved note delivery failed for chat %s, name %s", chat_id, name)
         await rich_send(

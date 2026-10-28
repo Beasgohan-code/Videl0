@@ -40,6 +40,15 @@ class ModerationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('could not be saved',html)
         self.assertIn('&lt;Target&gt;',html)
 
+    async def test_unban_reports_local_record_failure_without_claiming_nothing_happened(self):
+        ctx=context('unban')
+        with patch.object(moderation,'_audit',Mock(return_value=False)), patch.object(moderation,'record_bot',Mock(return_value=True)):
+            screen=await moderation.moderate(ctx)
+        ctx.client.unban_chat_member.assert_awaited_once_with(-123, 99)
+        html=plain_caps(screen.html)
+        self.assertIn('Member unbanned',html)
+        self.assertIn('local ban record could not be updated',html)
+
     async def test_temporary_action_requires_duration_before_any_telegram_mutation(self):
         ctx=context('tban','not-a-duration')
         with self.assertRaises(CommandError):await moderation.moderate(ctx)

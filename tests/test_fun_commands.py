@@ -12,7 +12,7 @@ from videl.utils.bot_commands import command_menu
 
 
 class AnimationDeliveryTests(unittest.IsolatedAsyncioTestCase):
-    async def test_animation_reply_keeps_chat_thread_and_reply_context(self):
+    async def test_animation_reply_keeps_chat_context_without_global_navigation(self):
         async def handler(_ctx):
             return Screen("<b>Animated hello</b>", animation=b"GIF89a-test")
 
@@ -36,8 +36,7 @@ class AnimationDeliveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(options["message_thread_id"], 22)
         self.assertEqual(options["animation"].getvalue(), b"GIF89a-test")
         self.assertEqual(options["caption"], "<b>Animated hello</b>")
-        callbacks = {button.callback_data for row in options["reply_markup"].inline_keyboard for button in row}
-        self.assertTrue({"help:home", "cmds:all:0"}.issubset(callbacks))
+        self.assertNotIn("reply_markup", options)
 
 
 class FeatureCommandTests(TestCase):

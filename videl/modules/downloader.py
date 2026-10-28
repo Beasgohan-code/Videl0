@@ -23,6 +23,7 @@ from urllib.parse import parse_qs, urlsplit
 import aiofiles
 from pyrogram import filters
 from pyrogram.enums import ParseMode
+from pyrogram.errors import BadRequest
 from pyrogram.types import Message, InlineKeyboardMarkup, CallbackQuery
 from videl.utils.bot_ui import button as InlineKeyboardButton, visual_call
 
@@ -30,8 +31,8 @@ import config
 from videl import bot, LOGGER
 from videl.modules.block import group_allowed, user_allowed
 from videl.utils.formatters import sc, sb, short
-from videl.utils.rich_ui import rich_esc, rich_heading, rich_kv_table, rich_note, rich_table, rich_details, rich_button, rich_img, rich_send_blocks
-from videl.utils.command_ui import navigation_markup, rich_send, rich_edit
+from videl.utils.rich_ui import rich_esc, rich_heading, rich_kv_table, rich_note, rich_table, rich_details, rich_button
+from videl.utils.command_ui import rich_send, rich_edit
 
 try:
     from videl.utils.premium_emojis import pe
@@ -155,10 +156,10 @@ async def _search_youtube(query: str, limit: int = 5) -> list[dict]:
                 "thumbnail": (item.get("thumbnails") or [{}])[0].get("url") if item.get("thumbnails") else "",
             })
         if results:
-            log.info(f"Search '{query}' → {len(results)} results via VideosSearch")
+            log.info("YouTube title search returned %d results", len(results))
             return results
-    except Exception as e:
-        log.warning(f"VideosSearch failed for '{query}': {e}")
+    except Exception as error:
+        log.warning("VideosSearch provider failed (%s)", type(error).__name__)
 
     # Fallback: yt-dlp search
     try:
@@ -177,14 +178,20 @@ async def _search_youtube(query: str, limit: int = 5) -> list[dict]:
                     "thumbnail": entry.get("thumbnail", ""),
                 })
         if results:
-            log.info(f"Search '{query}' → {len(results)} via yt-dlp fallback")
+            log.info("yt-dlp title search returned %d results", len(results))
     except Exception as e:
-        log.error(f"yt-dlp search failed: {e}")
+        log.error("yt-dlp search provider failed (%s)", type(e).__name__)
 
     return results
 
 
-async def _download_media(source: str, audio_only: bool = True, status_msg: Optional[Message] = None) -> Optional[Path]:
+async def _download_media(
+    source: str,
+    audio_only: bool = True,
+    status_msg: Optional[Message] = None,
+    *,
+    include_info: bool = False,
+) -> Path | tuple[Path, dict]:
     """Professional download with progress, retries, and cleanup."""
     tmpdir = Path(tempfile.mkdtemp(dir=str(DOWNLOAD_DIR)))
     outtmpl = str(tmpdir / "%(title).80s-%(id)s.%(ext)s")
@@ -192,7 +199,7 @@ async def _download_media(source: str, audio_only: bool = True, status_msg: Opti
 
     # Resolve source: if not URL, search first
     if not _is_url(source):
-        log.info(f"Searching for: {source}")
+        log.info("Searching for media title (%d characters)", len(source))
         if status_msg:
             try:
                 await rich_edit(
@@ -204,9 +211,10 @@ async def _download_media(source: str, audio_only: bool = True, status_msg: Opti
                 pass
         results = await _search_youtube(source, limit=1)
         if not results:
-            raise ValueError(f"No results for '{source}'")
+            shutil.rmtree(tmpdir, ignore_errors=True)
+            raise ValueError("No matching media result")
         source = results[0]["link"]
-        log.info(f"Resolved '{source}' → {results[0]['title']}")
+        log.info("Resolved a media title to a supported source")
 
     url = source.strip()
     if re.match(r"^[A-Za-z0-9_-]{11}$", url):
@@ -253,10 +261,10 @@ async def _download_media(source: str, audio_only: bool = True, status_msg: Opti
         path, info = await asyncio.to_thread(_run)
         if not path.exists() or path.stat().st_size < 1024:
             raise RuntimeError(f"File too small: {path}")
-        log.info(f"Downloaded {path.name} ({path.stat().st_size/1024/1024:.2f} MB) — {info.get('title')}")
-        return path
+        log.info("Media download completed (%.2f MB)", path.stat().st_size / 1024 / 1024)
+        return (path, info) if include_info else path
     except Exception as e:
-        log.error(f"Download failed for {url}: {e}", exc_info=True)
+        log.error("Media download failed for %s (%s)", _source_summary(url), type(e).__name__, exc_info=True)
         shutil.rmtree(tmpdir, ignore_errors=True)
         raise
 
@@ -301,18 +309,54 @@ def _friendly_download_error(error: Exception) -> str:
     return "The download couldn’t be completed. Check the link and try again in a moment."
 
 
-def _hero_img(url: Optional[str] = None):
-    if url and url.startswith("http"):
-        return rich_img(url)
-    return rich_img("https://files.catbox.moe/f084wg.png")
+def _duration_label(value) -> str:
+    try:
+        seconds = max(0, int(float(value)))
+    except (TypeError, ValueError, OverflowError):
+        return "Unknown"
+    hours, remainder = divmod(seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return f"{hours}:{minutes:02d}:{seconds:02d}" if hours else f"{minutes}:{seconds:02d}"
+
+
+def _media_title(info: dict, path: Path, limit: int = 80) -> str:
+    raw = str(info.get("track") or info.get("title") or path.stem).strip()
+    return raw.replace("\x00", "")[:limit] or "Media download"
+
+
+def _cleanup_download(path: Optional[Path]) -> None:
+    if path is None:
+        return
+    try:
+        path.unlink(missing_ok=True)
+        shutil.rmtree(path.parent, ignore_errors=True)
+    except OSError as error:
+        log.warning("Could not clean temporary media %s (%s)", path.name, type(error).__name__)
+
+
+def _blocked_request(query: str, words) -> bool:
+    """Match configured blocked terms as words/phrases, not accidental substrings."""
+    for item in words:
+        term = str(item or "").strip()
+        if not term:
+            continue
+        parts = re.findall(r"[\w]+", term)
+        if not parts:
+            continue
+        pattern = r"(?<!\w)" + r"\s+".join(map(re.escape, parts)) + r"(?!\w)"
+        if re.search(pattern, query, re.IGNORECASE):
+            return True
+    return False
+
 
 # ── /song — download audio ────────────────────────────────────────────────────
 
-@bot.on_message(filters.command('song', prefixes=config.COMMAND_PREFIX_LIST) & (filters.group | filters.private))
+@bot.on_message(filters.command('song', prefixes=config.COMMAND_PREFIX_LIST) & (filters.group | filters.private) & group_allowed & user_allowed)
 async def song_cmd(_, m: Message):
     query = " ".join(m.command[1:]) if len(m.command) > 1 else ""
-    if not query and m.reply_to_message and m.reply_to_message.text:
-        query = m.reply_to_message.text.strip()
+    reply = m.reply_to_message
+    if not query and reply:
+        query = str(getattr(reply, "text", None) or getattr(reply, "caption", None) or "").strip()
     if not query:
         body = (
             rich_heading("🎵 Audio downloader", level=2)
@@ -333,13 +377,12 @@ async def song_cmd(_, m: Message):
                 "YouTube, YouTube Music, SoundCloud, Instagram, TikTok, and more.",
             )
         )
-        body += "<p>" + rich_button("🎵 Play in voice chat", callback_data="help_play") + " " + rich_button("🔎 Search", callback_data="song_search") + "</p>"
+        body += "<p>" + rich_button("🎵 Play in voice chat", callback_data="help_play") + " " + rich_button("📹 Download video", callback_data="dl:video") + "</p>"
         return await rich_send(bot, m.chat.id, body)
 
     # Check banned words professionally
     blocked = getattr(config, "BLOCKED_WORDS", []) or ["porn", "xxx", "xnxx", "sex"]
-    low = query.lower()
-    if any(w in low for w in blocked):
+    if _blocked_request(query, blocked):
         return await rich_send(
             bot, m.chat.id,
             rich_heading("⚠️ Request not allowed", level=3)
@@ -356,25 +399,12 @@ async def song_cmd(_, m: Message):
     path = None
     try:
         start = time.time()
-        path = await _download_media(query, audio_only=True, status_msg=status)
+        path, info = await _download_media(query, audio_only=True, status_msg=status, include_info=True)
         elapsed = time.time() - start
-
-        # Extract metadata via yt-dlp info if available, else dummy
-        title = path.stem[:80].replace("_", " ")
-        duration = "?"
-        # Try to get real metadata from filename or via probe
-        try:
-            import yt_dlp
-            # Quick probe for thumbnail via search
-            search_res = await _search_youtube(query, limit=1)
-            if search_res:
-                title = search_res[0].get("title", title)[:80]
-                duration = search_res[0].get("duration", "?")
-                thumb = search_res[0].get("thumbnail", "")
-            else:
-                thumb = ""
-        except Exception:
-            thumb = ""
+        title = _media_title(info, path)
+        duration_seconds = info.get("duration")
+        duration = _duration_label(duration_seconds)
+        artist = str(info.get("artist") or info.get("album_artist") or info.get("creator") or "").strip()[:64]
 
         size_mb = path.stat().st_size / 1024 / 1024
         if size_mb > 50:
@@ -386,90 +416,88 @@ async def song_cmd(_, m: Message):
                     "Try a shorter track."
                 ),
             )
-            path.unlink(missing_ok=True)
-            shutil.rmtree(path.parent, ignore_errors=True)
+            _cleanup_download(path)
             return
 
         # Build caption with rich metadata
-        cap = _hdr(pe("music","🎵") + " " + rich_esc(title[:60]), 2)
-        cap += _hero_img(thumb) if thumb else ""
-        cap += rich_kv_table([
+        fields = [
             ("Title", rich_esc(title[:60])),
             ("Duration", f"<code>{rich_esc(duration)}</code>"),
+        ]
+        if artist:
+            fields.append(("Artist", rich_esc(artist)))
+        fields.extend([
             ("File size", f"<code>{size_mb:.2f} MB</code>"),
             ("Ready in", f"<code>{elapsed:.1f} seconds</code>"),
             ("Requested by", f"<a href=\"tg://user?id={m.from_user.id}\">{rich_esc(m.from_user.first_name or 'User')}</a>" if m.from_user else "User"),
-        ], headers=["Audio download", ""])
+        ])
+        cap = _hdr(pe("music","🎵") + " " + rich_esc(title[:60]), 2)
+        cap += rich_kv_table(fields, headers=["Audio download", ""])
         cap += rich_note("Audio prepared as an MP3 · 192 kbps")
 
         # Send audio with professional metadata
         try:
-            await visual_call(
-                bot.send_audio,
-                chat_id=m.chat.id,
-                audio=str(path),
-                caption=cap,
-                parse_mode=ParseMode.HTML,
-                title=title[:60],
-                performer="Videl • Beasgohan-code",
-                reply_to_message_id=m.id,
-                reply_markup=navigation_markup(),
-            )
-            await rich_edit(
-                status,
-                rich_heading("✅ Audio sent", level=3)
-                + rich_note(
-                    f"<b>{rich_esc(title[:60])}</b><br>"
-                    f"{size_mb:.2f} MB · ready in {elapsed:.1f} seconds"
-                ),
-                navigation=False,
-            )
-            log.info(f"/song by {m.from_user.id} in {m.chat.id}: {title} ({size_mb:.2f} MB, {elapsed:.1f}s)")
-        except Exception as e:
-            log.error(f"send_audio fail: {e}", exc_info=True)
-            await bot.send_document(
-                m.chat.id, document=str(path), caption=rich_esc(title),
-                reply_to_message_id=m.id, reply_markup=navigation_markup(),
-            )
+            audio_duration = max(0, int(float(duration_seconds))) if duration_seconds is not None else None
+        except (TypeError, ValueError, OverflowError):
+            audio_duration = None
+        audio_options = {
+            "chat_id": m.chat.id,
+            "audio": str(path),
+            "caption": cap,
+            "parse_mode": ParseMode.HTML,
+            "title": title[:60],
+            "duration": audio_duration,
+            "reply_to_message_id": m.id,
+        }
+        if artist:
+            audio_options["performer"] = artist
+        try:
+            try:
+                await visual_call(bot.send_audio, **audio_options)
+            except BadRequest as error:
+                # Telegram definitively rejected the audio payload; a document
+                # fallback is safe here. Never retry after an ambiguous timeout.
+                log.warning("Telegram rejected audio metadata for %s (%s); trying document", title[:80], type(error).__name__)
+                fallback_caption = rich_esc(title[:60]) + (f" · {rich_esc(artist)}" if artist else "")
+                await bot.send_document(
+                    m.chat.id, document=str(path), caption=fallback_caption,
+                    reply_to_message_id=m.id,
+                )
             try:
                 await status.delete()
             except Exception:
                 pass
+            log.info(f"/song by {m.from_user.id if m.from_user else 0} in {m.chat.id}: {title} ({size_mb:.2f} MB, {elapsed:.1f}s)")
+        except Exception as e:
+            log.error(f"send_audio fail: {e}", exc_info=True)
+            raise
         finally:
             # Cleanup
-            try:
-                path.unlink(missing_ok=True)
-                shutil.rmtree(path.parent, ignore_errors=True)
-            except Exception as e:
-                log.debug(f"Cleanup fail: {e}")
+            _cleanup_download(path)
 
     except ValueError as e:
-        log.info("/song could not find a playable result for %r: %s", query[:160], e)
+        log.info("/song had no playable result for query length %d (%s)", len(query), type(e).__name__)
         await rich_edit(
             status,
             rich_heading("🔎 No playable result found", level=3)
             + rich_note("Try another title or paste a direct audio/video link."),
         )
     except Exception as e:
-        log.error(f"/song error for '{query}': {e}", exc_info=True)
+        log.error("/song failed for query length %d (%s)", len(query), type(e).__name__, exc_info=True)
         await rich_edit(
             status,
             rich_heading("⚠️ Download couldn’t be completed", level=3)
             + rich_note(_friendly_download_error(e)),
         )
-        if path and path.exists():
-            try:
-                path.unlink(missing_ok=True)
-                shutil.rmtree(path.parent, ignore_errors=True)
-            except Exception:
-                pass
+        _cleanup_download(path)
 
 
-@bot.on_message(filters.command('vsong', prefixes=config.COMMAND_PREFIX_LIST) & (filters.group | filters.private))
+@bot.on_message(filters.command('vsong', prefixes=config.COMMAND_PREFIX_LIST) & (filters.group | filters.private) & group_allowed & user_allowed)
 async def vsong_cmd(_, m: Message):
     query = " ".join(m.command[1:]) if len(m.command) > 1 else ""
-    if not query and m.reply_to_message and m.reply_to_message.text:
-        query = m.reply_to_message.text.strip()
+    reply = m.reply_to_message
+    if not query and reply:
+        query = str(getattr(reply, "text", None) or getattr(reply, "caption", None) or "").strip()
     if not query:
         body = (
             rich_heading("🎥 Video downloader", level=2)
@@ -479,7 +507,12 @@ async def vsong_cmd(_, m: Message):
             )
             + rich_details("Example", "<code>/vsong nature documentary</code>")
         )
+        body += "<p>" + rich_button("🎵 Download audio", callback_data="dl:song") + "</p>"
         return await rich_send(bot, m.chat.id, body)
+
+    blocked = getattr(config, "BLOCKED_WORDS", []) or ["porn", "xxx", "xnxx", "sex"]
+    if _blocked_request(query, blocked):
+        return await rich_send(bot, m.chat.id, rich_heading("⚠️ Request not allowed", level=3) + rich_note("This search request isn’t permitted. Try another title or link."))
 
     status = await rich_send(
         bot, m.chat.id,
@@ -491,7 +524,7 @@ async def vsong_cmd(_, m: Message):
     path = None
     try:
         start = time.time()
-        path = await _download_media(query, audio_only=False, status_msg=status)
+        path, info = await _download_media(query, audio_only=False, status_msg=status, include_info=True)
         elapsed = time.time() - start
         size_mb = path.stat().st_size / 1024 / 1024
         if size_mb > 50:
@@ -505,47 +538,54 @@ async def vsong_cmd(_, m: Message):
                     "Try a shorter video."
                 ),
             )
-            path.unlink(missing_ok=True)
-            shutil.rmtree(path.parent, ignore_errors=True)
+            _cleanup_download(path)
             return
 
-        title = path.stem[:60]
-        cap = (
-            rich_heading(f"🎥 {rich_esc(title)}", level=2)
-            + rich_kv_table([
+        title = _media_title(info, path, limit=60)
+        duration_seconds = info.get("duration")
+        video_options = {
+            "chat_id": m.chat.id,
+            "video": str(path),
+            "caption": rich_heading(f"🎥 {rich_esc(title)}", level=2) + rich_kv_table([
+                ("Duration", f"<code>{rich_esc(_duration_label(duration_seconds))}</code>"),
                 ("File size", f"<code>{size_mb:.2f} MB</code>"),
                 ("Ready in", f"<code>{elapsed:.1f} seconds</code>"),
-            ], headers=["Video download", ""])
-        )
-        await visual_call(
-            bot.send_video,
-            chat_id=m.chat.id,
-            video=str(path),
-            caption=cap,
-            parse_mode=ParseMode.HTML,
-            reply_to_message_id=m.id,
-            supports_streaming=True,
-        )
-        await status.delete()
-        path.unlink(missing_ok=True)
-        shutil.rmtree(path.parent, ignore_errors=True)
-        log.info(f"/vsong {m.from_user.id} → {title} {size_mb:.2f} MB")
+            ], headers=["Video download", ""]),
+            "parse_mode": ParseMode.HTML,
+            "reply_to_message_id": m.id,
+            "supports_streaming": True,
+        }
+        try:
+            video_duration = max(0, int(float(duration_seconds))) if duration_seconds is not None else None
+        except (TypeError, ValueError, OverflowError):
+            video_duration = None
+        if video_duration is not None:
+            video_options["duration"] = video_duration
+        for field in ("width", "height"):
+            try:
+                value = int(info.get(field) or 0)
+                if value > 0:
+                    video_options[field] = value
+            except (TypeError, ValueError, OverflowError):
+                pass
+        await visual_call(bot.send_video, **video_options)
+        try:
+            await status.delete()
+        except Exception:
+            pass
+        _cleanup_download(path)
+        log.info(f"/vsong {m.from_user.id if m.from_user else 0} → {title} {size_mb:.2f} MB")
     except Exception as e:
-        log.error(f"/vsong error: {e}", exc_info=True)
+        log.error("/vsong failed (%s)", type(e).__name__, exc_info=True)
         await rich_edit(
             status,
             rich_heading("⚠️ Video download couldn’t be completed", level=3)
             + rich_note(_friendly_download_error(e)),
         )
-        if path:
-            try:
-                path.unlink(missing_ok=True)
-                shutil.rmtree(path.parent, ignore_errors=True)
-            except Exception:
-                pass
+        _cleanup_download(path)
 
 
-@bot.on_message(filters.command('download', prefixes=config.COMMAND_PREFIX_LIST) & (filters.group | filters.private))
+@bot.on_message(filters.command('download', prefixes=config.COMMAND_PREFIX_LIST) & (filters.group | filters.private) & group_allowed & user_allowed)
 async def download_cmd(_, m: Message):
     query = " ".join(m.command[1:]) if len(m.command) > 1 else ""
     if not query:
