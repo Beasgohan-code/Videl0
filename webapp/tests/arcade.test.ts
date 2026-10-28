@@ -174,6 +174,18 @@ test("group manager is available to non-owners but its separate Telegram session
   assert.equal(canOpenSection("arcade", true), true);
 });
 
+test("group manager keeps selection loads isolated and makes member actions deliberate", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const source = await readFile(new URL("../src/components/studio/screens/AdminGroups.tsx", import.meta.url), "utf8");
+  assert.match(source, /const loadGroups = useCallback\(async \(refresh = false\) => \{/);
+  assert.match(source, /\}, \[\]\);\s*\n\s*\n  const loadDetail/);
+  assert.match(source, /request !== detailRequest\.current \|\| selectedRef\.current !== id/);
+  assert.match(source, /onSubmit=\{\(event\) => event\.preventDefault\(\)\}/, "Enter must not silently trigger a kick");
+  assert.match(source, /window\.confirm\(`\$\{verb === "kick" \? "Kick" : "Ban"\}/, "kick and ban need an explicit confirmation");
+  assert.match(source, /Bot needs admin/);
+  assert.match(source, /owner fleet or backup controls/);
+});
+
 
 test("a pasted invite is understood as a code, a link or a Telegram payload", async () => {
   const { codeFromLink, inviteLink, telegramInvite } = await import("../src/lib/arcade");
