@@ -5,7 +5,7 @@ This documents navigation and source coverage, not verified live Telegram behavi
 Aliases are listed separately; permissions remain enforced by the referenced handler.
 Owner operations are hidden from public `/commands` results.
 
-179 distinct command names.
+182 distinct command names.
 
 ## Music & playlists
 
@@ -199,7 +199,10 @@ Owner operations are hidden from public `/commands` results.
 | `/gcast` | chat | `videl/modules/broadcast.py::broadcast_cmd` |
 | `/gunblock` | chat | `videl/modules/block.py::gunblock_cmd` |
 | `/rmsudo` | private | `videl/plugins/sudo.py::remove_sudo` |
+| `/setbotdescription` | private | `videl/modules/api_tools.py::set_bot_description` |
+| `/setbotname` | private | `videl/modules/api_tools.py::set_bot_name` |
 | `/setbotphoto` | private | `videl/modules/api_tools.py::set_bot_profile_photo` |
+| `/setbotshortdescription` | private | `videl/modules/api_tools.py::set_bot_short_description` |
 | `/sudolist` | private | `videl/plugins/sudo.py::sudo_list` |
 | `/sysinfo` | private | `videl/modules/owner_utils.py::system_info` |
 | `/ublock` | chat | `videl/modules/block.py::ublock_cmd` |

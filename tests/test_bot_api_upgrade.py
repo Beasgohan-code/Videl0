@@ -217,6 +217,27 @@ class BotProfileCommandTests(unittest.IsolatedAsyncioTestCase):
         client.download_media.assert_awaited_once_with("telegram-file-id", in_memory=True)
         prepare.assert_called_once_with(b"image")
 
+    async def test_owner_can_set_name_and_descriptions_via_bot_api(self):
+        message = SimpleNamespace(command=["/setbotname", "Videl", "Music", "🎵"])
+        methods = AsyncMock(return_value=(200, {"ok": True}))
+        with patch.object(api_tools_module, "bot_api", methods), patch.object(api_tools_module, "rich_reply", AsyncMock()):
+            await api_tools_module.set_bot_name(None, message)
+            message.command = ["/setbotdescription", "Music", "for", "your", "groups"]
+            await api_tools_module.set_bot_description(None, message)
+            message.command = ["/setbotshortdescription", "Play", "music", "with", "Videl"]
+            await api_tools_module.set_bot_short_description(None, message)
+        self.assertEqual(methods.await_args_list[0].args, ("setMyName", {"name": "Videl Music 🎵"}))
+        self.assertEqual(methods.await_args_list[1].args, ("setMyDescription", {"description": "Music for your groups"}))
+        self.assertEqual(methods.await_args_list[2].args, ("setMyShortDescription", {"short_description": "Play music with Videl"}))
+
+    async def test_bot_name_limit_is_enforced_without_calling_telegram(self):
+        message = SimpleNamespace(command=["/setbotname", "X" * 65])
+        with patch.object(api_tools_module, "bot_api", AsyncMock()) as call, \
+             patch.object(api_tools_module, "rich_reply", AsyncMock()) as reply:
+            await api_tools_module.set_bot_name(None, message)
+        call.assert_not_awaited()
+        self.assertIn("allows up to 64", str(reply.await_args.args[1]))
+
 
 class KeyboardTests(unittest.TestCase):
     def test_semantic_styles_keep_actions(self):

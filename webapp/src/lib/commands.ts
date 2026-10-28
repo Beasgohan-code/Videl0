@@ -1117,9 +1117,33 @@ export const BOT_COMMANDS: BotCommand[] = [
     "owner": true
   },
   {
+    "name": "setbotdescription",
+    "usage": "/setbotdescription <text> (owner, private chat; maximum 512 characters)",
+    "summary": "Change the bot about description",
+    "category": "owner",
+    "context": "private",
+    "owner": true
+  },
+  {
+    "name": "setbotname",
+    "usage": "/setbotname <name> (owner, private chat; maximum 64 characters)",
+    "summary": "Change the bot display name",
+    "category": "owner",
+    "context": "private",
+    "owner": true
+  },
+  {
     "name": "setbotphoto",
-    "usage": "/setbotphoto (owner, private chat) — apply the bundled Videl Telegram profile image",
-    "summary": "Set the bot's telegram avatar from the versioned studio profile asset.",
+    "usage": "/setbotphoto (owner, private chat) — use the bundled image, a replied photo, or a direct HTTPS image URL",
+    "summary": "Set the bot avatar from a replied photo, https image url, or bundled default.",
+    "category": "owner",
+    "context": "private",
+    "owner": true
+  },
+  {
+    "name": "setbotshortdescription",
+    "usage": "/setbotshortdescription <text> (owner, private chat; maximum 120 characters)",
+    "summary": "Change the bot short description",
     "category": "owner",
     "context": "private",
     "owner": true

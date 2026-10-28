@@ -51,6 +51,9 @@ OWNER_HELP = (
         ("<code>/emojiinfo list</code>", "Browse, preview, and copy IDs from every supplied emoji pack."),
         ("<code>/emojiinfo check</code>", "Ask Telegram to resolve configured IDs; lookup does not grant rendering permission."),
         ("<code>/setbotphoto</code>", "Owner-only: use the bundled image, a replied photo, or a direct HTTPS image URL. Examples: <code>/setbotphoto https://example.com/photo.jpg</code>, or reply to a photo with <code>/setbotphoto</code>."),
+        ("<code>/setbotname Name</code>", "Owner-only: update the bot’s display name (up to 64 characters)."),
+        ("<code>/setbotdescription Text</code>", "Owner-only: update the bot’s About description (up to 512 characters)."),
+        ("<code>/setbotshortdescription Text</code>", "Owner-only: update the bot’s short description (up to 120 characters)."),
     ])
 )
 HELP = PUBLIC_HELP + OWNER_HELP
@@ -428,6 +431,46 @@ async def set_bot_profile_photo(client, message):
         message,
         notice(detail, status="error", title="Bot profile was not updated"),
     )
+
+
+async def _set_bot_metadata(message, method: str, field: str, label: str, limit: int):
+    """Apply one owner-requested Bot API profile text field."""
+    value = " ".join((getattr(message, "command", None) or [])[1:]).strip()
+    if not value:
+        return await rich_reply(
+            message,
+            usage(f"/{(getattr(message, 'command', [''])[0] or '').split('@', 1)[0].lstrip('/')} {label}",
+                  f"Provide the new {label.lower()} (up to {limit} characters)."),
+        )
+    if len(value) > limit:
+        return await rich_reply(
+            message,
+            notice(f"That value is {len(value)} characters; Telegram allows up to {limit}.",
+                   status="error", title=f"{label} is too long"),
+        )
+    status, result = await bot_api(method, {field: value})
+    if status and result.get("ok"):
+        return await rich_reply(
+            message,
+            notice(f"{html.escape(value)}", status="success", title=f"Bot {label.lower()} updated"),
+        )
+    detail = html.escape(str(result.get("description") or "Telegram did not confirm the change."))
+    return await rich_reply(message, notice(detail, status="error", title=f"Bot {label.lower()} not updated"))
+
+
+@bot.on_message(filters.command("setbotname", prefixes=config.COMMAND_PREFIX_LIST) & filters.user(config.OWNER_ID) & filters.private)
+async def set_bot_name(_, message):
+    return await _set_bot_metadata(message, "setMyName", "name", "name", 64)
+
+
+@bot.on_message(filters.command("setbotdescription", prefixes=config.COMMAND_PREFIX_LIST) & filters.user(config.OWNER_ID) & filters.private)
+async def set_bot_description(_, message):
+    return await _set_bot_metadata(message, "setMyDescription", "description", "description", 512)
+
+
+@bot.on_message(filters.command("setbotshortdescription", prefixes=config.COMMAND_PREFIX_LIST) & filters.user(config.OWNER_ID) & filters.private)
+async def set_bot_short_description(_, message):
+    return await _set_bot_metadata(message, "setMyShortDescription", "short_description", "short description", 120)
 
 
 @bot.on_message(filters.command("copy", prefixes=config.COMMAND_PREFIX_LIST))
