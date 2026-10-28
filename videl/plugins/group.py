@@ -292,51 +292,77 @@ async def delete_photo(ctx) -> Screen:
     return Screen(heading("🗑 Group photo removed", 3) + body("Telegram confirmed the group photo was removed."))
 
 
+_TAGALL_INTERVAL_SECONDS = 5
+_TAGALL_LOCKS: dict[int, asyncio.Lock] = {}
+_TAGALL_TASKS: dict[int, asyncio.Task] = {}
+
+
 async def tagall(ctx) -> Screen | None:
-    """Mention a bounded sample of members Telegram exposes to this bot."""
+    """Mention every accessible human member, one message at a time, paced."""
     from html import escape as html_escape
 
     argument = ctx.command.arguments.strip()
-    if len(argument) > 180:
-        raise CommandError("Keep the optional announcement under 180 characters.")
     client = ctx.client
-    chat_id = ctx.message.chat.id
-    mentions = []
-    try:
-        async for member in client.get_chat_members(chat_id, limit=51):
-            user = getattr(member, "user", None)
-            if not user or getattr(user, "is_bot", False):
-                continue
-            name = " ".join(part for part in (getattr(user, "first_name", ""), getattr(user, "last_name", "")) if part).strip() or "member"
-            mentions.append(f'<a href="tg://user?id={user.id}">{html_escape(name)}</a>')
-            if len(mentions) >= 50:
-                break
-    except Exception:
-        LOGGER.exception("Could not read mentionable members in chat %s", chat_id)
-        raise CommandError("I couldn’t read this group’s member list. Check the bot’s access and try again.") from None
-    if not mentions:
-        raise CommandError("Telegram did not return any mentionable members.")
+    chat_id = int(ctx.message.chat.id)
+    if argument.casefold() == "stop":
+        active = _TAGALL_TASKS.get(chat_id)
+        if active is None or active.done():
+            raise CommandError("There isn’t an active /tagall run to stop in this group.")
+        active.cancel()
+        return Screen(heading("⏹ Tag-all stopping", 3) + body("No more mentions will be sent. Messages already delivered cannot be recalled."))
+    if len(argument) > 180:
+        raise CommandError("Keep the optional announcement under 180 characters. Use <code>/tagall stop</code> to stop a run.")
+    lock = _TAGALL_LOCKS.setdefault(chat_id, asyncio.Lock())
+    if lock.locked():
+        raise CommandError("A /tagall run is already active in this group. Wait for it to finish before starting another.")
 
-    # Telegram messages are limited to 4096 chars. Bound output and disclose
-    # that this is a sample rather than implying the API returned everyone.
-    selected = mentions
-    while selected:
-        label = f"📣 <b>Announcement · {len(selected)} members</b>"
-        prefix = label + (f"\n{html_escape(argument)}" if argument else "") + "\n"
-        if len(prefix + " ".join(selected)) <= 3900:
-            break
-        selected = selected[:-1]
-    if not selected:
-        raise CommandError("Member names were too long to fit in one Telegram message.")
-    body_text = prefix + " ".join(selected)
-    from videl.utils.command_ui import navigation_markup
-    await client.send_message(
-        chat_id, body_text, parse_mode="html",
-        message_thread_id=getattr(ctx.message, "message_thread_id", None),
-        reply_markup=navigation_markup(),
-    )
-    # The announcement is the confirmation; a second reply would add noise to
-    # the group immediately after a potentially large mention.
+    sent = 0
+    async with lock:
+        task = asyncio.current_task()
+        if task is not None:
+            _TAGALL_TASKS[chat_id] = task
+        try:
+            try:
+                # Pyrogram's default limit is unbounded (0); don't silently stop at
+                # a sample. A separate message per person keeps each mention clear
+                # and leaves the requested five-second gap between deliveries.
+                async for member in client.get_chat_members(chat_id):
+                    user = getattr(member, "user", None)
+                    if not user or not getattr(user, "id", None) or getattr(user, "is_bot", False):
+                        continue
+                    name = " ".join(
+                        part for part in (getattr(user, "first_name", ""), getattr(user, "last_name", ""))
+                        if part
+                    ).strip() or "member"
+                    mention = f'<a href="tg://user?id={int(user.id)}">{html_escape(name)}</a>'
+                    text = (f"📣 {html_escape(argument)}\n" if argument else "📣 Group announcement\n") + mention
+                    if sent:
+                        await asyncio.sleep(_TAGALL_INTERVAL_SECONDS)
+                    await client.send_message(
+                        chat_id,
+                        text,
+                        parse_mode="html",
+                        message_thread_id=getattr(ctx.message, "message_thread_id", None),
+                    )
+                    sent += 1
+            except Exception as error:
+                LOGGER.exception("Tag-all stopped in chat %s after %s deliveries", chat_id, sent)
+                if sent:
+                    raise CommandError(
+                        f"Tag-all stopped after {sent} members because the member list or Telegram send failed. "
+                        "The messages already sent cannot be recalled; fix the issue before retrying."
+                    ) from error
+                raise CommandError(
+                    "I couldn’t read the group member list or send the first mention. "
+                    "Check the bot’s access and permissions, then try again."
+                ) from error
+        finally:
+            if _TAGALL_TASKS.get(chat_id) is task:
+                _TAGALL_TASKS.pop(chat_id, None)
+
+    if not sent:
+        raise CommandError("Telegram did not return any mentionable members.")
+    # Each paced mention is its own confirmation; avoid adding another group ping.
     return None
 
 
@@ -364,5 +390,5 @@ COMMANDS = (
             rights=("can_change_info",)),
     Command("delphoto", delete_photo, "Remove the group photo", category="manage", policy="admin",
             rights=("can_change_info",)),
-    Command("tagall", tagall, "Mention up to 50 group members (admin only)", category="manage", policy="admin"),
+    Command("tagall", tagall, "Mention all accessible human members one-by-one every 5 seconds; /tagall stop cancels (admin only)", category="manage", policy="admin"),
 )

@@ -614,8 +614,8 @@ export const BOT_COMMANDS: BotCommand[] = [
   },
   {
     "name": "tagall",
-    "usage": "/tagall",
-    "summary": "Mention up to 50 group members (admin only)",
+    "usage": "/tagall [message] · /tagall stop",
+    "summary": "Mention every accessible human member one-by-one at a 5-second pace; /tagall stop cancels (admin only)",
     "category": "manage",
     "context": "group",
     "owner": false

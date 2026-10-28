@@ -12,6 +12,8 @@ from pyrogram.raw.functions.phone import CreateGroupCall
 from videl import assistant, bot
 
 logger = logging.getLogger(__name__)
+PLAY_ACK_TIMEOUT_SECONDS = 60
+CALL_START_TIMEOUT_SECONDS = 45
 
 
 class VoiceChatStartError(RuntimeError):
@@ -92,14 +94,18 @@ def is_missing_voice_chat(error: BaseException) -> bool:
 async def play_with_auto_start(call_py, chat_id: int, stream):
     """Play once, creating a missing Telegram call and retrying only that case."""
     try:
-        return await asyncio.wait_for(call_py.play(chat_id, stream), 30)
+        # Slow hosted assistants can take longer to negotiate/join the stream;
+        # keep a firm bound, but avoid declaring failure during a normal join.
+        return await asyncio.wait_for(
+            call_py.play(chat_id, stream), PLAY_ACK_TIMEOUT_SECONDS
+        )
     except Exception as play_error:
         if not is_missing_voice_chat(play_error):
             raise
         try:
             # Allow Telegram time to finish creating a call before the
             # playback retry; slow hosted/network RPCs need a longer bound.
-            created = await asyncio.wait_for(ensure_active_voice_chat(chat_id), 45)
+            created = await asyncio.wait_for(ensure_active_voice_chat(chat_id), CALL_START_TIMEOUT_SECONDS)
         except asyncio.TimeoutError as startup_error:
             logger.warning("Voice-chat auto-start timed out in %s", chat_id)
             raise VoiceChatStartError(
@@ -111,7 +117,9 @@ async def play_with_auto_start(call_py, chat_id: int, stream):
                 "Start a voice chat manually, then use /replay. For automatic creation, the assistant or bot must already have Telegram’s Manage Video Chats permission; Videl never grants or changes permissions."
             ) from play_error
         try:
-            return await asyncio.wait_for(call_py.play(chat_id, stream), 30)
+            return await asyncio.wait_for(
+                call_py.play(chat_id, stream), PLAY_ACK_TIMEOUT_SECONDS
+            )
         except Exception as retry_error:
             if is_missing_voice_chat(retry_error):
                 raise VoiceChatStartError(

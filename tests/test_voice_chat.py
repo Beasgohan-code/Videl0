@@ -92,6 +92,14 @@ class VoiceChatRecoveryTests(unittest.IsolatedAsyncioTestCase):
         ensure.assert_awaited_once_with(-100123)
         self.assertEqual(player.play.await_count, 2)
 
+    async def test_play_timeout_is_not_retried_because_start_may_be_ambiguous(self):
+        player = SimpleNamespace(play=AsyncMock(side_effect=asyncio.TimeoutError()))
+        with patch.object(voice_chat, "ensure_active_voice_chat", new=AsyncMock()) as ensure:
+            with self.assertRaises(asyncio.TimeoutError):
+                await voice_chat.play_with_auto_start(player, -100123, "stream")
+        player.play.assert_awaited_once()
+        ensure.assert_not_awaited()
+
     async def test_client_not_started_is_not_misdiagnosed_as_missing_call(self):
         player = SimpleNamespace(play=AsyncMock(side_effect=RuntimeError("ClientNotStarted")))
         with patch.object(voice_chat, "ensure_active_voice_chat", new=AsyncMock()) as ensure:
@@ -109,11 +117,14 @@ class VoiceChatRecoveryTests(unittest.IsolatedAsyncioTestCase):
     async def test_voice_chat_start_timeout_becomes_actionable_error(self):
         player = SimpleNamespace(play=AsyncMock())
 
+        timeouts = []
+
         async def wait_for(awaitable, timeout):
+            timeouts.append(timeout)
             close = getattr(awaitable, "close", None)
             if close:
                 close()
-            if timeout == 30:
+            if len(timeouts) == 1:
                 raise NoActiveGroupCall()
             raise asyncio.TimeoutError()
 
@@ -121,6 +132,7 @@ class VoiceChatRecoveryTests(unittest.IsolatedAsyncioTestCase):
              patch.object(voice_chat, "ensure_active_voice_chat", new=AsyncMock()):
             with self.assertRaisesRegex(voice_chat.VoiceChatStartError, "did not finish creating the voice chat in time"):
                 await voice_chat.play_with_auto_start(player, -100123, "stream")
+        self.assertEqual(timeouts, [voice_chat.PLAY_ACK_TIMEOUT_SECONDS, voice_chat.CALL_START_TIMEOUT_SECONDS])
 
     def test_expected_local_leave_update_is_consumed_once(self):
         playback_state.expect_voice_exit(-100123)

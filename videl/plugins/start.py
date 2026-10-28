@@ -124,7 +124,7 @@ def member_caption(name: str, private: bool) -> str:
         (pe("music") + " Music", "<code>/play song or link</code> in a group voice chat"),
         (pe("shield") + " Group safety", "Group setup button checks access · <code>/lock links</code> protects links"),
         (pe("spark") + " Community", "<code>/welcome on</code> · <code>/rules</code> · <code>/save name text</code>"),
-        (pe("ios_add") + " Admin tools", "<code>/tagall [message]</code> mentions up to 50 members"),
+        (pe("ios_add") + " Admin tools", "<code>/tagall [message]</code> sends one mention every 5 seconds · <code>/tagall stop</code> cancels"),
         (pe("ios_controls") + " More tools", "Try <code>/poll</code>, <code>/remind 10m call</code> or browse commands"),
     ]
     private_note = body("Music plays in a group voice chat. Add Videl to a group to start listening together.") if private else body(

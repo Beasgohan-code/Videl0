@@ -29,6 +29,7 @@ TARGET = ROOT / "webapp" / "src" / "lib" / "commands.ts"
 # listed here simply show ``/<name>`` in the guide.
 USAGE = {
     "start": "/start · /start music",
+    "tagall": "/tagall [message] · /tagall stop (group admin; paced at 5 seconds per member)",
     "help": "/help · /help music",
     "commands": "/commands [query]",
     "whois": "/whois (reply or @user)",
@@ -80,6 +81,7 @@ SUMMARY_OVERRIDES = {
     "rmsudo": "Revoke a bot sudo operator",
     "sudolist": "List bot sudo operators and remove access inline",
     "sudohelp": "Show the limited bot sudo command scope",
+    "tagall": "Mention every accessible human member one-by-one at a 5-second pace; /tagall stop cancels (admin only)",
     "addblacklist": "Add a user to the anti-spam blocklist",
     "addblsticker": "Block a sticker pack from being sent",
     "apiinfo": "Show Telegram API and library versions",
