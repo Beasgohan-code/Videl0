@@ -776,7 +776,9 @@ class InternalRouteTests(unittest.TestCase):
     def test_federation_unban_removes_the_ban(self):
         response = self.client.post("/internal/federation/fed1", headers=self.headers(),
                                     json={"action": "unban", "user_id": 9})
-        self.assertTrue(response.get_json()["removed"])
+        outcome = response.get_json()
+        self.assertTrue(outcome["removed"])
+        self.assertEqual(outcome["unbans"], [{"chat": CID, "ok": True}])
         self.assertIsNone(self.db["fed_bans"].find_one({"fed": "fed1", "user": 9}))
         bad = self.client.post("/internal/federation/fed1", headers=self.headers(), json={"action": "ban_all"})
         self.assertEqual(bad.status_code, 400)

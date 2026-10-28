@@ -28,9 +28,20 @@ def _hero():
     return rich_img(_HERO)
 def _fed_id(name):
     return re.sub(r"[^a-z0-9_]", "", name.lower().replace(" ", "_"))[:32]
+
+async def _is_telegram_admin(client, chat_id, user_id):
+    """Check Telegram's live role; bot owner/sudo status is not a group role."""
+    if not user_id:
+        return False
+    try:
+        member = await client.get_chat_member(chat_id, user_id)
+        return str(getattr(member.status, "value", member.status)).lower() in {"owner", "creator", "administrator"}
+    except Exception:
+        return False
+
 def _fed_pills(fid=""):
     if fid:
-        return "<p>" + rich_button(pe("hex","") + " " + sc("info"), callback_data="fed:info:" + fid) + " " + rich_button(pe("cross","❌") + " " + sc("leave"), callback_data="fed:leave:" + fid, style="danger") + " " + rich_button(pe("ban","⛔️") + " " + sc("fban"), callback_data="fed:fban:" + fid) + "</p>"
+        return "<p>" + rich_button(pe("hex","") + " " + sc("info"), callback_data="fed:info:" + fid) + " " + rich_button(pe("cross","❌") + " " + sc("leave"), callback_data="fed:leave:" + fid, style="danger") + "</p>"
     return "<p>" + rich_button(pe("hex","") + " " + sc("my feds"), callback_data="fed:myfeds") + " " + rich_button(pe("target","") + " " + sc("my chats"), callback_data="fed:mychats") + "</p>"
 
 @bot.on_message(filters.command("newfed", prefixes=config.COMMAND_PREFIX_LIST) & filters.group & group_allowed & user_allowed)
@@ -68,22 +79,27 @@ async def delfed_cmd(_, m):
 
 @bot.on_message(filters.command(["joinfed","chatfed"], prefixes=config.COMMAND_PREFIX_LIST) & filters.group & group_allowed & user_allowed)
 async def joinfed_cmd(_, m):
-    if not await is_user_authorized(m):
-        return
+    if not await _is_telegram_admin(bot, m.chat.id, m.from_user.id if m.from_user else None):
+        return await rich_send(bot, m.chat.id, _hdr(pe("lock","🔒") + " " + sc("group admin only"),3))
     if not m.text or len(m.text.split(maxsplit=1)) < 2:
         return await rich_send(bot, m.chat.id, _hdr(sc("join federation"),3) + rich_note("<code>/joinfed &lt;fed_id&gt;</code>"))
     fid = m.text.split(maxsplit=1)[1].strip().lower()
     if not get_fed(fid):
         return await rich_send(bot, m.chat.id, _hdr(pe("warn","⚠️") + " " + sc("fed not found"),3))
+    existing = get_chat_fed(m.chat.id)
+    if existing and existing != fid:
+        return await rich_send(bot, m.chat.id, _hdr(pe("warn","⚠️") + " " + sc("chat already in another federation"),3) + rich_note("Leave <code>" + rich_esc(existing) + "</code> before joining another."))
     set_chat_fed(m.chat.id, fid)
+    if get_chat_fed(m.chat.id) != fid:
+        return await rich_send(bot, m.chat.id, _hdr(pe("warn","⚠️") + " " + sc("could not save federation membership"),3))
     body = _hdr(pe("check","✅") + " " + sc("joined federation"),3) + rich_kv_table([(pe("hex","") + " " + sc("fed"), "<code>" + rich_esc(fid) + "</code>"), (pe("target","") + " " + sc("chat"), "<code>" + str(m.chat.id) + "</code>")]) + _fed_pills(fid)
     kb = InlineKeyboardMarkup([[InlineKeyboardButton(pe("hex","") + " " + sc("info"), callback_data="fed:info:" + fid), InlineKeyboardButton(pe("cross","❌") + " " + sc("leave"), callback_data="fed:leave:" + fid)]])
     await rich_send(bot, m.chat.id, body, reply_markup=kb)
 
 @bot.on_message(filters.command("leavefed", prefixes=config.COMMAND_PREFIX_LIST) & filters.group & group_allowed & user_allowed)
 async def leavefed_cmd(_, m):
-    if not await is_user_authorized(m):
-        return
+    if not await _is_telegram_admin(bot, m.chat.id, m.from_user.id if m.from_user else None):
+        return await rich_send(bot, m.chat.id, _hdr(pe("lock","🔒") + " " + sc("group admin only"),3))
     cur = get_chat_fed(m.chat.id)
     if not cur:
         return await rich_send(bot, m.chat.id, _hdr(pe("warn","⚠️") + " " + sc("not in fed"),3))
@@ -114,15 +130,12 @@ async def fban_cmd(_, m):
         return await rich_send(bot, m.chat.id, _hdr(pe("warn","⚠️") + " " + sc("reply or id"),3) + rich_note("<code>/fban</code> " + sc("reply to user or id")))
     fid = get_chat_fed(m.chat.id)
     if not fid:
-        for fed in list_feds():
-            if fed["owner"] == m.from_user.id or is_fed_admin(fed["_id"], m.from_user.id):
-                fid = fed["_id"]
-                break
-    if not fid:
-        return await rich_send(bot, m.chat.id, _hdr(pe("warn","⚠️") + " " + sc("no fed") + " — /newfed &lt;name&gt;",3))
-    if not is_fed_admin(fid, m.from_user.id) and get_fed(fid)["owner"] != m.from_user.id and m.from_user.id != config.OWNER_ID:
+        return await rich_send(bot, m.chat.id, _hdr(pe("warn","⚠️") + " " + sc("this chat must join a federation first"),3) + rich_note("Use <code>/joinfed &lt;fed_id&gt;</code> in this chat."))
+    fed = get_fed(fid)
+    if not fed or not m.from_user or (not is_fed_admin(fid, m.from_user.id) and m.from_user.id != config.OWNER_ID):
         return await rich_send(bot, m.chat.id, _hdr(pe("lock","🔒") + " " + sc("fed admin only"),3))
-    fban(fid, uid, reason, m.from_user.id)
+    if not fban(fid, uid, reason, m.from_user.id):
+        return await rich_send(bot, m.chat.id, _hdr(pe("warn","⚠️") + " " + sc("could not save federation ban"),3))
     chats = get_fed_chats(fid)
     count = 0
     for cid in chats:
@@ -154,19 +167,17 @@ async def unfban_cmd(_, m):
         return await rich_send(bot, m.chat.id, _hdr(pe("warn","⚠️") + " " + sc("reply or id"),3))
     fid = get_chat_fed(m.chat.id)
     if not fid:
-        for fed in list_feds():
-            if fed["owner"] == m.from_user.id or is_fed_admin(fed["_id"], m.from_user.id):
-                fid = fed["_id"]
-                break
-    if not fid:
-        return await rich_send(bot, m.chat.id, _hdr(pe("warn","⚠️") + " " + sc("no fed"),3))
-    unfban(fid, uid)
+        return await rich_send(bot, m.chat.id, _hdr(pe("warn","⚠️") + " " + sc("this chat must join a federation first"),3))
+    if not m.from_user or not is_fed_admin(fid, m.from_user.id):
+        return await rich_send(bot, m.chat.id, _hdr(pe("lock","🔒") + " " + sc("fed admin only"),3))
+    if not unfban(fid, uid):
+        return await rich_send(bot, m.chat.id, _hdr(pe("warn","⚠️") + " " + sc("could not update federation ban"),3))
     for cid in get_fed_chats(fid):
         try:
             await bot.unban_chat_member(cid, uid)
         except Exception:
             pass
-    await rich_send(bot, m.chat.id, _hdr("✅ " + sc("unfbanned"),3) + rich_kv_table([(pe("hex","") + " " + sc("user"), "<code>" + str(uid) + "</code>")]) + "<p>" + rich_button(pe("ban","⛔️") + " " + sc("fban again"), callback_data="fed:fban:" + fid + ":" + str(uid)) + "</p>")
+    await rich_send(bot, m.chat.id, _hdr("✅ " + sc("unfbanned"),3) + rich_kv_table([(pe("hex","") + " " + sc("user"), "<code>" + str(uid) + "</code>")]) + rich_note(sc("use") + " <code>/fban " + str(uid) + "</code> " + sc("to ban again")))
 
 @bot.on_message(filters.command(["fedinfo","fedstat"], prefixes=config.COMMAND_PREFIX_LIST) & group_allowed & user_allowed)
 async def fedinfo_cmd(_, m):
@@ -264,14 +275,33 @@ async def fed_cbs(_, q):
         if not await is_user_authorized(q):
             return await q.answer("⚠️ " + sc("admin only"), show_alert=True)
     if action == "myfeds":
-        await q.answer()
         feds = [f for f in list_feds() if f["owner"] == q.from_user.id or is_fed_admin(f["_id"], q.from_user.id)]
         if not feds:
             return await q.answer(sc("no feds"), show_alert=True)
+        await q.answer()
         rows = [("<code>" + rich_esc(f["_id"]) + "</code>", rich_esc(f["name"])) for f in feds[:12]]
         body = _hdr(sc("your feds") + " • " + str(len(feds)),3) + rich_table([pe("hex","") + " " + sc("id"), pe("target","") + " " + sc("name")], rows)
+        buttons = [[InlineKeyboardButton(pe("hex","") + " " + rich_esc(f["_id"]), callback_data="fed:info:" + f["_id"]) for f in feds[index:index + 3]] for index in range(0, min(len(feds), 12), 3)]
         try:
-            await rich_edit(q.message, body)
+            await rich_edit(q.message, body, reply_markup=InlineKeyboardMarkup(buttons) if buttons else None)
+        except Exception:
+            pass
+        return
+    if action == "mychats":
+        current = get_chat_fed(chat_id)
+        if not current:
+            return await q.answer(sc("this chat has not joined a federation"), show_alert=True)
+        fed = get_fed(current)
+        if not fed:
+            return await q.answer(sc("federation record is missing"), show_alert=True)
+        await q.answer()
+        body = _hdr(sc("this chat's federation"), 3) + rich_kv_table([
+            (pe("target","") + " " + sc("name"), rich_esc(fed.get("name") or current)),
+            (pe("hex","") + " " + sc("id"), "<code>" + rich_esc(current) + "</code>"),
+            (pe("circle","") + " " + sc("member chats"), "<code>" + str(len(get_fed_chats(current))) + "</code>"),
+        ])
+        try:
+            await rich_edit(q.message, body, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(pe("hex","") + " " + sc("federation info"), callback_data="fed:info:" + current)]]))
         except Exception:
             pass
         return
@@ -283,15 +313,54 @@ async def fed_cbs(_, q):
         chats = len(get_fed_chats(fid))
         bans = len(list_fbans(fid))
         body = _hdr(sb("Federation") + " — " + rich_esc(fed["name"]),3) + rich_kv_table([(pe("hex","") + " " + sc("id"), "<code>" + rich_esc(fid) + "</code>"), (pe("circle","") + " " + sc("chats"), "<code>" + str(chats) + "</code>"), (pe("ban","⛔️") + " " + sc("bans"), "<code>" + str(bans) + "</code>")])
+        keyboard = InlineKeyboardMarkup([[InlineKeyboardButton(pe("circle","") + " " + sc("chats"), callback_data="fed:chats:" + fid), InlineKeyboardButton(pe("ban","⛔️") + " " + sc("bans"), callback_data="fed:bans:" + fid)], [InlineKeyboardButton(pe("cross","❌") + " " + sc("leave"), callback_data="fed:leave:" + fid)]])
         try:
-            await rich_edit(q.message, body)
+            await rich_edit(q.message, body, reply_markup=keyboard)
         except Exception:
             pass
         return
-    if action == "join" and fid:
+    if action in ("chats", "bans") and fid:
         if not get_fed(fid):
             return await q.answer(sc("fed not found"), show_alert=True)
+        if action == "chats":
+            chats = get_fed_chats(fid)
+            rows = [("<code>" + str(chat) + "</code>",) for chat in chats[:24]]
+            body = _hdr(pe("circle","") + " " + sc("fed chats") + " • " + str(len(chats)), 3)
+            body += rich_table([pe("hex","") + " " + sc("chat id")], rows) if rows else rich_note(sc("no chats"))
+            if len(chats) > 24:
+                body += rich_note(sc("and") + " " + str(len(chats) - 24) + " " + sc("more"))
+        else:
+            bans = list_fbans(fid)
+            rows = [("<code>" + str(row.get("user", "")) + "</code>", rich_esc(str(row.get("reason", ""))[:32])) for row in bans[:20]]
+            body = _hdr(pe("ban","⛔️") + " " + sc("fed bans") + " • " + str(len(bans)), 3)
+            body += rich_table([pe("hex","") + " " + sc("user"), pe("diamond","") + " " + sc("reason")], rows) if rows else rich_note(sc("no fbans"))
+        await q.answer()
+        try:
+            await rich_edit(q.message, body, reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(pe("hex","") + " " + sc("federation info"), callback_data="fed:info:" + fid)]]))
+        except Exception:
+            pass
+        return
+    if action == "demote" and fid and len(data) > 3:
+        fed = get_fed(fid)
+        if not fed or not q.from_user or fed.get("owner") != q.from_user.id:
+            return await q.answer(sc("owner only"), show_alert=True)
+        try:
+            fed_remove_admin(fid, int(data[3]))
+            await q.answer(sc("fed admin removed"))
+        except (TypeError, ValueError):
+            await q.answer(sc("invalid user"), show_alert=True)
+        return
+    if action == "join" and fid:
+        if not await _is_telegram_admin(bot, chat_id, q.from_user.id if q.from_user else None):
+            return await q.answer(sc("group admin only"), show_alert=True)
+        if not get_fed(fid):
+            return await q.answer(sc("fed not found"), show_alert=True)
+        existing = get_chat_fed(chat_id)
+        if existing and existing != fid:
+            return await q.answer(sc("chat already in another federation"), show_alert=True)
         set_chat_fed(chat_id, fid)
+        if get_chat_fed(chat_id) != fid:
+            return await q.answer(sc("could not save federation membership"), show_alert=True)
         await q.answer("✅ " + sc("joined") + " " + fid)
         try:
             await rich_edit(q.message, _hdr(pe("check","✅") + " " + sc("joined federation"),3) + rich_kv_table([(pe("hex","") + " " + sc("fed"), "<code>" + rich_esc(fid) + "</code>")]))
@@ -299,6 +368,10 @@ async def fed_cbs(_, q):
             pass
         return
     if action == "leave" and fid:
+        if not await _is_telegram_admin(bot, chat_id, q.from_user.id if q.from_user else None):
+            return await q.answer(sc("group admin only"), show_alert=True)
+        if get_chat_fed(chat_id) != fid:
+            return await q.answer(sc("this chat is not in that federation"), show_alert=True)
         set_chat_fed(chat_id, None)
         await q.answer("✅ " + sc("left") + " " + fid)
         try:
@@ -309,7 +382,11 @@ async def fed_cbs(_, q):
     if action == "unfban" and fid and len(data) > 3:
         try:
             uid = int(data[3])
-            unfban(fid, uid)
+            fed = get_fed(fid)
+            if not fed or not q.from_user or not is_fed_admin(fid, q.from_user.id):
+                return await q.answer(sc("fed admin only"), show_alert=True)
+            if not unfban(fid, uid):
+                return await q.answer(sc("could not update federation ban"), show_alert=True)
             for cid in get_fed_chats(fid):
                 try:
                     await bot.unban_chat_member(cid, uid)

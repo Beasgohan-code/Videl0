@@ -875,7 +875,10 @@ def _internal_federation_detail(fed_id):
         user_id = int(body.get("user_id"))
     except (TypeError, ValueError):
         return jsonify({"ok": False, "error": "A numeric user_id is required"}), 400
-    outcome = unban(db, fed_id, user_id)
+    try:
+        outcome = unban(db, fed_id, user_id, _bot_api)
+    except LookupError as error:
+        return jsonify({"ok": False, "error": str(error)}), 404
     LOGGER.info("federation %s: owner lifted the ban on %s", fed_id, user_id)
     return jsonify(outcome)
 
