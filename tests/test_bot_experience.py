@@ -2,6 +2,7 @@
 import asyncio
 import importlib
 import unittest
+from pyrogram.errors import QueryIdInvalid
 from types import SimpleNamespace as NS
 from unittest.mock import AsyncMock,patch
 from pyrogram.enums import ChatMemberStatus,ChatType
@@ -49,12 +50,12 @@ class PlayerExperienceTests(unittest.IsolatedAsyncioTestCase):
             await callbacks.on_callback(app,q)
         engine.pause.assert_awaited_once_with(-321)
         self.assertTrue(music.player.is_paused(-321))
-        q.answer.assert_awaited_once_with('Player is paused',show_alert=False)
+        q.answer.assert_awaited_once_with('Updating playback…',show_alert=False)
 
-    async def test_lost_callback_answer_never_retries_engine(self):
-        app=client();q=query();q.answer.side_effect=TimeoutError()
+    async def test_expired_callback_answer_does_not_retry_or_cancel_engine_action(self):
+        app=client();q=query();q.answer.side_effect=QueryIdInvalid("QUERY_ID_INVALID")
         with patch.object(music,'call_py',NS(pause=AsyncMock(return_value=True))) as engine,patch.object(music.player,'refresh_np_ui',AsyncMock()):
-            with self.assertRaises(TimeoutError):await callbacks.on_callback(app,q)
+            await callbacks.on_callback(app,q)
             await callbacks.on_callback(app,q)
             engine.pause.assert_awaited_once()
             q.answer.assert_awaited_once()
@@ -62,18 +63,20 @@ class PlayerExperienceTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_engine_timeout_does_not_change_state_or_expose_provider_error(self):
         q=query()
-        with patch.object(music,'call_py',NS(pause=AsyncMock(side_effect=RuntimeError('secret-cookie')))):
+        with patch.object(music_callbacks,'rich_reply',AsyncMock()) as reply, \
+             patch.object(music,'call_py',NS(pause=AsyncMock(side_effect=RuntimeError('secret-cookie')))):
             await callbacks.on_callback(client(),q)
         self.assertFalse(music.player.is_paused(-321))
-        self.assertIn('could not be confirmed',q.answer.call_args.args[0])
-        self.assertNotIn('secret',q.answer.call_args.args[0]);q.answer.assert_awaited_once()
+        self.assertEqual(q.answer.call_args.args, ('Updating playback…',))
+        self.assertIn('could not be confirmed',reply.call_args.args[1])
+        self.assertNotIn('secret',reply.call_args.args[1]);q.answer.assert_awaited_once()
 
     async def test_clear_button_keeps_track_and_stops_autoplay(self):
         q=query('clear');current=chat_queues[-321][0]
         with patch('videl.core.autoplay.stop_autoplay') as stop,patch.object(music.player,'refresh_np_ui',AsyncMock()):
             await callbacks.on_callback(client(),q)
         self.assertEqual(chat_queues[-321],[current]);stop.assert_called_once_with(-321)
-        self.assertIn('current track kept',q.answer.call_args.args[0])
+        q.answer.assert_awaited_once_with('Updating playback…',show_alert=False)
 
     async def test_simultaneous_repeat_clicks_cycle_under_the_shared_lock(self):
         with patch.object(music.player,'refresh_np_ui',AsyncMock()):
