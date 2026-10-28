@@ -185,6 +185,28 @@ async def _search_youtube(query: str, limit: int = 5) -> list[dict]:
     return results
 
 
+async def _fallback_youtube_audio(url: str, tmpdir: Path, requested_label: str) -> tuple[Path, dict] | None:
+    """Use the configured playback providers if yt-dlp cannot extract YouTube audio."""
+    if not _extract_video_id(url):
+        return None
+    from videl.utils.youtube import resolve_stream
+
+    downloaded = await resolve_stream(url)
+    if not downloaded:
+        return None
+    original = Path(downloaded)
+    if not original.is_file() or original.stat().st_size <= 1024:
+        return None
+    # Playback providers store their cache in the shared download directory.
+    # Copy into this request's temp folder so normal cleanup cannot delete the
+    # shared cache or another request's files.
+    extension = original.suffix if original.suffix.lower() in {".mp3", ".m4a", ".aac", ".ogg", ".opus", ".webm"} else ".mp3"
+    copied = tmpdir / f"fallback-audio{extension}"
+    await asyncio.to_thread(shutil.copy2, original, copied)
+    title = requested_label if not _is_url(requested_label) else original.stem
+    return copied, {"title": title[:180] or "YouTube audio", "duration": None}
+
+
 async def _download_media(
     source: str,
     audio_only: bool = True,
@@ -196,6 +218,8 @@ async def _download_media(
     tmpdir = Path(tempfile.mkdtemp(dir=str(DOWNLOAD_DIR)))
     outtmpl = str(tmpdir / "%(title).80s-%(id)s.%(ext)s")
     opts = _get_yt_dlp_opts(audio_only=audio_only, out_path=outtmpl)
+
+    requested_label = source.strip()
 
     # Resolve source: if not URL, search first
     if not _is_url(source):
@@ -258,7 +282,23 @@ async def _download_media(
             raise RuntimeError("Downloaded file not found")
 
     try:
-        path, info = await asyncio.to_thread(_run)
+        try:
+            path, info = await asyncio.to_thread(_run)
+        except Exception as extractor_error:
+            if not audio_only or not _extract_video_id(url):
+                raise
+            log.warning("yt-dlp audio extraction failed for YouTube; trying configured provider fallback (%s)", type(extractor_error).__name__)
+            try:
+                fallback = await _fallback_youtube_audio(url, tmpdir, requested_label)
+            except Exception as fallback_error:
+                log.warning("Configured YouTube audio fallback failed (%s)", type(fallback_error).__name__)
+                from videl.utils.youtube import MediaDownloadError
+                if isinstance(fallback_error, MediaDownloadError):
+                    raise fallback_error from extractor_error
+                raise extractor_error from fallback_error
+            if fallback is None:
+                raise
+            path, info = fallback
         if not path.exists() or path.stat().st_size < 1024:
             raise RuntimeError(f"File too small: {path}")
         log.info("Media download completed (%.2f MB)", path.stat().st_size / 1024 / 1024)
@@ -298,6 +338,8 @@ def _friendly_download_error(error: Exception) -> str:
     detail = str(error or "").casefold()
     if "failed to extract any player response" in detail or "player response" in detail:
         return "YouTube couldn’t prepare a stream for this video right now. Please try again later or use another link."
+    if "configure yt_api_key" in detail or "needs an api key" in detail:
+        return "The backup audio provider isn’t configured. Ask the bot owner to set its download API key, or try another link."
     if "no results" in detail or "no matching" in detail:
         return "No playable result was found. Try a different title or link."
     if "unsupported url" in detail or "unsupported site" in detail:

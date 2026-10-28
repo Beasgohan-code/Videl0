@@ -72,6 +72,43 @@ class DownloaderOptionsTests(unittest.IsolatedAsyncioTestCase):
                 search.assert_not_awaited()
                 downloader._cleanup_download(path)
 
+    async def test_song_falls_back_to_configured_youtube_audio_provider(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "shared-cache.mp3"
+            source.write_bytes(b"a" * 4096)
+            temp_downloads = root / "requests"
+            temp_downloads.mkdir()
+
+            class FailingYDL:
+                def __init__(self, _options):
+                    pass
+
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *_):
+                    return False
+
+                def extract_info(self, _url, download=True):
+                    raise RuntimeError("YouTube player extraction failed")
+
+            fake_module = ModuleType("yt_dlp")
+            fake_module.YoutubeDL = FailingYDL
+            with patch.object(downloader, "DOWNLOAD_DIR", temp_downloads), \
+                 patch.object(downloader, "_get_yt_dlp_opts", side_effect=lambda **kw: {"outtmpl": kw["out_path"]}), \
+                 patch.dict("sys.modules", {"yt_dlp": fake_module}), \
+                 patch("videl.utils.youtube.resolve_stream", new=AsyncMock(return_value=str(source))) as fallback:
+                path, info = await downloader._download_media(
+                    "https://www.youtube.com/watch?v=dQw4w9WgXcQ", include_info=True
+                )
+            fallback.assert_awaited_once_with("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+            self.assertEqual(path.read_bytes(), source.read_bytes())
+            self.assertEqual(info["title"], "shared-cache")
+            self.assertTrue(path.is_relative_to(temp_downloads))
+            downloader._cleanup_download(path)
+            self.assertTrue(source.exists(), "request cleanup must not remove the shared provider cache")
+
     async def test_no_search_result_removes_the_empty_temporary_directory(self):
         with tempfile.TemporaryDirectory() as directory:
             with patch.object(downloader, "DOWNLOAD_DIR", Path(directory)), \
