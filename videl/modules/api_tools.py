@@ -11,7 +11,7 @@ from videl import bot
 from videl.utils.bot_api import bot_api
 from videl.utils.bot_ui import button
 from videl.utils.permissions import is_user_authorized
-from videl.utils.premium_emojis import PREMIUM_IDS, USE_PREMIUM
+from videl.utils.premium_emojis import PREMIUM_IDS, SUPPLIED_EMOJI_PACKS, USE_PREMIUM, pe
 from videl.utils.rich_ui import rich_heading, rich_note, rich_kv_table, rich_table, rich_hr
 from videl.utils.command_ui import rich_reply, rich_edit, notice, usage, result as ui_result
 
@@ -47,6 +47,7 @@ OWNER_HELP = (
     + rich_table(["Command", "Diagnostic"], [
         ("<code>/apiinfo</code>", "Verify the bot identity with Telegram."),
         ("<code>/emojiinfo</code>", "Reply to a custom-emoji message to extract its IDs."),
+        ("<code>/emojiinfo list</code>", "Browse, preview, and copy IDs from every supplied emoji pack."),
         ("<code>/emojiinfo check</code>", "Ask Telegram to resolve configured IDs; lookup does not grant rendering permission."),
     ])
 )
@@ -54,7 +55,7 @@ HELP = PUBLIC_HELP + OWNER_HELP
 
 
 def public_help(message):
-    owner = bool(message and message.from_user and message.from_user.id == 6265999542
+    owner = bool(message and message.from_user and message.from_user.id == config.OWNER_ID
                  and str(getattr(message.chat.type, "value", message.chat.type)) == "private")
     return HELP if owner else PUBLIC_HELP
 
@@ -220,8 +221,82 @@ async def api_info(_, message):
     )
 
 
-@bot.on_message(filters.command("emojiinfo", prefixes=config.COMMAND_PREFIX_LIST) & filters.user(6265999542) & filters.private)
+EMOJI_BROWSER_PAGE_SIZE = 10
+
+
+def emoji_browser_menu():
+    """Build the private owner menu for every configured emoji pack."""
+    from videl.utils.rich_ui import rich_esc
+
+    body = rich_heading("Premium emoji library", level=2)
+    body += rich_note("Browse each supplied set, preview its custom artwork, and copy the exact IDs for a page. Telegram eligibility still controls custom rendering.")
+    rows = []
+    for name, entries in SUPPLIED_EMOJI_PACKS.items():
+        count = len(entries.strip().splitlines())
+        rows.append((rich_esc(name.replace("_", " ").title()), str(count)))
+    body += rich_table(["Pack", "Emojis"], rows)
+    choices = [
+        button(name.replace("_", " ").title() + f" · {len(entries.strip().splitlines())}",
+               callback_data=f"emojilist:{name}:0", style="primary", icon=f"{name}_001")
+        for name, entries in SUPPLIED_EMOJI_PACKS.items()
+    ]
+    keyboard_rows = [choices[i:i + 2] for i in range(0, len(choices), 2)]
+    return body, InlineKeyboardMarkup(keyboard_rows)
+
+
+def emoji_browser_page(pack: str, page: int):
+    """Return one bounded, copyable page of custom-emoji IDs."""
+    from videl.utils.premium_emojis import tg_emoji
+
+    if pack not in SUPPLIED_EMOJI_PACKS:
+        raise ValueError("Unknown premium emoji pack")
+    if isinstance(page, bool) or not isinstance(page, int) or page < 0:
+        raise ValueError("Invalid premium emoji page")
+    entries = [row.rsplit(maxsplit=1) for row in SUPPLIED_EMOJI_PACKS[pack].strip().splitlines()]
+    pages = max(1, (len(entries) + EMOJI_BROWSER_PAGE_SIZE - 1) // EMOJI_BROWSER_PAGE_SIZE)
+    if page >= pages:
+        raise ValueError("Premium emoji page is out of range")
+    start = page * EMOJI_BROWSER_PAGE_SIZE
+    current = entries[start:start + EMOJI_BROWSER_PAGE_SIZE]
+    body = rich_heading(f"{pack.replace('_', ' ').title()} · {start + 1}–{start + len(current)}", level=2)
+    body += rich_table(
+        ["#", "Preview", "Fallback", "Bot alias", "Emoji ID"],
+        [
+            (str(start + index + 1), tg_emoji(emoji_id, fallback), fallback,
+             f"<code>{pack}_{start + index + 1:03d}</code>", f"<code>{emoji_id}</code>")
+            for index, (fallback, emoji_id) in enumerate(current)
+        ],
+    )
+    body += rich_note(f"Page {page + 1} of {pages}. Bot aliases such as <code>{pack}_{start + 1:03d}</code> work with the premium emoji helper; copy IDs for direct use. IDs do not grant Premium eligibility.")
+    controls = []
+    if page > 0:
+        controls.append(button("Previous", callback_data=f"emojilist:{pack}:{page - 1}", icon="left"))
+    if page + 1 < pages:
+        controls.append(button("Next", callback_data=f"emojilist:{pack}:{page + 1}", icon="right"))
+    keyboard_rows = [controls] if controls else []
+    ids = "\n".join(emoji_id for _, emoji_id in current)
+    aliases = "\n".join(f"{pack}_{start + index + 1:03d}" for index in range(len(current)))
+    keyboard_rows.append([
+        button("Copy IDs", copy_text=CopyTextButton(text=ids), icon="ios_file"),
+        button("Copy bot aliases", copy_text=CopyTextButton(text=aliases), icon=f"{pack}_001"),
+    ])
+    keyboard_rows.append([button("All emoji packs", callback_data="emojilist:menu:0", icon="ios_folder")])
+    return body, InlineKeyboardMarkup(keyboard_rows)
+
+
+@bot.on_message(filters.command("emojiinfo", prefixes=config.COMMAND_PREFIX_LIST) & filters.user(config.OWNER_ID) & filters.private)
 async def emoji_info(_, message):
+    if len(message.command) > 1 and message.command[1].lower() == "list":
+        pack = message.command[2].lower() if len(message.command) > 2 else ""
+        if not pack:
+            body, markup = emoji_browser_menu()
+        else:
+            try:
+                body, markup = emoji_browser_page(pack, 0)
+            except ValueError:
+                names = ", ".join(SUPPLIED_EMOJI_PACKS)
+                return await rich_reply(message, usage("/emojiinfo list [pack]", f"Choose one pack: {names}"))
+        return await rich_reply(message, body, reply_markup=markup)
     if len(message.command) > 1 and message.command[1].lower() == "check":
         ids = list(dict.fromkeys(PREMIUM_IDS.values()))
         valid = set()
@@ -274,7 +349,7 @@ async def emoji_info(_, message):
     if not ids:
         return await rich_reply(
             message,
-            usage("/emojiinfo", "Reply to a message containing custom emoji to extract their IDs. Use /emojiinfo check to query the configured catalog."),
+            usage("/emojiinfo", "Reply to a message containing custom emoji to extract IDs; use /emojiinfo list to browse packs or /emojiinfo check to validate IDs."),
         )
     shown = ids[:50]
     table = rich_table(
@@ -289,6 +364,20 @@ async def emoji_info(_, message):
     if len(ids) > len(shown):
         card += rich_note(f"Showing {len(shown)} of {len(ids)} IDs. Reply to a smaller selection to copy a specific one.")
     await rich_reply(message, card, reply_markup=InlineKeyboardMarkup(keys))
+
+
+@bot.on_callback_query(filters.regex(r"^emojilist:[a-z_]{2,20}:[0-9]{1,3}$"))
+async def emoji_browser_callback(_, query):
+    if (not query.message or not query.from_user or query.from_user.id != config.OWNER_ID
+            or query.message.chat.type != ChatType.PRIVATE):
+        return await query.answer("This private owner-only emoji browser is not available here.", show_alert=True)
+    _, pack, raw_page = query.data.split(":")
+    try:
+        body, markup = emoji_browser_menu() if pack == "menu" else emoji_browser_page(pack, int(raw_page))
+    except (ValueError, TypeError):
+        return await query.answer("That pack or page is no longer available. Reopen /emojiinfo list.", show_alert=True)
+    await query.answer()
+    await rich_edit(query, body, reply_markup=markup)
 
 
 @bot.on_message(filters.command("copy", prefixes=config.COMMAND_PREFIX_LIST))

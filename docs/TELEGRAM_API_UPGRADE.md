@@ -10,7 +10,7 @@
 - Existing Richgram fork: https://github.com/Badmunda05/richgram — original MIT license retained at `vendor/richgram/LICENSE`. Videl's fallback changes are local to that fork.
 - Eldian Network music downloader and attribution remain intact.
 
-No external bot code or emoji packs were blindly imported. Existing configured IDs are retained, not claimed universally valid. `/emojiinfo check` asks Telegram to resolve them at runtime.
+Custom emoji IDs were supplied by the project owner and registered as numbered packs; the source attributions are preserved in the catalog. IDs are not claimed universally valid. `/emojiinfo check` asks Telegram to resolve them at runtime.
 
 ## Integrated
 
@@ -25,7 +25,7 @@ No external bot code or emoji packs were blindly imported. Existing configured I
 | Reactions | `/react 👍` or `/react clear` on a reply, restricted to owner/group admins. Telegram's allowed-chat reactions still apply. No automatic reactions or paid reactions. |
 | Topics | `/topicnew Title`, `/topicclose`, `/topicopen`; forum/admin checks, explicit refusal to alter the General topic through these commands. Bot must have Telegram topic-management permission. |
 | Copy buttons | Actual `CopyTextButton` actions in owner ID/emoji diagnostics. |
-| Diagnostics | Owner-only `/apiinfo` verifies bot identity; `/emojiinfo` extracts replied custom emoji IDs; `/emojiinfo check` resolves configured IDs without claiming rendering eligibility. |
+| Diagnostics | Owner-only `/apiinfo` verifies bot identity; `/emojiinfo` extracts replied custom emoji IDs; `/emojiinfo list` browses every supplied pack with custom previews, copyable IDs and bot aliases; `/emojiinfo check` resolves configured IDs without claiming rendering eligibility. |
 | Menus | A canonical public command menu used by startup and Studio sync; an additional owner-private menu on startup. `/help`, `/commands` and the Start/help buttons explain the new tools. |
 | Transport | Bounded HTTP calls outside the event loop; no tokens/URLs in exception logs. A definite HTTP 400 may retry without visual extras, preserving destinations, privacy options and button actions. Timeouts, 429s and server errors are never automatically retried. |
 

@@ -2,6 +2,7 @@
 import ast
 import importlib
 import unittest
+import config
 from types import SimpleNamespace
 from unittest.mock import AsyncMock,patch
 from pathlib import Path
@@ -128,6 +129,72 @@ class PresentationTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(premium_emojis.PREMIUM_IDS[alias], emoji_id)
                 self.assertEqual(premium_emojis.FALLBACK[alias], fallback)
         self.assertFalse(set(premium_emojis.PREMIUM_IDS) - set(premium_emojis.FALLBACK))
+
+    def test_emoji_browser_pages_every_supplied_pack_and_bounds_copy_buttons(self):
+        from videl.utils.premium_emojis import SUPPLIED_EMOJI_PACKS
+        body, menu = tools.emoji_browser_menu()
+        self.assertEqual(len(menu.inline_keyboard), 3)
+        self.assertIn("Premium emoji library", body)
+        from videl.utils.premium_emojis import PREMIUM_IDS
+        pack_buttons = [item for row in menu.inline_keyboard for item in row]
+        self.assertEqual(
+            [item.icon_custom_emoji_id for item in pack_buttons],
+            [PREMIUM_IDS[f"{name}_001"] for name in SUPPLIED_EMOJI_PACKS],
+        )
+        for name, source in SUPPLIED_EMOJI_PACKS.items():
+            first_fallback, first_id = source.strip().splitlines()[0].rsplit(maxsplit=1)
+            page, markup = tools.emoji_browser_page(name, 0)
+            self.assertIn(first_id, page)
+            self.assertIn(first_fallback, page)
+            callbacks = [item.callback_data for row in markup.inline_keyboard for item in row if item.callback_data]
+            self.assertIn(f"emojilist:{name}:1", callbacks)
+            copy_buttons = [item for row in markup.inline_keyboard for item in row if getattr(item, "copy_text", None)]
+            self.assertEqual(len(copy_buttons), 2)
+            self.assertTrue(any("_001" in item.copy_text.text for item in copy_buttons))
+            self.assertLessEqual(max(len(item.copy_text.text) for item in copy_buttons), 256)
+            self.assertIn(f"{name}_001", page)
+            total_pages = (len(source.strip().splitlines()) + tools.EMOJI_BROWSER_PAGE_SIZE - 1) // tools.EMOJI_BROWSER_PAGE_SIZE
+            last, _ = tools.emoji_browser_page(name, total_pages - 1)
+            self.assertIn(source.strip().splitlines()[-1].rsplit(maxsplit=1)[1], last)
+        with self.assertRaises(ValueError):
+            tools.emoji_browser_page("missing", 0)
+        with self.assertRaises(ValueError):
+            tools.emoji_browser_page("vector", 999)
+
+    def test_emoji_browser_is_documented_only_in_private_owner_help(self):
+        owner = SimpleNamespace(
+            from_user=SimpleNamespace(id=config.OWNER_ID),
+            chat=SimpleNamespace(type=ChatType.PRIVATE),
+        )
+        guest = SimpleNamespace(
+            from_user=SimpleNamespace(id=config.OWNER_ID + 1),
+            chat=SimpleNamespace(type=ChatType.PRIVATE),
+        )
+        self.assertIn("/emojiinfo list", tools.public_help(owner))
+        self.assertNotIn("/emojiinfo list", tools.public_help(guest))
+
+    async def test_emoji_browser_callback_restricts_updates_to_private_owner(self):
+        denied = SimpleNamespace(
+            message=SimpleNamespace(chat=SimpleNamespace(type=ChatType.PRIVATE)),
+            from_user=SimpleNamespace(id=config.OWNER_ID + 1),
+            data="emojilist:vector:0",
+            answer=AsyncMock(),
+        )
+        with patch.object(tools, "rich_edit", new=AsyncMock()) as edit:
+            await tools.emoji_browser_callback(None, denied)
+            denied.answer.assert_awaited_once()
+            edit.assert_not_awaited()
+
+        owner = SimpleNamespace(
+            message=SimpleNamespace(chat=SimpleNamespace(type=ChatType.PRIVATE)),
+            from_user=SimpleNamespace(id=config.OWNER_ID),
+            data="emojilist:vector:0",
+            answer=AsyncMock(),
+        )
+        with patch.object(tools, "rich_edit", new=AsyncMock()) as edit:
+            await tools.emoji_browser_callback(None, owner)
+            owner.answer.assert_awaited_once()
+            edit.assert_awaited_once()
 
     def test_card_has_heading_and_real_navigation_without_body_rewriting(self):
         body='<aside>Saved &amp; ready</aside>'
