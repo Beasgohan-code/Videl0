@@ -54,6 +54,9 @@ OWNER_HELP = (
         ("<code>/setbotname Name</code>", "Owner-only: update the bot’s display name (up to 64 characters)."),
         ("<code>/setbotdescription Text</code>", "Owner-only: update the bot’s About description (up to 512 characters)."),
         ("<code>/setbotshortdescription Text</code>", "Owner-only: update the bot’s short description (up to 120 characters)."),
+        ("<code>/restart</code>", "Owner-only, private chat: restart the bot process; active voice chats will disconnect."),
+        ("<code>/voicequality</code>", "Owner or bot sudo, private chat: view/change the global voice preset. Use <code>/voicequality medium</code> to reduce bitrate."),
+        ("<code>/voicehealth</code>", "Owner or bot sudo, private chat: inspect assistant, PyTgCalls, FFmpeg and media-provider readiness."),
     ])
 )
 HELP = PUBLIC_HELP + OWNER_HELP

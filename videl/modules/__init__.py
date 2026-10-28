@@ -14,5 +14,5 @@ ALL_MODULES = [
     "bot", "callbacks", "misc", "broadcast",
     "analytics", "owner_utils", "activity",
     # Curated, implemented professional utility commands.
-    "plugins_loader", "api_tools",
+    "plugins_loader", "api_tools", "voice_admin",
 ]

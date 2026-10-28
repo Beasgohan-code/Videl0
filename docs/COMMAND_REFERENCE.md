@@ -5,7 +5,7 @@ This documents navigation and source coverage, not verified live Telegram behavi
 Aliases are listed separately; permissions remain enforced by the referenced handler.
 Owner operations are hidden from public `/commands` results.
 
-182 distinct command names.
+185 distinct command names.
 
 ## Music & playlists
 
@@ -198,6 +198,7 @@ Owner operations are hidden from public `/commands` results.
 | `/gblock` | chat | `videl/modules/block.py::gblock_cmd` |
 | `/gcast` | chat | `videl/modules/broadcast.py::broadcast_cmd` |
 | `/gunblock` | chat | `videl/modules/block.py::gunblock_cmd` |
+| `/restart` | private | `videl/modules/voice_admin.py::restart_command` |
 | `/rmsudo` | private | `videl/plugins/sudo.py::remove_sudo` |
 | `/setbotdescription` | private | `videl/modules/api_tools.py::set_bot_description` |
 | `/setbotname` | private | `videl/modules/api_tools.py::set_bot_name` |
@@ -207,6 +208,8 @@ Owner operations are hidden from public `/commands` results.
 | `/sysinfo` | private | `videl/modules/owner_utils.py::system_info` |
 | `/ublock` | chat | `videl/modules/block.py::ublock_cmd` |
 | `/uunblock` | chat | `videl/modules/block.py::uunblock_cmd` |
+| `/voicehealth` | private | `videl/modules/voice_admin.py::voice_health_command` |
+| `/voicequality` | private | `videl/modules/voice_admin.py::voice_quality_command` |
 | `/watchdog` | private | `videl/modules/misc.py::watchdog_cmd` |
 
 ## Private-chat connected group commands

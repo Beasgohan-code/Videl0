@@ -114,6 +114,36 @@ def get_db():
     return _db
 
 
+def get_bot_setting(key: str, default=None):
+    """Read one global bot setting without exposing storage errors to callers."""
+    col = _col("bot_settings")
+    if col is None:
+        return default
+    try:
+        doc = col.find_one({"_id": str(key)}, {"value": 1})
+        return doc.get("value", default) if doc else default
+    except Exception as error:
+        logger.warning("Could not read bot setting %s (%s)", key, type(error).__name__)
+        return default
+
+
+def set_bot_setting(key: str, value) -> bool:
+    """Persist one global bot setting; returns False when storage is unavailable."""
+    col = _col("bot_settings")
+    if col is None:
+        return False
+    try:
+        col.update_one(
+            {"_id": str(key)},
+            {"$set": {"value": value, "updated_at": datetime.now(timezone.utc)}},
+            upsert=True,
+        )
+        return True
+    except Exception as error:
+        logger.warning("Could not save bot setting %s (%s)", key, type(error).__name__)
+        return False
+
+
 def is_connected() -> bool:
     return _db is not None
 

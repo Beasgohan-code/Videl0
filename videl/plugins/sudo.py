@@ -59,7 +59,7 @@ def _sudo_screen(documents) -> Screen:
     text = (
         heading(f"🛡 Bot sudo operators · {len(documents)}", 3)
         + table(rows)
-            + body("These operators can use only <code>/gblock</code>, <code>/gunblock</code>, <code>/ublock</code>, <code>/uunblock</code>, and <code>/blocklist</code>, from private chat. They cannot use group-admin controls or owner fleet, backup, recording, deployment, or sudo-management tools.")
+            + body("These operators can use <code>/gblock</code>, <code>/gunblock</code>, <code>/ublock</code>, <code>/uunblock</code>, <code>/blocklist</code>, <code>/voicequality</code>, and <code>/voicehealth</code> from private chat. They cannot use group-admin controls, restart the service, or access owner fleet, backup, recording, deployment, or sudo-management tools.")
     )
     return Screen(text, InlineKeyboardMarkup(buttons))
 
@@ -168,8 +168,8 @@ async def sudo_help(ctx) -> Screen:
         raise CommandError("This account is not on the bot sudo roster.")
     return Screen(
         heading("🛡 Limited bot sudo", 3)
-        + body("Available only from private chat: <code>/gblock</code>, <code>/gunblock</code>, <code>/ublock</code>, <code>/uunblock</code>, <code>/blocklist</code>.")
-        + body("Sudo is not Telegram admin status. It cannot bypass group permissions or open owner fleet, backup, recording, deployment, or sudo-management commands."),
+        + body("Available only from private chat: <code>/gblock</code>, <code>/gunblock</code>, <code>/ublock</code>, <code>/uunblock</code>, <code>/blocklist</code>, <code>/voicequality</code>, and <code>/voicehealth</code>.")
+        + body("Voice quality changes are global and apply to new streams. Sudo is not Telegram admin status; it cannot bypass group permissions, restart the service, or open owner fleet, backup, recording, deployment, or sudo-management controls."),
     )
 
 

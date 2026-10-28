@@ -1158,6 +1158,11 @@ if __name__ == "__main__":
         start_mongo()
     except Exception as e:
         LOGGER.warning(f"mongo: {e}")
+    try:
+        from videl.core.audio_quality import load_saved_quality
+        LOGGER.info("Voice audio quality preset: %s", load_saved_quality())
+    except Exception as e:
+        LOGGER.warning("Could not load saved voice quality (%s)", type(e).__name__)
 
     threading.Thread(target=_run_flask, daemon=True).start()
     _KEEPALIVE_THREAD = threading.Thread(target=_keep_alive, name="videl-render-keepalive", daemon=True)

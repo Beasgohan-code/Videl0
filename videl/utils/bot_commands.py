@@ -48,6 +48,9 @@ OWNER_COMMANDS = PUBLIC_COMMANDS + (
     ("setbotname", "Owner: change the bot display name"),
     ("setbotdescription", "Owner: change the bot About description"),
     ("setbotshortdescription", "Owner: change the bot short description"),
+    ("voicequality", "Owner/sudo private: change voice-chat audio quality"),
+    ("voicehealth", "Owner/sudo private: diagnose voice-chat readiness"),
+    ("restart", "Owner private: restart the bot process"),
     ("watchdog", "Owner: maintenance health and checks"),
     ("dbcleanup", "Owner: preview safe database retention"),
 )

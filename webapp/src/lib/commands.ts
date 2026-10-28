@@ -1109,6 +1109,14 @@ export const BOT_COMMANDS: BotCommand[] = [
     "owner": true
   },
   {
+    "name": "restart",
+    "usage": "/restart (owner, private chat; disconnects active voice chats)",
+    "summary": "Restart the bot process (owner only)",
+    "category": "owner",
+    "context": "private",
+    "owner": true
+  },
+  {
     "name": "rmsudo",
     "usage": "/rmsudo <@user|user_id> (owner, private chat)",
     "summary": "Revoke a bot sudo operator",
@@ -1178,6 +1186,22 @@ export const BOT_COMMANDS: BotCommand[] = [
     "summary": "Unblock a user",
     "category": "owner",
     "context": "chat",
+    "owner": true
+  },
+  {
+    "name": "voicehealth",
+    "usage": "/voicehealth (owner or bot sudo, private chat)",
+    "summary": "Check assistant, pytgcalls, ffmpeg and downloader readiness",
+    "category": "owner",
+    "context": "private",
+    "owner": true
+  },
+  {
+    "name": "voicequality",
+    "usage": "/voicequality [studio|high|medium|low] (owner or bot sudo, private chat; global, saved preset)",
+    "summary": "Change global voice-chat audio quality",
+    "category": "owner",
+    "context": "private",
     "owner": true
   },
   {
