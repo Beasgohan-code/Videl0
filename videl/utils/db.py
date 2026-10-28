@@ -1158,13 +1158,23 @@ def cleanup_old_data(days: int = 30, *, apply: bool = False) -> dict:
 # ── Federations (Rose-style fed bans across groups) ───────────────────────────
 
 def create_fed(fed_id: str, name: str, owner_id: int) -> bool:
+    """Create a federation without ever overwriting an existing federation ID."""
     col = _col("feds")
-    if col is None: return False
+    chats = _col("fed_chats")
+    if col is None or chats is None:
+        return False
     try:
-        col.update_one({"_id": fed_id}, {"$set": {"_id": fed_id, "name": name, "owner": owner_id, "created": __import__("time").time()}}, upsert=True)
-        col2 = _col("fed_chats"); col2.update_one({"fed": fed_id, "chat": -1}, {"$set": {"fed": fed_id, "chat": -1}}, upsert=True)
-        return True
-    except Exception as e: logger.error(f"[fed] create: {e}"); return False
+        col.insert_one({"_id": fed_id, "name": name, "owner": owner_id, "created": __import__("time").time()})
+    except Exception as e:
+        logger.error(f"[fed] create: {e}")
+        return False
+    # Legacy marker is not required for membership reads; failure to write it
+    # must not report a failed creation after the federation has already saved.
+    try:
+        chats.update_one({"fed": fed_id, "chat": -1}, {"$set": {"fed": fed_id, "chat": -1}}, upsert=True)
+    except Exception as e:
+        logger.warning(f"[fed] created {fed_id}, but legacy marker could not be written: {e}")
+    return True
 
 def delete_fed(fed_id: str) -> bool:
     col = _col("feds")
@@ -1243,17 +1253,27 @@ def is_fbanned_any(user_id: int) -> dict | None:
     try: return col.find_one({"user": user_id})
     except: return None
 
-def fed_add_admin(fed_id: str, user_id: int) -> None:
+def fed_add_admin(fed_id: str, user_id: int) -> bool:
     col = _col("fed_admins")
-    if col is None: return
-    try: col.update_one({"fed": fed_id, "user": user_id}, {"$set": {"fed": fed_id, "user": user_id}}, upsert=True)
-    except: pass
+    if col is None:
+        return False
+    try:
+        col.update_one({"fed": fed_id, "user": user_id}, {"$set": {"fed": fed_id, "user": user_id}}, upsert=True)
+        return True
+    except Exception as e:
+        logger.error(f"[fed] add admin: {e}")
+        return False
 
-def fed_remove_admin(fed_id: str, user_id: int) -> None:
+def fed_remove_admin(fed_id: str, user_id: int) -> bool:
     col = _col("fed_admins")
-    if col is None: return
-    try: col.delete_one({"fed": fed_id, "user": user_id})
-    except: pass
+    if col is None:
+        return False
+    try:
+        result = col.delete_one({"fed": fed_id, "user": user_id})
+        return bool(result.deleted_count)
+    except Exception as e:
+        logger.error(f"[fed] remove admin: {e}")
+        return False
 
 def fed_list_admins(fed_id: str) -> list:
     col = _col("fed_admins")
