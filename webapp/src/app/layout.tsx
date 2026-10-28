@@ -15,8 +15,8 @@ export const metadata: Metadata = {
   title: "Videl Studio",
   applicationName: "Videl Studio",
   icons: {
-    icon: "/videl-bot-pfp.png",
-    apple: "/videl-bot-pfp.png",
+    icon: "/videl-bot-pfp.png?v=20261028",
+    apple: "/videl-bot-pfp.png?v=20261028",
   },
   description: "Create polished Telegram posts and custom images with a private, browser-based creative workspace.",
   openGraph: {

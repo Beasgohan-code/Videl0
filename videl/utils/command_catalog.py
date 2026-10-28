@@ -15,7 +15,7 @@ CATEGORIES={
     'owner':{'owner_utils','broadcast'},
 }
 LABELS={'music':'Music & playlists','manage':'Groups & protection','tools':'Telegram tools','owner':'Owner operations','all':'All commands'}
-OWNER_NAMES={'apiinfo','emojiinfo','watchdog','dbcleanup','sysinfo','active','addsudo','delsudo','rmsudo','sudolist','gblock','gunblock','ublock','uunblock','blocklist'}
+OWNER_NAMES={'apiinfo','emojiinfo','setbotphoto','watchdog','dbcleanup','sysinfo','active','addsudo','delsudo','rmsudo','sudolist','gblock','gunblock','ublock','uunblock','blocklist'}
 
 
 def source_paths():
@@ -140,6 +140,8 @@ def _command_icon(entry):
         return 'ios_info'
     if name == 'emojiinfo':
         return 'ios_symbols'
+    if name == 'setbotphoto':
+        return 'ios_image'
     if name == 'topicnew':
         return 'ios_add'
     if name == 'topicrename':

@@ -82,5 +82,6 @@ def call_bot_api(method: str, payload: dict, files=None):
     return None, {"ok": False, "description": "Telegram did not confirm delivery"}
 
 
-async def bot_api(method: str, payload: dict):
-    return await asyncio.to_thread(call_bot_api, method, payload)
+async def bot_api(method: str, payload: dict, files=None):
+    """Run a Bot API request off-loop, optionally with multipart uploads."""
+    return await asyncio.to_thread(call_bot_api, method, payload, files=files)

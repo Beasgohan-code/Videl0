@@ -136,6 +136,48 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(status, 429)
         self.assertEqual(result["parameters"]["retry_after"], 20)
 
+    def test_multipart_upload_serializes_profile_photo_object_correctly(self):
+        response = Mock(status_code=200)
+        response.json.return_value = {"ok": True, "result": True}
+        payload = {"photo": {"type": "static", "photo": "attach://profile_photo"}}
+        photo = ("videl-bot-pfp.jpg", b"jpeg-data", "image/jpeg")
+        with patch.object(transport.requests, "post", return_value=response) as send:
+            status, result = transport.call_bot_api(
+                "setMyProfilePhoto", payload, files={"profile_photo": photo}
+            )
+        self.assertEqual(status, 200)
+        self.assertTrue(result["ok"])
+        self.assertEqual(send.call_args.kwargs["data"]["photo"], __import__("json").dumps(payload["photo"]))
+        self.assertEqual(send.call_args.kwargs["files"]["profile_photo"], photo)
+
+
+class BotProfileTests(unittest.TestCase):
+    def test_bundled_profile_asset_becomes_square_jpeg_for_telegram(self):
+        from io import BytesIO
+        from PIL import Image
+        from videl.utils.bot_profile import profile_photo_upload
+
+        payload, files = profile_photo_upload()
+        self.assertEqual(payload["photo"]["type"], "static")
+        self.assertEqual(payload["photo"]["photo"], "attach://profile_photo")
+        filename, content, mime = files["profile_photo"]
+        self.assertEqual((filename, mime), ("videl-bot-pfp.jpg", "image/jpeg"))
+        with Image.open(BytesIO(content)) as image:
+            self.assertEqual(image.format, "JPEG")
+            self.assertEqual(image.size, (640, 640))
+
+
+class BotProfileCommandTests(unittest.IsolatedAsyncioTestCase):
+    async def test_owner_profile_command_sends_the_bundled_photo_to_telegram(self):
+        payload = {"photo": {"type": "static", "photo": "attach://profile_photo"}}
+        files = {"profile_photo": ("videl-bot-pfp.jpg", b"jpeg", "image/jpeg")}
+        with patch("videl.utils.bot_profile.profile_photo_upload", return_value=(payload, files)), \
+             patch.object(api_tools_module, "bot_api", AsyncMock(return_value=(200, {"ok": True}))) as call, \
+             patch.object(api_tools_module, "rich_reply", AsyncMock()) as reply:
+            await api_tools_module.set_bot_profile_photo(None, SimpleNamespace())
+        call.assert_awaited_once_with("setMyProfilePhoto", payload, files=files)
+        reply.assert_awaited_once()
+
 
 class KeyboardTests(unittest.TestCase):
     def test_semantic_styles_keep_actions(self):

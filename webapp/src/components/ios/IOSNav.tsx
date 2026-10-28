@@ -72,7 +72,7 @@ export function IOSNav() {
       <aside className="fixed inset-y-0 left-0 z-50 hidden w-60 flex-col border-r border-indigo-300/10 bg-[#080b1a]/95 px-4 py-7 lg:flex">
         <Link href="/" className="flex items-center gap-3 px-3 text-2xl font-bold">
           <img
-            src="/videl-bot-pfp.png"
+            src="/videl-bot-pfp.png?v=20261028"
             alt=""
             width={42}
             height={42}
@@ -132,7 +132,7 @@ export function IOSNav() {
         <div className="flex min-w-0 items-center gap-2 text-xs">
           <Link href="/" className="flex shrink-0 items-center gap-2 font-semibold">
             <img
-              src="/videl-bot-pfp.png"
+              src="/videl-bot-pfp.png?v=20261028"
               alt=""
               width={28}
               height={28}

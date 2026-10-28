@@ -161,6 +161,13 @@ class PresentationTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValueError):
             tools.emoji_browser_page("vector", 999)
 
+    def test_bot_profile_update_is_registered_as_owner_private_only(self):
+        from videl.utils.command_catalog import commands
+        entry = next(row for row in commands() if row["name"] == "setbotphoto")
+        self.assertTrue(entry["owner"])
+        self.assertEqual(entry["context"], "private")
+        self.assertIn("setbotphoto", {row["command"] for row in __import__("videl.utils.bot_commands", fromlist=["command_menu"]).command_menu(owner=True)})
+
     def test_emoji_browser_is_documented_only_in_private_owner_help(self):
         owner = SimpleNamespace(
             from_user=SimpleNamespace(id=config.OWNER_ID),

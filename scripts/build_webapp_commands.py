@@ -66,6 +66,7 @@ USAGE = {
     "playnext": "/playnext <song name or link>",
     "addsudo": "/addsudo <@user|user_id> [duration] (owner, private chat)",
     "sudolist": "/sudolist (owner, private chat) — shows grant expiry",
+    "setbotphoto": "/setbotphoto (owner, private chat) — apply the bundled Videl Telegram profile image",
     "delsudo": "/delsudo <@user|user_id> (owner, private chat)",
     "rmsudo": "/rmsudo <@user|user_id> (owner, private chat)",
 }

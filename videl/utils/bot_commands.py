@@ -44,6 +44,7 @@ PUBLIC_COMMANDS = (
 OWNER_COMMANDS = PUBLIC_COMMANDS + (
     ("apiinfo", "Owner: verify Telegram API identity"),
     ("emojiinfo", "Owner: browse packs, copy aliases and validate custom emoji IDs"),
+    ("setbotphoto", "Owner: update the Telegram bot profile picture from the bundled Videl image"),
     ("watchdog", "Owner: maintenance health and checks"),
     ("dbcleanup", "Owner: preview safe database retention"),
 )

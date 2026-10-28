@@ -49,6 +49,7 @@ OWNER_HELP = (
         ("<code>/emojiinfo</code>", "Reply to a custom-emoji message to extract its IDs."),
         ("<code>/emojiinfo list</code>", "Browse, preview, and copy IDs from every supplied emoji pack."),
         ("<code>/emojiinfo check</code>", "Ask Telegram to resolve configured IDs; lookup does not grant rendering permission."),
+        ("<code>/setbotphoto</code>", "Owner-only: set the Telegram bot profile photo to the bundled Videl image."),
     ])
 )
 HELP = PUBLIC_HELP + OWNER_HELP
@@ -378,6 +379,37 @@ async def emoji_browser_callback(_, query):
         return await query.answer("That pack or page is no longer available. Reopen /emojiinfo list.", show_alert=True)
     await query.answer()
     await rich_edit(query, body, reply_markup=markup)
+
+
+@bot.on_message(filters.command("setbotphoto", prefixes=config.COMMAND_PREFIX_LIST) & filters.user(config.OWNER_ID) & filters.private)
+async def set_bot_profile_photo(_, message):
+    """Set the bot's Telegram avatar from the versioned Studio profile asset."""
+    from videl.utils.bot_profile import profile_photo_upload
+
+    try:
+        payload, files = profile_photo_upload()
+    except (OSError, ValueError) as error:
+        return await rich_reply(
+            message,
+            notice(
+                str(error), status="error", title="Bot profile image unavailable"
+            ),
+        )
+    status, result = await bot_api("setMyProfilePhoto", payload, files=files)
+    if status and result.get("ok"):
+        return await rich_reply(
+            message,
+            notice(
+                "The bundled Videl profile photo was accepted by Telegram. Refresh the bot profile if the old avatar remains cached.",
+                status="success",
+                title="Bot profile updated",
+            ),
+        )
+    detail = html.escape(str(result.get("description") or "Telegram did not confirm the profile photo change."))
+    return await rich_reply(
+        message,
+        notice(detail, status="error", title="Bot profile was not updated"),
+    )
 
 
 @bot.on_message(filters.command("copy", prefixes=config.COMMAND_PREFIX_LIST))

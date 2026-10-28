@@ -193,7 +193,7 @@ export const BOT_COMMANDS: BotCommand[] = [
     "usage": "/delfed",
     "summary": "Delete a federation you own",
     "category": "manage",
-    "context": "chat",
+    "context": "group",
     "owner": false
   },
   {
@@ -249,7 +249,7 @@ export const BOT_COMMANDS: BotCommand[] = [
     "usage": "/faddadmin",
     "summary": "Add a federation admin",
     "category": "manage",
-    "context": "chat",
+    "context": "group",
     "owner": false
   },
   {
@@ -265,7 +265,7 @@ export const BOT_COMMANDS: BotCommand[] = [
     "usage": "/fdemote",
     "summary": "Remove a federation admin",
     "category": "manage",
-    "context": "chat",
+    "context": "group",
     "owner": false
   },
   {
@@ -321,7 +321,7 @@ export const BOT_COMMANDS: BotCommand[] = [
     "usage": "/fpromote",
     "summary": "Promote a federation admin",
     "category": "manage",
-    "context": "chat",
+    "context": "group",
     "owner": false
   },
   {
@@ -329,7 +329,7 @@ export const BOT_COMMANDS: BotCommand[] = [
     "usage": "/fremadmin",
     "summary": "Remove a federation admin",
     "category": "manage",
-    "context": "chat",
+    "context": "group",
     "owner": false
   },
   {
@@ -614,7 +614,7 @@ export const BOT_COMMANDS: BotCommand[] = [
   },
   {
     "name": "tagall",
-    "usage": "/tagall [message] · /tagall stop",
+    "usage": "/tagall [message] · /tagall stop (group admin; paced at 5 seconds per member)",
     "summary": "Mention every accessible human member one-by-one at a 5-second pace; /tagall stop cancels (admin only)",
     "category": "manage",
     "context": "group",
@@ -1112,6 +1112,14 @@ export const BOT_COMMANDS: BotCommand[] = [
     "name": "rmsudo",
     "usage": "/rmsudo <@user|user_id> (owner, private chat)",
     "summary": "Revoke a bot sudo operator",
+    "category": "owner",
+    "context": "private",
+    "owner": true
+  },
+  {
+    "name": "setbotphoto",
+    "usage": "/setbotphoto (owner, private chat) — apply the bundled Videl Telegram profile image",
+    "summary": "Set the bot's telegram avatar from the versioned studio profile asset.",
     "category": "owner",
     "context": "private",
     "owner": true
