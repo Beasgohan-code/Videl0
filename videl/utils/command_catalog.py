@@ -122,16 +122,6 @@ def _command_icon(entry):
         return 'boseh_speaker_mute'
     if 'warn' in name:
         return 'rijif_warning'
-    if name in {'hug', 'kiss'}:
-        return 'vector_102' if name == 'kiss' else 'vector_101'
-    if name == 'like':
-        return 'rijif_heart_fire'
-    if name == 'wave':
-        return 'rijif_speech'
-    if name == 'highfive':
-        return 'rijif_thumbs_up'
-    if name == 'dance':
-        return 'rijif_disco'
     if name in {'tagall', 'gcast', 'broadcast'}:
         return 'rijif_megaphone'
     if name in {'afk', 'afklist', 'back', 'remind', 'reminders'}:
@@ -174,7 +164,7 @@ def _command_icon(entry):
         return 'music'
     if any(part in name for part in ('sticker', 'photo', 'avatar', 'image', 'kang')):
         return 'ios_image'
-    if any(part in name for part in ('note', 'filter', 'get', 'copy', 'font', 'rule')):
+    if any(part in name for part in ('note', 'filter', 'get', 'copy', 'rule')):
         return 'ios_memo'
     if any(part in name for part in ('poll', 'quiz', 'react', 'topic')):
         return 'ios_symbols'

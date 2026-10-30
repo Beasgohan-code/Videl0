@@ -5,7 +5,7 @@ adds the voice-chat music controls that live outside the plugin layer.
 """
 from .router import Command,Router
 from . import music,group_view
-from videl.plugins import start,help as help_plugin,tools,moderation,locks,notes,welcome,group,afk,reminder,fun,stickers,connections,reports,sudo
+from videl.plugins import start,help as help_plugin,tools,moderation,locks,notes,welcome,group,afk,reminder,stickers,connections,reports,sudo
 
 COMMANDS=(
     *start.COMMANDS,
@@ -18,7 +18,6 @@ COMMANDS=(
     *welcome.COMMANDS,
     *afk.COMMANDS,
     *reminder.COMMANDS,
-    *fun.COMMANDS,
     *stickers.COMMANDS,
     *connections.COMMANDS,
     *reports.COMMANDS,

@@ -205,7 +205,7 @@ class Router:
                     from pyrogram.errors import BadRequest
                     from videl.utils.bot_ui import visual_call
                     animation=BytesIO(screen.animation)
-                    animation.name='videl-fun.gif'
+                    animation.name='videl-animation.gif'
                     options={
                         'chat_id':original_message.chat.id,
                         'animation':animation,

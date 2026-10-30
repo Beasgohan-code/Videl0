@@ -5,7 +5,7 @@ This documents navigation and source coverage, not verified live Telegram behavi
 Aliases are listed separately; permissions remain enforced by the referenced handler.
 Owner operations are hidden from public `/commands` results.
 
-185 distinct command names.
+178 distinct command names.
 
 ## Music & playlists
 
@@ -153,17 +153,11 @@ Owner operations are hidden from public `/commands` results.
 | `/back` | chat | `videl/plugins/afk.py::back` |
 | `/commands` | chat | `videl/plugins/help.py::directory_command` |
 | `/copy` | chat | `videl/modules/api_tools.py::copy_command` |
-| `/dance` | chat | `videl/plugins/fun.py::dance` |
-| `/font` | chat | `videl/plugins/fun.py::font` |
 | `/forget` | chat | `videl/plugins/reminder.py::forget` |
 | `/help` | chat | `videl/plugins/help.py::help_command` |
-| `/highfive` | chat | `videl/plugins/fun.py::highfive` |
-| `/hug` | chat | `videl/plugins/fun.py::hug` |
 | `/id` | chat | `videl/plugins/tools.py::identifiers` |
 | `/inbox` | chat | `videl/app/group_view.py::private_recording` |
 | `/kang` | chat | `videl/plugins/stickers.py::kang` |
-| `/kiss` | chat | `videl/plugins/fun.py::kiss` |
-| `/like` | chat | `videl/plugins/fun.py::like` |
 | `/ping` | chat | `videl/plugins/tools.py::ping` |
 | `/poll` | chat | `videl/plugins/group.py::poll` |
 | `/pollstop` | chat | `videl/modules/api_tools.py::stop_poll_command` |
@@ -180,7 +174,6 @@ Owner operations are hidden from public `/commands` results.
 | `/topicnew` | chat | `videl/modules/api_tools.py::topic_command` |
 | `/topicopen` | chat | `videl/modules/api_tools.py::topic_command` |
 | `/topicrename` | chat | `videl/modules/api_tools.py::topic_command` |
-| `/wave` | chat | `videl/plugins/fun.py::wave` |
 | `/whois` | chat | `videl/plugins/tools.py::whois` |
 
 ## Owner operations

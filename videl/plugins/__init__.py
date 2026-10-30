@@ -2,12 +2,12 @@
 """Videl's command plugins.
 
 Each module owns a domain: ``start``, ``help``, ``afk``, ``reminder``,
-``moderation``, ``locks``, ``notes``, ``welcome``, ``group``, ``tools``,
-``fun`` and ``stickers``.
+``moderation``, ``locks``, ``notes``, ``welcome``, ``group``, ``tools`` and
+``stickers``.
 Modules export a ``COMMANDS`` tuple; :mod:`videl.app.routes` assembles the
 router manifest from them and :mod:`videl.modules.plugins_loader` imports them
 so their message watchers register with the bot.
 """
 
 WATCHER_PLUGINS = ("afk", "locks", "notes", "welcome", "reminder")
-COMMAND_PLUGINS = ("start", "help", "tools", "moderation", "locks", "notes", "welcome", "group", "afk", "reminder", "fun", "stickers", "sudo")
+COMMAND_PLUGINS = ("start", "help", "tools", "moderation", "locks", "notes", "welcome", "group", "afk", "reminder", "stickers", "sudo")

@@ -10,7 +10,6 @@ Removed adapters:
 - `videl/plugins/define.py`
 - `videl/plugins/ebook.py`
 - `videl/plugins/filters_pro.py`
-- `videl/plugins/font.py`
 - `videl/plugins/google.py`
 - `videl/plugins/helper_pro.py`
 - `videl/plugins/idpro.py`

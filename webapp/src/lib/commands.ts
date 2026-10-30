@@ -1261,22 +1261,6 @@ export const BOT_COMMANDS: BotCommand[] = [
     "owner": false
   },
   {
-    "name": "dance",
-    "usage": "/dance",
-    "summary": "Start an animated group dance break",
-    "category": "tools",
-    "context": "chat",
-    "owner": false
-  },
-  {
-    "name": "font",
-    "usage": "/font <bold|italic|script|mono> <text>",
-    "summary": "Style text in bold, italic, script or monospace",
-    "category": "tools",
-    "context": "chat",
-    "owner": false
-  },
-  {
     "name": "forget",
     "usage": "/forget",
     "summary": "Cancel every pending reminder you created",
@@ -1288,22 +1272,6 @@ export const BOT_COMMANDS: BotCommand[] = [
     "name": "help",
     "usage": "/help · /help music",
     "summary": "Open the help center or a named section",
-    "category": "tools",
-    "context": "chat",
-    "owner": false
-  },
-  {
-    "name": "highfive",
-    "usage": "/highfive",
-    "summary": "Share an animated high five",
-    "category": "tools",
-    "context": "chat",
-    "owner": false
-  },
-  {
-    "name": "hug",
-    "usage": "/hug [reply or @user]",
-    "summary": "Send an original animated friendly hug",
     "category": "tools",
     "context": "chat",
     "owner": false
@@ -1328,22 +1296,6 @@ export const BOT_COMMANDS: BotCommand[] = [
     "name": "kang",
     "usage": "/kang (reply to a sticker)",
     "summary": "Save a replied sticker to your personal telegram pack",
-    "category": "tools",
-    "context": "chat",
-    "owner": false
-  },
-  {
-    "name": "kiss",
-    "usage": "/kiss [reply or @user]",
-    "summary": "Send a respectful, animated cheek-kiss reaction",
-    "category": "tools",
-    "context": "chat",
-    "owner": false
-  },
-  {
-    "name": "like",
-    "usage": "/like",
-    "summary": "Send an animated appreciation reaction",
     "category": "tools",
     "context": "chat",
     "owner": false
@@ -1472,14 +1424,6 @@ export const BOT_COMMANDS: BotCommand[] = [
     "name": "topicrename",
     "usage": "/topicrename",
     "summary": "Rename a forum topic",
-    "category": "tools",
-    "context": "chat",
-    "owner": false
-  },
-  {
-    "name": "wave",
-    "usage": "/wave",
-    "summary": "Send an original animated hello",
     "category": "tools",
     "context": "chat",
     "owner": false

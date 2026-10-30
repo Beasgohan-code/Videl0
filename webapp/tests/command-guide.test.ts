@@ -47,11 +47,14 @@ test("essential bot commands are documented", () => {
     "queue",
     "stats",
     "kang",
-    "font",
-    "hug",
-    "kiss",
   ])
     assert.ok(documented.has(name), `missing /${name}`);
+});
+
+test("unreliable fun commands are absent from the public web guide", () => {
+  const documented = new Set(BOT_COMMANDS.map((command) => command.name));
+  for (const name of ["dance", "font", "highfive", "hug", "kiss", "like", "wave"])
+    assert.equal(documented.has(name), false, `unexpected /${name}`);
 });
 
 test("retired setup and modernhelp commands are absent from the public web guide", () => {
