@@ -61,7 +61,7 @@ export function PostFlow({
   const firstMissing = STAGES.find((stage) => !done[stage.key])?.key;
 
   return (
-    <nav className="post-flow" aria-label="Post workflow">
+    <nav className="post-flow" data-screen-stagger aria-label="Post workflow">
       <ol>
         {STAGES.map((stage, index) => {
           const Icon = ICONS[stage.key];

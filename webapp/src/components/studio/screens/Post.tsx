@@ -20,6 +20,7 @@ import { RichEditor } from "@/components/editor/RichEditor";
 import { ButtonBuilder, BtnRow } from "@/components/editor/ButtonBuilder";
 import { ChannelPreview } from "@/components/channel/Preview";
 import { PostFlow, type Stage } from "@/components/studio/PostFlow";
+import { useScreenMotion } from "@/components/studio/useScreenMotion";
 
 import {
   PostDraft as Draft,
@@ -65,6 +66,7 @@ const templates = [
   },
 ];
 export default function ChannelStudio() {
+  const pageRef = useRef<HTMLElement>(null);
   const { authenticated } = useTelegram();
   const isOwner = authenticated === true;
   const [showAssets, setShowAssets] = useState(false);
@@ -108,6 +110,7 @@ export default function ChannelStudio() {
   const [result, setResult] = useState<Result | null>(null);
   const [lightPreview, setLightPreview] = useState(false);
   const [postStage, setPostStage] = useState<Stage>("write");
+  useScreenMotion(pageRef, postStage);
   const [published, setPublished] = useState(false);
   useEffect(() => {
     setReviewed(false);
@@ -446,8 +449,8 @@ export default function ChannelStudio() {
       : { title: "Save and export", description: "Review the checklist, save a local draft, or export your finished post." },
   };
   return (
-    <main className="post-workspace mx-auto max-w-7xl py-5 sm:py-8" data-post-step={postStage}>
-      <header className="ios-page-header items-center">
+    <main ref={pageRef} className="post-workspace mx-auto max-w-7xl py-5 sm:py-8" data-post-step={postStage}>
+      <header data-screen-intro className="post-page-topbar ios-page-header items-center">
         <div>
           <p className="ios-caption2">VIDEL · PUBLISHING</p>
           <h1 className="mt-2 ios-title">Post Studio</h1>
@@ -502,7 +505,7 @@ export default function ChannelStudio() {
           </button>
         </div>
       </header>
-      <div className="post-page-heading" aria-live="polite">
+      <div data-screen-intro className="post-page-heading" aria-live="polite">
         <span className="ios-caps">STEP {(["write", "design", "preview", "queue"] as Stage[]).indexOf(postStage) + 1} OF 4</span>
         <div>
           <h2>{stageContent[postStage].title}</h2>
@@ -591,7 +594,7 @@ export default function ChannelStudio() {
           {autoStatus}
         </p>
       )}
-      <div className="mt-5 flex flex-wrap gap-2" role="group" aria-label="Post workspace mode">
+      <div data-screen-stagger className="post-mode-switch mt-5 flex flex-wrap gap-2" role="group" aria-label="Post workspace mode">
         <button
           aria-pressed={!showTemplates && !showAssets && !showCovers}
           onClick={() => {
@@ -642,7 +645,7 @@ export default function ChannelStudio() {
         </button>
       </div>
       {!showTemplates && !showAssets && !showCovers && (
-        <section data-post-page="write" className="post-editorial-banner mt-5 flex items-center justify-between gap-5 overflow-hidden rounded-2xl border border-white/10 p-5 sm:p-7">
+        <section data-screen-stagger data-post-page="write" className="post-editorial-banner mt-5 flex items-center justify-between gap-5 overflow-hidden rounded-2xl border border-white/10 p-5 sm:p-7">
           <img className="post-editorial-art" src="/studio/flow.jpg" alt="" aria-hidden decoding="async" />
           <div className="max-w-md">
             <p className="post-eyebrow">THE PUBLISHING DESK</p>

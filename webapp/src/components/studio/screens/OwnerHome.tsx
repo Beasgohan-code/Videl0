@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ArrowUpRight,
   Users,
@@ -17,6 +17,7 @@ import {
 import { useTelegram } from "@/components/TelegramProvider";
 import { useStudio, Section } from "@/components/studio/StudioProvider";
 import { Callout, EmptyState, PageHeader, Skeleton } from "../ui";
+import { useScreenMotion } from "../useScreenMotion";
 type Metrics = {
   users?: number;
   chats?: number;
@@ -77,6 +78,8 @@ const actions: {
   },
 ];
 export default function Home() {
+  const rootRef = useRef<HTMLElement>(null);
+  useScreenMotion(rootRef, "owner-home");
   const telegram = useTelegram();
   const { open, tab } = useStudio();
   const [refreshTick, refresh] = useState(0);
@@ -190,7 +193,7 @@ export default function Home() {
   const greeting =
     hour < 12 ? "Good Morning" : hour < 18 ? "Good Afternoon" : "Good Evening";
   return (
-    <main className="ios-page ios-page-wide">
+    <main ref={rootRef} className="ios-page ios-page-wide owner-home-page">
       <PageHeader
         eyebrow="Your community, connected"
         title={`${greeting}, ${name}! 👑`}
@@ -215,7 +218,7 @@ export default function Home() {
           </span>
         }
       />
-      <section className="studio-hero relative mt-6 overflow-hidden rounded-3xl border border-indigo-400/25 p-6 sm:p-8">
+      <section data-screen-intro className="studio-hero relative mt-6 overflow-hidden rounded-3xl border border-indigo-400/25 p-6 sm:p-8">
         <img
           src="/studio-night.png"
           alt="Anime creator overlooking a neon violet city at night"
