@@ -9,12 +9,18 @@ const hues: Record<string, number> = {
   broadcast: 326, settings: 238, auth: 270,
 };
 
+const themeBases: Record<string, number> = { aurora: 247, glacier: 190, orchid: 286, ember: 25 };
+function sectionHue(tab: string, theme = "aurora") {
+  return ((themeBases[theme] ?? 247) + ((hues[tab] ?? 247) - 247) + 360) % 360;
+}
+
 type HueObject = { initialValue: { hue?: number } };
 
 /** Motion is additive: every interaction remains usable when effects are unavailable or reduced. */
 export function StudioMotion() {
   const { tab } = useStudio();
   const theatreHue = useRef<HueObject | null>(null);
+  const activeTab = useRef(tab);
 
   useEffect(() => {
     let active = true;
@@ -23,12 +29,13 @@ export function StudioMotion() {
       if (!active) return;
       const project = getProject("Videl Studio Atmosphere");
       const sheet = project.sheet("Workspace");
-      const accent = sheet.object("Active section", { hue: types.number(hues[tab] ?? 247) });
+      const theme = document.documentElement.dataset.studioTheme ?? "aurora";
+      const accent = sheet.object("Active section", { hue: types.number(sectionHue(tab, theme)) });
       theatreHue.current = accent;
       unsubscribe = accent.onValuesChange(({ hue }) => {
         document.documentElement.style.setProperty("--studio-hue", `${hue}deg`);
       });
-      accent.initialValue = { hue: hues[tab] ?? 247 };
+      accent.initialValue = { hue: sectionHue(tab, theme) };
     }).catch(() => {});
     return () => {
       active = false;
@@ -38,8 +45,9 @@ export function StudioMotion() {
   }, []);
 
   useEffect(() => {
+    activeTab.current = tab;
     const accent = theatreHue.current;
-    if (accent) accent.initialValue = { hue: hues[tab] ?? 247 };
+    if (accent) accent.initialValue = { hue: sectionHue(tab, document.documentElement.dataset.studioTheme ?? "aurora") };
 
     if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
     let active = true;
@@ -59,6 +67,15 @@ export function StudioMotion() {
     }).catch(() => {});
     return () => { active = false; };
   }, [tab]);
+
+  useEffect(() => {
+    const updateTheme = () => {
+      const accent = theatreHue.current;
+      if (accent) accent.initialValue = { hue: sectionHue(activeTab.current, document.documentElement.dataset.studioTheme ?? "aurora") };
+    };
+    window.addEventListener("videl:studio-theme", updateTheme);
+    return () => window.removeEventListener("videl:studio-theme", updateTheme);
+  }, []);
 
   useEffect(() => {
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");

@@ -1,5 +1,5 @@
 "use client";
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useTelegram } from "@/components/TelegramProvider";
 import { useStudio, type Section } from "@/components/studio/StudioProvider";
@@ -56,6 +56,14 @@ const groups: { label: string; tabs: Section[] }[] = [
 
 const primaryTabs: Section[] = ["home", "music", "post", "groups"];
 
+type StudioTheme = "aurora" | "glacier" | "orchid" | "ember";
+const studioThemes: { id: StudioTheme; name: string; hue: number; swatch: string }[] = [
+  { id: "aurora", name: "Aurora", hue: 247, swatch: "#818cf8" },
+  { id: "glacier", name: "Glacier", hue: 190, swatch: "#67e8f9" },
+  { id: "orchid", name: "Orchid", hue: 286, swatch: "#d8b4fe" },
+  { id: "ember", name: "Ember", hue: 25, swatch: "#fb923c" },
+];
+
 const ownerAccess: NavItem = {
   tab: "auth",
   label: "Owner access",
@@ -66,6 +74,25 @@ const ownerAccess: NavItem = {
 export function IOSNav() {
   const { tab } = useStudio();
   const telegram = useTelegram();
+  const [theme, setTheme] = useState<StudioTheme>("aurora");
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("videl-studio-theme") as StudioTheme | null;
+      if (studioThemes.some((item) => item.id === saved)) {
+        setTheme(saved as StudioTheme);
+        document.documentElement.dataset.studioTheme = saved as StudioTheme;
+        window.dispatchEvent(new CustomEvent("videl:studio-theme", { detail: saved }));
+      }
+    } catch { /* Theme preference is optional in restricted browser storage. */ }
+  }, []);
+
+  function chooseTheme(next: StudioTheme) {
+    setTheme(next);
+    document.documentElement.dataset.studioTheme = next;
+    try { localStorage.setItem("videl-studio-theme", next); } catch { /* Keep the current session theme. */ }
+    window.dispatchEvent(new CustomEvent("videl:studio-theme", { detail: next }));
+  }
   const visible = tabs.filter((item) => canOpenSection(item.tab, telegram.authenticated));
   const groupOf = (section: Section) =>
     groups.find((group) => group.tabs.includes(section))?.label ??
@@ -155,6 +182,32 @@ export function IOSNav() {
           </span>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          <details className="studio-theme-menu">
+            <summary className="studio-theme-trigger" aria-label="Choose workspace color theme" title="Workspace appearance">
+              <Palette size={15} aria-hidden />
+              <span className="hidden sm:inline">Theme</span>
+            </summary>
+            <div className="studio-theme-popover" role="group" aria-label="Workspace color theme">
+              <p className="ios-caps mb-2 px-1 text-[10px] text-white/40">Workspace mood</p>
+              {studioThemes.map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={(event) => {
+                    chooseTheme(option.id);
+                    event.currentTarget.closest("details")?.removeAttribute("open");
+                  }}
+                  aria-pressed={theme === option.id}
+                  className="studio-theme-option"
+                >
+                  <span aria-hidden="true" style={{ background: option.swatch }} />
+                  <span>{option.name}</span>
+                  {theme === option.id && <span className="ml-auto text-[10px] text-indigo-200">Active</span>}
+                </button>
+              ))}
+              <p className="mt-2 px-1 text-[10px] leading-4 text-white/35">Saved on this device. Motion respects your system preference.</p>
+            </div>
+          </details>
           {telegram.authenticated === true && (
             <Link href="/?tab=post" className="ios-btn ios-btn-primary hidden text-xs sm:inline-flex">
               New post

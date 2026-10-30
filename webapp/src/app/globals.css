@@ -3371,3 +3371,80 @@ html { scroll-behavior: smooth; }
   .studio-panel .ios-btn-primary::after { transition: none !important; }
   .studio-panel[data-gsap-active="true"] > div[data-panel] { animation: none !important; }
 }
+
+/* Personalize the workspace palette without changing its readable contrast. */
+.studio-theme-menu { position: relative; }
+.studio-theme-menu > summary { list-style: none; }
+.studio-theme-menu > summary::-webkit-details-marker { display: none; }
+.studio-theme-trigger {
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid rgba(165,180,252,.13);
+  border-radius: 11px;
+  padding: 0 10px;
+  color: rgba(224,231,255,.72);
+  background: rgba(255,255,255,.035);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  transition: background 180ms ease, border-color 180ms ease, color 180ms ease;
+}
+.studio-theme-trigger:hover,
+.studio-theme-menu[open] > .studio-theme-trigger {
+  color: #f8faff;
+  border-color: hsl(var(--studio-hue,247deg) 80% 75% / .35);
+  background: hsl(var(--studio-hue,247deg) 75% 60% / .11);
+}
+.studio-theme-popover {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 80;
+  width: min(17rem, calc(100vw - 2rem));
+  padding: 12px;
+  border: 1px solid rgba(165,180,252,.2);
+  border-radius: 16px;
+  background: rgba(10,14,31,.88);
+  box-shadow: 0 22px 65px rgba(0,0,0,.48), inset 0 1px rgba(255,255,255,.05);
+  -webkit-backdrop-filter: blur(28px) saturate(150%);
+  backdrop-filter: blur(28px) saturate(150%);
+  animation: theme-pop-in 180ms cubic-bezier(.16,1,.3,1) both;
+}
+.studio-theme-option {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 0 9px;
+  color: rgba(236,240,255,.74);
+  text-align: left;
+  font-size: 12px;
+  transition: background 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+.studio-theme-option:hover,
+.studio-theme-option[aria-pressed="true"] {
+  border-color: rgba(165,180,252,.15);
+  background: rgba(255,255,255,.06);
+  color: #fff;
+}
+.studio-theme-option > span:first-child {
+  width: 13px;
+  height: 13px;
+  border: 2px solid rgba(255,255,255,.55);
+  border-radius: 50%;
+  box-shadow: 0 0 13px currentColor;
+}
+@keyframes theme-pop-in {
+  from { opacity: 0; transform: translateY(-5px) scale(.98); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .studio-theme-trigger, .studio-theme-option { transition: none !important; }
+  .studio-theme-popover { animation: none !important; }
+}
