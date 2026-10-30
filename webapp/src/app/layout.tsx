@@ -52,7 +52,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         </a>
         <TelegramProvider><StudioProvider>
           {/* iOS safe area + Telegram viewport + background */}
-          <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(ellipse_at_top,_rgba(96,165,250,0.12),transparent_55%),radial-gradient(ellipse_at_bottom_right,_rgba(167,139,250,0.10),transparent_45%),linear-gradient(to_bottom,_rgba(8,11,26,0.5),rgba(8,11,26,0.5))]" />
+          <div className="studio-ambient pointer-events-none fixed inset-0" aria-hidden="true" />
           <div className="relative z-10 min-h-screen flex flex-col lg:pl-60">
             <div className="px-4 lg:px-6 pt-[env(safe-area-inset-top)]">
               <IOSNav />

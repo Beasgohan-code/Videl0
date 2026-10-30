@@ -72,7 +72,7 @@ export function IOSNav() {
     (section === "auth" ? "System" : "");
   return (
     <>
-      <aside className="fixed inset-y-0 left-0 z-50 hidden w-60 flex-col border-r border-indigo-300/10 bg-[#080b1a]/95 px-4 py-7 lg:flex">
+      <aside className="studio-sidebar fixed inset-y-0 left-0 z-50 hidden w-60 flex-col border-r border-indigo-300/10 px-4 py-7 lg:flex">
         <Link href="/" className="flex items-center gap-3 px-3 text-2xl font-bold">
           <img
             src="/videl-bot-pfp.png?v=20261028"
@@ -131,7 +131,7 @@ export function IOSNav() {
         </div>
       </aside>
 
-      <header className="flex h-16 items-center justify-between gap-3 border-b border-indigo-200/10">
+      <header className="studio-topbar flex h-16 items-center justify-between gap-3 border-b border-indigo-200/10">
         <div className="flex min-w-0 items-center gap-2 text-xs">
           <Link href="/" className="flex shrink-0 items-center gap-2 font-semibold">
             <img
@@ -141,6 +141,9 @@ export function IOSNav() {
               height={28}
               className="h-7 w-7 rounded-full border border-indigo-300/30 object-cover"
             />
+            <svg id="videl-studio-mark" viewBox="0 0 24 24" aria-hidden="true" className="studio-mark h-5 w-5 text-indigo-200">
+              <path d="M3.5 18.5 9 5l5.5 13.5M5.2 14.2h7.6M15.8 7.2c2.9.8 4.7 2.5 4.7 4.8s-1.8 4-4.7 4.8" />
+            </svg>
             Videl Studio
           </Link>
           <ChevronRight size={12} aria-hidden className="shrink-0 text-indigo-100/25" />

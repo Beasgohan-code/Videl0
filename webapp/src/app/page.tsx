@@ -8,6 +8,7 @@ import { PanelBoundary } from "@/components/studio/PanelBoundary";
 import { OwnerGate } from "@/components/studio/OwnerGate";
 import { BackendStatus } from "@/components/studio/BackendStatus";
 import { ToolFinder } from "@/components/studio/ToolFinder";
+import { StudioMotion } from "@/components/studio/StudioMotion";
 import Home from "@/components/studio/screens/Home";
 const loading = () => (
   <div className="py-20 text-center text-indigo-200/50" role="status">
@@ -55,6 +56,7 @@ export default function Studio() {
     <div className="studio-panel" id="studio-panel" tabIndex={-1}>
       {authenticated && <BackendStatus />}
       {tab !== 'chat' && <ToolFinder />}
+      <StudioMotion />
       <div className="sr-only" aria-live="polite">
         {tab} panel
       </div>
