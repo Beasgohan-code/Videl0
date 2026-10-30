@@ -3448,3 +3448,119 @@ html { scroll-behavior: smooth; }
   .studio-theme-trigger, .studio-theme-option { transition: none !important; }
   .studio-theme-popover { animation: none !important; }
 }
+
+/* Final consistency pass: shared spacing, focus, hover and loading states. */
+:root {
+  --studio-surface: rgba(17, 24, 49, .72);
+  --studio-surface-raised: rgba(25, 32, 62, .78);
+  --studio-line: rgba(165, 180, 252, .15);
+  --studio-muted: rgba(211, 219, 246, .58);
+  --studio-ease: cubic-bezier(.2, .8, .2, 1);
+}
+.studio-panel { isolation: isolate; }
+.studio-panel > div[data-panel]:not([hidden]) { min-width: 0; }
+.studio-panel .ios-page { padding-block: clamp(1.2rem, 3vw, 2.4rem) clamp(2rem, 5vw, 3.5rem); }
+.studio-panel .ios-page-header { margin-bottom: clamp(.85rem, 2vw, 1.35rem); }
+.studio-panel h1, .studio-panel .ios-title-large {
+  color: #f5f6ff;
+  letter-spacing: -.045em;
+  line-height: 1.08;
+}
+.studio-panel h2, .studio-panel h3 { letter-spacing: -.025em; }
+.studio-panel .ios-card,
+.studio-panel .ios-card-elevated {
+  overflow: hidden;
+  transition: border-color 220ms var(--studio-ease), box-shadow 220ms var(--studio-ease), background-color 220ms var(--studio-ease), transform 220ms var(--studio-ease);
+}
+.studio-panel .ios-card,
+.studio-panel .ios-card-elevated {
+  background-image:
+    radial-gradient(ellipse at 0% 0%, hsl(var(--studio-hue,247deg) 80% 72% / .055), transparent 48%),
+    linear-gradient(145deg, rgba(21,28,57,.77), rgba(8,13,30,.78));
+}
+.studio-panel .ios-card:hover,
+.studio-panel .ios-card-elevated:hover {
+  background-image:
+    radial-gradient(ellipse at 0% 0%, hsl(var(--studio-hue,247deg) 80% 72% / .09), transparent 52%),
+    linear-gradient(145deg, rgba(23,31,62,.82), rgba(9,15,34,.83));
+}
+.studio-sidebar nav a {
+  min-height: 40px;
+  border: 1px solid transparent;
+  transition: color 170ms ease, background 170ms ease, border-color 170ms ease, transform 170ms var(--studio-ease);
+}
+.studio-sidebar nav a:hover { transform: translateX(2px); }
+.studio-sidebar nav a[aria-current="page"] {
+  border-color: hsl(var(--studio-hue,247deg) 76% 75% / .17);
+  background: linear-gradient(100deg, hsl(var(--studio-hue,247deg) 75% 58% / .2), rgba(255,255,255,.035));
+  box-shadow: inset 0 1px rgba(255,255,255,.04), 0 6px 18px hsl(var(--studio-hue,247deg) 80% 55% / .07);
+}
+.studio-panel .ios-list-row,
+.studio-panel [role="row"] {
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+.studio-panel .ios-list-row:hover { background: rgba(255,255,255,.035); }
+.studio-panel button:not(:disabled):not(.ios-btn),
+.studio-panel a:not(.ios-btn) { transition-timing-function: var(--studio-ease); }
+.studio-panel :is(button, a, input, textarea, select, summary, [tabindex]):focus-visible,
+.studio-theme-menu > summary:focus-visible {
+  outline: 2px solid hsl(var(--studio-hue,247deg) 90% 78% / .88);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 5px hsl(var(--studio-hue,247deg) 80% 62% / .12);
+}
+.studio-panel :is(input, textarea, select)::placeholder { color: rgba(186,196,225,.38); }
+.studio-panel :is(input, textarea, select):disabled { opacity: .55; cursor: not-allowed; }
+.studio-panel :is(table, [role="table"]) { border-collapse: separate; border-spacing: 0; }
+.studio-panel :is(th, [role="columnheader"]) { color: rgba(213,220,245,.56); font-size: .68rem; font-weight: 650; letter-spacing: .08em; text-transform: uppercase; }
+.studio-panel :is(td, [role="cell"]) { color: rgba(234,237,250,.78); }
+.studio-panel :is(tr, [role="row"]):hover td,
+.studio-panel [role="row"]:hover [role="cell"] { background: rgba(255,255,255,.025); }
+.studio-panel :is(.empty-state, [data-empty-state]) { border: 1px dashed rgba(165,180,252,.17); border-radius: 18px; background: rgba(255,255,255,.018); }
+.studio-panel [role="status"]:not(.animate-spin) { color: var(--studio-muted); }
+.studio-panel :is(.skeleton, [data-skeleton="true"]) { border: 1px solid rgba(255,255,255,.025); background: linear-gradient(100deg,rgba(255,255,255,.035) 20%,rgba(255,255,255,.075) 42%,rgba(255,255,255,.035) 64%); background-size: 220% 100%; animation: studio-skeleton 1.45s linear infinite; }
+@keyframes studio-skeleton { to { background-position: -220% 0; } }
+@supports not ((backdrop-filter: blur(2px))) {
+  .studio-sidebar, .studio-topbar, .studio-theme-popover, .studio-panel .ios-card { background-color: #0b1021; }
+}
+@media (max-width: 640px) {
+  .studio-panel .ios-page { padding-top: 1rem; }
+  .studio-panel .ios-title { font-size: clamp(1.45rem, 7vw, 1.8rem); }
+  .studio-panel .ios-card, .studio-panel .ios-card-elevated { border-radius: 17px; }
+  .studio-panel .ios-page-actions { width: 100%; }
+  .studio-panel .ios-page-actions > * { flex: 1 1 auto; }
+  .studio-theme-popover { right: -3.25rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .studio-sidebar nav a, .studio-panel .ios-card, .studio-panel .ios-card-elevated,
+  .studio-panel [data-skeleton="true"], .studio-panel .skeleton { animation: none !important; transition: none !important; }
+  .studio-sidebar nav a:hover { transform: none; }
+}
+.studio-transparency-toggle {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 8px;
+  border-top: 1px solid rgba(255,255,255,.07);
+  padding: 10px 4px 2px;
+  color: rgba(226,232,240,.66);
+  font-size: 11px;
+  cursor: pointer;
+}
+.studio-transparency-toggle input { width: 15px; height: 15px; accent-color: hsl(var(--studio-hue,247deg) 75% 66%); }
+:root[data-reduced-glass="true"] .studio-sidebar,
+:root[data-reduced-glass="true"] .studio-topbar,
+:root[data-reduced-glass="true"] .studio-theme-popover,
+:root[data-reduced-glass="true"] .studio-panel .ios-card,
+:root[data-reduced-glass="true"] .studio-panel .ios-card-elevated,
+:root[data-reduced-glass="true"] .studio-panel .ios-list,
+:root[data-reduced-glass="true"] .studio-panel [role="dialog"],
+:root[data-reduced-glass="true"] .tool-finder,
+:root[data-reduced-glass="true"] .nav-sheet {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+:root[data-reduced-glass="true"] .studio-sidebar,
+:root[data-reduced-glass="true"] .studio-topbar { background-color: #090d1d; }
+:root[data-reduced-glass="true"] .studio-panel .ios-card,
+:root[data-reduced-glass="true"] .studio-panel .ios-card-elevated,
+:root[data-reduced-glass="true"] .studio-panel .ios-list { background-color: #0e142b; }

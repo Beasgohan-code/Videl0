@@ -75,9 +75,13 @@ export function IOSNav() {
   const { tab } = useStudio();
   const telegram = useTelegram();
   const [theme, setTheme] = useState<StudioTheme>("aurora");
+  const [reduceGlass, setReduceGlass] = useState(false);
 
   useEffect(() => {
     try {
+      const savedGlass = localStorage.getItem("videl-studio-reduce-glass") === "true";
+      setReduceGlass(savedGlass);
+      if (savedGlass) document.documentElement.dataset.reducedGlass = "true";
       const saved = localStorage.getItem("videl-studio-theme") as StudioTheme | null;
       if (studioThemes.some((item) => item.id === saved)) {
         setTheme(saved as StudioTheme);
@@ -92,6 +96,12 @@ export function IOSNav() {
     document.documentElement.dataset.studioTheme = next;
     try { localStorage.setItem("videl-studio-theme", next); } catch { /* Keep the current session theme. */ }
     window.dispatchEvent(new CustomEvent("videl:studio-theme", { detail: next }));
+  }
+  function toggleReduceGlass(next: boolean) {
+    setReduceGlass(next);
+    if (next) document.documentElement.dataset.reducedGlass = "true";
+    else delete document.documentElement.dataset.reducedGlass;
+    try { localStorage.setItem("videl-studio-reduce-glass", String(next)); } catch { /* Keep the current session preference. */ }
   }
   const visible = tabs.filter((item) => canOpenSection(item.tab, telegram.authenticated));
   const groupOf = (section: Section) =>
@@ -205,6 +215,10 @@ export function IOSNav() {
                   {theme === option.id && <span className="ml-auto text-[10px] text-indigo-200">Active</span>}
                 </button>
               ))}
+              <label className="studio-transparency-toggle">
+                <input type="checkbox" checked={reduceGlass} onChange={(event) => toggleReduceGlass(event.currentTarget.checked)} />
+                <span>Reduce blur effects</span>
+              </label>
               <p className="mt-2 px-1 text-[10px] leading-4 text-white/35">Saved on this device. Motion respects your system preference.</p>
             </div>
           </details>
