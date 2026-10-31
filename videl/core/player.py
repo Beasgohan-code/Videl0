@@ -10,7 +10,7 @@ from pytgcalls.types import MediaStream, VideoQuality
 import config
 from videl import LOGGER, bot, call_py
 from videl.utils.formatters import parse_dur, short
-from videl.utils.rich_ui import RICH_AVAILABLE, rich_edit, rich_esc, rich_heading, rich_img, rich_kv_table, rich_note, rich_send, rich_details
+from videl.utils.rich_ui import rich_edit, rich_esc, rich_heading, rich_kv_table, rich_note, rich_send, rich_details
 from videl.utils.youtube import MediaDownloadError, resolve_stream
 
 _nf_pills = lambda: (
@@ -32,37 +32,29 @@ def _thumb_url(song: dict) -> str:
     return ""
 
 
-_PLAYER_IMAGE_ID = "videl_player_art"
-_player_media_file_ids: dict[int,str] = {}
+async def _send_player_card(chat_id, message, caption, keyboard, *, poster=None, thumbnail=None):
+    """Use the legacy photo-caption transport so Telegram parses Premium Emoji entities.
 
-
-def _player_image(song: dict, media_file_id: str | None = None) -> str:
-    """Embed generated art as Rich media, or a trusted provider thumbnail by URL."""
-    if media_file_id:
-        return rich_img(f"tg://photo?id={_PLAYER_IMAGE_ID}")
-    thumb=_thumb_url(song)
-    if not thumb:
-        return ""
-    try:
-        from videl.utils.player_poster import _allowed_cover_url
-        return rich_img(thumb) if _allowed_cover_url(thumb) else ""
-    except Exception:
-        return ""
-
-
-def _player_photo_file_id(message) -> str | None:
-    rich_message=getattr(message,"rich_message",None)
-    for block in getattr(rich_message,"blocks",[]) or []:
-        file_id=getattr(getattr(block,"photo",None),"file_id",None)
-        if file_id:
-            return str(file_id)
-    return None
-
-
-def _player_rich_media(*, file_id: str | None = None, photo=None):
-    from pyrogram.types import InputMediaPhoto,InputRichMessageMedia
-    source=file_id if file_id else photo
-    return [InputRichMessageMedia(id=_PLAYER_IMAGE_ID,media=InputMediaPhoto(source))]
+    Keep the generated poster and exact card content; only use the thumbnail after
+    Telegram definitively rejects the poster upload. Caption edits then follow the
+    same native HTML entity path instead of RichMessage HTML.
+    """
+    sources = []
+    if poster is not None:
+        sources.append(poster)
+    if thumbnail and thumbnail != poster:
+        sources.append(thumbnail)
+    for source in sources:
+        try:
+            return await visual_call(
+                bot.send_photo, chat_id, photo=source, caption=caption,
+                reply_markup=keyboard,
+            )
+        except BadRequest:
+            continue
+    if message is not None:
+        return await rich_edit(message, caption, reply_markup=keyboard)
+    return await rich_send(bot, chat_id, caption, reply_markup=keyboard)
 
 _paused: dict[int,bool]={}
 _loop_mode: dict[int,str]={}
@@ -104,12 +96,10 @@ def stop_progress(chat_id, reset=True):
     if reset:
         for state in (_paused, _pause_started, _np_msg, _np_song, _np_start, _np_total, _loop_mode):
             state.pop(chat_id, None)
-        _player_media_file_ids.pop(chat_id,None)
 
 
 def start_progress(chat_id, message, total, song):
     stop_progress(chat_id, reset=False)
-    _player_media_file_ids.pop(chat_id,None)
     _pause_started.pop(chat_id, None)
     _paused[chat_id] = False
     if message is not None:_np_msg[chat_id] = message
@@ -191,12 +181,13 @@ async def refresh_np_ui(chat_id:int):
     start_t=_np_start.get(chat_id,time.time()); total=_np_total.get(chat_id,0) or 0
     elapsed=min(current_position(chat_id),total) if total else current_position(chat_id)
     cap=_now_playing_caption(song,elapsed,total,chat_id=chat_id); kb=_now_playing_kb(chat_id)
-    media_file_id=_player_media_file_ids.get(chat_id)
-    media=_player_rich_media(file_id=media_file_id) if media_file_id else None
     try:
-        if getattr(msg,"photo",None): await visual_call(bot.edit_message_caption,chat_id,msg.id,caption=cap,reply_markup=kb)
-        else: await rich_edit(msg,_player_image(song,media_file_id)+cap,reply_markup=kb,media=media)
-    except: pass
+        if getattr(msg,"photo",None):
+            await visual_call(bot.edit_message_caption,chat_id,msg.id,caption=cap,reply_markup=kb)
+        else:
+            await rich_edit(msg,cap,reply_markup=kb)
+    except Exception as error:
+        LOGGER.debug("Player progress edit unavailable (%s)", type(error).__name__)
 
 async def _update_progress(chat_id:int, msg:Message, start_t:float, total:float, song:dict):
     while _np_msg.get(chat_id) is msg:
@@ -336,26 +327,9 @@ async def play_song(chat_id:int, message:Message, song:dict, *, advance=False, r
                 import io
                 photo=io.BytesIO(poster)
                 photo.name='videl-now-playing.jpg'
-            else:
-                photo=thumb
-            if RICH_AVAILABLE and poster:
-                media=_player_rich_media(photo=photo)
-                card=rich_img(f"tg://photo?id={_PLAYER_IMAGE_ID}")+caption
-                pmsg=await rich_send(bot,chat_id,card,reply_markup=kb,media=media)
-                file_id=_player_photo_file_id(pmsg)
-                if file_id:_player_media_file_ids[chat_id]=file_id
-            elif RICH_AVAILABLE and _player_image(song):
-                card=_player_image(song)+caption
-                pmsg=await rich_send(bot,chat_id,card,reply_markup=kb)
-            elif photo:
-                try:
-                    pmsg=await visual_call(bot.send_photo,chat_id,photo=photo,caption=caption,reply_markup=kb)
-                except BadRequest:
-                    pmsg=await rich_edit(message,caption,reply_markup=kb) if message is not None else await rich_send(bot,chat_id,caption,reply_markup=kb)
-            elif message is not None:
-                pmsg=await rich_edit(message,caption,reply_markup=kb)
-            else:
-                pmsg=await rich_send(bot,chat_id,caption,reply_markup=kb)
+            pmsg=await _send_player_card(
+                chat_id, message, caption, kb, poster=photo, thumbnail=thumb
+            )
         except Exception as error:
             LOGGER.warning('Player card unconfirmed after playback ack (%s); no resend',type(error).__name__)
         if pmsg is not None:
