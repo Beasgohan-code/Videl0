@@ -164,9 +164,13 @@ async def _send_player_card(chat_id, message, caption, keyboard, *, song, total,
                 if result is None:
                     return None  # Never retry an unconfirmed send and risk a duplicate card.
                 file_id = _player_photo_file_id(result)
+                _rich_player_chats.add(chat_id)
                 if file_id:
                     _player_media_file_ids[chat_id] = file_id
-                    _rich_player_chats.add(chat_id)
+                else:
+                    LOGGER.warning(
+                        "Rich player card sent but its photo ID was unavailable; progress edits paused to preserve custom emojis"
+                    )
                 return result
             except BadRequest:
                 continue
@@ -318,7 +322,9 @@ async def refresh_np_ui(chat_id:int):
     cap=_now_playing_caption(song,elapsed,total,chat_id=chat_id); kb=_now_playing_kb(chat_id)
     try:
         photo_file_id = _player_media_file_ids.get(chat_id)
-        if chat_id in _rich_player_chats and photo_file_id:
+        if chat_id in _rich_player_chats:
+            if not photo_file_id:
+                return  # Never replace a RichMessage card with plain HTML/Unicode.
             await visual_call(
                 bot.edit_message_text,
                 chat_id=chat_id,

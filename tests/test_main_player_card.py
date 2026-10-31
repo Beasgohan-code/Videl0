@@ -22,7 +22,14 @@ class MainPlayerCardTests(unittest.IsolatedAsyncioTestCase):
             SimpleNamespace(photo=SimpleNamespace(file_id="poster-file-id"))
         ]))
         bot = SimpleNamespace(send_rich_message=AsyncMock(return_value=message))
-        with patch.object(player, "bot", bot), patch.object(player, "RICH_AVAILABLE", True):
+        media_ids = {}
+        rich_chats = set()
+        with (
+            patch.object(player, "bot", bot),
+            patch.object(player, "RICH_AVAILABLE", True),
+            patch.object(player, "_player_media_file_ids", media_ids),
+            patch.object(player, "_rich_player_chats", rich_chats),
+        ):
             result = await player._send_player_card(
                 CHAT_ID, None, "ignored html fallback", None,
                 song=SONG, total=178, poster=poster,
@@ -35,8 +42,8 @@ class MainPlayerCardTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rich.blocks[0].photo.media.getvalue(), poster.getvalue())
         self.assertIsInstance(rich.blocks[1].text[0], RichTextCustomEmoji)
         self.assertEqual(rich.blocks[1].text[0].custom_emoji_id, PREMIUM_ID)
-        self.assertEqual(player._player_media_file_ids[CHAT_ID], "poster-file-id")
-        self.assertIn(CHAT_ID, player._rich_player_chats)
+        self.assertEqual(media_ids[CHAT_ID], "poster-file-id")
+        self.assertIn(CHAT_ID, rich_chats)
 
     async def test_rich_progress_edit_reuses_photo_and_custom_emoji_entities(self):
         from pyrogram.types import RichTextCustomEmoji
@@ -62,6 +69,25 @@ class MainPlayerCardTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rich.blocks[0].photo.media, "poster-file-id")
         self.assertIsInstance(rich.blocks[1].text[0], RichTextCustomEmoji)
         self.assertEqual(rich.blocks[1].text[0].custom_emoji_id, PREMIUM_ID)
+
+    async def test_rich_progress_never_falls_back_to_unicode_when_photo_id_is_missing(self):
+        message = SimpleNamespace(id=45, photo=None)
+        bot = SimpleNamespace(edit_message_text=AsyncMock(), edit_message_caption=AsyncMock())
+        with (
+            patch.object(player, "bot", bot),
+            patch.dict(player._np_msg, {CHAT_ID: message}),
+            patch.dict(player._np_song, {CHAT_ID: dict(SONG)}),
+            patch.dict(player._np_start, {CHAT_ID: 0}),
+            patch.dict(player._np_total, {CHAT_ID: 180}),
+            patch.object(player, "_player_media_file_ids", {}),
+            patch.object(player, "_rich_player_chats", {CHAT_ID}),
+            patch.object(player, "current_position", return_value=12),
+            patch.object(player, "rich_edit", new=AsyncMock()) as html_edit,
+        ):
+            await player.refresh_np_ui(CHAT_ID)
+        bot.edit_message_text.assert_not_awaited()
+        bot.edit_message_caption.assert_not_awaited()
+        html_edit.assert_not_awaited()
 
     async def test_legacy_photo_fallback_keeps_premium_caption_entities(self):
         photo = io.BytesIO(b"generated-poster")
