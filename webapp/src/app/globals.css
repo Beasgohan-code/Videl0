@@ -3672,6 +3672,11 @@ html { scroll-behavior: smooth; }
 .owner-home-page .studio-hero { border-color: rgba(173,183,255,.2); box-shadow: 0 26px 74px rgba(0,0,0,.24), 0 0 55px hsl(var(--studio-hue,247deg) 82% 60% / .07); }
 .owner-home-page > section.ios-card { background-image: radial-gradient(ellipse at 0% 0%, hsl(var(--studio-hue,247deg) 82% 66% / .055), transparent 50%), linear-gradient(145deg,rgba(20,27,53,.82),rgba(9,14,31,.84)); }
 .owner-home-page .ios-metric { letter-spacing: -.04em; }
+.owner-home-widgets { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 1rem; }
+.owner-home-widgets > .owner-home-widget, .owner-home-widgets > .contents > .owner-home-widget { grid-column: span 6; min-width: 0; }
+.owner-home-widgets > .owner-home-widget-wide { grid-column: 1 / -1; min-width: 0; }
+.owner-home-widgets > .contents { display: contents; }
+@media (max-width: 767px) { .owner-home-widgets > .owner-home-widget, .owner-home-widgets > .contents > .owner-home-widget { grid-column: 1 / -1; } }
 
 /* ── Post Studio: editorial publishing desk with a clear tool hierarchy ── */
 .post-workspace { position: relative; }

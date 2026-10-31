@@ -13,11 +13,23 @@ import {
   Crown,
   Activity,
   Music2,
+  RotateCcw,
+  ChevronUp,
+  ChevronDown,
+  X,
 } from "lucide-react";
 import { useTelegram } from "@/components/TelegramProvider";
 import { useStudio, Section } from "@/components/studio/StudioProvider";
 import { Callout, EmptyState, PageHeader, Skeleton } from "../ui";
 import { useScreenMotion } from "../useScreenMotion";
+import {
+  DASHBOARD_WIDGETS,
+  DEFAULT_DASHBOARD_WIDGETS,
+  moveDashboardItem,
+  normalizeDashboardOrder,
+  setDashboardItemVisible,
+  type DashboardWidgetId,
+} from "@/lib/dashboard-layout";
 type Metrics = {
   users?: number;
   chats?: number;
@@ -99,6 +111,11 @@ const actions: {
 ];
 export default function Home() {
   const rootRef = useRef<HTMLElement>(null);
+  const layoutDialog = useRef<HTMLDialogElement>(null);
+  const defaultActions = actions.map(({ tab }) => tab);
+  const [widgetOrder, setWidgetOrder] = useState<DashboardWidgetId[]>(DEFAULT_DASHBOARD_WIDGETS);
+  const [actionOrder, setActionOrder] = useState<Section[]>(defaultActions);
+  const [layoutReady, setLayoutReady] = useState(false);
   useScreenMotion(rootRef, "owner-home");
   const telegram = useTelegram();
   const { open, tab } = useStudio();
@@ -119,6 +136,22 @@ export default function Home() {
   } | null>(null);
   const [error, setError] = useState("");
   const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    try {
+      const widgets = localStorage.getItem("videl-owner-home-widgets-v1");
+      const quickActions = localStorage.getItem("videl-owner-home-actions-v1");
+      if (widgets) setWidgetOrder(normalizeDashboardOrder(JSON.parse(widgets), DASHBOARD_WIDGETS.map(({ id }) => id), DEFAULT_DASHBOARD_WIDGETS));
+      if (quickActions) setActionOrder(normalizeDashboardOrder(JSON.parse(quickActions), defaultActions, defaultActions));
+    } catch { /* Keep defaults when browser storage is unavailable or malformed. */ }
+    setLayoutReady(true);
+  }, []);
+  useEffect(() => {
+    if (!layoutReady) return;
+    try {
+      localStorage.setItem("videl-owner-home-widgets-v1", JSON.stringify(widgetOrder));
+      localStorage.setItem("videl-owner-home-actions-v1", JSON.stringify(actionOrder));
+    } catch { /* Preferences remain active for this session if storage is blocked. */ }
+  }, [layoutReady, widgetOrder, actionOrder]);
   useEffect(() => {
     if (tab !== "home") return;
     let active = true,
@@ -248,6 +281,8 @@ export default function Home() {
         title={`${greeting}, ${name}! 👑`}
         subtitle="Here’s what’s happening with your bot and groups today."
         actions={
+          <div className="flex flex-wrap items-center gap-2">
+          <button type="button" onClick={() => layoutDialog.current?.showModal()} aria-haspopup="dialog" className="ios-btn ios-btn-glass text-xs"><Settings2 size={14} aria-hidden/> Customize dashboard</button>
           <span
             title={degradedReason || undefined}
             role="status"
@@ -265,8 +300,36 @@ export default function Home() {
                   ? "Connection not confirmed"
                   : "Connecting…"}
           </span>
+          </div>
         }
       />
+      <dialog ref={layoutDialog} aria-labelledby="owner-dashboard-layout-title" className="nav-sheet max-h-[90dvh] w-[min(92vw,34rem)] max-w-none overflow-y-auto rounded-2xl border border-indigo-300/20 bg-[#10172b] p-0 text-white backdrop:bg-black/60" onClick={(event) => { if (event.target === event.currentTarget) layoutDialog.current?.close(); }}>
+        <section className="p-5">
+          <header className="flex items-start justify-between gap-4">
+            <div><h2 id="owner-dashboard-layout-title" className="text-base font-semibold">Customize your dashboard</h2><p className="mt-1 text-xs leading-5 text-indigo-100/50">Choose and reorder widgets and quick actions. Preferences are saved in this browser.</p></div>
+            <button type="button" aria-label="Close dashboard customization" onClick={() => layoutDialog.current?.close()} className="grid h-10 w-10 shrink-0 place-items-center rounded-lg text-white/55 hover:bg-white/5"><X size={16} aria-hidden/></button>
+          </header>
+          <fieldset className="mt-5 space-y-2"><legend className="mb-2 text-xs font-semibold text-indigo-100/70">Widgets · order shown on Home</legend>
+            {[...DASHBOARD_WIDGETS].sort((a,b) => { const ai=widgetOrder.indexOf(a.id), bi=widgetOrder.indexOf(b.id); return (ai<0?999:ai)-(bi<0?999:bi); }).map((widget) => {
+              const index=widgetOrder.indexOf(widget.id);
+              return <div key={widget.id} className="flex min-h-12 items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/[.03] px-3 py-2 text-sm">
+                <label className="flex min-w-0 flex-1 items-center gap-3"><input type="checkbox" checked={index>=0} onChange={(event) => setWidgetOrder((current) => setDashboardItemVisible(current,widget.id,event.currentTarget.checked))} className="h-4 w-4 accent-indigo-400"/><span>{widget.label}</span></label>
+                <span className="flex shrink-0 gap-1"><button type="button" aria-label={`Move ${widget.label} up`} disabled={index<=0} onClick={() => setWidgetOrder((current)=>moveDashboardItem(current,widget.id,-1))} className="grid h-9 w-9 place-items-center rounded-lg text-indigo-100/65 hover:bg-white/10 disabled:opacity-25"><ChevronUp size={16}/></button><button type="button" aria-label={`Move ${widget.label} down`} disabled={index<0||index>=widgetOrder.length-1} onClick={() => setWidgetOrder((current)=>moveDashboardItem(current,widget.id,1))} className="grid h-9 w-9 place-items-center rounded-lg text-indigo-100/65 hover:bg-white/10 disabled:opacity-25"><ChevronDown size={16}/></button></span>
+              </div>;
+            })}
+          </fieldset>
+          <fieldset className="mt-5 space-y-2"><legend className="mb-2 text-xs font-semibold text-indigo-100/70">Quick actions · order shown on Home</legend>
+            {[...actions].sort((a,b) => { const ai=actionOrder.indexOf(a.tab), bi=actionOrder.indexOf(b.tab); return (ai<0?999:ai)-(bi<0?999:bi); }).map((action) => {
+              const index=actionOrder.indexOf(action.tab);
+              return <div key={action.tab} className="flex min-h-12 items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/[.03] px-3 py-2 text-sm">
+                <label className="flex min-w-0 flex-1 items-center gap-3"><input type="checkbox" checked={index>=0} onChange={(event)=>setActionOrder((current)=>setDashboardItemVisible(current,action.tab,event.currentTarget.checked))} className="h-4 w-4 accent-indigo-400"/><span>{action.label}</span></label>
+                <span className="flex shrink-0 gap-1"><button type="button" aria-label={`Move ${action.label} up`} disabled={index<=0} onClick={()=>setActionOrder((current)=>moveDashboardItem(current,action.tab,-1))} className="grid h-9 w-9 place-items-center rounded-lg text-indigo-100/65 hover:bg-white/10 disabled:opacity-25"><ChevronUp size={16}/></button><button type="button" aria-label={`Move ${action.label} down`} disabled={index<0||index>=actionOrder.length-1} onClick={()=>setActionOrder((current)=>moveDashboardItem(current,action.tab,1))} className="grid h-9 w-9 place-items-center rounded-lg text-indigo-100/65 hover:bg-white/10 disabled:opacity-25"><ChevronDown size={16}/></button></span>
+              </div>;
+            })}
+          </fieldset>
+          <footer className="mt-5 flex flex-wrap justify-between gap-2 border-t border-white/10 pt-4"><button type="button" onClick={()=>{setWidgetOrder([...DEFAULT_DASHBOARD_WIDGETS]);setActionOrder([...defaultActions]);}} className="ios-btn ios-btn-glass text-xs"><RotateCcw size={13} aria-hidden/> Reset layout</button><button type="button" onClick={()=>layoutDialog.current?.close()} className="ios-btn ios-btn-primary text-xs">Done</button></footer>
+        </section>
+      </dialog>
       <section data-screen-intro className="studio-hero relative mt-6 overflow-hidden rounded-3xl border border-indigo-400/25 p-6 sm:p-8">
         <img
           src="/studio-night.png"
@@ -304,9 +367,11 @@ export default function Home() {
           Made for your community.
         </span>
       </section>
-      <section
+      <div className="owner-home-widgets mt-5">
+      {widgetOrder.includes("metrics") && <section
         aria-label="Community metrics"
-        className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4"
+        className="owner-home-widget owner-home-widget-wide grid grid-cols-2 gap-3 lg:grid-cols-5"
+        style={{ order: widgetOrder.indexOf("metrics") }}
       >
         {[
           {
@@ -320,6 +385,12 @@ export default function Home() {
             value: count(stats?.users),
             icon: Users,
             color: "text-blue-300 bg-blue-400/10",
+          },
+          {
+            label: "Commands · 24h",
+            value: count(analytics?.total_commands),
+            icon: Zap,
+            color: "text-violet-300 bg-violet-400/10",
           },
           {
             label: "Music Plays",
@@ -355,9 +426,9 @@ export default function Home() {
             </div>
           </div>
         ))}
-      </section>
+      </section>}
       {measured && (
-        <p className="mt-3 text-[10px] text-indigo-100/40">
+        <p className="owner-home-widget-wide mt-3 text-[10px] text-indigo-100/40">
           {error
             ? "Last successful database snapshot"
             : "Live bot database totals"}{" "}
@@ -375,7 +446,7 @@ export default function Home() {
       {error && (
         <Callout
           tone="warn"
-          className="mt-4 items-center justify-between"
+          className="owner-home-widget-wide mt-4 items-center justify-between"
           title={error}
           live
         >
@@ -395,7 +466,7 @@ export default function Home() {
           </div>
         </Callout>
       )}
-      <section data-screen-stagger className="ios-card mt-5 overflow-hidden p-5" aria-label="Community Pulse">
+      {widgetOrder.includes("pulse") && <section data-screen-stagger className="ios-card owner-home-widget overflow-hidden p-5" style={{ order: widgetOrder.indexOf("pulse") }} aria-label="Community Pulse">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="ios-caps text-[10px] text-indigo-300">Community Pulse · last 24 hours</p>
@@ -441,8 +512,8 @@ export default function Home() {
         {groupsPulse?.total !== undefined && groupsPulse.total > pulseGroupsList.length && (
           <p className="mt-3 text-[10px] text-indigo-100/35">Queue and group checks summarize {pulseGroupsList.length} of {groupsPulse.total} groups.</p>
         )}
-      </section>
-      <section data-screen-stagger className="ios-card mt-5 p-5" aria-label="New-member onboarding insights">
+      </section>}
+      {widgetOrder.includes("onboarding") && <section data-screen-stagger className="ios-card owner-home-widget p-5" style={{ order: widgetOrder.indexOf("onboarding") }} aria-label="New-member onboarding insights">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="ios-caps text-[10px] text-cyan-200">New-member onboarding · 7 days</p>
@@ -460,9 +531,9 @@ export default function Home() {
           ].map(([label, value]) => <div key={label} className="rounded-xl border border-cyan-300/10 bg-cyan-300/[0.025] p-3"><p className="text-[10px] text-indigo-100/45">{label}</p><p className="mt-1 text-lg font-semibold">{value}</p></div>)}
         </div>
         <p className="mt-3 text-[10px] text-indigo-100/35">{count(onboarding?.groups_with_joins)} groups had new joins. Completion is verified ÷ challenges issued; members who joined while verification was off are not included in that rate.</p>
-      </section>
-      <div className="mt-5 grid gap-5 lg:grid-cols-[1.2fr_1fr]">
-        <section className="ios-card p-5">
+      </section>}
+      {(widgetOrder.includes("activity") || widgetOrder.includes("groups")) && <div className="contents">
+        {widgetOrder.includes("activity") && <section className="ios-card owner-home-widget p-5" style={{ order: widgetOrder.indexOf("activity") }}>
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold">Recent Activity</h2>
             <button
@@ -520,8 +591,8 @@ export default function Home() {
               />
             )}
           </div>
-        </section>
-        <section className="ios-card p-5">
+        </section>}
+        {widgetOrder.includes("groups") && <section className="ios-card owner-home-widget p-5" style={{ order: widgetOrder.indexOf("groups") }}>
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold">Top Groups</h2>
             <button onClick={() => open("groups")} className="text-indigo-300">
@@ -576,12 +647,12 @@ export default function Home() {
               />
             )}
           </div>
-        </section>
-      </div>
-      <section className="ios-card mt-5 p-5">
+        </section>}
+      </div>}
+      {widgetOrder.includes("actions") && <section className="ios-card owner-home-widget owner-home-widget-wide p-5" style={{ order: widgetOrder.indexOf("actions") }}>
         <h2 className="text-sm font-semibold">Quick Actions</h2>
         <div className="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-6">
-          {actions.map((action) => (
+          {actionOrder.map((tabId) => actions.find((item) => item.tab === tabId)).filter((action): action is (typeof actions)[number] => Boolean(action)).map((action) => (
             <button
               key={action.tab}
               onClick={() => open(action.tab)}
@@ -592,7 +663,8 @@ export default function Home() {
             </button>
           ))}
         </div>
-      </section>
+      </section>}
+      </div>
       <footer className="mt-6 flex flex-wrap justify-between gap-2 text-[10px] text-indigo-200/30">
         <span>Videl 👑 · Your community, your way.</span>
         <span>Built for Telegram · Music powered by Eldian Network</span>
