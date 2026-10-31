@@ -62,7 +62,7 @@ async def view_queue(ctx):
     ])
     upcoming = max(0, len(tracks) - 1)
     shown = min(len(tracks), len(visible))
-    footer = f"{upcoming} upcoming · max 3 pending per requester · showing {shown} of {len(tracks)} tracks"
+    footer = f"{upcoming} upcoming · showing {shown} of {len(tracks)} tracks"
     return Screen(result("Music queue", rows, body=footer) + controls)
 
 

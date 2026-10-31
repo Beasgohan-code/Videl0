@@ -154,6 +154,20 @@ class InstallationTests(unittest.TestCase):
         self.assertEqual(broken.handlers,[]);self.assertNotIn(broken,_installed)
 
 class BlockPolicyTests(unittest.IsolatedAsyncioTestCase):
+    async def test_blocked_account_and_group_get_distinct_explanations(self):
+        command=Command('dj',AsyncMock(),'Assign DJ',policy='admin',block_policy='chat')
+        router=Router([command])
+        client=SimpleNamespace(me=SimpleNamespace(username='Videl0Bot'),get_chat_member=AsyncMock())
+        msg=message('/dj',kind=ChatType.SUPERGROUP)
+        with patch('videl.utils.db.is_user_blocked_db',return_value=True),patch('videl.utils.db.is_group_blocked',return_value=False),patch('videl.app.router.rich_reply',AsyncMock()) as reply:
+            await router.dispatch(client,msg)
+            self.assertIn('Your account is blocked',reply.call_args.args[1])
+            self.assertNotIn('requires current group administrator',reply.call_args.args[1])
+        with patch('videl.utils.db.is_user_blocked_db',return_value=False),patch('videl.utils.db.is_group_blocked',return_value=True),patch('videl.app.router.rich_reply',AsyncMock()) as reply:
+            await router.dispatch(client,msg)
+            self.assertIn('Bot commands are disabled in this chat',reply.call_args.args[1])
+        client.get_chat_member.assert_not_awaited()
+
     async def test_migrated_music_controls_still_honor_saved_blocklists(self):
         command=next(item for item in COMMANDS if item.name=='pause')
         client=SimpleNamespace(get_chat_member=AsyncMock(return_value=SimpleNamespace(status=ChatMemberStatus.ADMINISTRATOR)))

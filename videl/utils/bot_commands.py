@@ -32,7 +32,7 @@ PUBLIC_COMMANDS = (
     ("whois", "Show a member's profile"),
     ("kang", "Save a replied sticker to your personal pack"),
     ("stats", "Stored data and uptime"),
-    ("ping", "Measure an honest Telegram round trip"),
+    ("ping", "Telegram latency, CPU, RAM, disk and service health"),
     ("about", "Policies, stack and credits"),
 )
 OWNER_COMMANDS = PUBLIC_COMMANDS + (

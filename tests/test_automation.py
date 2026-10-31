@@ -8,6 +8,7 @@ import asyncio
 import unittest
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, Mock, patch
+from types import SimpleNamespace
 from urllib.parse import quote
 
 import mongomock
@@ -889,13 +890,16 @@ class InternalRouteTests(unittest.TestCase):
             backend._BOT_ERROR = ""
             backend._BOT_ONLINE_AT = 1792500000
             payload = self.client.get("/health").get_json()
-            # The test process runs no watchdog, so that reason stays; the bot
-            # reason and the stale start error must be gone.
+            # Simulate both the service watchdog and Telegram transport as
+            # healthy; an HTTP process alone must not mask a lost connection.
             self.assertNotIn("Telegram bot is failed", payload["degraded_reasons"])
             self.assertIsNone(payload["bot_error"])
             self.assertEqual(payload["bot_online_at"], 1792500000)
-            with patch("videl.core.watcher.watchdog_status",
-                       return_value={"running": True, "healthy": True, "last_tick": 1792500000}):
+            with (
+                patch.object(backend, "bot", SimpleNamespace(is_connected=True)),
+                patch("videl.core.watcher.watchdog_status",
+                      return_value={"running": True, "healthy": True, "last_tick": 1792500000}),
+            ):
                 healthy = self.client.get("/health").get_json()
             self.assertIs(healthy["degraded"], False)
             self.assertEqual(healthy["degraded_reasons"], [])

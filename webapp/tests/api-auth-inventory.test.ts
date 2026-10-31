@@ -27,7 +27,7 @@ test("every API route declares its owner/player guard or explicit public auth bo
       ts.isFunctionDeclaration(statement) &&
       statement.name !== undefined &&
       ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"].includes(statement.name.text) &&
-      Boolean(statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)), 
+      Boolean(statement.modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)),
     );
     if (relative === "auth/route.ts") {
       const byMethod = new Map(handlers.map((handler) => [handler.name!.text, handler.body?.getText(parsed) || ""]));
@@ -43,15 +43,19 @@ test("every API route declares its owner/player guard or explicit public auth bo
       assert.match(byMethod.get("DELETE") || "", /crossSite\(req\)/, "session logout must reject cross-site requests");
       continue;
     }
+    const playerRoute = relative.startsWith("arcade/") || relative.startsWith("manager/");
+    const expectedGuard = playerRoute ? "playerRequired(req)" : "ownerRequired(req)";
+    const wrongGuard = playerRoute ? "ownerRequired(req)" : "playerRequired(req)";
     for (const handler of handlers) {
       const body = handler.body?.getText(parsed) || "";
-      if (!/ownerRequired\(req\)|playerRequired\(req\)/.test(body))
-        unguarded.push(`${relative}#${handler.name?.text || "unknown"}`);
+      if (!body.includes(expectedGuard) || body.includes(wrongGuard)) {
+        unguarded.push(`${relative}#${handler.name?.text || "unknown"} must enforce ${expectedGuard} without ${wrongGuard}`);
+      }
     }
     // Aliased exports share one helper (for example schedules); require the helper
-    // itself to enforce a session rather than trusting that the route imports it.
-    if (!handlers.length && !/ownerRequired\(req\)|playerRequired\(req\)/.test(source))
-      unguarded.push(relative);
+    // itself to enforce the expected role rather than trusting that the route imports it.
+    if (!handlers.length && (!source.includes(expectedGuard) || source.includes(wrongGuard)))
+      unguarded.push(`${relative} must enforce ${expectedGuard} without ${wrongGuard}`);
   }
   assert.deepEqual(unguarded, [], `API routes without a declared access guard: ${unguarded.join(", ")}`);
 });

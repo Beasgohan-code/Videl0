@@ -15,6 +15,11 @@ DB_CLEANUP_DAYS = 30
 _vc_idle_since = {}
 _task = None
 _state = {"last_tick": None, "checks": {}}
+_BOT_RESTART_AFTER_FAILURES = 2
+_BOT_RESTART_COOLDOWN = 300
+_bot_disconnected_checks = 0
+_bot_last_restart = 0.0
+_bot_restart_lock = None
 
 
 def watchdog_status():
@@ -163,8 +168,46 @@ async def _sync_chat_admins():
 
 
 async def _check_bot():
-    if not getattr(bot, "is_connected", False):
-        raise RuntimeError("Telegram transport disconnected")
+    """Recover the Telegram client after sustained transport loss.
+
+    Render already restarts the whole process when it exits unexpectedly. For a
+    bot-only disconnect, restart the Pyrogram client in place after two failed
+    health ticks, with a five-minute cooldown to avoid a restart loop.
+    """
+    global _bot_disconnected_checks, _bot_last_restart, _bot_restart_lock
+    if getattr(bot, "is_connected", False):
+        _bot_disconnected_checks = 0
+        return
+
+    _bot_disconnected_checks += 1
+    if _bot_disconnected_checks < _BOT_RESTART_AFTER_FAILURES:
+        raise RuntimeError("Telegram transport disconnected; waiting for a second failed health check")
+
+    now = time.monotonic()
+    if _bot_last_restart and now - _bot_last_restart < _BOT_RESTART_COOLDOWN:
+        raise RuntimeError("Telegram transport remains disconnected; automatic restart cooldown is active")
+
+    if _bot_restart_lock is None:
+        _bot_restart_lock = asyncio.Lock()
+    async with _bot_restart_lock:
+        if getattr(bot, "is_connected", False):
+            _bot_disconnected_checks = 0
+            return
+        restart = getattr(bot, "restart", None)
+        if not callable(restart):
+            raise RuntimeError("Telegram client does not expose restart recovery")
+        _bot_last_restart = time.monotonic()
+        LOGGER.warning("[watchdog] Telegram disconnected after %s checks; restarting the client", _bot_disconnected_checks)
+        try:
+            await asyncio.wait_for(restart(), timeout=40)
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            raise RuntimeError(f"Telegram client restart failed ({type(error).__name__})") from error
+        if not getattr(bot, "is_connected", False):
+            raise RuntimeError("Telegram client restart returned but transport is still disconnected")
+        _bot_disconnected_checks = 0
+        LOGGER.info("[watchdog] Telegram client recovered after automatic restart")
 
 
 async def _check_captcha():

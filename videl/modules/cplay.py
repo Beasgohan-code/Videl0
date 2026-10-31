@@ -151,7 +151,7 @@ async def cplay_handler(_, message: Message) -> None:
         # Temporarily treat target chat as channel for queue/player
         # We call _play_local_media with channel_id by monkey-patching via a wrapper
         # Simplest: download path then inject into channel queue
-        from videl.core.queue import add_request, queue_size
+        from videl.core.queue import add_to_queue, queue_size
         from videl.core.player import play_song
         from videl.modules.play import _is_playable_document, _VIDEO_EXTS, _MAX_FILE_MB
         from videl.utils.formatters import fmt_time, short
@@ -207,21 +207,8 @@ async def cplay_handler(_, message: Message) -> None:
                 "local_file": True,
                 "via_cplay": True,
                 "source_group": group_id,
-                "settings_chat_id": group_id,
             }
-            pos = add_request(channel_id, song)
-            if pos == -3:
-                await rich_send(bot, group_id, rich_heading("Track blocked by group settings", level=3) + rich_note("An admin has blocked this track or artist."))
-                return
-            if pos == -2:
-                await rich_send(bot, group_id, rich_heading("Music requests are disabled", level=3) + rich_note("A group admin can re-enable requests with <code>/musicrequests on</code>."))
-                return
-            if pos == -1:
-                await rich_send(bot, group_id, rich_heading("Request sent for approval", level=3) + rich_note("A group admin must approve this track before it enters playback."))
-                return
-            if pos is None:
-                await rich_send(bot, group_id, rich_heading("Queue share reached", level=3) + rich_note("You already have three upcoming tracks in this channel queue."))
-                return
+            pos = add_to_queue(channel_id, song)
             # Notify in group
             await rich_send(
                 bot, group_id,
@@ -292,7 +279,7 @@ async def cplay_handler(_, message: Message) -> None:
         if not is_url:
             from videl.utils.youtube import search_yt_multi
             from videl.utils.formatters import iso_to_human, iso_to_sec, short
-            from videl.core.queue import add_request, peek_current, queue_size
+            from videl.core.queue import add_to_queue, peek_current, queue_size
             from videl.core.player import play_song
 
             results = await search_yt_multi(query, limit=1)
@@ -313,21 +300,8 @@ async def cplay_handler(_, message: Message) -> None:
                 "video_id": r.get("video_id", ""),
                 "via_cplay": True,
                 "source_group": group_id,
-                "settings_chat_id": group_id,
             }
-            pos = add_request(channel_id, song)
-            if pos == -3:
-                await rich_send(bot, group_id, rich_heading("Track blocked by group settings", level=3) + rich_note("An admin has blocked this track or artist."))
-                return
-            if pos == -2:
-                await rich_send(bot, group_id, rich_heading("Music requests are disabled", level=3) + rich_note("A group admin can re-enable requests with <code>/musicrequests on</code>."))
-                return
-            if pos == -1:
-                await rich_send(bot, group_id, rich_heading("Request sent for approval", level=3) + rich_note("A group admin must approve this track before it enters playback."))
-                return
-            if pos is None:
-                await rich_send(bot, group_id, rich_heading("Queue share reached", level=3) + rich_note("You already have three upcoming tracks in this channel queue."))
-                return
+            pos = add_to_queue(channel_id, song)
             await rich_send(
                 bot, group_id,
                 rich_heading(" Queued in channel", level=3)
@@ -344,7 +318,7 @@ async def cplay_handler(_, message: Message) -> None:
         # URL path
         from videl.utils.youtube import search_yt
         from videl.utils.formatters import iso_to_human, iso_to_sec, short
-        from videl.core.queue import add_request
+        from videl.core.queue import add_to_queue
         from videl.core.player import play_song
 
         result = await search_yt(query)
@@ -363,21 +337,8 @@ async def cplay_handler(_, message: Message) -> None:
             "video": force_video,
             "via_cplay": True,
             "source_group": group_id,
-                "settings_chat_id": group_id,
         }
-        pos = add_request(channel_id, song)
-        if pos == -3:
-            await rich_send(bot, group_id, rich_heading("Track blocked by group settings", level=3) + rich_note("An admin has blocked this track or artist."))
-            return
-        if pos == -2:
-            await rich_send(bot, group_id, rich_heading("Music requests are disabled", level=3) + rich_note("A group admin can re-enable requests with <code>/musicrequests on</code>."))
-            return
-        if pos == -1:
-            await rich_send(bot, group_id, rich_heading("Request sent for approval", level=3) + rich_note("A group admin must approve this track before it enters playback."))
-            return
-        if pos is None:
-            await rich_send(bot, group_id, rich_heading("Queue share reached", level=3) + rich_note("You already have three upcoming tracks in this channel queue."))
-            return
+        pos = add_to_queue(channel_id, song)
         await rich_send(
             bot, group_id,
             rich_heading(" Queued in channel", level=3)

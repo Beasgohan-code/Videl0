@@ -5,7 +5,7 @@ adds the voice-chat music controls that live outside the plugin layer.
 """
 from .router import Command,Router
 from . import music,group_view
-from videl.plugins import start,help as help_plugin,tools,moderation,locks,notes,welcome,group,afk,reminder,stickers,connections,reports,appeals,sudo,privacy,preferences,retention,faq,music_sessions,music_approval,settings
+from videl.plugins import start,help as help_plugin,tools,moderation,locks,notes,welcome,group,afk,reminder,stickers,connections,reports,appeals,sudo,privacy,preferences,retention,faq,settings
 
 COMMANDS=(
     *start.COMMANDS,
@@ -27,11 +27,9 @@ COMMANDS=(
     *preferences.COMMANDS,
     *retention.COMMANDS,
     *faq.COMMANDS,
-    *music_sessions.COMMANDS,
-    *music_approval.COMMANDS,
     *settings.COMMANDS,
 )
-COMMANDS += tuple(Command(name,music.control,'Control live playback: '+name,category='music',policy='dj',block_policy='chat')
+COMMANDS += tuple(Command(name,music.control,'Control live playback: '+name,category='music',policy='admin',block_policy='chat')
                   for name in ('pause','resume','loop','shuffle','clear','skip','stop','end','resetplayer','replay'))
 COMMANDS += tuple(Command(name,music.view_queue,'Show the current track and upcoming queue',category='music',policy='group',block_policy='chat')
                   for name in ('queue','q'))

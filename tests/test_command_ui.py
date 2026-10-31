@@ -132,13 +132,46 @@ class ModernCommandsTests(unittest.IsolatedAsyncioTestCase):
             edit.assert_not_awaited()
             self.assertTrue(query.answer.call_args.kwargs['show_alert'])
 
-    async def test_ping_has_one_read_only_request_and_no_probe_message(self):
+    async def test_ping_reports_safe_live_metrics_with_only_one_telegram_probe(self):
         from videl.app.router import Context,Parsed
-        client=SimpleNamespace(get_me=AsyncMock())
+        client=SimpleNamespace(get_me=AsyncMock(),is_connected=True)
         ctx=Context(client,message(['ping']),Parsed('ping',''))
-        screen=await ping.ping(ctx)
+        snapshot={"cpu":12.0,"process_cpu":1.0,"logical_cpus":2,"cpu_limit":1.0,"load":"0.10 · 0.20 · 0.30",
+                  "memory_label":"Container RAM","memory_used":512*1024**2,"memory_total":1024*1024**2,
+                  "memory_percent":50.0,"rss":200*1024**2,"vms":400*1024**2,"disk":"□□□□□□□□□□ 4% · 96 GiB free",
+                  "threads":8,"file_descriptors":12}
+        with (
+            patch.object(ping,"_resource_snapshot",return_value=snapshot),
+            patch.object(ping,"_database_probe",AsyncMock(return_value=("Connected",4))),
+            patch("videl.core.watcher.watchdog_status",return_value={"healthy":True}),
+            patch("videl.utils.assistant.assistant_status",return_value={"ready":True,"configured":True}),
+        ):
+            screen=await ping.ping(ctx)
         client.get_me.assert_awaited_once()
-        self.assertIn('Connection',__import__('videl.plugins.base',fromlist=['plain']).plain(screen.html))
+        plain=__import__('videl.plugins.base',fromlist=['plain']).plain(screen.html)
+        for label in ("Live system health","Telegram API","CPU","Container RAM","Process memory","Load avg","Disk","MongoDB","Voice assistant","Maintenance","Music queue","Build"):
+            self.assertIn(label,plain)
+        self.assertNotIn("/sys/fs",screen.html)
+        self.assertNotIn("mongodb+srv",screen.html)
+
+    async def test_ping_stays_useful_when_probes_fail_without_echoing_errors(self):
+        from videl.app.router import Context,Parsed
+        client=SimpleNamespace(get_me=AsyncMock(side_effect=RuntimeError("secret-token-value")),is_connected=False)
+        ctx=Context(client,message(['ping']),Parsed('ping',''))
+        with (
+            patch.object(ping,"_resource_snapshot",side_effect=OSError("private filesystem path")),
+            patch.object(ping,"_database_probe",AsyncMock(return_value=("Unreachable",None))),
+            patch("videl.core.watcher.watchdog_status",side_effect=RuntimeError("secret")),
+            patch("videl.utils.assistant.assistant_status",side_effect=RuntimeError("secret")),
+        ):
+            screen=await ping.ping(ctx)
+        plain=__import__('videl.plugins.base',fromlist=['plain']).plain(screen.html)
+        self.assertIn("Telegram API",plain)
+        self.assertIn("Unreachable",plain)
+        self.assertIn("MongoDB",plain)
+        self.assertIn("Unknown",plain)
+        self.assertNotIn("secret-token-value",screen.html)
+        self.assertNotIn("private filesystem path",screen.html)
 
     def test_public_telegram_tools_help_omits_private_operations(self):
         self.assertNotIn('/apiinfo',api.public_help(message(['help'])))

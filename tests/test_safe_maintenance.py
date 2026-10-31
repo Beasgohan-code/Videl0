@@ -55,6 +55,9 @@ class WatchdogTests(unittest.IsolatedAsyncioTestCase):
         watcher._state['checks'].clear()
         watcher._state['last_tick']=None
         watcher._vc_idle_since.clear()
+        watcher._bot_disconnected_checks=0
+        watcher._bot_last_restart=0.0
+        watcher._bot_restart_lock=None
 
     async def test_start_is_singleton_and_shutdown_cancels(self):
         async def forever():await asyncio.Event().wait()
@@ -65,6 +68,20 @@ class WatchdogTests(unittest.IsolatedAsyncioTestCase):
             await watcher.stop_watchdog()
             self.assertTrue(first.cancelled())
             self.assertFalse(watcher.watchdog_status()['running'])
+
+    async def test_telegram_client_restarts_only_after_sustained_disconnect(self):
+        client=SimpleNamespace(is_connected=False)
+        async def restart():
+            client.is_connected=True
+        client.restart=AsyncMock(side_effect=restart)
+        with patch.object(watcher,'bot',client):
+            with self.assertRaisesRegex(RuntimeError,'second failed health check'):
+                await watcher._check_bot()
+            client.restart.assert_not_awaited()
+            await watcher._check_bot()
+            client.restart.assert_awaited_once()
+            self.assertTrue(client.is_connected)
+            self.assertEqual(watcher._bot_disconnected_checks,0)
 
     async def test_job_failure_is_isolated_and_recovery_recorded(self):
         bad=AsyncMock(side_effect=RuntimeError('unavailable'))

@@ -5,7 +5,7 @@ This documents navigation and source coverage, not verified live Telegram behavi
 Aliases are listed separately; permissions remain enforced by the referenced handler.
 Owner operations are hidden from public `/commands` results.
 
-200 distinct command names.
+198 distinct command names.
 
 ## Music & playlists
 
@@ -15,38 +15,36 @@ Owner operations are hidden from public `/commands` results.
 | `/bass` | group | `videl/modules/effects.py::bass_cmd` |
 | `/bassoff` | group | `videl/modules/effects.py::bassoff_cmd` |
 | `/channelplay` | group | `videl/modules/cplay.py::channelplay_cmd` |
-| `/clear` | chat | `videl/app/music.py::control` |
+| `/clear` | group | `videl/app/music.py::control` |
 | `/cplay` | group | `videl/modules/cplay.py::cplay_handler` |
 | `/cvplay` | group | `videl/modules/cplay.py::cplay_handler` |
 | `/deleteplaylist` | chat | `videl/modules/playlist.py::delete_playlist_cmd` |
-| `/dj` | group | `videl/plugins/music_sessions.py::dj` |
 | `/download` | group | `videl/modules/downloader.py::download_cmd` |
 | `/effectoff` | group | `videl/modules/effects.py::effectoff_cmd` |
 | `/effecton` | group | `videl/modules/effects.py::effecton_cmd` |
 | `/effects` | group | `videl/modules/effects.py::effects_status_cmd` |
-| `/end` | chat | `videl/app/music.py::control` |
-| `/loop` | chat | `videl/app/music.py::control` |
+| `/end` | group | `videl/app/music.py::control` |
+| `/loop` | group | `videl/app/music.py::control` |
 | `/lyrics` | chat | `videl/modules/lyrics.py::lyrics_cmd` |
-| `/pause` | chat | `videl/app/music.py::control` |
+| `/pause` | group | `videl/app/music.py::control` |
 | `/play` | group | `videl/modules/play.py::play_handler` |
 | `/playlist` | group | `videl/modules/playlist.py::load_playlist_cmd` |
 | `/playlists` | chat | `videl/modules/playlist.py::list_playlists_cmd` |
 | `/playnext` | group | `videl/modules/play.py::play_handler` |
 | `/q` | group | `videl/app/music.py::view_queue` |
 | `/queue` | group | `videl/app/music.py::view_queue` |
-| `/replay` | chat | `videl/app/music.py::control` |
-| `/requests` | group | `videl/plugins/music_approval.py::requests` |
-| `/resetplayer` | chat | `videl/app/music.py::control` |
-| `/resume` | chat | `videl/app/music.py::control` |
+| `/replay` | group | `videl/app/music.py::control` |
+| `/resetplayer` | group | `videl/app/music.py::control` |
+| `/resume` | group | `videl/app/music.py::control` |
 | `/saveplaylist` | group | `videl/modules/playlist.py::save_playlist_cmd` |
 | `/seek` | group | `videl/modules/seek.py::seek_cmd` |
 | `/seekback` | group | `videl/modules/seek.py::seekback_cmd` |
-| `/shuffle` | chat | `videl/app/music.py::control` |
-| `/skip` | chat | `videl/app/music.py::control` |
+| `/shuffle` | group | `videl/app/music.py::control` |
+| `/skip` | group | `videl/app/music.py::control` |
 | `/song` | group | `videl/modules/downloader.py::song_cmd` |
 | `/speed` | group | `videl/modules/effects.py::speed_cmd` |
 | `/speedreset` | group | `videl/modules/effects.py::speedreset_cmd` |
-| `/stop` | chat | `videl/app/music.py::control` |
+| `/stop` | group | `videl/app/music.py::control` |
 | `/voteskip` | group | `videl/modules/smartqueue.py::set_voteskip_cmd` |
 | `/vplay` | group | `videl/modules/play.py::play_handler` |
 | `/vsong` | group | `videl/modules/downloader.py::vsong_cmd` |

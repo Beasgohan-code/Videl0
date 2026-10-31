@@ -165,17 +165,20 @@ def _health():
     # "status" stays "ok" while the HTTP API answers: uptime monitors must not
     # flap because Telegram is down. ``degraded`` names the parts that are not
     # working, so the panel can say what is wrong instead of only that it is.
+    bot_status = _BOT_STATUS
+    if bot_status == "online" and not getattr(bot, "is_connected", False):
+        bot_status = "recovering"
     reasons = []
     if user_assistant["configured"] and not user_assistant["ready"]:
         reasons.append("Telegram voice assistant is " + user_assistant["state"])
-    if _BOT_STATUS != "online":
-        reasons.append("Telegram bot is " + _BOT_STATUS)
+    if bot_status != "online":
+        reasons.append("Telegram bot is " + bot_status)
     if database == "disconnected":
         reasons.append("MongoDB is disconnected")
     if not maintenance.get("running"):
         reasons.append("Maintenance watchdog is not running")
     return jsonify({"status": "ok", "service": "videl-render-backend", "revision": build_revision,
-                    "bot_status": _BOT_STATUS, "bot_error": _BOT_ERROR or None,
+                    "bot_status": bot_status, "bot_error": _BOT_ERROR or None,
                     "bot_online_at": _BOT_ONLINE_AT, "bot_attempts": _BOT_ATTEMPTS,
                     "assistant": user_assistant, "media_downloaders": media_downloaders,
                     "degraded": bool(reasons),
@@ -1402,7 +1405,9 @@ if __name__ == "__main__":
                 import asyncio as _a
                 _a.run(log_error(bot, "boot", e))
             except: pass
-            while True:
-                time.sleep(3600)
+            # Do not park a half-dead process with a healthy-looking HTTP
+            # thread. Exit non-zero so the hosting supervisor can restart the
+            # service and replay the normal startup/retry path.
+            raise
 
     _run()

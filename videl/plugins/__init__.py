@@ -10,4 +10,4 @@ so their message watchers register with the bot.
 """
 
 WATCHER_PLUGINS = ("afk", "locks", "notes", "welcome", "reminder")
-COMMAND_PLUGINS = ("start", "help", "tools", "moderation", "locks", "notes", "welcome", "group", "afk", "reminder", "stickers", "appeals", "sudo", "privacy", "preferences", "retention", "faq", "music_sessions", "music_approval", "settings")
+COMMAND_PLUGINS = ("start", "help", "tools", "moderation", "locks", "notes", "welcome", "group", "afk", "reminder", "stickers", "appeals", "sudo", "privacy", "preferences", "retention", "faq", "settings")

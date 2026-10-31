@@ -91,7 +91,7 @@ def save(db, chat_id: int, name: str, response: str, cooldown_seconds=0) -> str:
     collection.update_one(
         query,
         {"$set": {"chat_id": int(chat_id), "name": clean_name, "response": clean_response,
-                  "cooldown_seconds": cooldown_seconds}}, 
+                  "cooldown_seconds": cooldown_seconds}},
         upsert=True,
     )
     return clean_name

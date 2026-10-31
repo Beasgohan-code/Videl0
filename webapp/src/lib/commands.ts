@@ -1415,7 +1415,7 @@ export const BOT_COMMANDS: BotCommand[] = [
   {
     "name": "ping",
     "usage": "/ping",
-    "summary": "Measure an acknowledged telegram round trip",
+    "summary": "Telegram latency, CPU, RAM, disk and service health",
     "category": "tools",
     "context": "chat",
     "owner": false

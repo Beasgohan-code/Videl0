@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { GET, POST } from "../src/app/api/manager/[id]/route";
 import { GET as groups } from "../src/app/api/manager/route";
 import { playerMarker } from "../src/lib/player-auth";
+import { ownerMarker } from "../src/lib/auth";
+import { GET as ownerGroups } from "../src/app/api/groups/route";
 
 const context = (id: string) => ({ params: Promise.resolve({ id }) });
 const playerCookie = () => {
@@ -21,6 +23,32 @@ test("group-manager routes reject guests before contacting the backend", async (
     assert.equal((await POST(new Request("https://studio.test/api/manager/-100123", { method: "POST" }), context("-100123"))).status, 401);
     assert.equal(calls, 0);
   } finally { globalThis.fetch = originalFetch; }
+});
+
+test("owner and player sessions cannot cross into each other's API routes", async () => {
+  const oldSecret = process.env.WEBAPP_SECRET;
+  process.env.WEBAPP_SECRET = "offline-role-matrix";
+  const owner = ownerMarker();
+  const player = playerMarker({ id: 24680, name: "Group admin" });
+  assert.ok(owner);
+  assert.ok(player);
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => { calls++; throw new Error("unexpected backend call"); };
+  try {
+    const managerResponse = await groups(new Request("https://studio.test/api/manager", {
+      headers: { cookie: `videl_owner=${owner}` },
+    }));
+    const ownerResponse = await ownerGroups(new Request("https://studio.test/api/groups", {
+      headers: { cookie: `videl_player=${player}` },
+    }));
+    assert.equal(managerResponse.status, 401);
+    assert.equal(ownerResponse.status, 401);
+    assert.equal(calls, 0, "wrong-role cookies must be refused before backend access");
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (oldSecret === undefined) delete process.env.WEBAPP_SECRET; else process.env.WEBAPP_SECRET = oldSecret;
+  }
 });
 
 test("group-manager writes reject cross-site requests and malformed objects before forwarding", async () => {

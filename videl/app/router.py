@@ -86,13 +86,20 @@ class Command:
             raise ValueError('Invalid command administrator rights')
 
 
-async def authorize(command,ctx):
-    if command.block_policy!='none':
-        from videl.utils.db import is_group_blocked,is_user_blocked_db
-        def blocked():
-            user=ctx.user
-            return (user is not None and is_user_blocked_db(user.id)) or (command.block_policy=='chat' and is_group_blocked(ctx.message.chat.id))
-        if await asyncio.to_thread(blocked):return False
+async def blocked_reason(command,ctx):
+    """Return the specific blocklist boundary, if this command is blocked."""
+    if command.block_policy=='none':return None
+    from videl.utils.db import is_group_blocked,is_user_blocked_db
+    def check():
+        user=ctx.user
+        if user is not None and is_user_blocked_db(user.id):return 'user'
+        if command.block_policy=='chat' and is_group_blocked(ctx.message.chat.id):return 'chat'
+        return None
+    return await asyncio.to_thread(check)
+
+
+async def authorize(command,ctx,*,check_blocks=True):
+    if check_blocks and await blocked_reason(command,ctx):return False
     if command.policy=='owner':return ctx.owner
     if command.policy in {'group','admin','dj'} and chat_kind(ctx.message) not in {'group','supergroup'}:return False
     if command.policy=='dj':
@@ -156,7 +163,20 @@ class Router:
                     return False
                 message=proxy
         ctx=Context(client,message,parsed,actor)
-        if not await authorize(command,ctx):
+        block = await blocked_reason(command,ctx)
+        if block:
+            explanation = (
+                'Your account is blocked from using bot commands. Ask the bot owner to unblock your Telegram account.'
+                if block == 'user' else
+                'Bot commands are disabled in this chat. Ask the bot owner to unblock this group.'
+            )
+            await rich_reply(
+                original_message,
+                notice(explanation,status='error',title='Access blocked'),
+                client=client,
+            )
+            return True
+        if not await authorize(command,ctx,check_blocks=False):
             requirement = {
                 'group': 'a group chat',
                 'admin': 'current group administrator privileges',
@@ -176,7 +196,7 @@ class Router:
             await rich_reply(
                 original_message,
                 notice(
-                    f'This command requires {requirement}. Blocked users or chats cannot use this action.',
+                    f'This command requires {requirement}. Telegram could not verify the required account, chat type, membership, or permission. Check your current access and try again.',
                     status='error', title='Access restricted',
                 ),
                 client=client,
