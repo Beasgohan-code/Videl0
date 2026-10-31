@@ -18,7 +18,6 @@ Backlog IDs are stable; gaps mean completed or deliberately removed entries. Tre
 43. Moderation trend dashboard — visualize reports and actions without exposing member identities by default.
 44. Onboarding funnel insights — see where new members abandon verification or onboarding.
 45. Anomaly alerts — notify an owner when usage or failure rates change unusually.
-46. Dashboard layout controls — let each owner pin the stats and queues they care about.
 47. Webhook event stream — send selected bot events to an owner-controlled endpoint.
 48. RSS-to-announcement rules — publish updates from approved feeds with rate limits and preview.
 49. Redacted CSV exports — export selected group activity for review without unnecessary personal details.

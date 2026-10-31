@@ -60,6 +60,7 @@ type OnboardingPulse = {
   totals?: { joins?: number; challenged?: number; verified?: number; timed_out?: number };
   groups_with_joins?: number;
 };
+type ScheduledJob = { id: string; status: string; chat_id: string; scheduled_at: string; text?: string; repeat?: string | null; paused?: boolean };
 const actions: {
   tab: Section;
   label: string;
@@ -126,6 +127,7 @@ export default function Home() {
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [groupsPulse, setGroupsPulse] = useState<GroupsPulse | null>(null);
   const [onboarding, setOnboarding] = useState<OnboardingPulse | null>(null);
+  const [scheduledJobs, setScheduledJobs] = useState<ScheduledJob[] | null>(null);
   const [health, setHealth] = useState<{
     status?: string;
     bot_status?: string;
@@ -214,6 +216,9 @@ export default function Home() {
         (telegram.authenticated ? read("/api/onboarding") : Promise.resolve(null))
           .then((data) => { if (active) setOnboarding(data); })
           .catch(() => { if (active) setOnboarding(null); }),
+        (telegram.authenticated ? read("/api/schedules") : Promise.resolve(null))
+          .then((data) => { if (active) setScheduledJobs(Array.isArray(data?.jobs) ? data.jobs : null); })
+          .catch(() => { if (active) setScheduledJobs(null); }),
         read("/api/health")
           .then((data) => {
             if (active) setHealth(data);
@@ -263,6 +268,7 @@ export default function Home() {
   );
   const openReports = pulseGroupsList.reduce((sum, group) => sum + (group.counts?.reports ?? 0), 0);
   const pendingJoins = pulseGroupsList.reduce((sum, group) => sum + (group.counts?.pending_joins ?? 0), 0);
+  const upcomingJobs = scheduledJobs?.filter((job) => job.status === "pending" && !job.paused).sort((a, b) => Date.parse(a.scheduled_at) - Date.parse(b.scheduled_at)).slice(0, 4) ?? [];
   const onboardingTotals = onboarding?.totals;
   const verificationRate = (onboardingTotals?.challenged ?? 0) > 0
     ? Math.round(((onboardingTotals?.verified ?? 0) / (onboardingTotals?.challenged ?? 1)) * 100)
@@ -532,6 +538,13 @@ export default function Home() {
         </div>
         <p className="mt-3 text-[10px] text-indigo-100/35">{count(onboarding?.groups_with_joins)} groups had new joins. Completion is verified ÷ challenges issued; members who joined while verification was off are not included in that rate.</p>
       </section>}
+      {widgetOrder.includes("scheduled") && <section className="ios-card owner-home-widget p-5" style={{ order: widgetOrder.indexOf("scheduled") }} aria-label="Scheduled broadcasts">
+        <div className="flex items-center justify-between gap-2"><div><p className="ios-caps text-[10px] text-cyan-200">Broadcast queue</p><h2 className="mt-1 text-sm font-semibold">Scheduled broadcasts</h2></div><button onClick={() => open("broadcast")} className="text-[11px] text-indigo-300">Open queue ↗</button></div>
+        {scheduledJobs === null ? <p className="mt-4 text-xs text-indigo-100/45">Schedule queue unavailable or not authorized. Open Broadcast to check.</p> : upcomingJobs.length ? <div className="mt-4 space-y-2">{upcomingJobs.map((job) => <div key={job.id} className="rounded-xl border border-indigo-300/10 bg-indigo-400/[.025] p-3"><p className="truncate text-xs font-medium">{(job.text || "Scheduled message").slice(0, 100)}</p><p className="mt-1 text-[10px] text-indigo-100/40">{job.chat_id} · {Number.isFinite(Date.parse(job.scheduled_at)) ? new Date(job.scheduled_at).toLocaleString() : "Time unavailable"}{job.repeat ? ` · ${job.repeat}` : ""}</p></div>)}</div> : <p className="mt-4 text-xs text-indigo-100/45">No upcoming scheduled broadcasts.</p>}
+        <p className="mt-3 text-[10px] text-indigo-100/30">Showing up to four pending items from the owner queue.</p>
+      </section>}
+      {widgetOrder.includes("automation") && <section className="ios-card owner-home-widget p-5" style={{ order: widgetOrder.indexOf("automation") }} aria-label="Automation run history"><p className="ios-caps text-[10px] text-violet-200">Automation</p><h2 className="mt-1 text-sm font-semibold">Recent automation runs</h2><p className="mt-4 rounded-xl border border-amber-300/10 bg-amber-300/[.03] p-3 text-xs leading-5 text-indigo-100/55">Execution history is not exposed by the available backend API. Automation settings are available, but they are not evidence of completed runs.</p><button onClick={() => open("automation")} className="mt-3 text-[11px] text-indigo-300">Open automation settings ↗</button></section>}
+      {widgetOrder.includes("health") && <section className="ios-card owner-home-widget p-5" style={{ order: widgetOrder.indexOf("health") }} aria-label="System and API health"><div className="flex items-center justify-between"><div><p className="ios-caps text-[10px] text-emerald-200">Service status</p><h2 className="mt-1 text-sm font-semibold">System &amp; API health</h2></div><button onClick={() => open("settings")} className="text-[11px] text-indigo-300">Diagnostics ↗</button></div><div className="mt-4 grid grid-cols-2 gap-3"><div className="rounded-xl border border-white/10 p-3"><p className="text-[10px] text-indigo-100/40">Panel API</p><p className="mt-1 text-xs font-medium">{health ? health.status === "ok" ? "Reachable" : "Degraded" : "Not confirmed"}</p></div><div className="rounded-xl border border-white/10 p-3"><p className="text-[10px] text-indigo-100/40">Telegram bot</p><p className="mt-1 text-xs font-medium">{health?.bot_status === "online" ? "Online" : health ? "Not online" : "Not confirmed"}</p></div></div><p className="mt-3 text-[10px] leading-4 text-indigo-100/35">API reachability does not measure latency, worker queues, CPU, or memory.</p></section>}
       {(widgetOrder.includes("activity") || widgetOrder.includes("groups")) && <div className="contents">
         {widgetOrder.includes("activity") && <section className="ios-card owner-home-widget p-5" style={{ order: widgetOrder.indexOf("activity") }}>
           <div className="flex items-center justify-between">
