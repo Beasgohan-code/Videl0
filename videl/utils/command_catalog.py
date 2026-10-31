@@ -64,7 +64,9 @@ def commands():
                             raise ValueError(f'Invalid command in {path.name}: {name!r}')
                         owner=name in OWNER_NAMES or 'filters.user(config.OWNER_ID)' in guard or 'filters.user(6265999542)' in guard or path.stem in CATEGORIES['owner']
                         category='owner' if owner else next((key for key,modules in CATEGORIES.items() if path.stem in modules),'tools')
-                        context='group' if 'filters.group' in guard else 'private' if 'filters.private' in guard or path.stem=='owner_utils' else 'chat'
+                        has_group='filters.group' in guard
+                        has_private='filters.private' in guard
+                        context='group_private' if has_group and has_private else 'group' if has_group else 'private' if has_private or path.stem=='owner_utils' else 'chat'
                         summaries = {
                             'playnext': 'Queue a track to play immediately after the current track',
                             'addsudo': 'Grant limited bot-blocklist operator access to a trusted user',

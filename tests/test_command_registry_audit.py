@@ -50,6 +50,12 @@ class CommandRegistryAuditTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(router.commands["settings"].policy, "group")
         self.assertEqual(router.commands["setup"].policy, "group")
 
+    def test_downloader_commands_are_catalogued_for_groups_and_private_chats(self):
+        contexts = {entry["name"]: entry["context"] for entry in commands()}
+        for name in ("song", "vsong", "download"):
+            with self.subTest(command=name):
+                self.assertEqual(contexts[name], "group_private")
+
     def test_group_command_manager_uses_the_existing_disable_store(self):
         path = Path(__file__).parents[1] / "videl/plugins/settings.py"
         source = path.read_text()
