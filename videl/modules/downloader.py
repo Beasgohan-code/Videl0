@@ -18,18 +18,20 @@ import tempfile
 import shutil
 from pathlib import Path
 from typing import Optional
+from urllib.parse import parse_qs, urlsplit
 
 import aiofiles
 from pyrogram import filters
 from pyrogram.enums import ParseMode
+from pyrogram.errors import BadRequest
 from pyrogram.types import Message, InlineKeyboardMarkup, CallbackQuery
-from videl.utils.bot_ui import button as InlineKeyboardButton
+from videl.utils.bot_ui import button as InlineKeyboardButton, visual_call
 
 import config
 from videl import bot, LOGGER
 from videl.modules.block import group_allowed, user_allowed
 from videl.utils.formatters import sc, sb, short
-from videl.utils.rich_ui import rich_esc, rich_heading, rich_kv_table, rich_note, rich_table, rich_details, rich_button, rich_img, rich_send_blocks
+from videl.utils.rich_ui import rich_esc, rich_heading, rich_kv_table, rich_note, rich_table, rich_details, rich_button
 from videl.utils.command_ui import rich_send, rich_edit
 
 try:
@@ -46,17 +48,11 @@ DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 # ── yt-dlp options — professional, uses all external features ────────────────
 def _get_yt_dlp_opts(audio_only: bool = True, out_path: Optional[str] = None) -> dict:
-    """Build professional yt-dlp options with cookies, proxy, external downloader support."""
-    cookies = None
-    for key in ("YTDLP_COOKIES", "COOKIES_PATH", "YOUTUBE_COOKIES_FILE", "cookies.txt"):
-        v = os.getenv(key)
-        if v and Path(v).exists():
-            cookies = v
-            break
-    if not cookies and Path("/app/cookies.txt").exists():
-        cookies = "/app/cookies.txt"
-    elif not cookies and Path("cookies.txt").exists():
-        cookies = "cookies.txt"
+    """Build yt-dlp options using cookies only from an explicitly configured path."""
+    # Cookie jars are credentials: accept only explicitly configured absolute
+    # paths outside the checkout and never log the path or cookie contents.
+    from videl.utils.cookie_security import configured_cookie_path
+    cookies = configured_cookie_path()
 
     proxy = (os.getenv("PROXY_URL") or os.getenv("YOUTUBE_PROXY") or "").strip()
     if proxy and "://" not in proxy:
@@ -82,15 +78,13 @@ def _get_yt_dlp_opts(audio_only: bool = True, out_path: Optional[str] = None) ->
         "retries": 5,
         "fragment_retries": 10,
         "concurrent_fragment_downloads": 5,
-        "http_chunk_size": 10 * 1024 * 1024,
-        "extractor_args": {"youtube": {"player_client": ["android", "ios", "web", "web_embedded"]}},
         "postprocessors": [],
         "prefer_ffmpeg": True,
         "keepvideo": False,
     }
     if cookies:
         opts["cookiefile"] = cookies
-        log.debug(f"Using cookies: {cookies}")
+        log.debug("Using explicitly configured YouTube authentication cookies")
     if proxy:
         opts["proxy"] = proxy
     if external_downloader:
@@ -146,10 +140,10 @@ async def _search_youtube(query: str, limit: int = 5) -> list[dict]:
                 "thumbnail": (item.get("thumbnails") or [{}])[0].get("url") if item.get("thumbnails") else "",
             })
         if results:
-            log.info(f"Search '{query}' → {len(results)} results via VideosSearch")
+            log.info("YouTube title search returned %d results", len(results))
             return results
-    except Exception as e:
-        log.warning(f"VideosSearch failed for '{query}': {e}")
+    except Exception as error:
+        log.warning("VideosSearch provider failed (%s)", type(error).__name__)
 
     # Fallback: yt-dlp search
     try:
@@ -168,32 +162,67 @@ async def _search_youtube(query: str, limit: int = 5) -> list[dict]:
                     "thumbnail": entry.get("thumbnail", ""),
                 })
         if results:
-            log.info(f"Search '{query}' → {len(results)} via yt-dlp fallback")
+            log.info("yt-dlp title search returned %d results", len(results))
     except Exception as e:
-        log.error(f"yt-dlp search failed: {e}")
+        log.error("yt-dlp search provider failed (%s)", type(e).__name__)
 
     return results
 
 
-async def _download_media(source: str, audio_only: bool = True, status_msg: Optional[Message] = None) -> Optional[Path]:
+async def _fallback_youtube_audio(url: str, tmpdir: Path, requested_label: str) -> tuple[Path, dict] | None:
+    """Use the configured playback providers if yt-dlp cannot extract YouTube audio."""
+    if not _extract_video_id(url):
+        return None
+    from videl.utils.youtube import resolve_stream
+
+    downloaded = await resolve_stream(url)
+    if not downloaded:
+        return None
+    original = Path(downloaded)
+    if not original.is_file() or original.stat().st_size <= 1024:
+        return None
+    # Playback providers store their cache in the shared download directory.
+    # Copy into this request's temp folder so normal cleanup cannot delete the
+    # shared cache or another request's files.
+    extension = original.suffix if original.suffix.lower() in {".mp3", ".m4a", ".aac", ".ogg", ".opus", ".webm"} else ".mp3"
+    copied = tmpdir / f"fallback-audio{extension}"
+    await asyncio.to_thread(shutil.copy2, original, copied)
+    title = requested_label if not _is_url(requested_label) else original.stem
+    return copied, {"title": title[:180] or "YouTube audio", "duration": None}
+
+
+async def _download_media(
+    source: str,
+    audio_only: bool = True,
+    status_msg: Optional[Message] = None,
+    *,
+    include_info: bool = False,
+) -> Path | tuple[Path, dict]:
     """Professional download with progress, retries, and cleanup."""
     tmpdir = Path(tempfile.mkdtemp(dir=str(DOWNLOAD_DIR)))
     outtmpl = str(tmpdir / "%(title).80s-%(id)s.%(ext)s")
     opts = _get_yt_dlp_opts(audio_only=audio_only, out_path=outtmpl)
 
+    requested_label = source.strip()
+
     # Resolve source: if not URL, search first
     if not _is_url(source):
-        log.info(f"Searching for: {source}")
+        log.info("Searching for media title (%d characters)", len(source))
         if status_msg:
             try:
-                await rich_edit(status_msg, rich_heading(f"{pe('circle','')} {sc('searching')} • {sc(source[:40])}", level=3))
+                await rich_edit(
+                    status_msg,
+                    rich_heading("🔎 Searching for your track", level=3)
+                    + rich_note("Looking for a playable match…"),
+                )
             except Exception:
                 pass
         results = await _search_youtube(source, limit=1)
         if not results:
-            raise ValueError(f"No results for '{source}'")
+            shutil.rmtree(tmpdir, ignore_errors=True)
+            raise ValueError("No matching media result")
         source = results[0]["link"]
-        log.info(f"Resolved '{source}' → {results[0]['title']}")
+        log.info("Resolved a media title to a supported source")
 
     url = source.strip()
     if re.match(r"^[A-Za-z0-9_-]{11}$", url):
@@ -203,7 +232,16 @@ async def _download_media(source: str, audio_only: bool = True, status_msg: Opti
 
     if status_msg:
         try:
-            await rich_edit(status_msg, rich_heading(f"{pe('diamond','')} {sc('downloading')} • {sc('please wait')}", level=3) + rich_note(f"<code>{rich_esc(url[:60])}</code> • {pe('hex','')} {sc('quality')}: <code>{'MP3 192kbps' if audio_only else 'MP4 1080p'}</code>"))
+            media_label = "MP3 · 192 kbps audio" if audio_only else "MP4 · up to 1080p video"
+            status_text = (
+                rich_heading("⬇️ Preparing your download", level=3)
+                + rich_note(
+                    f"<b>Source</b> · {rich_esc(_source_summary(url))}<br>"
+                    f"<b>Format</b> · {media_label}<br>"
+                    "<i>This may take a few moments.</i>"
+                )
+            )
+            await rich_edit(status_msg, status_text, navigation=False)
         except Exception:
             pass
 
@@ -228,179 +266,368 @@ async def _download_media(source: str, audio_only: bool = True, status_msg: Opti
             raise RuntimeError("Downloaded file not found")
 
     try:
-        path, info = await asyncio.to_thread(_run)
+        try:
+            path, info = await asyncio.to_thread(_run)
+        except Exception as extractor_error:
+            if not audio_only or not _extract_video_id(url):
+                raise
+            log.warning("yt-dlp audio extraction failed for YouTube; trying configured provider fallback (%s)", type(extractor_error).__name__)
+            try:
+                fallback = await _fallback_youtube_audio(url, tmpdir, requested_label)
+            except Exception as fallback_error:
+                log.warning("Configured YouTube audio fallback failed (%s)", type(fallback_error).__name__)
+                from videl.utils.youtube import MediaDownloadError
+                if isinstance(fallback_error, MediaDownloadError):
+                    raise fallback_error from extractor_error
+                raise extractor_error from fallback_error
+            if fallback is None:
+                raise
+            path, info = fallback
         if not path.exists() or path.stat().st_size < 1024:
             raise RuntimeError(f"File too small: {path}")
-        log.info(f"Downloaded {path.name} ({path.stat().st_size/1024/1024:.2f} MB) — {info.get('title')}")
-        return path
+        log.info("Media download completed (%.2f MB)", path.stat().st_size / 1024 / 1024)
+        return (path, info) if include_info else path
     except Exception as e:
-        log.error(f"Download failed for {url}: {e}", exc_info=True)
+        log.error("Media download failed for %s (%s)", _source_summary(url), type(e).__name__)
         shutil.rmtree(tmpdir, ignore_errors=True)
         raise
 
 
 def _hdr(t: str, lvl: int = 3):
-    return rich_heading(pe("orb","") + " " + t + " " + pe("spark",""), level=lvl)
+    return rich_heading(t, level=lvl)
 
-def _hero_img(url: Optional[str] = None):
-    if url and url.startswith("http"):
-        return rich_img(url)
-    return rich_img("https://files.catbox.moe/f084wg.png")
 
-# ── /song — download audio (like ShizuMusic /song) ────────────────────────────
+def _source_summary(source: str) -> str:
+    """Describe a media source without echoing tracking/auth query parameters."""
+    try:
+        parsed = urlsplit(str(source).strip())
+        host = (parsed.hostname or "").lower().removeprefix("www.")
+        if not host:
+            return "Search result"
+        if host in {"youtube.com", "m.youtube.com", "music.youtube.com"}:
+            video_id = (parse_qs(parsed.query).get("v") or [""])[0]
+            if not video_id and parsed.path.startswith("/shorts/"):
+                video_id = parsed.path.split("/", 2)[2]
+            return "YouTube" + (f" · {video_id[:11]}" if video_id else "")
+        if host == "youtu.be":
+            video_id = parsed.path.strip("/").split("/", 1)[0]
+            return "YouTube" + (f" · {video_id[:11]}" if video_id else "")
+        return host
+    except Exception:
+        return "Provided link"
 
-@bot.on_message(filters.command('song') & (filters.group | filters.private))
+
+def _friendly_download_error(error: Exception) -> str:
+    """Map noisy extractor/network details to actionable, non-leaking copy."""
+    detail = str(error or "").casefold()
+    if "failed to extract any player response" in detail or "player response" in detail:
+        return "YouTube couldn’t prepare a stream for this video right now. Please try again later or use another link."
+    if "configure yt_api_key" in detail or "needs an api key" in detail:
+        return "The backup audio provider isn’t configured. Ask the bot owner to set its download API key, or try another link."
+    if "no results" in detail or "no matching" in detail:
+        return "No playable result was found. Try a different title or link."
+    if "unsupported url" in detail or "unsupported site" in detail:
+        return "That link format isn’t supported. Try a direct video link or search by title."
+    if any(term in detail for term in ("private video", "video unavailable", "members-only", "age-restricted", "sign in to confirm")):
+        return "This video may be private, age-restricted, or unavailable to the bot. Try another link."
+    if any(term in detail for term in ("http error 403", "http error 429", "too many requests", "rate limit")):
+        return "The media source is temporarily limiting downloads. Please wait a little and try again."
+    return "The download couldn’t be completed. Check the link and try again in a moment."
+
+
+def _duration_label(value) -> str:
+    try:
+        seconds = max(0, int(float(value)))
+    except (TypeError, ValueError, OverflowError):
+        return "Unknown"
+    hours, remainder = divmod(seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return f"{hours}:{minutes:02d}:{seconds:02d}" if hours else f"{minutes}:{seconds:02d}"
+
+
+def _media_title(info: dict, path: Path, limit: int = 80) -> str:
+    raw = str(info.get("track") or info.get("title") or path.stem).strip()
+    return raw.replace("\x00", "")[:limit] or "Media download"
+
+
+def _cleanup_download(path: Optional[Path]) -> None:
+    if path is None:
+        return
+    try:
+        path.unlink(missing_ok=True)
+        shutil.rmtree(path.parent, ignore_errors=True)
+    except OSError as error:
+        log.warning("Could not clean temporary media %s (%s)", path.name, type(error).__name__)
+
+
+def _blocked_request(query: str, words) -> bool:
+    """Match configured blocked terms as words/phrases, not accidental substrings."""
+    for item in words:
+        term = str(item or "").strip()
+        if not term:
+            continue
+        parts = re.findall(r"[\w]+", term)
+        if not parts:
+            continue
+        pattern = r"(?<!\w)" + r"\s+".join(map(re.escape, parts)) + r"(?!\w)"
+        if re.search(pattern, query, re.IGNORECASE):
+            return True
+    return False
+
+
+# ── /song — download audio ────────────────────────────────────────────────────
+
+@bot.on_message(filters.command('song', prefixes=config.COMMAND_PREFIX_LIST) & (filters.group | filters.private) & group_allowed & user_allowed)
 async def song_cmd(_, m: Message):
     query = " ".join(m.command[1:]) if len(m.command) > 1 else ""
-    if not query and m.reply_to_message and m.reply_to_message.text:
-        query = m.reply_to_message.text.strip()
+    reply = m.reply_to_message
+    if not query and reply:
+        query = str(getattr(reply, "text", None) or getattr(reply, "caption", None) or "").strip()
     if not query:
-        body = _hdr(sc("song downloader") + " • " + pe("music","🎵"), 2)
-        body += rich_note(pe("diamond","") + " " + sc("usage") + ": <code>/song &lt;name or URL&gt;</code><br>" + pe("small","") + " " + sc("e.g.") + " <code>/song Believer Imagine Dragons</code><br>" + pe("small","") + " <code>/song https://youtu.be/dQw4w9WgXcQ</code>")
-        body += rich_table([sc("command"), sc("description")], [("<code>/song</code>", sc("download audio MP3 192kbps")), ("<code>/vsong</code>", sc("download video MP4 1080p")), ("<code>/download</code>", sc("auto-detect audio/video"))])
-        body += rich_details(pe("star","⭐️") + " " + sc("features"), rich_note(pe("line","") + " " + sc("yt-dlp + aria2c + cookies + proxy support") + "<br>" + pe("line","") + " " + sc("supports YouTube, YT Music, SoundCloud, IG, TikTok") + "<br>" + pe("line","") + " " + sc("metadata + thumbnail + progress bar")))
-        body += "<p>" + rich_button(pe("music","🎵") + " " + sc("play in vc"), callback_data="help_play") + " " + rich_button(pe("eyes","👀") + " " + sc("search"), callback_data="song_search") + "</p>"
+        body = (
+            rich_heading("🎵 Audio downloader", level=2)
+            + rich_note(
+                "Send a track name or a direct link to get a high-quality MP3. "
+                "You can also reply to a message containing a title or link."
+            )
+            + rich_table(
+                ["Command", "What it does"],
+                [
+                    ("<code>/song</code>", "Download audio · MP3, 192 kbps"),
+                    ("<code>/vsong</code>", "Download video · MP4, up to 1080p"),
+                    ("<code>/download</code>", "Choose audio or video automatically"),
+                ],
+            )
+            + rich_details(
+                "Supported sources",
+                "YouTube, YouTube Music, SoundCloud, Instagram, TikTok, and more.",
+            )
+        )
+        body += "<p>" + rich_button("🎵 Play in voice chat", callback_data="help_play") + " " + rich_button("📹 Download video", callback_data="dl:video") + "</p>"
         return await rich_send(bot, m.chat.id, body)
 
     # Check banned words professionally
     blocked = getattr(config, "BLOCKED_WORDS", []) or ["porn", "xxx", "xnxx", "sex"]
-    low = query.lower()
-    if any(w in low for w in blocked):
-        return await rich_send(bot, m.chat.id, _hdr(pe("warn","⚠️") + " " + sc("blocked content"),3) + rich_note(sc("this content is not allowed")))
+    if _blocked_request(query, blocked):
+        return await rich_send(
+            bot, m.chat.id,
+            rich_heading("⚠️ Request not allowed", level=3)
+            + rich_note("This search request isn’t permitted. Try a different title or link."),
+        )
 
-    status = await rich_send(bot, m.chat.id, _hdr(pe("circle","") + " " + sc("preparing") + " • " + sc(query[:30]),3) + rich_note(pe("diamond","") + " " + sc("searching & downloading") + "…<br>" + pe("hex","") + " " + sc("this may take 10-30 seconds")))
+    status = await rich_send(
+        bot, m.chat.id,
+        rich_heading("🎵 Preparing your audio", level=3)
+        + rich_note("Finding the track and preparing a high-quality audio file…"),
+        navigation=False,
+    )
 
     path = None
     try:
         start = time.time()
-        path = await _download_media(query, audio_only=True, status_msg=status)
+        path, info = await _download_media(query, audio_only=True, status_msg=status, include_info=True)
         elapsed = time.time() - start
-
-        # Extract metadata via yt-dlp info if available, else dummy
-        title = path.stem[:80].replace("_", " ")
-        duration = "?"
-        # Try to get real metadata from filename or via probe
-        try:
-            import yt_dlp
-            # Quick probe for thumbnail via search
-            search_res = await _search_youtube(query, limit=1)
-            if search_res:
-                title = search_res[0].get("title", title)[:80]
-                duration = search_res[0].get("duration", "?")
-                thumb = search_res[0].get("thumbnail", "")
-            else:
-                thumb = ""
-        except Exception:
-            thumb = ""
+        title = _media_title(info, path)
+        duration_seconds = info.get("duration")
+        duration = _duration_label(duration_seconds)
+        artist = str(info.get("artist") or info.get("album_artist") or info.get("creator") or "").strip()[:64]
 
         size_mb = path.stat().st_size / 1024 / 1024
         if size_mb > 50:
-            await rich_edit(status, _hdr(pe("warn","⚠️") + " " + sc("file too large") + f" • {size_mb:.1f} MB",3) + rich_note(sc("Telegram limit 50MB for bots — try shorter track")))
-            path.unlink(missing_ok=True)
-            shutil.rmtree(path.parent, ignore_errors=True)
+            await rich_edit(
+                status,
+                rich_heading("⚠️ Audio file is too large", level=3)
+                + rich_note(
+                    f"This file is {size_mb:.1f} MB; Telegram bots can send up to 50 MB. "
+                    "Try a shorter track."
+                ),
+            )
+            _cleanup_download(path)
             return
 
         # Build caption with rich metadata
+        fields = [
+            ("Title", rich_esc(title[:60])),
+            ("Duration", f"<code>{rich_esc(duration)}</code>"),
+        ]
+        if artist:
+            fields.append(("Artist", rich_esc(artist)))
+        fields.extend([
+            ("File size", f"<code>{size_mb:.2f} MB</code>"),
+            ("Ready in", f"<code>{elapsed:.1f} seconds</code>"),
+            ("Requested by", f"<a href=\"tg://user?id={m.from_user.id}\">{rich_esc(m.from_user.first_name or 'User')}</a>" if m.from_user else "User"),
+        ])
         cap = _hdr(pe("music","🎵") + " " + rich_esc(title[:60]), 2)
-        cap += _hero_img(thumb) if thumb else ""
-        cap += rich_kv_table([
-            (pe("target","") + " " + sc("title"), rich_esc(title[:60])),
-            (pe("hex","") + " " + sc("duration"), f"<code>{rich_esc(duration)}</code>"),
-            (pe("diamond","") + " " + sc("size"), f"<code>{size_mb:.2f} MB</code>"),
-            (pe("circle","") + " " + sc("elapsed"), f"<code>{elapsed:.1f}s</code>"),
-            (pe("small","") + " " + sc("requested by"), f"<a href=\"tg://user?id={m.from_user.id}\">{rich_esc(m.from_user.first_name or 'User')}</a>" if m.from_user else "?"),
-        ], headers=[pe("spark","") + " " + sc("downloaded"), ""])
-        cap += rich_note(pe("line","") + " " + sc("via yt-dlp • ffmpeg • aria2c") + " " + pe("spark",""))
+        cap += rich_kv_table(fields, headers=["Audio download", ""])
+        cap += rich_note("Audio prepared as an MP3 · 192 kbps")
 
         # Send audio with professional metadata
         try:
-            await bot.send_audio(
-                chat_id=m.chat.id,
-                audio=str(path),
-                caption=cap,
-                parse_mode=ParseMode.HTML,
-                title=title[:60],
-                performer="Videl • Beasgohan-code",
-                reply_to_message_id=m.id,
-            )
-            await rich_edit(status, _hdr(pe("check","✅") + " " + sc("sent") + " • " + pe("music","🎵"),3) + rich_note(pe("diamond","") + " <code>" + rich_esc(title[:40]) + "</code> " + pe("hex","") + f" {size_mb:.2f} MB " + pe("small","") + f" {elapsed:.1f}s"))
-            log.info(f"/song by {m.from_user.id} in {m.chat.id}: {title} ({size_mb:.2f} MB, {elapsed:.1f}s)")
-        except Exception as e:
-            log.error(f"send_audio fail: {e}", exc_info=True)
-            await bot.send_document(m.chat.id, document=str(path), caption=rich_esc(title), reply_to_message_id=m.id)
+            audio_duration = max(0, int(float(duration_seconds))) if duration_seconds is not None else None
+        except (TypeError, ValueError, OverflowError):
+            audio_duration = None
+        audio_options = {
+            "chat_id": m.chat.id,
+            "audio": str(path),
+            "caption": cap,
+            "parse_mode": ParseMode.HTML,
+            "title": title[:60],
+            "duration": audio_duration,
+            "reply_to_message_id": m.id,
+        }
+        if artist:
+            audio_options["performer"] = artist
+        try:
+            try:
+                await visual_call(bot.send_audio, **audio_options)
+            except BadRequest as error:
+                # Telegram definitively rejected the audio payload; a document
+                # fallback is safe here. Never retry after an ambiguous timeout.
+                log.warning("Telegram rejected audio metadata for %s (%s); trying document", title[:80], type(error).__name__)
+                fallback_caption = rich_esc(title[:60]) + (f" · {rich_esc(artist)}" if artist else "")
+                await bot.send_document(
+                    m.chat.id, document=str(path), caption=fallback_caption,
+                    reply_to_message_id=m.id,
+                )
             try:
                 await status.delete()
             except Exception:
                 pass
+            log.info(f"/song by {m.from_user.id if m.from_user else 0} in {m.chat.id}: {title} ({size_mb:.2f} MB, {elapsed:.1f}s)")
+        except Exception as e:
+            log.error("send_audio failed (%s)", type(e).__name__)
+            raise
         finally:
             # Cleanup
-            try:
-                path.unlink(missing_ok=True)
-                shutil.rmtree(path.parent, ignore_errors=True)
-            except Exception as e:
-                log.debug(f"Cleanup fail: {e}")
+            _cleanup_download(path)
 
     except ValueError as e:
-        await rich_edit(status, _hdr(pe("warn","⚠️") + " " + sc("not found"),3) + rich_note(rich_esc(str(e))))
-        log.warning(f"/song not found: {query} — {e}")
+        log.info("/song had no playable result for query length %d (%s)", len(query), type(e).__name__)
+        await rich_edit(
+            status,
+            rich_heading("🔎 No playable result found", level=3)
+            + rich_note("Try another title or paste a direct audio/video link."),
+        )
     except Exception as e:
-        log.error(f"/song error for '{query}': {e}", exc_info=True)
-        await rich_edit(status, _hdr(pe("cross","❌") + " " + sc("download failed"),3) + rich_note(f"<code>{rich_esc(str(e)[:300])}</code><br>" + pe("line","") + " " + sc("try again or use different query") + "<br>" + pe("small","") + " " + sc("check cookies/proxy if YouTube blocked")))
-        if path and path.exists():
-            try:
-                path.unlink(missing_ok=True)
-                shutil.rmtree(path.parent, ignore_errors=True)
-            except Exception:
-                pass
+        log.error("/song failed for query length %d (%s)", len(query), type(e).__name__)
+        await rich_edit(
+            status,
+            rich_heading("⚠️ Download couldn’t be completed", level=3)
+            + rich_note(_friendly_download_error(e)),
+        )
+        _cleanup_download(path)
 
 
-@bot.on_message(filters.command('vsong') & (filters.group | filters.private))
+@bot.on_message(filters.command('vsong', prefixes=config.COMMAND_PREFIX_LIST) & (filters.group | filters.private) & group_allowed & user_allowed)
 async def vsong_cmd(_, m: Message):
     query = " ".join(m.command[1:]) if len(m.command) > 1 else ""
-    if not query and m.reply_to_message and m.reply_to_message.text:
-        query = m.reply_to_message.text.strip()
+    reply = m.reply_to_message
+    if not query and reply:
+        query = str(getattr(reply, "text", None) or getattr(reply, "caption", None) or "").strip()
     if not query:
-        return await rich_send(bot, m.chat.id, _hdr(sc("video downloader"),2) + rich_note("<code>/vsong &lt;name or URL&gt;</code><br>" + pe("small","") + " <code>/vsong Believer</code> • MP4 1080p"))
+        body = (
+            rich_heading("🎥 Video downloader", level=2)
+            + rich_note(
+                "Send a video title or direct link to download an MP4 (up to 1080p). "
+                "You can also reply to a message containing a title or link."
+            )
+            + rich_details("Example", "<code>/vsong nature documentary</code>")
+        )
+        body += "<p>" + rich_button("🎵 Download audio", callback_data="dl:song") + "</p>"
+        return await rich_send(bot, m.chat.id, body)
 
-    status = await rich_send(bot, m.chat.id, _hdr(pe("circle","") + " " + sc("preparing video") + " • " + sc(query[:30]),3))
+    blocked = getattr(config, "BLOCKED_WORDS", []) or ["porn", "xxx", "xnxx", "sex"]
+    if _blocked_request(query, blocked):
+        return await rich_send(bot, m.chat.id, rich_heading("⚠️ Request not allowed", level=3) + rich_note("This search request isn’t permitted. Try another title or link."))
+
+    status = await rich_send(
+        bot, m.chat.id,
+        rich_heading("🎥 Preparing your video", level=3)
+        + rich_note("Checking the source and preparing an MP4 download…"),
+        navigation=False,
+    )
 
     path = None
     try:
         start = time.time()
-        path = await _download_media(query, audio_only=False, status_msg=status)
+        path, info = await _download_media(query, audio_only=False, status_msg=status, include_info=True)
         elapsed = time.time() - start
         size_mb = path.stat().st_size / 1024 / 1024
         if size_mb > 50:
             # Try compress or send as document with warning
             log.warning(f"Video too large: {size_mb:.1f} MB")
-            await rich_edit(status, _hdr(pe("warn","⚠️") + " " + sc("video too large") + f" {size_mb:.1f} MB",3) + rich_note(sc("Telegram 50MB limit — try /song for audio")))
-            path.unlink(missing_ok=True)
-            shutil.rmtree(path.parent, ignore_errors=True)
+            await rich_edit(
+                status,
+                rich_heading("⚠️ Video file is too large", level=3)
+                + rich_note(
+                    f"This file is {size_mb:.1f} MB; Telegram bots can send up to 50 MB. "
+                    "Try a shorter video."
+                ),
+            )
+            _cleanup_download(path)
             return
 
-        title = path.stem[:60]
-        cap = _hdr(pe("pin","📌") + " " + rich_esc(title),2) + rich_kv_table([(pe("hex","") + " " + sc("size"), f"<code>{size_mb:.2f} MB</code>"), (pe("circle","") + " " + sc("elapsed"), f"<code>{elapsed:.1f}s</code>")])
-        await bot.send_video(chat_id=m.chat.id, video=str(path), caption=cap, parse_mode=ParseMode.HTML, reply_to_message_id=m.id, supports_streaming=True)
-        await status.delete()
-        path.unlink(missing_ok=True)
-        shutil.rmtree(path.parent, ignore_errors=True)
-        log.info(f"/vsong {m.from_user.id} → {title} {size_mb:.2f} MB")
-    except Exception as e:
-        log.error(f"/vsong error: {e}", exc_info=True)
-        await rich_edit(status, _hdr(pe("cross","❌") + " " + sc("video download failed"),3) + rich_note(f"<code>{rich_esc(str(e)[:300])}</code>"))
-        if path:
+        title = _media_title(info, path, limit=60)
+        duration_seconds = info.get("duration")
+        video_options = {
+            "chat_id": m.chat.id,
+            "video": str(path),
+            "caption": rich_heading(f"🎥 {rich_esc(title)}", level=2) + rich_kv_table([
+                ("Duration", f"<code>{rich_esc(_duration_label(duration_seconds))}</code>"),
+                ("File size", f"<code>{size_mb:.2f} MB</code>"),
+                ("Ready in", f"<code>{elapsed:.1f} seconds</code>"),
+            ], headers=["Video download", ""]),
+            "parse_mode": ParseMode.HTML,
+            "reply_to_message_id": m.id,
+            "supports_streaming": True,
+        }
+        try:
+            video_duration = max(0, int(float(duration_seconds))) if duration_seconds is not None else None
+        except (TypeError, ValueError, OverflowError):
+            video_duration = None
+        if video_duration is not None:
+            video_options["duration"] = video_duration
+        for field in ("width", "height"):
             try:
-                path.unlink(missing_ok=True)
-                shutil.rmtree(path.parent, ignore_errors=True)
-            except Exception:
+                value = int(info.get(field) or 0)
+                if value > 0:
+                    video_options[field] = value
+            except (TypeError, ValueError, OverflowError):
                 pass
+        await visual_call(bot.send_video, **video_options)
+        try:
+            await status.delete()
+        except Exception:
+            pass
+        _cleanup_download(path)
+        log.info(f"/vsong {m.from_user.id if m.from_user else 0} → {title} {size_mb:.2f} MB")
+    except Exception as e:
+        log.error("/vsong failed (%s)", type(e).__name__)
+        await rich_edit(
+            status,
+            rich_heading("⚠️ Video download couldn’t be completed", level=3)
+            + rich_note(_friendly_download_error(e)),
+        )
+        _cleanup_download(path)
 
 
-@bot.on_message(filters.command('download') & (filters.group | filters.private))
+@bot.on_message(filters.command('download', prefixes=config.COMMAND_PREFIX_LIST) & (filters.group | filters.private) & group_allowed & user_allowed)
 async def download_cmd(_, m: Message):
     query = " ".join(m.command[1:]) if len(m.command) > 1 else ""
     if not query:
-        return await rich_send(bot, m.chat.id, _hdr(sc("downloader"),3) + rich_note("<code>/download &lt;URL or name&gt;</code><br>" + pe("small","") + " " + sc("audio if music, video if video URL") + "<br>" + rich_details(sc("supported"), sc("YouTube • TikTok • Instagram • SoundCloud • Twitter • Facebook • 1000+ sites via yt-dlp")) + "<p>" + rich_button(pe("music","🎵") + " " + sc("song"), callback_data="dl:song") + " " + rich_button(pe("pin","📌") + " " + sc("video"), callback_data="dl:video") + "</p>"))
+        body = (
+            rich_heading("⬇️ Media downloader", level=2)
+            + rich_note(
+                "Send a title or link and I’ll prepare audio or video automatically. "
+                "Use <code>/song</code> or <code>/vsong</code> to choose a format yourself."
+            )
+            + rich_details(
+                "Supported sources",
+                "YouTube, TikTok, Instagram, SoundCloud, X, Facebook, and many more.",
+            )
+        )
+        body += "<p>" + rich_button("🎵 Audio help", callback_data="dl:song") + " " + rich_button("📹 Video help", callback_data="dl:video") + "</p>"
+        return await rich_send(bot, m.chat.id, body)
     # Auto-detect: if query contains video keywords, use video, else audio
     is_video = any(x in query.lower() for x in (".mp4", "video", "tiktok", "instagram", "reel"))
     if is_video:
@@ -416,15 +643,23 @@ async def download_cmd(_, m: Message):
 async def dl_cbs(_, q: CallbackQuery):
     data = (q.data or "").split(":")[1] if ":" in (q.data or "") else ""
     if data == "song":
-        await q.answer(sc("use") + " /song <name>")
+        await q.answer("Use /song followed by a title or link")
         try:
-            await rich_edit(q.message, _hdr(sc("song downloader"),3) + rich_note("<code>/song Believer</code> — MP3 192kbps " + pe("music","🎵")))
+            await rich_edit(
+                q.message,
+                rich_heading("🎵 Download audio", level=3)
+                + rich_note("Example: <code>/song Believer</code> · MP3, 192 kbps"),
+            )
         except Exception:
             pass
     elif data == "video":
-        await q.answer(sc("use") + " /vsong <name>")
+        await q.answer("Use /vsong followed by a title or link")
         try:
-            await rich_edit(q.message, _hdr(sc("video downloader"),3) + rich_note("<code>/vsong Believer</code> — MP4 1080p " + pe("pin","📌")))
+            await rich_edit(
+                q.message,
+                rich_heading("🎥 Download video", level=3)
+                + rich_note("Example: <code>/vsong nature documentary</code> · MP4, up to 1080p"),
+            )
         except Exception:
             pass
 

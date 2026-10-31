@@ -3,11 +3,12 @@
 from __future__ import annotations
 import html
 import copy
+import logging
 import os
 import re
 from pyrogram import enums
 from pyrogram.types import InlineKeyboardButton as NativeButton, InlineKeyboardMarkup
-from videl.utils.premium_emojis import PREMIUM_IDS, USE_PREMIUM
+from videl.utils.premium_emojis import FALLBACK, PREMIUM_IDS, USE_PREMIUM
 
 ICONS_ENABLED = os.getenv(
     "USE_PREMIUM_BUTTON_ICONS", "1" if USE_PREMIUM else "0"
@@ -18,8 +19,13 @@ _STYLES = {
     "success": enums.ButtonStyle.SUCCESS,
     "danger": enums.ButtonStyle.DANGER,
 }
-
-
+# When Telegram rejects premium button icons, restore the visible Unicode badge
+# that was promoted into the native icon by button().
+_ICON_FALLBACKS = {
+    str(emoji_id): FALLBACK.get(key, "")
+    for key, emoji_id in PREMIUM_IDS.items()
+    if FALLBACK.get(key)
+}
 def button(text: str, *args, style=None, icon=None, **kwargs) -> NativeButton:
     """Keep every existing action intact while applying a restrained semantic style."""
     if args:
@@ -31,16 +37,39 @@ def button(text: str, *args, style=None, icon=None, **kwargs) -> NativeButton:
     label = html.unescape(re.sub(r"<[^>]+>", "", source)).strip()
     label = label.translate(str.maketrans("ᴀʙᴄᴅᴇғɢʜɪᴊᴋʟᴍɴᴏᴘǫʀsᴛᴜᴠᴡxʏᴢ", "abcdefghijklmnopqrstuvwxyz"))
     label = re.sub(r"^[◍⬪⫶⬩𖦹⦿◎⬢]+\s*", "", label)
+    leading_emoji_key = None
+    if ICONS_ENABLED:
+        prefixes = sorted(FALLBACK.items(), key=lambda item: len(item[1]), reverse=True)
+        while label:
+            for key, glyph in prefixes:
+                if glyph and label.startswith(glyph):
+                    leading_emoji_key = leading_emoji_key or key
+                    label = label[len(glyph):].lstrip(" \t·|—–-:")
+                    break
+            else:
+                break
     lower = label.lower()
     semantic = None
     if any(
         word in lower
-        for word in ("unban", "unlock", "resume", "confirm", "enable", "save")
+        for word in ("unban", "unmute", "unlock", "resume", "confirm", "enable", "save", "restore", "unpin")
     ):
         semantic, inferred = "check", "success"
+    elif "approve" in lower and "unapprove" not in lower:
+        semantic, inferred = "check", "success"
+    elif "unapprove" in lower:
+        semantic, inferred = "cross", "danger"
+    elif "ban" in lower or "kick" in lower:
+        semantic, inferred = "rijif_forbid", "danger"
+    elif lower.strip() == "del" or any(word in lower for word in ("delete", "clear all", "purge", "trash")):
+        semantic, inferred = "ios_trash", "danger"
+    elif any(word in lower for word in ("warn", "warning", "report")):
+        semantic, inferred = "rijif_warning", "default"
+    elif any(word in lower for word in ("mute", "silence")):
+        semantic, inferred = "boseh_speaker_mute", "default"
     elif any(
         word in lower
-        for word in ("delete", "remove", "close", "cancel", "stop", "disable", "ban")
+        for word in ("delete", "remove", "close", "cancel", "stop", "disable")
     ):
         semantic, inferred = "cross", "danger"
     elif any(
@@ -49,18 +78,36 @@ def button(text: str, *args, style=None, icon=None, **kwargs) -> NativeButton:
         semantic, inferred = "crown", "primary"
     else:
         inferred = "default"
-        for terms, key in [
-            (("music", "play", "queue", "audio"), "music"),
-            (("group", "protect", "admin"), "shield"),
-            (("setting", "setup"), "key"),
-            (("support", "chat"), "dash"),
-            (("next",), "right"),
-            (("back", "previous"), "left"),
-            (("stat", "analytic"), "stats"),
-            (("help", "info", "command"), "info"),
+        for terms, key, button_style in [
+            (("game", "arcade", "chess", "ludo", "gomoku", "dice"), "boseh_gamepad", "primary"),
+            (("music", "play", "queue", "audio"), "music", "primary"),
+            (("group", "protect", "admin", "moderation", "blacklist", "captcha", "permission"), "shield", "default"),
+            (("lock", "secure", "safety"), "lock", "default"),
+            (("pin",), "pin", "default"),
+            (("federation", "federations"), "globe", "default"),
+            (("reminder", "afk", "timer"), "boseh_clock", "default"),
+            (("owner", "console"), "crown", "primary"),
+            (("download", "document", "file", "attachment"), "ios_file", "default"),
+            (("photo", "image", "sticker", "avatar"), "ios_image", "default"),
+            (("invite", "link", "url"), "ios_link", "default"),
+            (("welcome", "start"), "spark", "primary"),
+            (("setting", "setup"), "ios_gear", "default"),
+            (("support", "chat"), "dash", "default"),
+            (("next",), "right", "default"),
+            (("back", "previous"), "left", "default"),
+            (("stat", "analytic"), "stats", "default"),
+            (("help", "info", "command"), "info", "primary"),
+            (("search", "find"), "ios_search", "default"),
+            (("video", "screen", "display"), "ios_tv", "default"),
+            (("news", "article"), "ios_newspaper", "default"),
+            (("note", "copy", "edit"), "ios_memo", "default"),
+            (("folder", "archive"), "ios_folder", "default"),
+            (("upload", "share"), "ios_upload", "default"),
+            (("link", "url"), "ios_link", "default"),
+            (("add", "create"), "ios_add", "default"),
         ]:
             if any(term in lower for term in terms):
-                semantic = key
+                semantic, inferred = key, button_style
                 break
     selected = style if style is not None else inferred
     if isinstance(selected, str):
@@ -78,7 +125,7 @@ def button(text: str, *args, style=None, icon=None, **kwargs) -> NativeButton:
     if not emoji_id and embedded:
         emoji_id = embedded[1]
     if ICONS_ENABLED:
-        emoji_id = emoji_id or PREMIUM_IDS.get(icon or semantic or "", "") or None
+        emoji_id = emoji_id or PREMIUM_IDS.get(icon or leading_emoji_key or semantic or "", "") or None
     else:
         emoji_id = None
     if emoji_id is not None and (
@@ -94,6 +141,36 @@ def button(text: str, *args, style=None, icon=None, **kwargs) -> NativeButton:
     )
 
 
+def icon_keyboard(markup):
+    """Add semantic custom-emoji icons to a copy without changing button actions."""
+    if not isinstance(markup, InlineKeyboardMarkup) or not ICONS_ENABLED:
+        return markup
+    rows = []
+    changed = False
+    for row in markup.inline_keyboard:
+        decorated = []
+        for item in row:
+            icon_id = getattr(item, "icon_custom_emoji_id", None)
+            probe = None
+            if getattr(item, "text", None):
+                # Keep the action fields unchanged; a prefixed Unicode badge is
+                # moved to Telegram's native custom-emoji button icon instead.
+                probe = button(item.text, callback_data="videl:icon-probe")
+                icon_id = icon_id or probe.icon_custom_emoji_id
+            if icon_id and (
+                not getattr(item, "icon_custom_emoji_id", None)
+                or (probe is not None and item.text != probe.text)
+            ):
+                item = copy.copy(item)
+                item.icon_custom_emoji_id = str(icon_id)
+                if probe is not None:
+                    item.text = probe.text
+                changed = True
+            decorated.append(item)
+        rows.append(decorated)
+    return InlineKeyboardMarkup(rows) if changed else markup
+
+
 def plain_keyboard(markup):
     """Copy, never mutate actions, when optional styles/icons are rejected."""
     if not isinstance(markup, InlineKeyboardMarkup):
@@ -103,6 +180,11 @@ def plain_keyboard(markup):
         clean = []
         for item in row:
             clone = copy.copy(item)
+            icon_id = str(getattr(item, "icon_custom_emoji_id", "") or "")
+            glyph = _ICON_FALLBACKS.get(icon_id, "")
+            text = str(getattr(clone, "text", "") or "")
+            if glyph and not text.startswith(glyph):
+                clone.text = f"{glyph} {text}".strip()
             clone.icon_custom_emoji_id = None
             clone.style = enums.ButtonStyle.DEFAULT
             clean.append(clone)
@@ -110,36 +192,63 @@ def plain_keyboard(markup):
     return InlineKeyboardMarkup(rows)
 
 
+
+
+def unstyled_keyboard(markup):
+    """Drop rejected button styles while preserving Premium Emoji icon IDs."""
+    if not isinstance(markup, InlineKeyboardMarkup):
+        return markup
+    rows = []
+    for row in markup.inline_keyboard:
+        clean = []
+        for item in row:
+            clone = copy.copy(item)
+            clone.style = enums.ButtonStyle.DEFAULT
+            clean.append(clone)
+        rows.append(clean)
+    return InlineKeyboardMarkup(rows)
+
+
+def _is_button_style_rejection(error) -> bool:
+    message = str(error).casefold()
+    return any(marker in message for marker in (
+        "button_style", "style_invalid", "style is not allowed", "unsupported button style",
+    ))
+
 async def visual_call(function, *args, **kwargs):
-    """Retry only rejected custom visuals. Never automatically retry network failures."""
+    """Retry rejected button styles only; never downgrade Premium Emoji entities."""
     from pyrogram.errors import BadRequest, MessageNotModified
 
+    kwargs = dict(kwargs)
+    for field in ("reply_markup", "markup"):
+        if kwargs.get(field) is not None:
+            kwargs[field] = icon_keyboard(kwargs[field])
     try:
         return await function(*args, **kwargs)
     except MessageNotModified:
         return None
-    except BadRequest:
+    except BadRequest as error:
+        if not _is_button_style_rejection(error):
+            raise
+        logging.getLogger(__name__).info(
+            "Telegram rejected button styling; retrying with Premium Emoji text and icon IDs preserved"
+        )
         safe = dict(kwargs)
+        safe_args = list(args)
         changed = False
-        for field in ("text", "caption"):
-            value = safe.get(field)
-            if isinstance(value, str) and "<tg-emoji" in value:
-                safe[field] = re.sub(
-                    r"<tg-emoji\b[^>]*>(.*?)</tg-emoji>",
-                    r"\1",
-                    value,
-                    flags=re.I | re.S,
-                )
+        # Keep custom-emoji text and button icon IDs intact. Only strip rejected
+        # button styles; flattening <tg-emoji> made rich edits look successful
+        # while replacing Premium Emoji with ordinary glyphs.
+        for field in ("reply_markup", "markup"):
+            markup = safe.get(field)
+            if any(
+                getattr(item, "icon_custom_emoji_id", None)
+                or getattr(item, "style", None) not in (None, enums.ButtonStyle.DEFAULT)
+                for row in getattr(markup, "inline_keyboard", [])
+                for item in row
+            ):
+                safe[field] = unstyled_keyboard(markup)
                 changed = True
-        markup = safe.get("reply_markup")
-        if any(
-            getattr(item, "icon_custom_emoji_id", None)
-            or getattr(item, "style", None) not in (None, enums.ButtonStyle.DEFAULT)
-            for row in getattr(markup, "inline_keyboard", [])
-            for item in row
-        ):
-            safe["reply_markup"] = plain_keyboard(markup)
-            changed = True
         if not changed:
             raise
-        return await function(*args, **safe)
+        return await function(*safe_args, **safe)

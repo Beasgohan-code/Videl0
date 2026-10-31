@@ -2,6 +2,7 @@
 import asyncio
 import importlib
 import unittest
+from pyrogram.errors import QueryIdInvalid
 from types import SimpleNamespace as NS
 from unittest.mock import AsyncMock,patch
 from pyrogram.enums import ChatMemberStatus,ChatType
@@ -12,6 +13,7 @@ from videl.app import music,music_callbacks
 from videl.plugins import start as general
 from videl.app.readiness import inspect_setup
 from videl.core.queue import chat_queues
+from videl.core import player
 
 
 def query(data='pause',uid=42,qid='test'):
@@ -48,12 +50,12 @@ class PlayerExperienceTests(unittest.IsolatedAsyncioTestCase):
             await callbacks.on_callback(app,q)
         engine.pause.assert_awaited_once_with(-321)
         self.assertTrue(music.player.is_paused(-321))
-        q.answer.assert_awaited_once_with('Player is paused',show_alert=False)
+        q.answer.assert_awaited_once_with('Updating playback…',show_alert=False)
 
-    async def test_lost_callback_answer_never_retries_engine(self):
-        app=client();q=query();q.answer.side_effect=TimeoutError()
+    async def test_expired_callback_answer_does_not_retry_or_cancel_engine_action(self):
+        app=client();q=query();q.answer.side_effect=QueryIdInvalid("QUERY_ID_INVALID")
         with patch.object(music,'call_py',NS(pause=AsyncMock(return_value=True))) as engine,patch.object(music.player,'refresh_np_ui',AsyncMock()):
-            with self.assertRaises(TimeoutError):await callbacks.on_callback(app,q)
+            await callbacks.on_callback(app,q)
             await callbacks.on_callback(app,q)
             engine.pause.assert_awaited_once()
             q.answer.assert_awaited_once()
@@ -61,18 +63,20 @@ class PlayerExperienceTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_engine_timeout_does_not_change_state_or_expose_provider_error(self):
         q=query()
-        with patch.object(music,'call_py',NS(pause=AsyncMock(side_effect=RuntimeError('secret-cookie')))):
+        with patch.object(music_callbacks,'rich_reply',AsyncMock()) as reply, \
+             patch.object(music,'call_py',NS(pause=AsyncMock(side_effect=RuntimeError('secret-cookie')))):
             await callbacks.on_callback(client(),q)
         self.assertFalse(music.player.is_paused(-321))
-        self.assertIn('could not be confirmed',q.answer.call_args.args[0])
-        self.assertNotIn('secret',q.answer.call_args.args[0]);q.answer.assert_awaited_once()
+        self.assertEqual(q.answer.call_args.args, ('Updating playback…',))
+        self.assertIn('could not be confirmed',reply.call_args.args[1])
+        self.assertNotIn('secret',reply.call_args.args[1]);q.answer.assert_awaited_once()
 
     async def test_clear_button_keeps_track_and_stops_autoplay(self):
         q=query('clear');current=chat_queues[-321][0]
         with patch('videl.core.autoplay.stop_autoplay') as stop,patch.object(music.player,'refresh_np_ui',AsyncMock()):
             await callbacks.on_callback(client(),q)
         self.assertEqual(chat_queues[-321],[current]);stop.assert_called_once_with(-321)
-        self.assertIn('current track kept',q.answer.call_args.args[0])
+        q.answer.assert_awaited_once_with('Updating playback…',show_alert=False)
 
     async def test_simultaneous_repeat_clicks_cycle_under_the_shared_lock(self):
         with patch.object(music.player,'refresh_np_ui',AsyncMock()):
@@ -104,6 +108,39 @@ class PlayerExperienceTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(await music_callbacks.handle(client(),q));q.answer.assert_not_awaited()
 
 
+class PlayerCardTests(unittest.TestCase):
+    def test_now_playing_card_has_rich_metadata_and_all_live_controls(self):
+        chat_id=-987654
+        chat_queues[chat_id]=[
+            {'title':'A <bright> night','duration':'3:45'},
+            {'title':'Next song','duration':'2:30'},
+        ]
+        try:
+            with patch('videl.core.audio_quality.config.VOICE_AUDIO_QUALITY','studio'):
+                caption=player._now_playing_caption(
+                    {'title':'A <bright> night','duration':'3:45','requester':'Listener','video':False},
+                    elapsed=74,total=225,chat_id=chat_id,
+                )
+            self.assertIn('<details',caption)
+            self.assertIn('&lt;bright&gt;',caption)
+            self.assertIn('Requested by',caption)
+            self.assertIn('Voice quality',caption)
+            self.assertIn('96 kbps stereo',caption)
+            self.assertIn('Up next',caption)
+            self.assertIn('\n\n',caption)
+            self.assertIn('<b>Format</b> · Audio\n',caption)
+            self.assertNotIn('<table',caption)
+            self.assertLess(caption.index('Now playing'),caption.index('A &lt;bright&gt; night'))
+            self.assertLess(caption.index('Format'),caption.index('Requested by'))
+            self.assertIn('━',caption)
+            controls=player._now_playing_kb(chat_id)
+            callbacks=[[item.callback_data for item in row] for row in controls.inline_keyboard]
+            self.assertEqual(callbacks,[['pause','skip'],['show_queue','cycle_loop'],['replay','stop'],['help:home','cmds:all:0']])
+        finally:
+            chat_queues.pop(chat_id,None)
+            player.stop_progress(chat_id)
+
+
 class OnboardingTests(unittest.IsolatedAsyncioTestCase):
     async def test_bot_first_actions_and_valid_group_add_link(self):
         keyboard=general.private_keyboard(False,'ExampleBot').inline_keyboard
@@ -111,24 +148,42 @@ class OnboardingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(keyboard[2][0].callback_data,'v2:setup')
         self.assertIsNotNone(keyboard[-1][0].web_app)
 
+    async def test_support_links_are_normalized_and_untrusted_hosts_are_ignored(self):
+        self.assertEqual(general._telegram_link('@ExampleSupport'),'https://t.me/ExampleSupport')
+        self.assertEqual(general._telegram_link('t.me/ExampleUpdates'),'https://t.me/ExampleUpdates')
+        self.assertIsNone(general._telegram_link('https://example.org/support'))
+
     async def test_private_onboarding_does_not_promise_private_voice_playback(self):
         text=general.member_caption('<Visitor>',True)
-        self.assertIn('not in this private chat',text)
+        self.assertIn('Add Videl to a group',text)
         self.assertIn('&lt;Visitor&gt;',text)
+        self.assertIn('<details',text)
         group=general.member_caption('Visitor',False)
         self.assertNotIn('this private chat',group);self.assertIn('Start a voice chat',group)
+        self.assertIn('/welcome on',group)
+        self.assertIn('Group setup button',group)
+        from videl.app.routes import router
+        self.assertNotIn('setup', router.commands)
+        self.assertIn('/tagall [message]',group)
+        self.assertIn('one mention every 5 seconds',group)
+        self.assertIn('videl-music-hero.png',general._welcome_art())
 
     async def test_private_setup_never_queries_group_membership(self):
         app=client();message=NS(chat=NS(type=ChatType.PRIVATE,id=42))
         screen=await inspect_setup(app,message)
         app.get_chat_member.assert_not_awaited();self.assertIn('Add the bot to your group',screen.html)
 
-    async def test_setup_reports_actual_rights_and_unverified_dependencies(self):
+    async def test_setup_reports_actual_rights_and_rich_actions_without_claiming_changes(self):
         app=client();screen=await inspect_setup(app,query().message)
         app.get_chat_member.assert_awaited_once_with(-321,777)
         self.assertIn('Missing',screen.html);self.assertIn('Granted',screen.html)
         self.assertIn('not verified by this check',screen.html)
         self.assertIn('No permissions, settings or memberships were changed',screen.html)
+        self.assertIn('<details',screen.html)
+        from vendor.richgram.richgram import rich_ui as transport
+        _,markup=transport._native_buttons(screen.html)
+        callbacks={item.callback_data for row in markup.inline_keyboard for item in row}
+        self.assertEqual(callbacks,{'v2:section:music','help:home'})
 
     async def test_setup_timeout_is_not_ready_or_fabricated_missing_rights(self):
         app=client();app.get_chat_member.side_effect=TimeoutError()

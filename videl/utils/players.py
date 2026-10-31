@@ -61,12 +61,27 @@ def touch(user_id, *, dm_ok=None):
     return True
 
 
-def public(doc):
+def public(doc, viewer_id=None):
     if not doc:
         return None
-    return {"id": int(doc["_id"]), "name": doc.get("name") or "Player",
+    user_id = int(doc["_id"])
+    if doc.get("profile_private") is True and int(viewer_id or 0) != user_id:
+        return {"id": user_id, "name": "Private player", "username": None,
+                "photo_url": None, "stats": {}, "profile_private": True}
+    return {"id": user_id, "name": doc.get("name") or "Player",
             "username": doc.get("username"), "photo_url": doc.get("photo_url"),
-            "stats": _stats(doc)}
+            "stats": _stats(doc), "profile_private": doc.get("profile_private") is True}
+
+
+def set_profile_private(user_id, private):
+    """Persist a player's opt-out from public profile details and leaderboards."""
+    if type(private) is not bool:
+        raise ValueError("profile privacy must be a boolean")
+    col = collection()
+    if col is None:
+        raise RuntimeError("Database unavailable")
+    result = col.update_one({"_id": int(user_id)}, {"$set": {"profile_private": private}})
+    return bool(getattr(result, "matched_count", 0))
 
 
 def _stats(doc):
@@ -116,6 +131,23 @@ def record(game, winner_id, loser_id, *, draw=False):
     return {"winner": delta_first, "loser": delta_second}
 
 
+def record_table(game, winner_id, others, *, draw=False):
+    """Record a multi-seat result. No rating: a six-chair win is not a duel.
+
+    Every player at the table still deserves the result in their profile, so
+    the win, loss or draw is written for all of them even though Elo is not.
+    """
+    col = collection()
+    if col is None:
+        return None
+    game = str(game or "")
+    for user_id in others:
+        _bump(col, user_id, game, won=False, draw=draw, rated=False)
+    if winner_id is not None:
+        _bump(col, winner_id, game, won=not draw, draw=draw, rated=False)
+    return None
+
+
 def _bump(col, user_id, game, *, won, draw, rated, rating=None):
     path = f"stats.{game}"
     # Zeros are written on purpose: a record with only a "wins" field is
@@ -140,7 +172,7 @@ def leaderboard(game, limit=10):
     if col is None:
         return []
     key = f"stats.{game}.rating"
-    rows = col.find({key: {"$exists": True}}).sort(key, -1).limit(max(1, min(int(limit), 50)))
+    rows = col.find({key: {"$exists": True}, "profile_private": {"$ne": True}}).sort(key, -1).limit(max(1, min(int(limit), 50)))
     return [{"id": int(doc["_id"]), "name": doc.get("name") or "Player",
              "rating": int((doc.get("stats") or {}).get(game, {}).get("rating", START_RATING)),
              "games": int((doc.get("stats") or {}).get(game, {}).get("games", 0))}

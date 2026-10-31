@@ -118,7 +118,12 @@ export default function FederationsScreen() {
       setList((rows) =>
         rows.map((row) => (row.id === selected ? { ...row, bans: Math.max(0, row.bans - (data.removed ? 1 : 0)) } : row)),
       );
-      setNotice(data.removed ? `Ban lifted for ${user}.` : `No stored ban existed for ${user}.`);
+      const attempts = Array.isArray(data.unbans) ? data.unbans : [];
+      const released = attempts.filter((item: { ok?: boolean }) => item.ok).length;
+      const failed = attempts.length - released;
+      setNotice(data.removed
+        ? `Federation ban lifted for ${user}. ${released}/${attempts.length} member groups confirmed an unban${failed ? `; ${failed} need attention` : ""}.`
+        : `No stored federation ban existed for ${user}.`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "The ban was not lifted");
     } finally {
@@ -289,8 +294,8 @@ export default function FederationsScreen() {
               </div>
 
               <p className="mt-3 text-xs text-[var(--ios-label-tertiary)]">
-                Lifting a ban deletes the stored record the bot reads; it does not unban anyone from groups that already
-                enforced it. Re-add a member in Telegram if needed.
+                Lifting a ban removes the shared enforcement record and asks Telegram to unban the user in each member group.
+                Groups where the bot lacks permission may need an admin to lift the local ban manually.
               </p>
             </>
           )}

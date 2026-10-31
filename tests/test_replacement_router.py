@@ -20,6 +20,10 @@ class ParserTests(unittest.TestCase):
         self.assertIsNone(parse('/help@OtherBot','Videl0Bot'))
         self.assertIsNone(parse('/help@OtherBot',''))
         self.assertEqual(parse('/id 123\nignored').arguments,'123\nignored')
+        for prefix in '!?&.#~$+':
+            self.assertEqual(parse(f'{prefix}help music'),Parsed('help','music'))
+            self.assertEqual(parse(f'{prefix}help@Videl0Bot','videl0bot'),Parsed('help',''))
+        self.assertIsNone(parse('!help@OtherBot','Videl0Bot'))
         for text in ['plain text','/','/bad-name','/a'*40000,None]:self.assertIsNone(parse(text))
 
     def test_manifest_is_unique_and_has_no_import_time_registration(self):
@@ -39,6 +43,52 @@ class RouterTests(unittest.IsolatedAsyncioTestCase):
             await router.dispatch(client,msg)
             await router.dispatch(client,msg)
             handler.assert_awaited_once();render.assert_awaited_once()
+
+    async def test_ephemeral_reply_is_sent_to_its_requester_without_public_fallback(self):
+        handler=AsyncMock(return_value=Screen('private answer',ephemeral_user_id=42))
+        router=Router([Command('test',handler,'Test',policy='group',ephemeral_group_reply=True)])
+        class Client:
+            def __init__(self): self.sent = None
+            async def send_message(self, chat_id, text, parse_mode=None, ephemeral_message_parameters=None,
+                                   message_thread_id=None, reply_markup=None):
+                self.sent = {"chat_id": chat_id, "text": text, "ephemeral_message_parameters": ephemeral_message_parameters}
+                return object()
+        client=Client()
+        msg=message('/test',uid=42,kind=ChatType.SUPERGROUP)
+        with patch('videl.app.router.rich_reply',AsyncMock()) as render:
+            await router.dispatch(client,msg)
+        self.assertEqual(client.sent['chat_id'],msg.chat.id)
+        self.assertEqual(client.sent['text'],'private answer')
+        self.assertEqual(client.sent['ephemeral_message_parameters'].receiver_user_id,42)
+        render.assert_not_awaited()
+
+    async def test_ephemeral_screen_from_non_allowlisted_command_is_never_sent(self):
+        handler=AsyncMock(return_value=Screen('unapproved private body',ephemeral_user_id=42))
+        router=Router([Command('test',handler,'Test',policy='group')])
+        class Client:
+            def __init__(self): self.called=False
+            async def send_message(self, chat_id, text, parse_mode=None, ephemeral_message_parameters=None):
+                self.called=True
+        client=Client()
+        msg=message('/test',uid=42,kind=ChatType.SUPERGROUP)
+        with patch('videl.app.router.rich_reply',AsyncMock()) as render:
+            await router.dispatch(client,msg)
+        self.assertFalse(client.called)
+        self.assertNotIn('unapproved private body',render.await_args.args[1])
+
+    async def test_ephemeral_failure_never_leaks_body_to_group(self):
+        handler=AsyncMock(return_value=Screen('sensitive private answer',ephemeral_user_id=42))
+        router=Router([Command('test',handler,'Test',policy='group',ephemeral_group_reply=True)])
+        class FailingClient:
+            async def send_message(self, chat_id, text, parse_mode=None, ephemeral_message_parameters=None,
+                                   message_thread_id=None, reply_markup=None):
+                raise TimeoutError()
+        client=FailingClient()
+        msg=message('/test',uid=42,kind=ChatType.SUPERGROUP)
+        with patch('videl.app.router.rich_reply',AsyncMock()) as render:
+            await router.dispatch(client,msg)
+        self.assertNotIn('sensitive private answer',render.await_args.args[1])
+        self.assertIn('No reply content was posted',render.await_args.args[1])
 
     async def test_duplicate_inflight_update_is_not_executed_twice(self):
         begin,finish=asyncio.Event(),asyncio.Event()
@@ -73,6 +123,21 @@ class RouterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(client.get_chat_member.await_count,2)
         client.get_chat_member.side_effect=TimeoutError()
         self.assertFalse(await authorize(command,ctx))
+
+    async def test_dj_policy_allows_assigned_member_but_denies_unassigned(self):
+        command=Command('control',AsyncMock(),'Control',policy='dj',category='music')
+        client=SimpleNamespace(get_chat_member=AsyncMock(return_value=SimpleNamespace(status=ChatMemberStatus.MEMBER)))
+        ctx=Context(client,message(kind=ChatType.SUPERGROUP,uid=43),Parsed('control',''))
+        with patch('videl.plugins.base.get_setting',return_value={'user_id': 43}):
+            self.assertTrue(await authorize(command,ctx))
+        with patch('videl.plugins.base.get_setting',return_value={'user_id': 99}):
+            self.assertFalse(await authorize(command,ctx))
+        client.get_chat_member.return_value.status=ChatMemberStatus.LEFT
+        with patch('videl.plugins.base.get_setting',return_value={'user_id': 43}):
+            self.assertFalse(await authorize(command,ctx), 'a stale DJ assignment must not authorize someone outside the group')
+        client.get_chat_member.return_value.status=ChatMemberStatus.ADMINISTRATOR
+        with patch('videl.plugins.base.get_setting',return_value={}):
+            self.assertTrue(await authorize(command,ctx))
 
     async def test_safe_validation_escapes_content_and_provider_errors_are_not_exposed(self):
         handler=AsyncMock(side_effect=CommandError('<unsafe>'))
@@ -135,6 +200,20 @@ class InstallationTests(unittest.TestCase):
         self.assertEqual(broken.handlers,[]);self.assertNotIn(broken,_installed)
 
 class BlockPolicyTests(unittest.IsolatedAsyncioTestCase):
+    async def test_blocked_account_and_group_get_distinct_explanations(self):
+        command=Command('dj',AsyncMock(),'Assign DJ',policy='admin',block_policy='chat')
+        router=Router([command])
+        client=SimpleNamespace(me=SimpleNamespace(username='Videl0Bot'),get_chat_member=AsyncMock())
+        msg=message('/dj',kind=ChatType.SUPERGROUP)
+        with patch('videl.utils.db.is_user_blocked_db',return_value=True),patch('videl.utils.db.is_group_blocked',return_value=False),patch('videl.app.router.rich_reply',AsyncMock()) as reply:
+            await router.dispatch(client,msg)
+            self.assertIn('Your account is blocked',reply.call_args.args[1])
+            self.assertNotIn('requires current group administrator',reply.call_args.args[1])
+        with patch('videl.utils.db.is_user_blocked_db',return_value=False),patch('videl.utils.db.is_group_blocked',return_value=True),patch('videl.app.router.rich_reply',AsyncMock()) as reply:
+            await router.dispatch(client,msg)
+            self.assertIn('Bot commands are disabled in this chat',reply.call_args.args[1])
+        client.get_chat_member.assert_not_awaited()
+
     async def test_migrated_music_controls_still_honor_saved_blocklists(self):
         command=next(item for item in COMMANDS if item.name=='pause')
         client=SimpleNamespace(get_chat_member=AsyncMock(return_value=SimpleNamespace(status=ChatMemberStatus.ADMINISTRATOR)))

@@ -65,6 +65,8 @@ assistant = Client(
 
 # ── PyTgCalls ─────────────────────────────────────────────────────────────────
 if PyTgCalls:
-    call_py = PyTgCalls(assistant)
+    # Keep call-state caching short so recreated Telegram voice chats are
+    # detected quickly after a restart or externally ended session.
+    call_py = PyTgCalls(assistant, cache_duration=100)
 else:
     call_py = None

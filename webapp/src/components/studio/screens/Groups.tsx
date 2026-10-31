@@ -1,6 +1,12 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStudio } from "../StudioProvider";
+import { useTelegram } from "@/components/TelegramProvider";
+import AdminGroups from "./AdminGroups";
+import { CaseTimeline } from "@/components/studio/CaseTimeline";
+import { EscalationSettings } from "@/components/studio/EscalationSettings";
+import GroupSetupChecklist from "@/components/studio/GroupSetupChecklist";
+import SafetyTestBench from "./SafetyTestBench";
 import {
   AlertCircle,
   Check,
@@ -30,6 +36,7 @@ import {
 } from "lucide-react";
 import { BOT_COMMANDS } from "@/lib/commands";
 import { downloadCsv, downloadJson } from "@/lib/csv";
+import { previewGroupMessage } from "@/lib/message-template";
 import {
   backupChanges,
   backupFileName,
@@ -64,6 +71,7 @@ import {
   numberValue,
   effectiveGuards,
   protectionSummary,
+  presetDiff,
   textValue,
   toggleSelected,
   visibleGroups,
@@ -83,7 +91,8 @@ import {
 } from "@/lib/group-admin";
 import { BusyLabel, Callout, EmptyState, LoadingState, PageHeader } from "../ui";
 
-type Tab = "protection" | "community" | "moderation" | "members" | "commands" | "inbox" | "audit" | "backup";
+type Tab = "protection" | "community" | "moderation" | "members" | "commands" | "inbox" | "cases" | "audit" | "backup";
+type GroupSnapshot = { id: string; label: string; kind: string; time: number };
 
 const TABS: { id: Tab; label: string }[] = [
   { id: "protection", label: "Protection" },
@@ -92,6 +101,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "members", label: "Members" },
   { id: "commands", label: "Commands" },
   { id: "inbox", label: "Inbox" },
+  { id: "cases", label: "Cases" },
   { id: "audit", label: "History" },
   { id: "backup", label: "Backup" },
 ];
@@ -147,7 +157,55 @@ function PanelNotice({ children }: { children: React.ReactNode }) {
   );
 }
 
-export default function GroupsPage() {
+function PresetReview({
+  preset,
+  current,
+  proposed,
+  saving,
+  onClose,
+  onApply,
+}: {
+  preset: PresetId;
+  current: GroupSettings;
+  proposed: GroupSettings;
+  saving: boolean;
+  onClose: () => void;
+  onApply: () => void;
+}) {
+  const changes = presetDiff(current, proposed);
+  const labels = new Map(PROTECTION_GROUPS.flatMap((group) => group.controls.map((control) => [control.key, control.label] as const)));
+  const enableCount = changes.filter((change) => change.after).length;
+  const disableCount = changes.length - enableCount;
+  return (
+    <div className="fixed inset-0 z-[80] grid place-items-center bg-black/70 p-3 backdrop-blur-sm" onKeyDown={(event) => { if (event.key === "Escape") onClose(); }} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section role="dialog" aria-modal="true" aria-labelledby="preset-review-title" className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-white/10 bg-[#11172a] p-5 shadow-2xl">
+        <p className="ios-caps text-[10px] text-cyan-200/60">Protection profile · review first</p>
+        <h3 id="preset-review-title" className="mt-1 text-lg font-semibold">Apply {PRESET_COPY[preset].label}?</h3>
+        <p className="mt-2 text-xs leading-5 text-white/55">{PRESET_COPY[preset].description} Review the exact changes for this group before saving.</p>
+        <div className="mt-4 flex flex-wrap gap-2 text-[11px]">
+          <span className="ios-pill">{changes.length} setting{changes.length === 1 ? "" : "s"} change</span>
+          {enableCount > 0 && <span className="ios-pill ios-pill-green">{enableCount} turn on</span>}
+          {disableCount > 0 && <span className="ios-pill">{disableCount} turn off</span>}
+        </div>
+        <ul className="mt-3 divide-y divide-white/[0.07] rounded-xl border border-white/[0.07] px-3">
+          {changes.length ? changes.map((change) => (
+            <li key={change.key} className="flex items-center justify-between gap-3 py-2.5 text-xs">
+              <span className="text-white/75">{labels.get(change.key) ?? change.key}</span>
+              <span className="shrink-0 text-white/45">{change.before ? "On" : "Off"} <span className="px-1 text-white/25">→</span> <b className={change.after ? "text-emerald-200" : "text-amber-100"}>{change.after ? "On" : "Off"}</b></span>
+            </li>
+          )) : <li className="py-3 text-xs text-white/50">This group already matches this profile; applying it makes no protection changes.</li>}
+        </ul>
+        <p className="mt-3 text-[10px] leading-4 text-white/35">Only this group is changed. The bot still applies its normal admin and approved-member exemptions.</p>
+        <div className="mt-5 flex justify-end gap-2">
+          <button type="button" onClick={onClose} disabled={saving} className="ios-btn ios-btn-glass text-xs">Keep current</button>
+          <button type="button" onClick={onApply} disabled={saving || changes.length === 0} className="ios-btn ios-btn-primary text-xs disabled:opacity-45">{saving ? <Loader2 size={14} className="animate-spin" /> : <ShieldCheck size={14} />} Apply profile</button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function OwnerGroupsPage() {
   const { open, selectGroup } = useStudio();
   const savingRef = useRef(false);
   const detailRequest = useRef(0);
@@ -168,6 +226,7 @@ export default function GroupsPage() {
   // the next one, so the panel does not conflict with its own previous save.
   const [revision, setRevision] = useState<number | null>(null);
   const [tab, setTab] = useState<Tab>("protection");
+  const [presetPreview, setPresetPreview] = useState<PresetId | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [loading, setLoading] = useState(true);
@@ -196,11 +255,22 @@ export default function GroupsPage() {
     "settings", "preset", "automation", "commands", "blacklist", "warn", "moderation", "join_request", "report",
   ]);
   const [commandQuery, setCommandQuery] = useState("");
+  const [customCommandName, setCustomCommandName] = useState("");
+  const [customCommandResponse, setCustomCommandResponse] = useState("");
+  const [customCommandCooldown, setCustomCommandCooldown] = useState("0");
+  const [backupSections, setBackupSections] = useState<string[]>(["settings", "automation", "blacklist", "commands"]);
   const [backupPreview, setBackupPreview] = useState<{ document: Record<string, unknown>; changes: BackupChanges } | null>(null);
   const [backupBusy, setBackupBusy] = useState(false);
   const [backupNote, setBackupNote] = useState("");
   const [restorableId, setRestorableId] = useState<string | null>(null);
+  const [snapshots, setSnapshots] = useState<GroupSnapshot[]>([]);
+  const [snapshotLabel, setSnapshotLabel] = useState("");
+  const [snapshotBusy, setSnapshotBusy] = useState(false);
+  const [snapshotLoading, setSnapshotLoading] = useState(false);
+  const snapshotRequest = useRef(0);
   const backupInput = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { setPresetPreview(null); }, [selected]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -289,6 +359,24 @@ export default function GroupsPage() {
     }
   }, []);
 
+  const loadSnapshots = useCallback(async (id: number) => {
+    const ticket = ++snapshotRequest.current;
+    setSnapshotLoading(true);
+    try {
+      const response = await fetch(`/api/groups/${id}`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "backup_list" }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.ok) throw new Error(data.error || "Snapshots could not be loaded");
+      if (ticket === snapshotRequest.current) setSnapshots(Array.isArray(data.snapshots) ? data.snapshots : []);
+    } catch (e) {
+      if (ticket === snapshotRequest.current) setError(e instanceof Error ? e.message : "Snapshots could not be loaded");
+    } finally {
+      if (ticket === snapshotRequest.current) setSnapshotLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (selected === null) {
       setDetail(null);
@@ -361,6 +449,13 @@ export default function GroupsPage() {
   useEffect(() => {
     if (tab === "audit" && selected !== null) void loadAudit(selected, auditKind);
   }, [tab, selected, auditKind, loadAudit]);
+
+  useEffect(() => {
+    setSnapshots([]);
+    setBackupPreview(null);
+    setRestorableId(null);
+    if (tab === "backup" && selected !== null) void loadSnapshots(selected);
+  }, [tab, selected, loadSnapshots]);
 
   function showMemberHistory(userId: number) {
     const actor = String(userId);
@@ -494,6 +589,26 @@ export default function GroupsPage() {
     }
   }
 
+  async function createSnapshot() {
+    if (!active || snapshotBusy || backupBusy) return;
+    const label = snapshotLabel.trim();
+    if (!label || label.length > 60) { setError('Enter a snapshot name between 1 and 60 characters.'); return; }
+    setSnapshotBusy(true); setError("");
+    try {
+      const response = await fetch(`/api/groups/${active.id}`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "backup_snapshot", label }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.ok) throw new Error(errorHint(String(data.error || "Snapshot could not be saved"), response.status));
+      setSnapshots(Array.isArray(data.snapshots) ? data.snapshots : []);
+      setSnapshotLabel("");
+      setBackupNote(`Snapshot “${label}” saved. Restore any saved version from this list.`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Snapshot could not be saved");
+    } finally { setSnapshotBusy(false); }
+  }
+
   async function exportBackup() {
     if (!active || backupBusy) return;
     setBackupBusy(true);
@@ -534,7 +649,7 @@ export default function GroupsPage() {
       const response = await fetch(`/api/groups/${active.id}/backup`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ document: parsed.document, dry_run: true }),
+        body: JSON.stringify({ document: parsed.document, dry_run: true, sections: backupSections }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.ok) {
@@ -553,8 +668,37 @@ export default function GroupsPage() {
     }
   }
 
+  async function refreshBackupPreview(document: Record<string, unknown>, sections: string[]) {
+    if (!active) return;
+    setBackupBusy(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/groups/${active.id}/backup`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ document, dry_run: true, sections }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.ok) throw new Error(errorHint(String(data.error || "The selected sections could not be previewed"), response.status));
+      setBackupPreview({ document, changes: backupChanges(data.changes) });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "The selected sections could not be previewed");
+    } finally {
+      setBackupBusy(false);
+    }
+  }
+
+  function toggleBackupSection(section: string, checked: boolean) {
+    const next = checked ? [...new Set([...backupSections, section])] : backupSections.filter((item) => item !== section);
+    if (!next.length) return;
+    setBackupSections(next);
+    if (backupPreview) void refreshBackupPreview(backupPreview.document, next);
+  }
+
   async function applyBackup() {
     if (!active || !backupPreview || backupBusy) return;
+    const changes = backupSummary(backupPreview.changes).map((row) => `• ${row.label}: ${row.detail}`).join("\n");
+    if (!window.confirm(`Apply the reviewed configuration changes to “${active.title}”?\n\n${changes}\n\nThe current configuration will be saved as a rollback point first.`)) return;
     setBackupBusy(true);
     setError("");
     try {
@@ -564,6 +708,7 @@ export default function GroupsPage() {
         body: JSON.stringify({
           document: backupPreview.document,
           dry_run: false,
+          sections: backupSections,
           ...(revision === null ? {} : { revision }),
         }),
       });
@@ -586,6 +731,7 @@ export default function GroupsPage() {
       setRevision(nextRevision(data, revision));
       setRestorableId(typeof data.backup_id === "string" ? data.backup_id : null);
       setBackupPreview(null);
+      void loadSnapshots(active.id);
       setBackupNote(
         data.empty
           ? "That backup already matches this group — nothing was changed."
@@ -600,9 +746,10 @@ export default function GroupsPage() {
     }
   }
 
-  async function restoreSaved() {
-    if (!active || !restorableId || backupBusy) return;
-    if (!window.confirm("Restore the configuration that was replaced by the last import?")) return;
+  async function restoreSaved(snapshotId?: string, snapshotLabel?: string) {
+    const restoreId = snapshotId || restorableId;
+    if (!active || !restoreId || backupBusy || snapshotBusy) return;
+    if (!window.confirm(snapshotLabel ? `Restore the group configuration from “${snapshotLabel}”? Current settings will be saved first.` : "Restore the configuration that was replaced by the last import?")) return;
     setBackupBusy(true);
     setError("");
     try {
@@ -610,7 +757,7 @@ export default function GroupsPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          backup_id: restorableId,
+          backup_id: restoreId,
           ...(revision === null ? {} : { revision }),
         }),
       });
@@ -625,8 +772,9 @@ export default function GroupsPage() {
         setDetail((current) => (current ? { ...current, automation: data.automation } : current));
       }
       setRevision(nextRevision(data, revision));
-      setRestorableId(null);
-      setBackupNote("Previous configuration restored.");
+      if (!snapshotId || snapshotId === restorableId) setRestorableId(null);
+      setBackupNote(snapshotLabel ? `Restored “${snapshotLabel}”. The replaced state was saved as a new rollback point.` : "Previous configuration restored.");
+      void loadSnapshots(active.id);
       void loadDetail(active.id, { silent: true });
     } catch (e) {
       setError(e instanceof Error ? e.message : "The restore failed");
@@ -638,6 +786,10 @@ export default function GroupsPage() {
   async function applyBulk(ids: number[], preset: PresetId) {
     if (!ids.length) return;
     const { ids: target, overflow } = bulkSelection(ids);
+    const omitted = overflow ? `\n\n${overflow} additional selected group${overflow === 1 ? " was" : "s were"} omitted by the 15-group safety limit.` : "";
+    const names = target.map((id) => groups.find((group) => group.id === id)?.title || String(id));
+    const preview = names.map((name) => `• ${name}`).join("\n");
+    if (!window.confirm(`Apply the “${preset}” preset to these ${target.length} groups? This changes each group’s settings.\n\n${preview}${omitted}`)) return;
     setSaving("bulk");
     setError("");
     setBulkResult("");
@@ -689,6 +841,8 @@ export default function GroupsPage() {
   const activeSettings = detail?.settings ?? active?.settings ?? {};
   const guardsOn = effectiveGuards(activeSettings);
   const community = detailState === "ready" ? detail?.community : undefined;
+  const welcomePreview = previewGroupMessage(welcomeDraft || "Welcome {name} to {title}!", active?.title ?? "Your group");
+  const goodbyePreview = previewGroupMessage(goodbyeDraft || "Goodbye {name}.", active?.title ?? "Your group");
   const bulkIds = bulkSelection(picked);
 
   return (
@@ -1033,6 +1187,7 @@ export default function GroupsPage() {
                 </div>
               )}
               {detail && (detail.problems ?? []).length > 0 && <PanelNotice>{(detail.problems ?? []).join(" ")}</PanelNotice>}
+              {detail?.setup_checklist && <GroupSetupChecklist items={detail.setup_checklist} />}
 
               <div role="group" aria-label="Group settings panels" className="scroll-row mt-4 flex gap-1.5 sm:flex-wrap">
                 {TABS.map((item) => (
@@ -1049,6 +1204,17 @@ export default function GroupsPage() {
 
               {tab === "protection" && (
                 <div className="mt-3">
+                  {presetPreview && detail?.presets[presetPreview] && (
+                    <PresetReview
+                      preset={presetPreview}
+                      current={detail.settings}
+                      proposed={detail.presets[presetPreview].settings}
+                      saving={saving === "preset"}
+                      onClose={() => setPresetPreview(null)}
+                      onApply={() => { void runAction({ action: "preset", preset: presetPreview }, { success: `${PRESET_COPY[presetPreview].label} preset applied.` }).then((saved) => { if (saved) setPresetPreview(null); }); }}
+                    />
+                  )}
+                  <SafetyTestBench settings={activeSettings} filters={community?.filters ?? []} />
                   {active.health && active.health.issues.length > 0 && (
                     <div className="mb-3 rounded-xl border border-amber-300/20 bg-amber-300/5 p-3">
                       <h3 className="flex items-center gap-2 text-sm font-semibold text-amber-100">
@@ -1078,7 +1244,7 @@ export default function GroupsPage() {
                             key={id}
                             aria-label={`Apply ${PRESET_COPY[id].label} preset`}
                             disabled={saving !== null || !detail}
-                            onClick={() => void runAction({ action: "preset", preset: id }, { success: `${PRESET_COPY[id].label} preset applied.` })}
+                            onClick={() => setPresetPreview(id)}
                             className="ios-chip text-xs disabled:opacity-40"
                             title={PRESET_COPY[id].description}
                           >
@@ -1162,6 +1328,11 @@ export default function GroupsPage() {
                             {saving === "welcome" ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} Save
                           </button>
                         </div>
+                        <div className="mt-3 rounded-xl border border-white/[0.07] bg-black/10 p-3">
+                          <p className="ios-caps text-[9px] text-white/35">Preview · sample new member</p>
+                          <p className="mt-1 whitespace-pre-wrap break-words text-sm text-white/80">{welcomePreview.text || "Your welcome message preview appears here."}</p>
+                          {welcomePreview.unknown.length > 0 && <p className="mt-2 text-[11px] text-amber-200">Unknown placeholder{welcomePreview.unknown.length > 1 ? "s" : ""}: {welcomePreview.unknown.join(", ")} · these will remain unchanged.</p>}
+                        </div>
                       </div>
 
                       <div className="rounded-xl bg-white/[0.03] p-3">
@@ -1193,6 +1364,11 @@ export default function GroupsPage() {
                           >
                             {saving === "goodbye" ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} Save
                           </button>
+                        </div>
+                        <div className="mt-3 rounded-xl border border-white/[0.07] bg-black/10 p-3">
+                          <p className="ios-caps text-[9px] text-white/35">Preview · sample departing member</p>
+                          <p className="mt-1 whitespace-pre-wrap break-words text-sm text-white/80">{goodbyePreview.text || "Your goodbye preview appears here."}</p>
+                          {goodbyePreview.unknown.length > 0 && <p className="mt-2 text-[11px] text-amber-200">Unknown placeholder{goodbyePreview.unknown.length > 1 ? "s" : ""}: {goodbyePreview.unknown.join(", ")} · these will remain unchanged.</p>}
                         </div>
                       </div>
 
@@ -1291,6 +1467,16 @@ export default function GroupsPage() {
                             {saving === "warn_limit" ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} Save
                           </button>
                         </div>
+                      </div>
+
+                      <div className="rounded-xl bg-white/[0.03] p-3">
+                        <h3 className="text-sm font-semibold">Warning escalation ladder</h3>
+                        <p className="ios-caption mb-3 mt-1">Choose escalating actions and decide whether kick/ban steps wait for a moderator.</p>
+                        <EscalationSettings
+                          value={detail?.automation?.escalation}
+                          disabled={saving !== null}
+                          onChange={(patch) => void runAction({ action: "automation", escalation: patch }, { success: "Warning escalation settings saved." })}
+                        />
                       </div>
 
                       <div className="rounded-xl bg-white/[0.03] p-3">
@@ -1530,6 +1716,38 @@ export default function GroupsPage() {
               {tab === "commands" && (
                 <div className="mt-3 space-y-3">
                   <div className="rounded-xl bg-white/[0.03] p-3">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <h3 className="flex items-center gap-2 text-sm font-semibold"><TerminalSquare size={15} /> Custom command studio</h3>
+                        <p className="ios-caption mt-1">Create plain-text replies for this group only. No scripts, API calls, or permission actions.</p>
+                      </div>
+                      <span className="ios-pill text-[10px]">{community?.custom_commands?.length ?? 0} saved</span>
+                    </div>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(9rem,.55fr)_minmax(0,1fr)]">
+                      <label className="text-[11px] text-indigo-100/55">Command name<input value={customCommandName} onChange={(event) => setCustomCommandName(event.target.value.toLowerCase().replaceAll("/", ""))} placeholder="rules_short" maxLength={32} className="ios-input mt-1.5" /></label>
+                      <label className="text-[11px] text-indigo-100/55">Reply text<textarea value={customCommandResponse} onChange={(event) => setCustomCommandResponse(event.target.value)} placeholder="Welcome {name}! Use /rules for the full guide." maxLength={3500} rows={3} className="ios-input mt-1.5 min-h-20" /></label>
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <span className="text-[10px] text-indigo-100/40">Templates:</span>
+                      {[
+                        ["Welcome", "welcome", "Welcome {name} to {chat}! Use /rules_short to get started."],
+                        ["Rules", "rules_short", "{name}, please read our group rules: {args}"],
+                        ["Contact", "contact_admin", "Need help, {mention}? Ask a group admin."],
+                      ].map(([label, name, response]) => <button key={name} type="button" onClick={() => { setCustomCommandName(name); setCustomCommandResponse(response); }} className="ios-chip text-[10px]">{label}</button>)}
+                    </div>
+                    <label className="mt-3 inline-flex items-center gap-2 text-[10px] text-indigo-100/45">Per-member cooldown
+                      <select value={customCommandCooldown} onChange={(event) => setCustomCommandCooldown(event.target.value)} className="ios-input w-auto py-1 text-xs">
+                        {[["0", "Off"], ["5", "5 seconds"], ["10", "10 seconds"], ["30", "30 seconds"], ["60", "1 minute"], ["120", "2 minutes"]].map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                      </select>
+                    </label>
+                    {customCommandResponse.trim() && <div className="mt-3 rounded-lg border border-indigo-300/10 bg-indigo-300/[0.03] p-2"><p className="text-[9px] uppercase tracking-wider text-indigo-100/35">Safe preview · sample values</p><p className="mt-1 whitespace-pre-wrap text-xs text-indigo-100/70">{customCommandResponse.replace(/\\{name\\}/g, "Ari").replace(/\\{mention\\}/g, "@ari").replace(/\\{id\\}/g, "12345").replace(/\\{chat\\}/g, active?.title || "Your group").replace(/\\{username\\}/g, "@ari").replace(/\\{args\\}/g, "sample argument")}</p></div>}
+                    <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-[10px] text-indigo-100/40">Available: <code>{"{name}"}</code> <code>{"{mention}"}</code> <code>{"{id}"}</code> <code>{"{chat}"}</code> <code>{"{username}"}</code> <code>{"{args}"}</code>. Native commands cannot be overridden.</p>
+                      <button disabled={saving !== null || !customCommandName.trim() || !customCommandResponse.trim()} onClick={async () => { const ok = await runAction({ action: "custom_command_create", name: customCommandName, response: customCommandResponse, cooldown_seconds: Number(customCommandCooldown) }, { refreshDetail: true, success: `/${customCommandName.replaceAll("/", "")} saved for this group.` }); if (ok) { setCustomCommandName(""); setCustomCommandResponse(""); setCustomCommandCooldown("0"); } }} className="ios-btn ios-btn-primary text-xs disabled:opacity-40"><Plus size={13} /> Save custom command</button>
+                    </div>
+                    {(community?.custom_commands ?? []).length > 0 && <div className="mt-3 space-y-2 border-t border-white/5 pt-3">{(community?.custom_commands ?? []).map((command) => <div key={command.name} className="flex flex-wrap items-center gap-2 rounded-lg bg-black/10 p-2"><button onClick={() => { setCustomCommandName(command.name); setCustomCommandResponse(command.response); setCustomCommandCooldown(String(command.cooldown_seconds || 0)); }} className="font-mono text-xs text-indigo-200">/{command.name}</button><span className="min-w-0 flex-1 truncate text-xs text-indigo-100/45">{command.response}</span><button aria-label={`Delete /${command.name}`} disabled={saving !== null} onClick={() => void runAction({ action: "custom_command_delete", name: command.name }, { refreshDetail: true, success: `/${command.name} removed.` })} className="ios-btn ios-btn-glass p-2 text-rose-200"><Trash2 size={12} /></button></div>)}</div>}
+                  </div>
+                  <div className="rounded-xl bg-white/[0.03] p-3">
                     <h3 className="flex items-center gap-2 text-sm font-semibold">
                       <TerminalSquare size={15} /> Command switches
                       <span className="ios-pill text-[10px]">{disabledCommands.size} off</span>
@@ -1596,6 +1814,19 @@ export default function GroupsPage() {
                     words and switched-off commands. Warnings, notes and member identities are never included, so the
                     file is safe to move between groups. The file stays on your device until you upload it.
                   </p>
+                  <fieldset className="rounded-xl border border-white/10 bg-white/[0.02] p-3">
+                    <legend className="px-1 text-xs font-medium">Sections to copy from an uploaded backup</legend>
+                    <div className="mt-1 flex flex-wrap gap-x-4 gap-y-2 text-xs text-white/75">
+                      {[["settings", "Group settings"], ["automation", "Automation"], ["blacklist", "Blacklist"], ["commands", "Disabled commands"]].map(([key, label]) => (
+                        <label key={key} className="inline-flex items-center gap-2">
+                          <input type="checkbox" checked={backupSections.includes(key)} disabled={backupBusy}
+                            onChange={(event) => toggleBackupSection(key, event.target.checked)} />
+                          {label}
+                        </label>
+                      ))}
+                    </div>
+                    <p className="mt-2 text-[10px] text-white/45">At least one section must stay selected. The preview updates before anything is applied.</p>
+                  </fieldset>
                   <div className="flex flex-wrap gap-2">
                     <button
                       onClick={() => void exportBackup()}
@@ -1627,6 +1858,24 @@ export default function GroupsPage() {
                   {backupNote && (
                     <Callout tone="success" live className="text-xs">{backupNote}</Callout>
                   )}
+                  <div className="rounded-xl border border-white/10 bg-white/[0.025] p-3">
+                    <h3 className="text-sm font-semibold">Named snapshots</h3>
+                    <p className="mt-1 ios-caption">Save versions before major changes. Restoring also saves the current configuration first.</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <input value={snapshotLabel} maxLength={60} onChange={(event) => setSnapshotLabel(event.target.value)} placeholder="e.g. Before summer rules" className="ios-input min-w-[220px] flex-1 text-xs" aria-label="Snapshot name" />
+                      <button onClick={() => void createSnapshot()} disabled={snapshotBusy || backupBusy || !snapshotLabel.trim()} className="ios-btn ios-btn-primary text-xs disabled:opacity-40">
+                        {snapshotBusy ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />} Save snapshot
+                      </button>
+                    </div>
+                    <div className="mt-3 divide-y divide-white/[0.07]">
+                      {snapshotLoading ? <p className="py-3 text-xs text-[var(--ios-label-secondary)]">Loading snapshots…</p> : snapshots.length ? snapshots.map((snapshot) => (
+                        <div key={snapshot.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5 text-xs">
+                          <div><div className="font-medium">{snapshot.label}</div><div className="text-[var(--ios-label-tertiary)]">{snapshot.kind === "automatic" ? "Automatic rollback point" : "Named snapshot"} · {new Date(snapshot.time * 1000).toLocaleString()}</div></div>
+                          <button onClick={() => void restoreSaved(snapshot.id, snapshot.label)} disabled={backupBusy || snapshotBusy} className="ios-btn ios-btn-glass text-xs disabled:opacity-40"><RotateCcw size={13} /> Restore</button>
+                        </div>
+                      )) : <p className="py-3 text-xs text-[var(--ios-label-secondary)]">No saved snapshots yet.</p>}
+                    </div>
+                  </div>
                   {restorableId && (
                     <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-white/[0.03] p-3 text-xs">
                       <span>Undo the last import and put back the configuration it replaced.</span>
@@ -1825,6 +2074,25 @@ export default function GroupsPage() {
                 </div>
               )}
 
+              {tab === "cases" && (
+                <div className="mt-3 rounded-2xl border border-white/[.07] bg-white/[.02] p-4 sm:p-5">
+                  <h3 className="text-sm font-semibold">Member case timelines</h3>
+                  <p className="mt-1 mb-4 text-xs leading-5 text-[var(--ios-label-secondary)]">Reports, warning history, moderation actions and private admin notes are gathered under each member. User IDs are shown instead of profile data.</p>
+                  <CaseTimeline
+                    cases={detail?.cases ?? []}
+                    disabled={saving !== null}
+                    onAddNote={async (userId, text) => active ? runAction(
+                      { action: "case_note", user_id: userId, text },
+                      { refreshDetail: true, success: "Internal case note saved." },
+                    ) : false}
+                    onReviewEscalation={async (id, decision) => active ? runAction(
+                      { action: "escalation_review", id, decision },
+                      { refreshDetail: true, success: decision === "approve" ? "Escalation approved and applied." : "Escalation rejected and recorded." },
+                    ) : false}
+                  />
+                </div>
+              )}
+
               {tab === "audit" && (
                 <div className="mt-3 space-y-3">
                   <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1983,4 +2251,10 @@ export default function GroupsPage() {
       </p>
     </main>
   );
+}
+
+export default function GroupsPage() {
+  const { authenticated } = useTelegram();
+  if (authenticated === null) return <div className="py-16 text-center text-indigo-100/55">Verifying your workspace…</div>;
+  return authenticated ? <OwnerGroupsPage /> : <AdminGroups />;
 }

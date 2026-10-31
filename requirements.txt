@@ -5,25 +5,30 @@
 # Kurigram provides the pyrogram namespace and current Telegram RPC errors.
 # Do not install archived pyrogram alongside it (both write the same package).
 kurigram==2.2.26
+# Bot API-only Business profile setters; Kurigram remains the primary client/runtime.
+aiogram==3.31.0
 tgcrypto==1.2.5
-py-tgcalls==2.2.11
-ntgcalls==2.2.5
+# Keep the PyTgCalls voice stack on the tested auto-create/retry baseline.
+py-tgcalls==2.3.3
+ntgcalls>=2.2.4,<3.0.0
 yt-dlp==2026.8.19
 py-yt-search==0.6.2
 
 # HTTP/API server and bot clients
 flask==3.1.3
-fastapi==0.110.3  # Required by the vendored Eldian downloader's HTTPException type
-aiohttp==3.13.5
+waitress==3.0.2
+fastapi==0.162.0  # Required by the vendored Eldian downloader's HTTPException type
+starlette==1.10.0  # Keep FastAPI's Starlette runtime on the audited security baseline
+aiohttp==3.14.5
 httpx[http2]==0.28.1
 requests==2.33.1
 
 # MongoDB only
-pymongo==4.17.0
+pymongo==4.19.0
 
 # Bot features
 isodate==0.7.2
 aiofiles==25.1.0
 psutil==7.2.2
 python-dotenv==1.2.2
-Pillow==10.4.0
+Pillow==13.0.0

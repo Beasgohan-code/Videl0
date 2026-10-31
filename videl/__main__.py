@@ -9,6 +9,7 @@ import re
 import time
 import logging
 import hmac
+from urllib.parse import urlsplit
 import requests
 from collections import deque
 from flask import Flask, g, jsonify, request
@@ -37,6 +38,8 @@ _API_TIMINGS: deque = deque(maxlen=400)
 _DB_TIMINGS: deque = deque(maxlen=200)
 _TIMING_LOCK = threading.Lock()
 _TIMED_PREFIXES = ("/internal/", "/api/")
+_KEEPALIVE_THREAD = None
+_KEEPALIVE_STATE = {"last_success": None, "consecutive_failures": 0, "last_error": None}
 
 
 @_flask.before_request
@@ -61,6 +64,14 @@ def _api_latency() -> dict:
     ordered = sorted(samples)
     index = max(0, min(len(ordered) - 1, int(len(ordered) * 0.95) - 1))
     return {"p95_ms": round(ordered[index], 1), "samples": len(ordered)}
+
+
+def _keepalive_status() -> dict:
+    return {
+        "running": bool(_KEEPALIVE_THREAD and _KEEPALIVE_THREAD.is_alive()),
+        **dict(_KEEPALIVE_STATE),
+    }
+
 
 try:
     from videl.api.eldian_routes import register_eldian_routes
@@ -97,7 +108,7 @@ def _status_json():
     return jsonify({
         "service": "Videl Render backend",
         "status": "running",
-        "bot": getattr(config, "BOT_USERNAME", "Videl0Bot"),
+        "bot": getattr(config, "BOT_USERNAME", "videlapp"),
         "webapp": getattr(config, "WEBAPP_URL", ""),
         "health": "/health",
         "api_index": "/api",
@@ -148,24 +159,35 @@ def _health():
     except Exception:
         database = "unknown"
     from videl import build_revision
+    from videl.utils.assistant import assistant_status
+    from videl.utils.downloader_status import downloader_status
+    user_assistant = assistant_status()
+    media_downloaders = downloader_status()
     # "status" stays "ok" while the HTTP API answers: uptime monitors must not
     # flap because Telegram is down. ``degraded`` names the parts that are not
     # working, so the panel can say what is wrong instead of only that it is.
+    bot_status = _BOT_STATUS
+    if bot_status == "online" and not getattr(bot, "is_connected", False):
+        bot_status = "recovering"
     reasons = []
-    if _BOT_STATUS != "online":
-        reasons.append("Telegram bot is " + _BOT_STATUS)
+    if user_assistant["configured"] and not user_assistant["ready"]:
+        reasons.append("Telegram voice assistant is " + user_assistant["state"])
+    if bot_status != "online":
+        reasons.append("Telegram bot is " + bot_status)
     if database == "disconnected":
         reasons.append("MongoDB is disconnected")
     if not maintenance.get("running"):
         reasons.append("Maintenance watchdog is not running")
     return jsonify({"status": "ok", "service": "videl-render-backend", "revision": build_revision,
-                    "bot_status": _BOT_STATUS, "bot_error": _BOT_ERROR or None,
+                    "bot_status": bot_status, "bot_error": _BOT_ERROR or None,
                     "bot_online_at": _BOT_ONLINE_AT, "bot_attempts": _BOT_ATTEMPTS,
+                    "assistant": user_assistant, "media_downloaders": media_downloaders,
                     "degraded": bool(reasons),
                     "degraded_reasons": reasons, "database": database,
                     "uptime": max(0, int(time.time() - bot_start_time)),
                     "api": _api_latency(), "db": _db_latency(),
-                    "watchdog": {key: maintenance[key] for key in ("running", "healthy", "last_tick")}}), 200
+                    "keepalive": _keepalive_status(),
+                    "watchdog": {key: maintenance.get(key) for key in ("running", "healthy", "last_tick", "checks")}}), 200
 
 @_flask.route("/internal/auth", methods=["POST"])
 def _internal_auth():
@@ -521,7 +543,7 @@ def _internal_stats():
                 "chats": totals["chats"],
                 "plays": totals["plays"],
                 "uptime": max(0, int(time.time() - bot_start_time)),
-                "bot_username": getattr(config, "BOT_USERNAME", "Videl0Bot"),
+                "bot_username": getattr(config, "BOT_USERNAME", "videlapp"),
                 "bot_name": getattr(config, "BOT_NAME", "Videl Studio"),
                 "owner_username": getattr(config, "OWNER_USERNAME", "Beasgohan"),
                 "database": "connected",
@@ -538,8 +560,186 @@ def _internal_stats():
         LOGGER.exception("internal stats query failed")
         return jsonify({"ok": False, "error": "database query failed"}), 503
 
+@_flask.get("/internal/ops/metrics")
+def _internal_ops_metrics():
+    """Owner-proxy-only process snapshot; expose measurements, never host paths."""
+    expected = getattr(config, "WEBAPP_SECRET", "") or ""
+    supplied = request.headers.get("X-Videl-Internal", "")
+    if not expected or not hmac.compare_digest(supplied, expected):
+        return jsonify({"ok": False, "error": "unauthorized"}), 403
+    try:
+        from videl.plugins.tools import _resource_snapshot
+        snapshot = _resource_snapshot()
+        safe = {key: snapshot.get(key) for key in (
+            "cpu", "process_cpu", "logical_cpus", "cpu_limit", "load",
+            "memory_label", "memory_used", "memory_total", "memory_percent",
+            "rss", "vms", "disk", "threads", "file_descriptors",
+        )}
+        safe["measured_at"] = int(time.time())
+        return jsonify({"ok": True, "process": safe}), 200
+    except Exception:
+        LOGGER.warning("Process metrics unavailable (%s)", "snapshot_error")
+        return jsonify({"ok": True, "process": None, "state": "unavailable"}), 200
+
+
+@_flask.get("/internal/ops/music")
+def _internal_ops_music():
+    """Aggregate music and voice status without returning chat or track IDs."""
+    if not _internal_authorized():
+        return jsonify({"ok": False, "error": "unauthorized"}), 403
+    measured_at = int(time.time())
+    queue_state = "measured"
+    active_queues = upcoming_tracks = None
+    try:
+        from videl.core import queue
+        snapshots = [list(tracks) for tracks in list(queue.chat_queues.values())]
+        active_queues = sum(bool(tracks) for tracks in snapshots)
+        upcoming_tracks = sum(max(0, len(tracks) - 1) for tracks in snapshots)
+    except Exception:
+        queue_state = "unavailable"
+
+    voice_calls = None
+    voice_state = "unavailable"
+    try:
+        from videl import call_py
+        loop = _BOT_LOOP
+        if call_py is not None and loop is not None and loop.is_running():
+            future = asyncio.run_coroutine_threadsafe(call_py.group_calls, loop)
+            voice_calls = max(0, len(future.result(timeout=2)))
+            voice_state = "measured"
+    except Exception:
+        voice_calls = None
+        voice_state = "unavailable"
+
+    counts = {"preparing": 0, "ready": 0, "failed": 0}
+    observed = 0
+    source = "process_only"
+    try:
+        from datetime import datetime, timedelta, timezone
+        from videl.utils.db import get_db
+        db = get_db()
+        if db is not None:
+            since = datetime.now(timezone.utc) - timedelta(seconds=1800)
+            rows = db["music_preparation_jobs"].find(
+                {"updated_at": {"$gte": since}}, {"_id": 0, "status": 1},
+            ).sort("updated_at", -1).limit(256)
+            for row in rows:
+                status = row.get("status")
+                if status in counts:
+                    counts[status] += 1
+                    observed += 1
+            source = "database"
+        else:
+            raise RuntimeError("database unavailable")
+    except Exception:
+        try:
+            from videl.api.eldian_routes import _LOCK, _MUSIC_TASKS
+            with _LOCK:
+                local = list(_MUSIC_TASKS.values())
+            for row in local:
+                if time.time() - float(row.get("updated_at", 0)) <= 1800 and row.get("status") in counts:
+                    counts[row["status"]] += 1
+                    observed += 1
+        except Exception:
+            source = "unavailable"
+    return jsonify({
+        "ok": True, "schema_version": 1, "measured_at": measured_at,
+        "queue": {"state": queue_state, "active_queues": active_queues, "upcoming_tracks": upcoming_tracks},
+        "voice": {"state": voice_state, "active_calls": voice_calls},
+        "downloads": {"state": source, "window_seconds": 1800, "observed": observed, **counts},
+    }), 200
+
+
+@_flask.get("/internal/ops/protection")
+def _internal_ops_protection():
+    """Bounded fleet-wide protection counts; never expose group identifiers."""
+    if not _internal_authorized():
+        return jsonify({"ok": False, "error": "unauthorized"}), 403
+    try:
+        from videl.utils.db import get_db
+        from videl.utils.group_view import LOCK_KEYS
+        db = get_db()
+        if db is None:
+            raise RuntimeError("database unavailable")
+        keys = [*LOCK_KEYS, "antispam"]
+        projection = {key: 1 for key in keys}
+        projection["_id"] = 0
+        rows = db["mgmt_chat_settings"].find({}, projection).limit(2001)
+        total = enabled = 0
+        for row in rows:
+            if total >= 2000:
+                break
+            total += 1
+            if any(row.get(key) is True for key in keys):
+                enabled += 1
+        truncated = total == 2000 and db["mgmt_chat_settings"].count_documents({}, limit=2001) > 2000
+        return jsonify({"ok": True, "schema_version": 1, "measured_at": int(time.time()),
+                        "state": "measured", "sampled_groups": total, "sample_limit": 2000,
+                        "sample_truncated": truncated, "protected_groups": enabled}), 200
+    except Exception:
+        return jsonify({"ok": True, "schema_version": 1, "measured_at": int(time.time()),
+                        "state": "unavailable", "sampled_groups": None,
+                        "sample_limit": 2000, "sample_truncated": None,
+                        "protected_groups": None}), 200
+
+
+@_flask.get("/internal/ops/logs")
+def _internal_ops_logs():
+    """Expose a short error feed as redacted categories, never raw log text."""
+    if not _internal_authorized():
+        return jsonify({"ok": False, "error": "unauthorized"}), 403
+    try:
+        from videl.utils.db import get_db
+        from videl.utils.redaction import redact_secrets
+        db = get_db()
+        if db is None:
+            raise RuntimeError("database unavailable")
+        since = time.time() - 86400
+        rows = db["error_logs"].find(
+            {"ts": {"$gte": since}}, {"_id": 0, "where": 1, "error": 1, "ts": 1},
+        ).sort("ts", -1).limit(20)
+        events = []
+        for row in rows:
+            error = str(row.get("error") or "").lower()
+            kind = next((name for token, name in (
+                ("timeout", "timeout"), ("timed out", "timeout"),
+                ("connect", "connection"), ("mongo", "database"),
+                ("permission", "permission"), ("forbidden", "permission"),
+                ("rate limit", "rate_limit"), ("429", "rate_limit"),
+                ("invalid", "validation"), ("provider", "provider"),
+            ) if token in error), "error")
+            where = redact_secrets(row.get("where") or "unknown", limit=300)
+            where = re.sub(r"https?://\S+", "<url>", where)
+            where = re.sub(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", "<email>", where)
+            where = re.sub(r"[A-Za-z0-9_-]{24,}", "<redacted>", where)
+            where = re.sub(r"\d{4,}", "<id>", where)[:80]
+            stamp = row.get("ts")
+            events.append({"at": int(stamp) if isinstance(stamp, (int, float)) else None,
+                           "source": where, "kind": kind})
+        return jsonify({"ok": True, "schema_version": 1, "window_seconds": 86400,
+                        "measured_at": int(time.time()), "events": events}), 200
+    except Exception:
+        return jsonify({"ok": False, "schema_version": 1, "events": []}), 503
+
+
+@_flask.get("/internal/ops/events")
+def _internal_ops_events():
+
+    """Return only current-schema, identifier-free command events to the owner panel."""
+    if not _internal_authorized():
+        return jsonify({"ok": False, "error": "unauthorized"}), 403
+    try:
+        from videl.utils.analytics_privacy import recent_events
+        from videl.utils.db import get_db
+        result = recent_events(get_db(), limit=20, hours=24)
+        return jsonify(result), (200 if result.get("ok") else 503)
+    except Exception:
+        return jsonify({"ok": False, "schema_version": 1, "events": []}), 503
+
+
 @_flask.route("/internal/chats")
 def _internal_chats():
+
     expected = getattr(config, "WEBAPP_SECRET", "") or ""
     supplied = request.headers.get("X-Videl-Internal", "")
     if not expected or not hmac.compare_digest(supplied, expected):
@@ -857,7 +1057,10 @@ def _internal_federation_detail(fed_id):
         user_id = int(body.get("user_id"))
     except (TypeError, ValueError):
         return jsonify({"ok": False, "error": "A numeric user_id is required"}), 400
-    outcome = unban(db, fed_id, user_id)
+    try:
+        outcome = unban(db, fed_id, user_id, _bot_api)
+    except LookupError as error:
+        return jsonify({"ok": False, "error": str(error)}), 404
     LOGGER.info("federation %s: owner lifted the ban on %s", fed_id, user_id)
     return jsonify(outcome)
 
@@ -901,6 +1104,22 @@ def _internal_chats_bulk():
         return jsonify({"ok": False, "error": "bulk update failed"}), 503
 
 
+@_flask.route("/internal/onboarding-analytics")
+def _internal_onboarding_analytics():
+    expected = getattr(config, "WEBAPP_SECRET", "") or ""
+    supplied = request.headers.get("X-Videl-Internal", "")
+    if not expected or not hmac.compare_digest(supplied, expected):
+        return jsonify({"ok": False, "error": "unauthorized"}), 403
+    try:
+        from videl.utils.db import get_db
+        from videl.utils.onboarding import summary
+        result = summary(get_db(), days=7)
+        return jsonify(result), (200 if result.get("ok") else 503)
+    except Exception:
+        LOGGER.exception("onboarding analytics query failed")
+        return jsonify({"ok": False, "error": "onboarding analytics query failed"}), 503
+
+
 @_flask.route("/internal/analytics")
 def _internal_analytics():
     expected = getattr(config, "WEBAPP_SECRET", "") or ""
@@ -908,54 +1127,10 @@ def _internal_analytics():
     if not expected or not hmac.compare_digest(supplied, expected):
         return jsonify({"ok": False, "error": "unauthorized"}), 403
     try:
-        from datetime import datetime, timedelta, timezone
-        from collections import Counter
         from videl.utils.db import get_db
-        db=get_db()
-        if db is None:
-            return jsonify({"ok": False, "error": "MongoDB is not connected"}), 503
-        now=datetime.now(timezone.utc)
-        since=now-timedelta(hours=24)
-        event_filter={"at":{"$gte":since}}
-        total=db["command_events"].count_documents(event_filter)
-        events=list(db["command_events"].find(event_filter,{"_id":0,"at":1,"command":1,"chat_id":1,"user_id":1}).sort("at",1).limit(20000))
-        hours=[]
-        for offset in range(23,-1,-1):
-            hour=(now.replace(minute=0,second=0,microsecond=0)-timedelta(hours=offset))
-            hours.append({"time":hour.strftime("%H:%M"),"commands":0})
-        by_hour={point["time"]:point for point in hours}
-        chats=Counter(); commands=Counter(); users=set()
-        for event in events:
-            dt=event.get("at")
-            if dt is None: continue
-            if dt.tzinfo is None: dt=dt.replace(tzinfo=timezone.utc)
-            bucket=dt.astimezone(timezone.utc).strftime("%H:00")
-            if bucket in by_hour: by_hour[bucket]["commands"]+=1
-            if event.get("chat_id") is not None: chats[str(event["chat_id"])]+=1
-            if event.get("command"): commands[event["command"]]+=1
-            if event.get("user_id") is not None: users.add(str(event["user_id"]))
-        recent_raw = list(db["command_events"].find({}, {"_id": 0, "at": 1, "command": 1, "chat_id": 1}).sort("at", -1).limit(12))
-        recent_events = []
-        for item in recent_raw:
-            dt = item.get("at")
-            if dt is not None and dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            recent_events.append({
-                "command": item.get("command", "command"),
-                "chat_id": str(item.get("chat_id", "")),
-                "at": dt.isoformat() if dt else None,
-            })
-        return jsonify({
-            "ok":True,
-            "window_hours":24,
-            "total_commands":total,
-            "active_users":len(users),
-            "series":hours,
-            "top_chats":[{"id":chat_id,"commands":count} for chat_id,count in chats.most_common(10)],
-            "top_commands":[{"command":command,"count":count} for command,count in commands.most_common(10)],
-            "recent_events":recent_events,
-            "truncated":total>len(events),
-        })
+        from videl.utils.analytics_privacy import summarize
+        result = summarize(get_db(), hours=24)
+        return jsonify(result), (200 if result.get("ok") else 503)
     except Exception:
         LOGGER.exception("internal analytics query failed")
         return jsonify({"ok":False,"error":"analytics query failed"}),503
@@ -1003,15 +1178,77 @@ def _internal_chat_settings():
 def _internal_broadcast():
     if not _internal_authorized():
         return jsonify({"ok": False, "error": "unauthorized"}), 403
-    body = request.get_json(silent=True)
+    if request.content_length and request.content_length > 8800000:
+        return jsonify({"ok": False, "error": "Broadcast media upload is too large (8 MB total maximum)"}), 413
+    uploads = request.files.getlist("images") if request.mimetype == "multipart/form-data" else []
+    if not uploads and request.mimetype == "multipart/form-data" and request.files.get("image"):
+        uploads = [request.files.get("image")]
+    media_items = []
+    if len(uploads) > 10:
+        return jsonify({"ok": False, "error": "A media album supports up to ten images"}), 400
+    if uploads:
+        from io import BytesIO
+        from PIL import Image, UnidentifiedImageError
+        total_bytes = 0
+        for upload in uploads:
+            image_data = upload.stream.read(4 * 1024 * 1024 + 1)
+            total_bytes += len(image_data)
+            if len(image_data) > 4 * 1024 * 1024 or total_bytes > 8 * 1024 * 1024:
+                return jsonify({"ok": False, "error": "Each image must be under 4 MB and the album under 8 MB total"}), 413
+            try:
+                with Image.open(BytesIO(image_data)) as image:
+                    image_mime = {"JPEG": "image/jpeg", "PNG": "image/png", "WEBP": "image/webp"}.get(image.format)
+                    if not image_mime or image.width * image.height > 25000000:
+                        raise ValueError("Unsupported image type or dimensions")
+                    image.verify()
+            except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError):
+                return jsonify({"ok": False, "error": "Upload valid PNG, JPEG or WebP images under 25 megapixels"}), 400
+            extension = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}[image_mime]
+            media_items.append({"bytes": image_data, "mime": image_mime, "filename": f"broadcast-{len(media_items) + 1}.{extension}"})
+    body = request.form.to_dict() if request.mimetype == "multipart/form-data" else request.get_json(silent=True)
     if not isinstance(body, dict):
         return jsonify({"ok": False, "error": "A JSON object is required"}), 400
     text = str(body.get("text", "")).strip()
     scope = str(body.get("scope", "chats")).strip()
     if scope not in ("chats", "users", "all"):
         return jsonify({"ok": False, "error": "Invalid broadcast audience"}), 400
-    if not text or len(text) > 4096:
-        return jsonify({"ok": False, "error": "Broadcast text (1–4096 chars) is required"}), 400
+    raw_buttons = body.get("buttons", [])
+    if isinstance(raw_buttons, str):
+        import json
+        try:
+            raw_buttons = json.loads(raw_buttons)
+        except ValueError:
+            return jsonify({"ok": False, "error": "Invalid button layout"}), 400
+    if not isinstance(raw_buttons, list) or len(raw_buttons) > 8:
+        return jsonify({"ok": False, "error": "Up to eight HTTPS inline buttons are supported"}), 400
+    buttons = []
+    for item in raw_buttons:
+        if not isinstance(item, dict):
+            return jsonify({"ok": False, "error": "Invalid broadcast button"}), 400
+        label = item.get("text")
+        url = item.get("url")
+        try:
+            parsed_url = urlsplit(url) if isinstance(url, str) and len(url) <= 2048 else None
+            valid_url = bool(parsed_url and parsed_url.scheme == "https" and parsed_url.hostname and not parsed_url.username and not parsed_url.password)
+        except ValueError:
+            valid_url = False
+        if not isinstance(label, str) or not label.strip() or len(label.strip()) > 64 or not valid_url:
+            return jsonify({"ok": False, "error": "Buttons need a label up to 64 characters and a secure HTTPS URL"}), 400
+        buttons.append({"text": label.strip(), "url": parsed_url.geturl()})
+    if not text and not media_items:
+        return jsonify({"ok": False, "error": "Add announcement text or media"}), 400
+    if len(media_items) > 1 and buttons:
+        return jsonify({"ok": False, "error": "Telegram does not support inline keyboards on media albums. Remove the buttons or use one image."}), 400
+    parse_mode = "HTML" if text else None
+    if parse_mode:
+        from videl.utils.group_view import normalize_rich
+        text, _, used = normalize_rich(text)
+        if not used:
+            parse_mode = None
+    from videl.utils.post_format import post_text_length
+    text_length = post_text_length(text, parse_mode)
+    if text_length > (1024 if media_items else 4096):
+        return jsonify({"ok": False, "error": "Media captions allow 1024 characters" if media_items else "Broadcast text is limited to 4096 visible characters"}), 400
     try:
         from videl.utils.db import get_db
         db = get_db()
@@ -1026,8 +1263,41 @@ def _internal_broadcast():
         if not unique_targets:
             return jsonify({"ok": False, "error": "No served recipients recorded in MongoDB yet"}), 404
         sent, failed = 0, 0
+        reply_markup = {"inline_keyboard": [[button] for button in buttons]} if buttons else None
         for chat_id in unique_targets:
-            status, res = _bot_api("sendMessage", {"chat_id": chat_id, "text": text, "parse_mode": "HTML"})
+            payload = {"chat_id": chat_id}
+            files = None
+            if len(media_items) > 1:
+                from io import BytesIO
+                method = "sendMediaGroup"
+                album = []
+                files = {}
+                for index, item in enumerate(media_items):
+                    field = f"photo{index}"
+                    entry = {"type": "photo", "media": f"attach://{field}"}
+                    if index == 0 and text:
+                        entry["caption"] = text
+                        if parse_mode:
+                            entry["parse_mode"] = parse_mode
+                    album.append(entry)
+                    files[field] = (item["filename"], BytesIO(item["bytes"]), item["mime"])
+                payload["media"] = album
+            elif media_items:
+                from io import BytesIO
+                method = "sendPhoto"
+                payload["caption"] = text
+                if parse_mode:
+                    payload["parse_mode"] = parse_mode
+                item = media_items[0]
+                files = {"photo": (item["filename"], BytesIO(item["bytes"]), item["mime"])}
+            else:
+                method = "sendMessage"
+                payload["text"] = text
+                if parse_mode:
+                    payload["parse_mode"] = parse_mode
+            if reply_markup:
+                payload["reply_markup"] = reply_markup
+            status, res = _bot_api(method, payload, files=files)
             if status and res.get("ok"):
                 sent += 1
             else:
@@ -1107,20 +1377,27 @@ def _log_all_urls_console():
         LOGGER.debug("Flask route map logging failed", exc_info=True)
 
 def _run_flask():
-    LOGGER.info("Videl Render backend listening on 0.0.0.0:%s", BACKEND_PORT)
+    from waitress import serve
+    LOGGER.info("Videl production WSGI backend listening on 0.0.0.0:%s", BACKEND_PORT)
     _log_all_urls_console()
-    _flask.run(host="0.0.0.0", port=BACKEND_PORT, use_reloader=False, threaded=True)
+    serve(_flask, host="0.0.0.0", port=BACKEND_PORT, threads=8, channel_timeout=30, ident="Videl")
 
 def _keep_alive():
-    # keep-alive ping self (Render free tier sleep prevention)
+    """Ping Render's public health route and publish a secret-free heartbeat."""
     url = os.getenv("RENDER_EXTERNAL_URL", f"http://127.0.0.1:{os.getenv('PORT', config.PORT)}")
-    # use public URL if available, else localhost
     public = os.getenv("RENDER_EXTERNAL_URL", "https://videl0.onrender.com")
     target = public if public.startswith("http") else url
     while True:
         try:
-            requests.get(target + "/health", timeout=10)
-        except: pass
+            response = requests.get(target.rstrip("/") + "/health", timeout=10)
+            response.raise_for_status()
+            _KEEPALIVE_STATE["last_success"] = int(time.time())
+            _KEEPALIVE_STATE["consecutive_failures"] = 0
+            _KEEPALIVE_STATE["last_error"] = None
+        except Exception as error:
+            _KEEPALIVE_STATE["consecutive_failures"] += 1
+            _KEEPALIVE_STATE["last_error"] = type(error).__name__
+            LOGGER.warning("[keepalive] health ping failed (%s)", type(error).__name__)
         time.sleep(300)
 
 if __name__ == "__main__":
@@ -1130,9 +1407,15 @@ if __name__ == "__main__":
         start_mongo()
     except Exception as e:
         LOGGER.warning(f"mongo: {e}")
+    try:
+        from videl.core.audio_quality import load_saved_quality
+        LOGGER.info("Voice audio quality preset: %s", load_saved_quality())
+    except Exception as e:
+        LOGGER.warning("Could not load saved voice quality (%s)", type(e).__name__)
 
     threading.Thread(target=_run_flask, daemon=True).start()
-    threading.Thread(target=_keep_alive, daemon=True).start()
+    _KEEPALIVE_THREAD = threading.Thread(target=_keep_alive, name="videl-render-keepalive", daemon=True)
+    _KEEPALIVE_THREAD.start()
     LOGGER.info(f"Render backend health on {BACKEND_PORT} — Vercel frontend URL: {getattr(config, 'WEBAPP_URL', 'not configured')}")
 
     missing = [k for k in ("API_ID","API_HASH","BOT_TOKEN","MONGO_DB_URL") if not os.getenv(k)]
@@ -1168,6 +1451,11 @@ if __name__ == "__main__":
         except Exception:
             pass  # not in main thread on some runners
 
+        # Keep voice commands from racing the user-client startup. A session
+        # string is credentials, not proof that its Client is connected.
+        from videl.utils.assistant import assistant_starting, assistant_startup_complete, start_voice_engine
+        assistant_starting()
+
         # Start the bot, retrying. A failed start delivered nothing, so trying
         # again is safe; what is not safe is giving up and waiting for a human.
         from videl.utils import boot as boot_policy
@@ -1183,7 +1471,7 @@ if __name__ == "__main__":
                 break
             except Exception as e:
                 kind = boot_policy.classify(e)
-                delay = boot_policy.retry_delay(_BOT_ATTEMPTS, kind)
+                delay = boot_policy.retry_delay_for_error(_BOT_ATTEMPTS, e)
                 _BOT_STATUS = "failed"
                 _BOT_ERROR = _health_text(e) or type(e).__name__
                 LOGGER.error("bot.start attempt %s failed (%s): %s — retrying in %ss",
@@ -1224,15 +1512,33 @@ if __name__ == "__main__":
         assistant_username = ""
         try:
             from videl import assistant as _assis
-            if config.STRING_SESSION:
+            session_value = config.STRING_SESSION or ""
+            if session_value:
+                # Confirm the deployment secret is present without ever logging
+                # any portion of the Telegram authorization string.
+                LOGGER.info(
+                    "Assistant STRING_SESSION is present (value masked; %d characters)",
+                    len(session_value),
+                )
                 await _assis.start()
                 am = await _assis.get_me()
                 assistant_username = am.username or str(am.id)
+                # PyTgCalls owns the actual voice-chat engine. Starting only the
+                # Telegram user client leaves play() raising ClientNotStarted.
+                await start_voice_engine()
+                LOGGER.info("PyTgCalls voice engine started")
+                assistant_startup_complete(True)
                 LOGGER.info(f"Assistant @{assistant_username} started")
             else:
-                LOGGER.info("No STRING_SESSION — assistant disabled")
+                assistant_startup_complete(False)
+                LOGGER.warning("Assistant STRING_SESSION is missing; assistant disabled")
         except Exception as e:
+            assistant_startup_complete(False)
             LOGGER.warning(f"assistant fail: {e}")
+            try:
+                await _assis.stop()
+            except Exception:
+                pass
             try:
                 await log_error(bot, "assistant.start", e)
             except: pass
@@ -1276,6 +1582,13 @@ if __name__ == "__main__":
                 try:
                     await log_error(bot, f"load {mod}", e)
                 except: pass
+
+        try:
+            from videl.core.queue import initialize_recovery
+            recovered = await initialize_recovery()
+            LOGGER.info("Loaded %s saved queue(s) for explicit restore; no streams were resumed", recovered)
+        except Exception as error:
+            LOGGER.warning("Queue recovery initialization unavailable (%s)", type(error).__name__)
 
         from videl.utils.captcha import start_captcha_worker
         start_captcha_worker()
@@ -1329,7 +1642,9 @@ if __name__ == "__main__":
                 import asyncio as _a
                 _a.run(log_error(bot, "boot", e))
             except: pass
-            while True:
-                time.sleep(3600)
+            # Do not park a half-dead process with a healthy-looking HTTP
+            # thread. Exit non-zero so the hosting supervisor can restart the
+            # service and replay the normal startup/retry path.
+            raise
 
     _run()

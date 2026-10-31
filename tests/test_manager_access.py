@@ -5,11 +5,12 @@ every action is then performed and recorded as the owner, and `backup_import`
 is one request away. These tests pin the actor and the scope.
 """
 import unittest
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 import mongomock
 
-from videl.utils import chat_admins, manager
+from videl.utils import audit, chat_admins, manager
 from videl.utils.group_view import GroupView, ViewError
 
 CHAT = -1001234567890
@@ -67,6 +68,8 @@ class FakeTelegram:
                        can_restrict_members=True, can_invite_users=True,
                        can_pin_messages=True),
                 member(OWNER, "creator")]}
+        if method == "createChatInviteLink":
+            return 200, {"ok": True, "result": {"invite_link": "https://t.me/+test"}}
         return 200, {"ok": True, "result": True}
 
 
@@ -142,6 +145,62 @@ class ManagerAccessTests(unittest.TestCase):
         self.assertEqual([group["id"] for group in groups], [CHAT])
         self.assertEqual(groups[0]["title"], "Group A")
         self.assertEqual(chat_admins.my_groups(self.db, self.api, MEMBER, refresh=True), [])
+
+    def test_group_admins_get_a_telegram_admin_roster_not_a_fake_member_directory(self):
+        payload = manager.describe(self.db, self.api, CHAT, ADMIN)
+        self.assertTrue(payload["members_available"])
+        self.assertEqual({row["user_id"] for row in payload["members"]}, {ADMIN, OWNER})
+
+    def test_group_admin_audit_filters_are_scoped_and_bounded(self):
+        audit.record(self.db, CHAT, "settings", action="settings", detail="lock links enabled", actor=ADMIN)
+        audit.record(self.db, CHAT, "moderation", action="ban", detail="member action", actor=MEMBER)
+        old_stamp = datetime.now(timezone.utc) - timedelta(days=3)
+        self.db["mgmt_audit"].insert_one({"chat_id": CHAT, "kind": "settings", "action": "settings",
+                                          "detail": "lock links previously enabled", "actor": ADMIN,
+                                          "source": "web", "ts": old_stamp})
+        now = datetime.now(timezone.utc)
+        result = manager.history(self.db, self.api, CHAT, ADMIN, limit=40,
+                                 query="links", actor_filter=ADMIN,
+                                 date_from=now - timedelta(days=1),
+                                 date_through=now + timedelta(days=1))
+        self.assertEqual(len(result["events"]), 1)
+        self.assertEqual(result["events"][0]["actor"], ADMIN)
+        self.assertIn("links", result["events"][0]["detail"])
+        self.assertFalse(result["has_more"])
+
+    def test_group_admin_can_kick_a_member_and_the_action_is_audited(self):
+        result = manager.act(self.db, self.api, CHAT, ADMIN,
+                             {"action": "member_action", "verb": "kick", "user_id": MEMBER})
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["verb"], "kick")
+        methods = [method for method, _ in self.api.calls]
+        self.assertIn("banChatMember", methods)
+        self.assertIn("unbanChatMember", methods)
+        row = self.db["mgmt_audit"].find_one({"chat_id": CHAT, "kind": "moderation"})
+        self.assertEqual(row["actor"], ADMIN)
+
+    def test_group_admin_can_create_notes_and_filters_only_in_their_group(self):
+        note = manager.act(self.db, self.api, CHAT, ADMIN,
+                           {"action": "note_create", "name": "welcome", "text": "Hello"})
+        filt = manager.act(self.db, self.api, CHAT, ADMIN,
+                           {"action": "filter_create", "keyword": "hello", "reply": "Hi there"})
+        self.assertTrue(note["ok"] and filt["ok"])
+        self.assertEqual(self.db["mgmt_notes"].find_one({"chat_id": CHAT, "name": "welcome"})["content"], "Hello")
+        self.assertEqual(self.db["mgmt_filters"].find_one({"chat_id": CHAT, "keyword": "hello"})["reply"], "Hi there")
+        self.assertEqual(self.db["mgmt_notes"].count_documents({"chat_id": OTHER}), 0)
+
+    def test_group_admin_can_create_a_rights_checked_invite_link(self):
+        result = manager.act(self.db, self.api, CHAT, ADMIN, {"action": "invite_link"})
+        self.assertEqual(result["invite_link"], "https://t.me/+test")
+        row = self.db["mgmt_audit"].find_one({"chat_id": CHAT, "kind": "invite"})
+        self.assertEqual(row["actor"], ADMIN)
+
+    def test_group_admin_cannot_moderate_another_admin_or_owner(self):
+        for target in (ADMIN, OWNER):
+            with self.subTest(target=target):
+                with self.assertRaises(ViewError):
+                    manager.act(self.db, self.api, CHAT, ADMIN,
+                                {"action": "member_action", "verb": "ban", "user_id": target})
 
     def test_a_demoted_admin_is_refused_on_the_next_write(self):
         manager.describe(self.db, self.api, CHAT, ADMIN)

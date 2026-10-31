@@ -6,8 +6,11 @@ __pycache__/
 videl.db
 *.db
 downloads/
-# keep placeholder cookies.txt for deploy (upstream requirement) — real secrets in env
-!cookies.txt
+# YouTube cookie jars contain live session credentials; keep them outside the checkout.
+cookies.txt
+cookies*.txt
+*.cookie
+*.cookies
 log.txt
 .env.*
 !*.example

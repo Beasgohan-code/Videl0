@@ -67,8 +67,9 @@ export function InviteRoom({ code }: { code: string }) {
   return (
     <main className="ios-page invite-page">
       <div className="invite-stage">
+        <img className="invite-hero" src="/invite/hero.jpg" alt="" aria-hidden decoding="async" />
         <div className="invite-mosaic" aria-hidden>
-          {["ludo", "checkers", "connect4", "reversi", "tictactoe"].map((game) => (
+          {["chinese", "dots", "yacht", "ludo", "chess", "checkers", "gomoku", "connect4", "reversi", "tictactoe"].map((game) => (
             <img
               key={game}
               src={GAME_ART[game]}
@@ -109,7 +110,7 @@ export function InviteRoom({ code }: { code: string }) {
 
           <ol className="invite-steps">
             <li>
-              <b>1</b> Open <span className="mono">@Videl0Bot</span> in Telegram.
+              <b>1</b> Open <span className="mono">@videlapp</span> in Telegram.
             </li>
             <li>
               <b>2</b> Pick the <span className="mono">Arcade</span> button — the room opens

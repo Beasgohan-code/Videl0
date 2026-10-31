@@ -7,6 +7,7 @@ Usage: import config (root module).
 """
 from __future__ import annotations
 import os
+import re
 import sys
 from pathlib import Path
 from dotenv import load_dotenv
@@ -74,7 +75,17 @@ def _list_str(name: str) -> list[str]:
 API_ID: int = _int("API_ID", 0)
 API_HASH: str = _str("API_HASH", _req("API_HASH"))
 BOT_TOKEN: str = _str("BOT_TOKEN", _req("BOT_TOKEN"))
-BOT_USERNAME: str = _str("BOT_USERNAME", "Videl0Bot")
+BOT_USERNAME: str = _str("BOT_USERNAME", "videlapp")
+# Alternate text-command prefixes. Telegram's native command menu still uses '/'.
+_raw_command_prefixes = _str("COMMAND_PREFIXES", "/!?&.#~$+")
+COMMAND_PREFIXES: str = "".join(dict.fromkeys(
+    char for char in _raw_command_prefixes
+    if len(char) == 1 and not char.isalnum() and not char.isspace() and char != "@"
+)) or "/"
+# Pyrogram treats a string as ONE prefix, not a set of prefix characters.
+# Keep the joined form for regex parsing and pass this list to filters.command.
+COMMAND_PREFIX_LIST: list[str] = list(COMMAND_PREFIXES)
+COMMAND_PREFIX_PATTERN: str = f"[{re.escape(COMMAND_PREFIXES)}]"
 
 # STRING_SESSION — sanitize: strip quotes/spaces, fix padding
 _raw_session = _str("STRING_SESSION", "")
@@ -145,10 +156,19 @@ ENV: str = _str("ENV", "production")
 # Built-in Eldian routes on the local Flask server are used by default.
 ELDIAN_API_URL: str = _str("ELDIAN_API_URL", f"http://127.0.0.1:{PORT}")
 ELDIAN_API_KEY: str = _str("ELDIAN_API_KEY", _str("WEBAPP_SECRET", ""))
+# Optional external media downloader API (GET /download, YT_API_URL/KEY).
+# The previous .site hostname is being discontinued; keep an env override available.
+YT_API_URL: str = _str("YT_API_URL", "https://api.shrutibots.in")
+YT_API_KEY: str = _str("YT_API_KEY", "")
+YT_API_KEY_FALLBACK: str = _str("YT_API_KEY_FALLBACK", "")
 SPOTIFY_CLIENT_ID: str = _str("SPOTIFY_CLIENT_ID", "")
 SPOTIFY_CLIENT_SECRET: str = _str("SPOTIFY_CLIENT_SECRET", "")
 GENIUS_API_KEY: str = _str("GENIUS_API_KEY", "")
-YTDLP_COOKIES: str = _str("YTDLP_COOKIES", "/app/cookies.txt")
+# Optional Gemini text provider. A missing key cleanly disables AI replies.
+GEMINI_API_KEY: str = _str("GEMINI_API_KEY", "")
+GEMINI_MODEL: str = _str("GEMINI_MODEL", "gemini-2.5-flash")
+# Optional protected deployment path. Never default to a repository or image cookie file.
+YTDLP_COOKIES: str = _str("YTDLP_COOKIES", "")
 YT_COOKIES_FILE: str = _str("YT_COOKIES_FILE", YTDLP_COOKIES)
 DOWNLOAD_DIR: str = _str("DOWNLOAD_DIR", "downloads")
 AUTO_PROXY: str = _str("AUTO_PROXY", "1")
@@ -168,6 +188,11 @@ START_PHOTO: str = START_PHOTOS[0] if START_PHOTOS else "https://iili.io/n5ClDil
 # ── Limits & Behaviour ────────────────────────────────────────────────────────
 MAX_DURATION_SECONDS: int = _int("MAX_DURATION_SECONDS", 1800)  # 30 min
 MUSIC_MAX_DURATION: int = _int("MUSIC_MAX_DURATION", 600)
+# PyTgCalls audio uplink preset: studio (96 kbps stereo), high (48 kbps stereo),
+# medium (36 kbps mono) or low (24 kbps mono). Studio is the quality-first default.
+VOICE_AUDIO_QUALITY: str = _str("VOICE_AUDIO_QUALITY", "high").casefold()
+if VOICE_AUDIO_QUALITY not in {"studio", "high", "medium", "low"}:
+    VOICE_AUDIO_QUALITY = "high"
 QUEUE_LIMIT: int = _int("QUEUE_LIMIT", 20)
 COOLDOWN: int = _int("COOLDOWN", 5)
 PLAYLIST_LIMIT: int = _int("PLAYLIST_LIMIT", 10)
@@ -177,6 +202,7 @@ DEFAULT_FLOOD_LIMIT: int = _int("DEFAULT_FLOOD_LIMIT", 5)
 DEFAULT_FLOOD_WINDOW: int = _int("DEFAULT_FLOOD_WINDOW", 6)
 RATE_LIMIT_CMDS: int = _int("RATE_LIMIT_CMDS", 8)
 WEBAPP_SECRET: str = _str("WEBAPP_SECRET", "")
+ANALYTICS_SALT: str = _str("ANALYTICS_SALT", "")
 
 # ── Premium emoji configuration ─────────────────────────────────────────────────────────────────
 USE_PREMIUM_EMOJI: bool = _bool("USE_PREMIUM_EMOJI", True)

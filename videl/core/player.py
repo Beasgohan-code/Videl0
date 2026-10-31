@@ -3,15 +3,16 @@
 #  Readable now-playing cards and semantic native playback controls
 # --------------------------------------------------------------------------------
 import asyncio, time
+from collections import OrderedDict
 from pyrogram.errors import BadRequest
 from pyrogram.types import InlineKeyboardMarkup, Message
 from videl.utils.bot_ui import button as InlineKeyboardButton, visual_call
-from pytgcalls.types import AudioQuality, MediaStream, VideoQuality
+from pytgcalls.types import MediaStream, VideoQuality
 import config
 from videl import LOGGER, bot, call_py
 from videl.utils.formatters import parse_dur, short
-from videl.utils.rich_ui import rich_edit, rich_esc, rich_heading, rich_img, rich_kv_table, rich_note, rich_send
-from videl.utils.youtube import resolve_stream
+from videl.utils.rich_ui import rich_edit, rich_esc, rich_heading, rich_kv_table, rich_note, rich_send, rich_details
+from videl.utils.youtube import MediaDownloadError, resolve_stream
 
 _nf_pills = lambda: (
     "<p>"
@@ -31,12 +32,54 @@ def _thumb_url(song: dict) -> str:
     if vid: return f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg"
     return ""
 
+
+async def _send_player_card(chat_id, message, caption, keyboard, *, poster=None, thumbnail=None):
+    """Use the legacy photo-caption transport so Telegram parses Premium Emoji entities.
+
+    Keep the generated poster and exact card content; only use the thumbnail after
+    Telegram definitively rejects the poster upload. Caption edits then follow the
+    same native HTML entity path instead of RichMessage HTML.
+    """
+    sources = []
+    if poster is not None:
+        sources.append(poster)
+    if thumbnail and thumbnail != poster:
+        sources.append(thumbnail)
+    for source in sources:
+        try:
+            return await visual_call(
+                bot.send_photo, chat_id, photo=source, caption=caption,
+                reply_markup=keyboard,
+            )
+        except BadRequest:
+            continue
+    if message is not None:
+        return await rich_edit(message, caption, reply_markup=keyboard)
+    return await rich_send(bot, chat_id, caption, reply_markup=keyboard)
+
 _paused: dict[int,bool]={}
 _loop_mode: dict[int,str]={}
 _np_msg: dict[int,Message]={}
 _np_song: dict[int,dict]={}
 _np_start: dict[int,float]={}
 _np_total: dict[int,float]={}
+_voice_volume: OrderedDict[int, int] = OrderedDict()
+
+
+def volume_percent(chat_id: int) -> int:
+    value = _voice_volume.get(chat_id, 100)
+    if chat_id in _voice_volume:
+        _voice_volume.move_to_end(chat_id)
+    return value
+
+
+def set_volume_percent(chat_id: int, value: int) -> int:
+    value = max(20, min(200, int(value)))
+    _voice_volume[chat_id] = value
+    _voice_volume.move_to_end(chat_id)
+    while len(_voice_volume) > 256:
+        _voice_volume.popitem(last=False)
+    return value
 
 def get_loop(c): return _loop_mode.get(c,"off")
 def set_loop(c,m):
@@ -96,28 +139,61 @@ def _dot(elapsed: float, total: float) -> str:
 
 def _now_playing_caption(song: dict, elapsed: float=0, total: float=0, chat_id: int|None=None) -> str:
     from videl.core.queue import peek_next, queue_size
-    from videl.utils.premium_emojis import pe
     title=short(str(song.get("title","Untitled track")),60)
     requester=str(song.get("requester","Community"))
     duration=str(song.get("duration","Live"))
     if total<=0: total=parse_dur(duration) or float(song.get("duration_seconds") or 0)
     state="Paused" if chat_id is not None and is_paused(chat_id) else "Now playing"
-    lines=[f"{pe('music', '🎵')} <b>{state}</b>",f"<b>{rich_esc(title)}</b>","",f"{'Video' if song.get('video') else 'Audio'} · {rich_esc(duration)}",f"Requested by <b>{rich_esc(requester)}</b>","",f"<code>{_dot(elapsed,total)}</code>"]
+    kind="Video" if song.get("video") else "Audio"
+    artist=str(song.get("artist") or song.get("uploader") or song.get("channel") or "").strip()
+    from videl.core.audio_quality import audio_quality_label
+    from videl.utils.premium_emojis import pe
+    metadata=[(pe("ios_symbols"),"Format",rich_esc(kind)),(pe("boseh_clock"),"Length",rich_esc(duration)),
+              (pe("ios_controls"),"Voice quality",rich_esc(audio_quality_label()))]
+    if artist and artist.casefold()!=title.casefold():
+        metadata.append((pe("music2"),"Artist",rich_esc(short(artist,60))))
+    metadata.append((pe("boseh_person"),"Requested by",f"<b>{rich_esc(requester)}</b>"))
+    metadata.append((pe("speaker"),"Voice volume",f"{volume_percent(chat_id)}%" if chat_id is not None else "100%"))
+    # Avoid HTML tables here: Telegram may flatten unsupported table markup in
+    # captions. Explicit line breaks keep every Premium Emoji label readable.
+    metadata_lines="\n".join(f"{icon} <b>{label}</b> · {value}" for icon,label,value in metadata)
+    parts=[
+        rich_heading(f"{pe('music')} {state}",level=2),
+        f"<b>{rich_esc(title)}</b>",
+        metadata_lines,
+        f"<code>{_dot(elapsed,total)}</code>",
+    ]
     if chat_id is not None:
         loop=get_loop(chat_id)
-        if loop!="off": lines.append(f"Repeat: {'Current track' if loop=='one' else 'Entire queue'}")
         upcoming=peek_next(chat_id)
-        if upcoming: lines.extend(["",f"Up next: <b>{rich_esc(short(str(upcoming.get('title','Untitled track')),48))}</b>"])
-        lines.append(f"Queued tracks: <b>{max(queue_size(chat_id)-1,0)}</b>")
-    return "\n".join(lines)
+        if upcoming:
+            next_title=rich_esc(short(str(upcoming.get("title","Untitled track")),48))
+            parts.append(rich_details(f"{pe('ios_play')} Up next",f"<b>{next_title}</b> · {rich_esc(str(upcoming.get('duration','Live'))[:12])}"))
+        queued=max(queue_size(chat_id)-1,0)
+        repeat={"off":"Off","one":"This track","all":"Queue"}.get(loop,"Off")
+        parts.append(rich_note(f"{pe('ios_folder')} <b>{queued}</b> upcoming · {pe('ios_repeat')} Repeat: <b>{repeat}</b>"))
+    return "\n\n".join(parts)
 
 
 def _now_playing_kb(chat_id: int|None=None, votes: int=0, votes_needed: int=0) -> InlineKeyboardMarkup:
     paused=is_paused(chat_id) if chat_id is not None else False
     loop=get_loop(chat_id) if chat_id is not None else "off"
-    rows=[[InlineKeyboardButton("Replay",callback_data="replay",icon="music"),InlineKeyboardButton("Resume" if paused else "Pause",callback_data="resume" if paused else "pause",style="success" if paused else "primary",icon="music"),InlineKeyboardButton("Skip",callback_data="skip",icon="right")],
-          [InlineKeyboardButton({"off":"Repeat: Off","one":"Repeat: Track","all":"Repeat: Queue"}.get(loop,"Repeat: Off"),callback_data="cycle_loop",icon="music"),InlineKeyboardButton("Stop playback",callback_data="stop")]]
-    if votes_needed>0: rows.append([InlineKeyboardButton(f"Vote to skip · {votes}/{votes_needed}",callback_data="vote_skip",icon="check")])
+    rows=[
+        [InlineKeyboardButton("Resume" if paused else "Pause",callback_data="resume" if paused else "pause",style="success" if paused else "primary",icon="ios_play" if paused else "rijif_pause"),
+         InlineKeyboardButton("Skip",callback_data="skip",style="primary",icon="ios_play")],
+        [InlineKeyboardButton("Queue",callback_data="show_queue",icon="stats"),
+         InlineKeyboardButton("History",callback_data="show_history",icon="music2"),
+         InlineKeyboardButton({"off":"Repeat: Off","one":"Repeat: Track","all":"Repeat: Queue"}.get(loop,"Repeat: Off"),callback_data="cycle_loop",icon="ios_repeat")],
+        [InlineKeyboardButton("Volume −",callback_data="volume_down",icon="speaker"),
+         InlineKeyboardButton("Volume +",callback_data="volume_up",icon="speaker")],
+        [InlineKeyboardButton("Replay",callback_data="replay",icon="ios_repeat"),
+         InlineKeyboardButton("Stop",callback_data="stop",style="danger",icon="ios_close")],
+    ]
+    if votes_needed>0: rows.append([InlineKeyboardButton(f"Vote to skip · {votes}/{votes_needed}",callback_data="vote_skip",icon="rijif_thumbs_up")])
+    rows.append([
+        InlineKeyboardButton("Help center",callback_data="help:home",icon="info"),
+        InlineKeyboardButton("Browse commands",callback_data="cmds:all:0",icon="search"),
+    ])
     return InlineKeyboardMarkup(rows)
 
 
@@ -128,9 +204,12 @@ async def refresh_np_ui(chat_id:int):
     elapsed=min(current_position(chat_id),total) if total else current_position(chat_id)
     cap=_now_playing_caption(song,elapsed,total,chat_id=chat_id); kb=_now_playing_kb(chat_id)
     try:
-        if getattr(msg,"photo",None): await visual_call(bot.edit_message_caption,chat_id,msg.id,caption=cap,reply_markup=kb)
-        else: await rich_edit(msg,cap,reply_markup=kb)
-    except: pass
+        if getattr(msg,"photo",None):
+            await visual_call(bot.edit_message_caption,chat_id,msg.id,caption=cap,reply_markup=kb)
+        else:
+            await rich_edit(msg,cap,reply_markup=kb)
+    except Exception as error:
+        LOGGER.debug("Player progress edit unavailable (%s)", type(error).__name__)
 
 async def _update_progress(chat_id:int, msg:Message, start_t:float, total:float, song:dict):
     while _np_msg.get(chat_id) is msg:
@@ -139,6 +218,24 @@ async def _update_progress(chat_id:int, msg:Message, start_t:float, total:float,
             if total and current_position(chat_id) >= total:
                 break
         await asyncio.sleep(12)
+
+
+async def _delete_message(message) -> bool:
+    if message is None:
+        return False
+    try:
+        await message.delete()
+        return True
+    except Exception as error:
+        LOGGER.debug("Player card cleanup failed (%s)", type(error).__name__)
+        return False
+
+
+def _same_message(first, second) -> bool:
+    if first is second:
+        return True
+    first_id, second_id = getattr(first, "id", None), getattr(second, "id", None)
+    return first_id is not None and second_id is not None and first_id == second_id
 
 # ── Acknowledged playback transaction ──────────────────────────────────────────
 async def play_song(chat_id:int, message:Message, song:dict, *, advance=False, rotate=False)->bool:
@@ -150,37 +247,79 @@ async def play_song(chat_id:int, message:Message, song:dict, *, advance=False, r
     from videl.core.playback_state import lock,acknowledged
     from videl.core.queue import peek_current,get_queue,pop_current,add_to_queue
     async with lock(chat_id):
+        previous_card = _np_msg.get(chat_id)
         expected=peek_current(chat_id)
         tracks=get_queue(chat_id)
         if (advance and (len(tracks)<2 or tracks[1] is not song)) or (not advance and expected is not song):
             return False
         url=song.get('url')
         if not url:return False
+        stage = "media download"
         try:
             want_video=bool(song.get('video',False))
             media_path=await asyncio.wait_for(resolve_stream(url,video=want_video),45)
             if not want_video:
+                stage = "optional audio effects"
                 from videl.modules.effects import maybe_apply_effects
-                media_path=await asyncio.wait_for(maybe_apply_effects(chat_id,media_path),20)
+                # Effects are optional and internally bounded; a slow effect
+                # lookup must not abort an otherwise playable track.
+                media_path=await maybe_apply_effects(chat_id,media_path)
             # Other legacy producers may append while resolution awaits, but
             # cannot silently substitute a different queue head for this request.
             if peek_current(chat_id) is not expected:return False
-            stream=MediaStream(media_path,audio_parameters=AudioQuality.HIGH,
+            stage = "voice-chat playback"
+            from videl.core.audio_quality import audio_quality
+            stream=MediaStream(media_path,audio_parameters=audio_quality(),
                 **({'video_parameters':VideoQuality.HD_720p} if want_video else {'video_flags':MediaStream.Flags.IGNORE}))
-            response=await asyncio.wait_for(call_py.play(chat_id,stream),30)
+            from videl.core.voice_chat import play_with_auto_start
+            response=await play_with_auto_start(call_py,chat_id,stream)
             if response is False:raise RuntimeError('Voice engine did not acknowledge playback')
         except asyncio.CancelledError:raise
         except Exception as error:
-            LOGGER.warning('Playback unconfirmed (%s); queue preserved, no retry',type(error).__name__)
+            LOGGER.warning('Playback unconfirmed during %s (%s); queue preserved, no retry',stage,type(error).__name__)
+            from videl.core.voice_chat import VoiceChatStartError
+            if isinstance(error, MediaDownloadError):
+                title = 'Track unavailable'
+                detail = str(error)
+            elif isinstance(error, VoiceChatStartError):
+                title = 'Voice chat unavailable'
+                detail = str(error)
+            elif isinstance(error, (asyncio.TimeoutError, TimeoutError)) and stage == "voice-chat playback":
+                title = 'Voice chat timed out'
+                detail = ('The audio downloaded, but PyTgCalls did not confirm the stream within 60 seconds. '
+                          'Videl reset the playback session and retried once; the queue is preserved. '
+                          'Check that the assistant session is online, the assistant is in this group and can join/speak, and a voice chat is active; '
+                          'if nothing is playing, use Replay current track once.')
+            elif isinstance(error, (asyncio.TimeoutError, TimeoutError)):
+                title = 'Track preparation timed out'
+                detail = 'The queue was preserved. Try again shortly; optional audio effects will be skipped if their settings are slow to load.'
+            else:
+                title = 'Playback not confirmed'
+                detail = ('The queue was preserved, but Telegram did not confirm voice-chat start or join. '
+                          'Videl tried the assistant and, when its rights allowed, the bot client; it changed no permissions. '
+                          'Start a voice chat in Telegram and make sure the assistant can join and speak, then use /replay.')
             try:
-                await rich_send(bot,chat_id,rich_heading('Playback not confirmed',level=3)+rich_note(
-                    'The queue was preserved. Check that a voice chat is active and the assistant can join. Use /replay to retry the current track or /skip to try the next. No permissions were changed.'))
+                from videl.utils.command_ui import rich_send as command_rich_send
+                retry_keyboard = InlineKeyboardMarkup([[
+                    InlineKeyboardButton("Replay current track", callback_data="replay", style="primary", icon="ios_repeat")
+                ]])
+                await command_rich_send(
+                    bot,
+                    chat_id,
+                    rich_heading(title, level=3) + rich_note(detail),
+                    reply_markup=retry_keyboard,
+                )
             except Exception:pass
             return False
         if advance:
             finished=pop_current(chat_id)
             if rotate and finished:add_to_queue(chat_id,finished)
         acknowledged(chat_id,song)
+        try:
+            from videl.utils.listening_recap import record as record_listening
+            record_listening(chat_id, song)
+        except Exception as error:
+            LOGGER.debug('Listening recap update skipped (%s)', type(error).__name__)
         try:
             total=parse_dur(str(song.get('duration','0:00'))) or float(song.get('duration_seconds') or 0)
         except (ValueError,TypeError):total=0
@@ -195,16 +334,31 @@ async def play_song(chat_id:int, message:Message, song:dict, *, advance=False, r
             caption=_now_playing_caption(song,0,total,chat_id=chat_id)
             kb=_now_playing_kb(chat_id)
             thumb=_thumb_url(song)
-            if thumb:
-                try:pmsg=await visual_call(bot.send_photo,chat_id,photo=thumb,caption=caption,reply_markup=kb)
-                except BadRequest:
-                    # A definite thumbnail rejection is safe to fall back from.
-                    pmsg=await rich_edit(message,caption,reply_markup=kb) if message is not None else await rich_send(bot,chat_id,caption,reply_markup=kb)
-            elif message is not None:pmsg=await rich_edit(message,caption,reply_markup=kb)
-            else:pmsg=await rich_send(bot,chat_id,caption,reply_markup=kb)
+            poster=None
+            try:
+                from videl.utils.player_poster import build as build_player_poster
+                poster_song=dict(song)
+                poster_song['thumbnail']=thumb or str(song.get('thumbnail') or '')
+                poster=await asyncio.wait_for(build_player_poster(poster_song),timeout=5.5)
+            except asyncio.CancelledError:
+                raise
+            except Exception as error:
+                LOGGER.debug('Generated player poster skipped (%s)',type(error).__name__)
+            photo=None
+            if poster:
+                import io
+                photo=io.BytesIO(poster)
+                photo.name='videl-now-playing.jpg'
+            pmsg=await _send_player_card(
+                chat_id, message, caption, kb, poster=photo, thumbnail=thumb
+            )
         except Exception as error:
             LOGGER.warning('Player card unconfirmed after playback ack (%s); no resend',type(error).__name__)
         if pmsg is not None:
+            # Replace the previous card only after the new card was delivered;
+            # this keeps the old controls available if Telegram rejects the new one.
+            if previous_card is not None and not _same_message(previous_card, pmsg):
+                await _delete_message(previous_card)
             # Preserve the acknowledgement-time clock (UI delivery can be slow).
             _np_msg[chat_id]=pmsg
             _progress_tasks[chat_id]=asyncio.create_task(_update_progress(chat_id,pmsg,_np_start[chat_id],total,song))

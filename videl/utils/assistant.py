@@ -10,12 +10,67 @@ Previously this logic was inline in play.py — now centralised here.
 """
 
 import asyncio
+import logging
 
 from pyrogram.errors import RPCError, UserAlreadyParticipant
 from pyrogram.types import Message
 
 from videl import assistant, bot
-from videl.utils.rich_ui import rich_edit, rich_esc, rich_heading, rich_note
+from videl.utils.rich_ui import rich_edit, rich_heading, rich_note
+
+log = logging.getLogger(__name__)
+_ASSISTANT_START_COMPLETE: asyncio.Event | None = None
+_ASSISTANT_READY = False
+
+
+def assistant_starting() -> None:
+    """Mark the user client as pending before Telegram begins delivering commands."""
+    global _ASSISTANT_READY, _ASSISTANT_START_COMPLETE
+    _ASSISTANT_READY = False
+    # Bind the event to the actual app loop; tests and tools may use short-lived loops.
+    _ASSISTANT_START_COMPLETE = asyncio.Event()
+
+
+def assistant_startup_complete(ready: bool) -> None:
+    """Publish only readiness, never the session string or its contents."""
+    global _ASSISTANT_READY, _ASSISTANT_START_COMPLETE
+    _ASSISTANT_READY = bool(ready)
+    if _ASSISTANT_START_COMPLETE is None:
+        _ASSISTANT_START_COMPLETE = asyncio.Event()
+    _ASSISTANT_START_COMPLETE.set()
+
+
+async def start_voice_engine() -> None:
+    """Start PyTgCalls after the assistant client is connected, before readiness."""
+    from videl import call_py
+    if call_py is None:
+        raise RuntimeError("PyTgCalls is unavailable; voice playback cannot start")
+    await call_py.start()
+
+
+def assistant_ready() -> bool:
+    return _ASSISTANT_READY and bool(getattr(assistant, "is_connected", False))
+
+
+def assistant_status() -> dict:
+    import config
+    configured = bool(getattr(config, "STRING_SESSION", ""))
+    ready = assistant_ready()
+    event = _ASSISTANT_START_COMPLETE
+    state = "ready" if ready else "not_configured" if not configured else "starting" if event is None or not event.is_set() else "failed"
+    return {"configured": configured, "ready": ready, "state": state}
+
+
+async def _wait_for_startup() -> bool:
+    event = _ASSISTANT_START_COMPLETE
+    if event is None:
+        return False
+    if not event.is_set():
+        try:
+            await asyncio.wait_for(event.wait(), timeout=15)
+        except asyncio.TimeoutError:
+            return False
+    return assistant_ready()
 
 
 async def is_assistant_in(chat_id: int):
@@ -24,13 +79,27 @@ async def is_assistant_in(chat_id: int):
 
     Returns:
         True     — assistant is present
-        False    — assistant is not present
-        "banned" — assistant was banned from the group
+        False       — assistant is not present
+        "banned"    — assistant was banned from the group
+        "not_started" — user client has not connected successfully
     """
+    if not await _wait_for_startup():
+        return "not_started"
+
     try:
-        me     = await assistant.get_me()
+        me = await assistant.get_me()
         member = await assistant.get_chat_member(chat_id, me.id)
-        return member.status is not None
+        status = getattr(member, "status", None)
+        status = str(getattr(status, "value", status) or "").casefold()
+        if status == "banned":
+            return "banned"
+        if status in {"owner", "administrator", "member"}:
+            return True
+        if status == "restricted":
+            return bool(getattr(member, "is_member", False))
+        # LEFT/unknown statuses are not group membership; allow try_join_assistant
+        # to repair the state instead of pretending the assistant is present.
+        return False
 
     except Exception as e:
         err = str(e)
@@ -50,14 +119,27 @@ async def try_join_assistant(chat_id: int, pm: Message) -> bool:
     Returns:
         True on success, False on failure.
     """
+    if not await _wait_for_startup():
+        log.warning("Assistant join skipped: the user client is not started")
+        await rich_edit(
+            pm,
+            rich_heading("⚠️ Voice assistant is offline", level=3)
+            + rich_note("The session string must be loaded and the assistant client must finish startup. Check the startup logs and deployment environment, then retry."),
+        )
+        return False
+
     try:
         invite_link = await bot.export_chat_invite_link(chat_id)
 
-    except Exception as e:
+    except Exception:
+        log.exception("Could not export an invite link for assistant join in chat %s", chat_id)
         await rich_edit(
             pm,
-            rich_heading("❍ ɪ ɴᴇᴇᴅ ɪɴᴠɪᴛᴇ ʟɪɴᴋ ᴘᴇʀᴍɪssɪᴏɴ", level=3)
-            + rich_note(f"<code>{rich_esc(e)}</code>"),
+            rich_heading("🔗 Invite-link permission needed", level=3)
+            + rich_note(
+                "I couldn’t create an invite link. Ask a group admin to check my "
+                "invite-link permissions, then try again."
+            ),
         )
         return False
 
@@ -86,19 +168,24 @@ async def try_join_assistant(chat_id: int, pm: Message) -> bool:
     except UserAlreadyParticipant:
         return True
 
-    except RPCError as e:
+    except RPCError:
+        log.exception("Assistant could not join chat %s", chat_id)
         await rich_edit(
             pm,
-            rich_heading("❍ ᴀssɪsᴛᴀɴᴛ ᴊᴏɪɴ ғᴀɪʟᴇᴅ", level=3)
-            + rich_note(f"<code>{rich_esc(e)}</code>"),
+            rich_heading("⚠️ Assistant couldn’t join", level=3)
+            + rich_note(
+                "Check that the assistant can access the group invite link and hasn’t "
+                "been removed or banned. Then try again."
+            ),
         )
         return False
 
-    except Exception as e:
+    except Exception:
+        log.exception("Unexpected assistant join failure for chat %s", chat_id)
         await rich_edit(
             pm,
-            rich_heading("❍ ᴊᴏɪɴ ᴇʀʀᴏʀ", level=3)
-            + rich_note(f"<code>{rich_esc(e)}</code>"),
+            rich_heading("⚠️ Assistant join failed", level=3)
+            + rich_note("Please try again. If the problem continues, ask a group admin to check the assistant’s access."),
         )
         return False
         

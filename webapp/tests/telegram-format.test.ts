@@ -1,5 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createElement } from "react";
+import { render } from "./dom";
 import { telegramHtml, cleanTelegramHtml, previewHtml, editorHtml, safeLink, visibleLength, chatPreviewHtml, wrapWithTag } from "../src/lib/telegram-format";
 test("selected text marks become Telegram formatting without exposing tags",()=>{
  assert.equal(telegramHtml({type:"text",text:"Hello & <friends>",marks:[{type:"bold"},{type:"italic"}]}),"<i><b>Hello &amp; &lt;friends&gt;</b></i>");
@@ -50,6 +52,35 @@ test("real editor selection formats words and undo restores them",async()=>{
  editor.commands.setLink({href:"https://example.com"});
  assert.equal(telegramHtml(editor.getJSON()),'Hello <u><a href="https://example.com/">world</a></u>');
  editor.destroy();dom.window.close();
+});
+
+test("the user-provided Telegram Android emoji set is available in the editor picker", async () => {
+ const { PREMIUM_EMOJI, PREMIUM_GROUPS } = await import("../src/lib/premium-emoji");
+ const android = PREMIUM_EMOJI.filter((item) => item.group === "Telegram Android");
+ assert.equal(android.length, 100);
+ assert.equal(new Set(android.map((item) => item.id)).size, 100);
+ assert.ok(android.every((item) => /^\d{1,20}$/.test(item.id) && item.char && item.label));
+ assert.ok(PREMIUM_GROUPS.includes("Telegram Android"));
+ assert.ok(android.some((item) => item.id === "5875465628285931233" && item.char === "✈️"));
+ assert.ok(android.some((item) => item.id === "5877530150345641603" && item.char === "👤"));
+ const packs = PREMIUM_EMOJI.filter((item) => item.group === "Telegram Packs");
+ assert.equal(packs.length, 200);
+ assert.equal(new Set(packs.map((item) => item.id)).size, 200);
+ assert.ok(packs.some((item) => item.id === "4956222745814762495" && item.char === "❤️‍🔥"));
+ assert.ok(packs.some((item) => item.id === "4958597497657230624" && item.char === "🌹"));
+ const vector = PREMIUM_EMOJI.filter((item) => item.group === "Telegram Vector");
+ assert.equal(vector.length, 118);
+ assert.equal(new Set(vector.map((item) => item.id)).size, 118);
+ assert.ok(vector.some((item) => item.id === "5219899949281453881" && item.char === "✅"));
+ assert.ok(vector.some((item) => item.id === "5454310635707853545" && item.char === "🚩"));
+});
+
+test("large emoji catalogs render a bounded first page with a load-more affordance", async () => {
+ const { PremiumEmojiPicker } = await import("../src/components/editor/PremiumEmojiPicker");
+ const html = render(createElement(PremiumEmojiPicker, { onInsert: () => {} }));
+ assert.equal((html.match(/aria-label="Insert .*? premium emoji"/g) || []).length, 64);
+ assert.match(html, /Showing 64 of \d+ emojis/);
+ assert.match(html, /Load 64 more/);
 });
 
 test("premium emoji tags survive sanitization and render as chat badges",()=>{

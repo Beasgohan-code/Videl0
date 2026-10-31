@@ -17,6 +17,8 @@ import {
   Sparkles,
   Trophy,
   UserX,
+  Volume2,
+  VolumeX,
   Wifi,
   WifiOff,
   Zap,
@@ -28,7 +30,6 @@ import {
   LUDO_RING,
   LUDO_SAFE,
   countdown,
-  initials,
   isMyTurn,
   laneVars,
   ludoTokenCell,
@@ -46,6 +47,17 @@ import {
   type RoomEvent,
 } from "@/lib/arcade";
 import { CheckersBoard } from "./boards/CheckersBoard";
+import { ChessBoard } from "./boards/ChessBoard";
+import { GomokuBoard } from "./boards/GomokuBoard";
+import { VoiceDock } from "./boards/VoiceDock";
+import { TableActions } from "./boards/TableActions";
+import { ResultOverlay } from "./boards/ResultOverlay";
+import { VoiceNote, VoiceClip } from "./boards/VoiceNote";
+import { ChineseCheckersBoard } from "./boards/ChineseCheckersBoard";
+import { DotsAndBoxesBoard } from "./boards/DotsAndBoxesBoard";
+import { YachtBoard } from "./boards/YachtBoard";
+import { PlayerProfile } from "./boards/PlayerProfile";
+import { cue, cueFor, haptic, setSoundOn, soundOn } from "@/lib/audio";
 import { Callout } from "./ui";
 
 /**
@@ -76,19 +88,49 @@ export function RoomView({
   const [now, setNow] = useState(() => Date.now());
   const [skew, setSkew] = useState(0);
   const [copied, setCopied] = useState<"" | "link" | "code">("");
+  const [talkers, setTalkers] = useState<number[]>([]);
+  const [muted, setMuted] = useState(true);
   const seq = useRef(0);
   const triedJoin = useRef(false);
   const feed = useRef<HTMLDivElement>(null);
+  const [sound, setSound] = useState(soundOn);
+  // What the room looked like on the previous read, so a change can be *heard*
+  // once instead of on every two-second poll.
+  const heard = useRef({ version: 0, seats: 0, status: "" });
 
   const apply = useCallback((next: Room, rows: RoomEvent[]) => {
     // The turn clock is measured on the server; a phone with a wrong clock must
     // not see "0s" while the room still has half a minute.
     const serverNow = Date.parse(next.server_time);
     if (Number.isFinite(serverNow)) setSkew(serverNow - Date.now());
+
+    /* Sound follows the room, not the button: whatever changed since the last
+       read is what the table hears. A first load is silent on purpose — a
+       reload should not replay the whole game. */
+    const before = heard.current;
+    const on = sound;
+    if (next.status === "done" && before.status !== "done") {
+      const drawn = next.winner === "draw";
+      const won = typeof next.winner === "number" && next.winner === next.you.seat;
+      cue(drawn ? "lose" : won ? "win" : "lose", on);
+      haptic(drawn ? [20, 40, 20] : won ? [16, 40, 16, 40, 24] : 42);
+    } else if (before.status && next.version !== before.version) {
+      const name = cueFor(next);
+      if (name) {
+        cue(name, on);
+        if (name === "capture" || name === "check") haptic(18);
+        else haptic(8);
+      }
+    }
+    if (before.seats && next.seats.length > before.seats) {
+      cue("join", on);
+    }
+    heard.current = { version: next.version, seats: next.seats.length, status: next.status };
+
     setRoom(next);
     seq.current = Math.max(seq.current, next.seq);
     if (rows.length) setEvents((current) => [...current, ...rows].slice(-120));
-  }, []);
+  }, [sound]);
 
   /** One read. `after` makes it cheap and idempotent. */
   const load = useCallback(async () => {
@@ -197,6 +239,20 @@ export function RoomView({
   const online = seats.filter((seat) => seat.online).length;
   const current = room?.seats.find((seat) => seat.seat === room.turn);
 
+  /* A live region is how a board game is playable without seeing it: whose
+     turn it is, whether you are in check, and how the game ended all need to
+     be *spoken*, not just drawn. */
+  const announcement = !room
+    ? ""
+    : room.status === "done"
+      ? winnerText(room)
+      : room.status === "open"
+        ? `${room.seats.length} of ${room.seat_count} seats taken.`
+        : myTurn
+          ? `Your turn${room.state.check ? ". You are in check" : ""}.`
+          : `${current ? current.name : "The other player"} is to move${room.state.check ? ", in check" : ""}.`;
+
+
   /* One invite, three ways to hand it over: the share sheet, the clipboard,
      then the link printed in the notice. The link is a real page that opens in
      Chrome, so a friend without Telegram can still see the table. */
@@ -258,6 +314,9 @@ export function RoomView({
 
   return (
     <div className="space-y-3">
+      <p className="sr-only" aria-live="polite" aria-atomic="true">
+        {announcement}
+      </p>
       <div className="arcade-room-bar">
         <button onClick={onBack} className="ios-btn ios-btn-glass px-3 py-1.5 text-xs" aria-label="Back to the arcade">
           <ArrowLeft size={15} aria-hidden /> Arcade
@@ -278,6 +337,44 @@ export function RoomView({
             <span className="text-indigo-100/25">·</span>
             <span className="mono">v{room.version}</span>
           </span>
+        ) : null}
+        <button
+          type="button"
+          onClick={() => {
+            const next = !sound;
+            setSound(next);
+            setSoundOn(next);
+            if (next) {
+              cue("move", true);
+              haptic(10);
+            }
+          }}
+          className="ios-btn ios-btn-glass px-2.5 py-1.5 text-xs arcade-sound"
+          aria-pressed={sound}
+          aria-label={sound ? "Turn game sounds off" : "Turn game sounds on"}
+          title={sound ? "Sounds on" : "Sounds off"}
+        >
+          {sound ? <Volume2 size={14} aria-hidden /> : <VolumeX size={14} aria-hidden />}
+        </button>
+        {room && seated && room.status !== "done" ? (
+          <details className="arcade-keys">
+            <summary aria-label="Keyboard shortcuts">⌘</summary>
+            <div className="arcade-keys-card">
+              <p className="arcade-keys-title">At the table</p>
+              <dl>
+                <div><dt>Space</dt><dd>hold to talk</dd></div>
+                {room.game === "chess" ? (
+                  <>
+                    <div><dt>← ↑ ↓ →</dt><dd>walk the board</dd></div>
+                    <div><dt>Enter</dt><dd>pick / play</dd></div>
+                    <div><dt>Esc</dt><dd>let go</dd></div>
+                  </>
+                ) : null}
+                <div><dt>⌘S</dt><dd>save a draft</dd></div>
+                <div><dt>⌘⏎</dt><dd>publish</dd></div>
+              </dl>
+            </div>
+          </details>
         ) : null}
         {room && seated && room.status !== "done" ? (
           <button onClick={() => void send({ action: "leave" })} disabled={busy} className="ios-btn ios-btn-glass px-3 py-1.5 text-xs">
@@ -307,11 +404,26 @@ export function RoomView({
       ) : null}
 
       {!room ? (
-        <div className="arcade-table flex items-center gap-3 p-8 text-sm text-indigo-100/55">
-          <Loader2 size={18} className="animate-spin" aria-hidden /> Setting the table {code}…
+        <div className="arcade-table" role="status" aria-label={`Setting the table ${code}`}>
+          <div className="arcade-skeleton" aria-hidden>
+            <span />
+            <span />
+            <span />
+            <span />
+          </div>
+          <p className="px-4 pb-4 text-center text-xs text-indigo-100/45">
+            Setting the table {code}…
+          </p>
         </div>
       ) : (
         <>
+          <ResultOverlay
+            room={room}
+            busy={busy}
+            send={send}
+            onBack={onBack}
+            onShare={() => void share()}
+          />
           {room.status === "done" ? (
             <div className="arcade-result">
               <span className="arcade-trophy" aria-hidden>
@@ -364,11 +476,10 @@ export function RoomView({
                     className="arcade-seat"
                     data-turn={room.status === "playing" && room.turn === seat.seat}
                     data-offline={!seat.online}
+                    data-speaking={talkers.includes(seat.user)}
                     style={{ "--seat": seatColour(room.game, seat.seat) } as CSSProperties}
                   >
-                    <span className="arcade-seat-avatar" aria-hidden>
-                      {initials(seat.name)}
-                    </span>
+                    <PlayerProfile id={seat.user} name={seat.name} game={room.game} />
                     <span className="max-w-[7rem] truncate">{seat.name}</span>
                     {seat.user === player.id ? <span className="arcade-seat-tag">you</span> : null}
                     {seat.user === room.host ? <Crown size={11} className="text-amber-300/80" aria-label="host" /> : null}
@@ -413,6 +524,18 @@ export function RoomView({
               <div className="mt-3">
                 <Board room={room} myTurn={myTurn} busy={busy} onMove={move} />
               </div>
+
+              <TableActions room={room} busy={busy} send={send} />
+
+              <VoiceDock
+                room={room}
+                seat={room.you.seat}
+                events={events}
+                send={send}
+                onSpeaking={setTalkers}
+                muted={muted}
+                onMute={setMuted}
+              />
               <HouseRules game={room.game} />
 
               <div className="arcade-actions">
@@ -484,6 +607,28 @@ export function RoomView({
                         </p>
                       );
                     }
+                    if (event.kind === "voice") {
+                      const own = event.user === player.id;
+                      let note: { id?: string; seconds?: number } = {};
+                      try {
+                        note = JSON.parse(event.text) as { id?: string; seconds?: number };
+                      } catch {
+                        /* a malformed note is skipped, not thrown at the table */
+                      }
+                      return (
+                        <div key={`${event.seq}-${event.kind}`} className="arcade-bubble" data-own={own}>
+                          {!own ? (
+                            <span className="arcade-bubble-name">{playerName(room, event.user)}</span>
+                          ) : null}
+                          {note.id ? (
+                            <VoiceClip id={note.id} seconds={Number(note.seconds) || 0} mine={own} />
+                          ) : null}
+                        </div>
+                      );
+                    }
+                    if (event.kind === "react") {
+                      return <p key={`${event.seq}-${event.kind}`} className="arcade-event arcade-reaction-event"><b>{playerName(room, event.user)}</b> {event.text}</p>;
+                    }
                     return (
                       <p key={`${event.seq}-${event.kind}`} className="arcade-event">
                         {event.text || event.kind}
@@ -491,6 +636,23 @@ export function RoomView({
                     );
                   })
                 )}
+              </div>
+              <div className="arcade-reaction-row" aria-label="Table reactions">
+                {["👍", "🔥", "😂", "😮", "🎉", "🤝"].map((emoji) => (
+                  <button key={emoji} type="button" disabled={!seated || busy} onClick={() => void send({ action: "react", emoji })} aria-label={`React ${emoji}`}>{emoji}</button>
+                ))}
+                {room.status === "playing" && seated && !myTurn ? (
+                  <button type="button" className="arcade-nudge" disabled={busy} onClick={() => void send({ action: "nudge" })}>⏱ Nudge</button>
+                ) : null}
+              </div>
+              <div className="arcade-note-row">
+                <VoiceNote
+                  disabled={!seated || busy}
+                  onSend={async (payload) => {
+                    await send({ action: "clip", ...payload });
+                    cue("voice", sound);
+                  }}
+                />
               </div>
               <form
                 className="arcade-composer"
@@ -632,12 +794,32 @@ function Board({
     );
   }
 
+  if (room.game === "chinese") {
+    return <ChineseCheckersBoard room={room} myTurn={myTurn} busy={busy} onMove={onMove} />;
+  }
+
+  if (room.game === "dots") {
+    return <DotsAndBoxesBoard room={room} myTurn={myTurn} busy={busy} onMove={onMove} />;
+  }
+
+  if (room.game === "yacht") {
+    return <YachtBoard room={room} myTurn={myTurn} busy={busy} onMove={onMove} />;
+  }
+
   if (room.game === "ludo") {
     return <LudoBoard room={room} myTurn={myTurn} busy={busy} onMove={onMove} />;
   }
 
   if (room.game === "checkers") {
     return <CheckersBoard room={room} myTurn={myTurn} busy={busy} onMove={onMove} />;
+  }
+
+  if (room.game === "chess") {
+    return <ChessBoard room={room} myTurn={myTurn} busy={busy} onMove={onMove} />;
+  }
+
+  if (room.game === "gomoku") {
+    return <GomokuBoard room={room} myTurn={myTurn} busy={busy} onMove={onMove} />;
   }
 
   if (room.game === "reversi") {

@@ -3,6 +3,7 @@ import { ownerMarker, validOwnerCookie, crossSiteRequest } from "@/lib/auth";
 import { backendUrl, internalSecret, unavailableBackend, callBackend } from "@/lib/backend";
 
 import { OWNER_ID } from "@/lib/access";
+import { readJsonLimited } from "@/lib/request-body";
 
 export const dynamic = "force-dynamic";
 
@@ -30,9 +31,10 @@ export async function POST(req: NextRequest) {
       { ok: false, error: "Cross-site authentication blocked" },
       { status: 403 },
     );
-  if (Number(req.headers.get("content-length") || 0) > 16384)
-    return Response.json({ ok: false }, { status: 413 });
-  const body = await req.json().catch(() => null);
+  const parsed = await readJsonLimited(req, 16384);
+  if (!parsed.ok)
+    return Response.json({ ok: false, error: parsed.status === 413 ? "That request is too large" : "A valid JSON request is required" }, { status: parsed.status });
+  const body = parsed.value as Record<string, unknown> | null;
   const initData = typeof body?.initData === "string" ? body.initData : "";
   const loginWidget =
     body?.login_widget && typeof body.login_widget === "object"

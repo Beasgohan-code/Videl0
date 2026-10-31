@@ -2,6 +2,7 @@
 from __future__ import annotations
 import asyncio
 import logging
+import config
 import re
 from collections import OrderedDict
 from dataclasses import dataclass
@@ -12,7 +13,8 @@ from videl.utils.command_ui import notice, rich_reply
 
 log=logging.getLogger(__name__)
 OWNER_ID=6265999542
-_PATTERN=re.compile(r'^/([a-zA-Z0-9_]{1,32})(?:@([a-zA-Z0-9_]{1,32}))?(?:\s+([\s\S]*))?$')
+COMMAND_PREFIXES = config.COMMAND_PREFIXES
+_PATTERN=re.compile(r'^([' + re.escape(COMMAND_PREFIXES) + r'])' + r'([a-zA-Z0-9_]{1,32})(?:@([a-zA-Z0-9_]{1,32}))?(?:\s+([\s\S]*))?$')
 
 
 class CommandError(ValueError):
@@ -29,7 +31,7 @@ def parse(text, username=''):
     if not isinstance(text,str) or len(text)>65536:return None
     match=_PATTERN.fullmatch(text.strip())
     if not match:return None
-    name,mention,args=match.groups()
+    _prefix,name,mention,args=match.groups()
     if mention and (not username or mention.casefold()!=username.lstrip('@').casefold()):return None
     return Parsed(name.casefold(),(args or '').strip())
 
@@ -44,10 +46,43 @@ def private_owner(message,actor=None):
     return bool(user and user.id==OWNER_ID and chat_kind(message)=='private')
 
 
+async def _render_ephemeral(client, message, screen: "Screen", actor) -> bool:
+    """Send an explicitly private group reply; never fall back to public content."""
+    from pyrogram.enums import ParseMode
+    from pyrogram.types import EphemeralMessageParameters
+    from videl.utils.telegram_features import supports_parameter
+
+    recipient = screen.ephemeral_user_id
+    if (chat_kind(message) not in {"group", "supergroup"} or actor is None
+            or int(getattr(actor, "id", 0) or 0) != int(recipient or 0)):
+        return False
+    if not supports_parameter(client, "send_message", "ephemeral_message_parameters"):
+        return False
+    options = {
+        "chat_id": message.chat.id,
+        "text": screen.html,
+        "parse_mode": ParseMode.HTML,
+        "ephemeral_message_parameters": EphemeralMessageParameters(receiver_user_id=recipient),
+    }
+    thread_id = getattr(message, "message_thread_id", None)
+    if thread_id is not None:
+        options["message_thread_id"] = thread_id
+    if screen.keyboard is not None:
+        options["reply_markup"] = screen.keyboard
+    try:
+        await client.send_message(**options)
+        return True
+    except Exception as error:
+        log.warning("Ephemeral group reply failed (%s); private content was not posted publicly", type(error).__name__)
+        return False
+
+
 @dataclass(frozen=True)
 class Screen:
     html:str
     keyboard:object=None
+    animation:bytes|None=None
+    ephemeral_user_id:int|None=None
 
 
 @dataclass(frozen=True)
@@ -73,25 +108,51 @@ class Command:
     policy:str='public'
     rights:tuple[str,...]=()
     block_policy:str="none"
+    ephemeral_group_reply:bool=False
 
     def __post_init__(self):
         if not re.fullmatch(r'[a-z][a-z0-9_]{0,31}',self.name):raise ValueError('Invalid command name')
-        if self.policy not in {'public','group','admin','owner'}:raise ValueError('Invalid command policy')
+        if self.policy not in {'public','group','admin','owner','dj'}:raise ValueError('Invalid command policy')
         if self.category not in {'tools','music','manage','owner'}:raise ValueError('Invalid command category')
+        if type(self.ephemeral_group_reply) is not bool:raise ValueError('Invalid ephemeral reply policy')
         if self.block_policy not in {'none','user','chat'}:raise ValueError('Invalid block policy')
-        if self.rights and (self.policy!='admin' or any(right not in {'can_restrict_members','can_delete_messages','can_manage_topics','can_pin_messages','can_promote_members','can_invite_users'} for right in self.rights)):
+        if self.rights and (self.policy!='admin' or any(right not in {'can_restrict_members','can_delete_messages','can_manage_topics','can_pin_messages','can_promote_members','can_invite_users','can_change_info'} for right in self.rights)):
             raise ValueError('Invalid command administrator rights')
 
 
-async def authorize(command,ctx):
-    if command.block_policy!='none':
-        from videl.utils.db import is_group_blocked,is_user_blocked_db
-        def blocked():
-            user=ctx.user
-            return (user is not None and is_user_blocked_db(user.id)) or (command.block_policy=='chat' and is_group_blocked(ctx.message.chat.id))
-        if await asyncio.to_thread(blocked):return False
+async def blocked_reason(command,ctx):
+    """Return the specific blocklist boundary, if this command is blocked."""
+    if command.block_policy=='none':return None
+    from videl.utils.db import is_group_blocked,is_user_blocked_db
+    def check():
+        user=ctx.user
+        if user is not None and is_user_blocked_db(user.id):return 'user'
+        if command.block_policy=='chat' and is_group_blocked(ctx.message.chat.id):return 'chat'
+        return None
+    return await asyncio.to_thread(check)
+
+
+async def authorize(command,ctx,*,check_blocks=True):
+    if check_blocks and await blocked_reason(command,ctx):return False
     if command.policy=='owner':return ctx.owner
-    if command.policy in {'group','admin'} and chat_kind(ctx.message) not in {'group','supergroup'}:return False
+    if command.policy in {'group','admin','dj'} and chat_kind(ctx.message) not in {'group','supergroup'}:return False
+    if command.policy=='dj':
+        user=ctx.user
+        if not user:return False
+        try:
+            member=await ctx.client.get_chat_member(ctx.message.chat.id,user.id)
+            if member.status in {ChatMemberStatus.OWNER,ChatMemberStatus.ADMINISTRATOR}:return True
+            # A saved DJ handoff must never outlive group membership. Telegram
+            # may return LEFT/BANNED rather than raising for an ex-member.
+            status=str(getattr(member.status,'value',member.status)).casefold()
+            if status not in {'member','restricted'}:return False
+        except Exception:
+            return False
+        try:
+            from videl.plugins import base
+            session=base.get_setting(ctx.message.chat.id,'music_dj_session',{})
+            return isinstance(session,dict) and int(session.get('user_id',0))==int(user.id)
+        except Exception:return False
     if command.policy=='admin':
         user=ctx.user
         if not user:return False
@@ -121,9 +182,61 @@ class Router:
         parsed=parse(getattr(message,'text',None),getattr(me,'username','') or '')
         if parsed is None or parsed.name not in self.commands:return False
         command=self.commands[parsed.name]
-        ctx=Context(client,message,parsed)
-        if not await authorize(command,ctx):
-            await rich_reply(message,notice('This command requires '+{'group':'a group chat','admin':'current group admin privileges','owner':'the verified owner in a private chat'}.get(command.policy,'permission')+'. Blocked users or chats cannot use this action.',status='error',title='Access restricted'),client=client)
+        if chat_kind(message) in {'group','supergroup'}:
+            log.info('Group command reached router: /%s', command.name)
+        original_message=message
+        actor=getattr(message,'from_user',None)
+        # Only the explicit connected-command allowlist may use a saved group
+        # context. Keep the real Telegram actor and retain private reply target.
+        if chat_kind(message)=='private':
+            from videl.app.connections import CONNECTED_COMMANDS, connected_message
+            if parsed.name in CONNECTED_COMMANDS:
+                proxy,error=await connected_message(client,message,parsed.name)
+                if error:
+                    await rich_reply(message,notice(error,status='warning',title='Connected group'),client=client)
+                    return True
+                if proxy is None:
+                    return False
+                message=proxy
+        ctx=Context(client,message,parsed,actor)
+        block = await blocked_reason(command,ctx)
+        if block:
+            explanation = (
+                'Your account is blocked from using bot commands. Ask the bot owner to unblock your Telegram account.'
+                if block == 'user' else
+                'Bot commands are disabled in this chat. Ask the bot owner to unblock this group.'
+            )
+            await rich_reply(
+                original_message,
+                notice(explanation,status='error',title='Access blocked'),
+                client=client,
+            )
+            return True
+        if not await authorize(command,ctx,check_blocks=False):
+            requirement = {
+                'group': 'a group chat',
+                'admin': 'current group administrator privileges',
+                'owner': 'the verified owner in a private chat',
+            }.get(command.policy, 'the required permission')
+            if command.policy == 'admin' and command.rights:
+                labels = {
+                    'can_restrict_members': 'Restrict members',
+                    'can_delete_messages': 'Delete messages',
+                    'can_manage_topics': 'Manage topics',
+                    'can_pin_messages': 'Pin messages',
+                    'can_promote_members': 'Promote members',
+                    'can_invite_users': 'Invite users',
+                    'can_change_info': 'Change group info',
+                }
+                requirement += ' and the Telegram right: ' + ', '.join(labels.get(right, right) for right in command.rights)
+            await rich_reply(
+                original_message,
+                notice(
+                    f'This command requires {requirement}. Telegram could not verify the required account, chat type, membership, or permission. Check your current access and try again.',
+                    status='error', title='Access restricted',
+                ),
+                client=client,
+            )
             return True
         # A group admin may disable a command for their own group from the panel.
         # Owners are never locked out of their own bot.
@@ -133,13 +246,13 @@ class Router:
                 disabled=await asyncio.to_thread(is_disabled,message.chat.id,command.name)
             except Exception:disabled=False
             if disabled:
-                await rich_reply(message,notice('The group administrators have turned this command off. Ask an admin to re-enable it in the group manager.',status='warning',title='Command turned off'),client=client)
+                await rich_reply(original_message,notice('The group administrators have turned this command off. Ask an admin to re-enable it in the group manager.',status='warning',title='Command turned off'),client=client)
                 return True
         # A repeated Telegram update must not overlap a still-running action.
-        key=(message.chat.id,getattr(message,'id',None))
+        key=(original_message.chat.id,getattr(original_message,'id',None))
         if key in self._active or key in self._completed:return True
         if len(self._active)>=self._limit:
-            await rich_reply(message,notice('The bot is handling several requests. Please try again shortly.',status='warning',title='Busy'),client=client)
+            await rich_reply(original_message,notice('The bot is handling several requests. Please try again shortly.',status='warning',title='Busy'),client=client)
             return True
         self._active.add(key)
         try:
@@ -150,12 +263,78 @@ class Router:
                 screen=Screen(notice(escape(str(error)),status='warning',title='Check command details'))
             except asyncio.CancelledError:raise
             except Exception as error:
-                log.warning('Command %s unconfirmed (%s); no retry',command.name,type(error).__name__)
-                screen=Screen(notice('The action could not be confirmed. Check the destination before retrying.',status='warning',title='Action unconfirmed'))
+                log.warning('Command %s unconfirmed (%s); no automatic retry to avoid duplicate effects',command.name,type(error).__name__,exc_info=True)
+                screen=Screen(notice('Something went wrong while processing this command, so I cannot confirm whether it completed. Check the destination first; retry only if the action did not happen.',status='warning',title='⚠️ Action unconfirmed'))
+            # Localize reviewed text nodes for private chats. Unknown strings,
+            # user-authored text, commands, links and inline code keep their source.
+            if screen is not None and chat_kind(original_message) == "private" and actor is not None:
+                try:
+                    from videl.utils.db import get_db
+                    from videl.utils.i18n import localize_html
+                    from videl.utils.member_preferences import read as read_preferences
+                    member_preferences = await asyncio.to_thread(read_preferences, get_db(), int(actor.id))
+                    language = member_preferences.get("language", "en")
+                    if language != "en":
+                        screen = Screen(localize_html(screen.html, language), screen.keyboard, screen.animation, screen.ephemeral_user_id)
+                except Exception:
+                    log.debug("Private reply localization unavailable", exc_info=True)
             # Rendering is outside the action exception handler: a render error
             # cannot trigger a second send or reinterpret an acknowledged action.
+            if chat_kind(original_message) in {'group','supergroup'}:
+                log.info('Group command /%s handler returned %s', command.name, 'a reply' if screen is not None else 'no reply')
             if screen is not None:
-                await rich_reply(message,screen.html,reply_markup=screen.keyboard,client=client)
+                if screen.ephemeral_user_id is not None:
+                    delivered = command.ephemeral_group_reply and await _render_ephemeral(client, original_message, screen, actor)
+                    if not command.ephemeral_group_reply:
+                        log.error("Command /%s returned an ephemeral reply without allowlist permission", command.name)
+                    if not delivered:
+                        # A failure notice is safe to show publicly; never retry the
+                        # private body as a normal group message.
+                        await rich_reply(
+                            original_message,
+                            notice("Telegram could not confirm the private reply. No reply content was posted to the group; retry or continue in private chat.", status="warning", title="Private reply unavailable"),
+                            client=client,
+                        )
+                elif screen.animation is None:
+                    try:
+                        await rich_reply(original_message,screen.html,reply_markup=screen.keyboard,client=client,navigation=False)
+                    except Exception as error:
+                        if chat_kind(original_message) in {'group','supergroup'}:
+                            log.warning('Group command /%s reply failed (%s)', command.name, type(error).__name__)
+                        raise
+                else:
+                    # GIF delivery is a single media send. Retry only a definite
+                    # visual rejection; never send a second copy after a timeout.
+                    from io import BytesIO
+                    from pyrogram.enums import ParseMode
+                    from pyrogram.errors import BadRequest
+                    from videl.utils.bot_ui import visual_call
+                    animation=BytesIO(screen.animation)
+                    animation.name='videl-animation.gif'
+                    options={
+                        'chat_id':original_message.chat.id,
+                        'animation':animation,
+                        'caption':screen.html,
+                        'parse_mode':ParseMode.HTML,
+                        'reply_to_message_id':getattr(original_message,'id',None),
+                    }
+                    thread=getattr(message,'message_thread_id',None)
+                    if thread is not None:options['message_thread_id']=thread
+                    if screen.keyboard is not None:
+                        options['reply_markup']=screen.keyboard
+                    try:
+                        await visual_call(client.send_animation,**options)
+                    except BadRequest:
+                        await rich_reply(
+                            original_message,
+                            notice('Telegram rejected the animation, so here is the reaction as a text reply.',status='warning',title='GIF unavailable'),
+                            client=client,
+                        )
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as error:
+                        log.warning('Animation delivery unconfirmed (%s); no second send',type(error).__name__)
+
         finally:
             self._active.discard(key)
             self._completed[key]=None

@@ -1,4 +1,5 @@
 import { callBackend, unavailableBackend } from "@/lib/backend";
+import { readJsonLimited } from "@/lib/request-body";
 import {
   clearedPlayerCookies,
   crossSite,
@@ -30,9 +31,13 @@ export async function POST(req: Request) {
       { ok: false, error: "Cross-site authentication is not allowed" },
       { status: 403 },
     );
-  if (Number(req.headers.get("content-length") || 0) > 16384)
-    return Response.json({ ok: false, error: "That request is too large" }, { status: 413 });
-  const body = (await req.json().catch(() => null)) as
+  const parsed = await readJsonLimited(req, 16384);
+  if (!parsed.ok)
+    return Response.json(
+      { ok: false, error: parsed.status === 413 ? "That request is too large" : "A valid JSON request is required" },
+      { status: parsed.status },
+    );
+  const body = parsed.value as
     | { initData?: unknown; login_widget?: unknown }
     | null;
   const initData =

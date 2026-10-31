@@ -19,6 +19,8 @@ requires a manual restart to recover.
 """
 from __future__ import annotations
 
+import re
+
 # Errors that no amount of retrying will fix on its own.
 FATAL_MARKERS = (
     "AUTH_KEY_UNREGISTERED",
@@ -35,14 +37,16 @@ FATAL_MARKERS = (
     "UNAUTHORIZED",
 )
 CONFLICT_MARKERS = ("AUTH_KEY_DUPLICATED", "SESSION_REVOKED", "CONFLICT")
+RATE_LIMIT_MARKERS = ("FLOOD_WAIT", "FLOOD_PREMIUM_WAIT", "SLOWMODE_WAIT")
 
 # Seconds between attempts inside the fast phase, per kind.
 FAST_DELAYS = {
     "transient": (15, 30, 60, 120, 240),
     "conflict": (60, 120, 240, 480),
+    "rate_limit": (900,),
     "fatal": (1800,),
 }
-SLOW_DELAY = {"transient": 900, "conflict": 900, "fatal": 1800}
+SLOW_DELAY = {"transient": 900, "conflict": 900, "rate_limit": 900, "fatal": 1800}
 
 
 def classify(error) -> str:
@@ -55,6 +59,8 @@ def classify(error) -> str:
     text = str(error or "").upper()
     if any(marker in text for marker in CONFLICT_MARKERS):
         return "conflict"
+    if any(marker in text for marker in RATE_LIMIT_MARKERS):
+        return "rate_limit"
     if any(marker in text for marker in FATAL_MARKERS):
         return "fatal"
     return "transient"
@@ -77,6 +83,31 @@ def retry_delay(attempt: int, kind: str = "transient") -> int:
     return SLOW_DELAY.get(kind) or SLOW_DELAY["transient"]
 
 
+def retry_after(error) -> int | None:
+    """Extract Telegram's requested wait from FLOOD_WAIT-style exceptions."""
+    text = str(error or "")
+    upper = text.upper()
+    if not any(marker in upper for marker in RATE_LIMIT_MARKERS):
+        return None
+    match = re.search(r"\bwait\s+(\d+)\s+seconds?\b", text, re.IGNORECASE)
+    if match:
+        return max(1, int(match.group(1)))
+    match = re.search(r"\b(?:FLOOD_WAIT|FLOOD_PREMIUM_WAIT|SLOWMODE_WAIT)(?:_X)?_(\d+)\b", upper)
+    if match:
+        return max(1, int(match.group(1)))
+    return None
+
+
+def retry_delay_for_error(attempt: int, error) -> int:
+    """Respect a server-provided cooldown instead of retrying into another flood."""
+    kind = classify(error)
+    server_wait = retry_after(error)
+    if server_wait is not None:
+        # Small safety buffer avoids racing Telegram's boundary by a fraction.
+        return server_wait + 5
+    return retry_delay(attempt, kind)
+
+
 def should_alert(attempt: int, kind: str, previous_kind: str | None) -> bool:
     """Say something once, then only when the nature of the failure changes.
 
@@ -91,5 +122,6 @@ def describe(kind: str) -> str:
     return {
         "transient": "a temporary connection problem — retrying",
         "conflict": "another instance is polling this bot session, so it is retried slowly",
+        "rate_limit": "Telegram rate-limited startup — respecting its requested cooldown before retrying",
         "fatal": "the bot credentials were rejected — fix them in Render; retrying every 30 minutes",
     }.get(kind, "retrying")

@@ -32,6 +32,8 @@ export type Escalation = {
   decay_days?: number;
   /** Rungs applied each time the limit is reached, gentlest first. */
   ladder?: EscalationAction[] | null;
+  /** Severe kick/ban rungs wait in Cases for an admin decision when enabled. */
+  review_severe?: boolean;
 };
 export type EscalationAction = "ban" | "mute" | "kick" | "none";
 /** What the bot last applied on its own; ``applied`` is what it will release. */
@@ -165,16 +167,38 @@ export type GroupCommunity = {
   warn_limit: number;
   notes: NoteRow[];
   filters: FilterRow[];
+  custom_commands?: { name: string; response: string; cooldown_seconds?: number }[];
   blacklist: BlacklistRow[];
   approved: number[];
   disabled_commands: string[];
+};
+
+export type CaseTimelineEvent = {
+  id: string;
+  kind: string;
+  action: string;
+  detail: string;
+  at: string | null;
+  actor: number | null;
+  source: string;
+};
+export type PendingEscalation = { id: string; action: "kick" | "ban"; warning_count: number; reason: string; at: string | null };
+export type MemberCase = {
+  user_id: number;
+  event_count: number;
+  open_reports: number;
+  pending_escalations?: PendingEscalation[];
+  latest: string | null;
+  events: CaseTimelineEvent[];
 };
 
 export type GroupDetail = {
   /** Settings revision the payload was read at; the next write sends it back. */
   revision?: number;
   automation?: Automation;
+  setup_checklist?: { id: string; label: string; complete: boolean; detail: string }[];
   inbox?: GroupInbox;
+  cases?: MemberCase[];
   chat: {
     id: number;
     title: string;
@@ -347,6 +371,17 @@ export function flag(settings: GroupSettings | undefined, key: string): boolean 
   if (typeof value === "number") return value !== 0;
   if (typeof value === "string") return value === "true" || value === "on" || value === "1";
   return SETTING_DEFAULTS[key] ?? false;
+}
+
+export type SettingChange = { key: string; before: boolean; after: boolean };
+
+/** Exact protection toggles a selected preset would change, in UI order. */
+export function presetDiff(current: GroupSettings, proposed: GroupSettings): SettingChange[] {
+  return SETTING_KEYS.flatMap((key) => {
+    const before = flag(current, key);
+    const after = flag(proposed, key);
+    return before === after ? [] : [{ key, before, after }];
+  });
 }
 
 export function numberValue(settings: GroupSettings | undefined, key: string, fallback = 0): number {
@@ -609,6 +644,7 @@ export function auditLabel(event: AuditEvent): string {
     approval: "Approval removed",
     warn: "Warning issued",
     moderation: "Member action",
+    invite: "Invite link created",
     warn_reset: "Warnings cleared",
     automation: "Automation updated",
     commands: "Command switch changed",

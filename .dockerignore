@@ -9,6 +9,11 @@ uploads
 downloads
 logs
 data
+# Authentication cookie jars must be mounted as external deployment secrets.
+cookies.txt
+cookies*.txt
+*.cookie
+*.cookies
 *.db
 videl.db
 webapp/.next

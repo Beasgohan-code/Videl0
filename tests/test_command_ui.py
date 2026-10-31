@@ -57,8 +57,44 @@ class CatalogTests(unittest.TestCase):
         self.assertIn('Action unavailable',text)
         self.assertIn('&lt;name&gt;',text)
         self.assertIn('/copy',usage('/copy <text>','Use a reply'))
-        self.assertIn('&lt;value&gt;',result('Status',[('User','<value>')]))
+        from videl.utils import premium_emojis
+        with patch.object(premium_emojis, 'USE_PREMIUM', True):
+            card = result('Status',[('User','<value>'),('Duration','3:27'),('Channel','@mix')])
+        self.assertIn('&lt;value&gt;',card)
+        for key in ('boseh_person','boseh_clock','ios_link'):
+            self.assertIn(f'emoji-id="{premium_emojis.PREMIUM_IDS[key]}"',card)
+        self.assertIn('<table',card)
+        from videl.utils.rich_ui import rich_table
+        with patch.object(premium_emojis, 'USE_PREMIUM', True):
+            table = rich_table(['Status','Channel'], [('Ready','@mix')])
+        self.assertIn(f'emoji-id="{premium_emojis.PREMIUM_IDS["ios_symbols"]}"', table)
+        self.assertIn(f'emoji-id="{premium_emojis.PREMIUM_IDS["ios_link"]}"', table)
+        with patch.object(premium_emojis, 'USE_PREMIUM', False):
+            fallback = result('Status',[('User','Ready')])
+        self.assertIn(premium_emojis.FALLBACK['boseh_person'], fallback)
         with self.assertRaises(ValueError):notice('bad',status='made-up')
+
+    def test_each_registered_command_has_a_premium_directory_icon(self):
+        from videl.utils.command_catalog import _command_icon
+        from videl.utils.premium_emojis import PREMIUM_IDS, FALLBACK
+        entries = commands()
+        self.assertGreaterEqual(len(entries), 160)
+        self.assertIn("adminlist", {entry["name"] for entry in entries})
+        for entry in entries:
+            key = _command_icon(entry)
+            self.assertIn(key, PREMIUM_IDS, entry['name'])
+            self.assertIn(key, FALLBACK, entry['name'])
+
+    def test_approved_member_actions_are_visible_and_keep_callback_targets(self):
+        from videl.modules.approve import _approved_keyboard
+        from pyrogram.enums import ButtonStyle
+        keyboard = _approved_keyboard(list(range(101, 131)), allow_clear=True)
+        buttons = [button for row in keyboard.inline_keyboard for button in row]
+        removal = [button for button in buttons if button.callback_data and button.callback_data.startswith('approve:rm:')]
+        self.assertEqual([button.callback_data for button in removal], [f'approve:rm:{uid}' for uid in range(101, 129)])
+        self.assertTrue(all(button.style == ButtonStyle.DANGER for button in removal))
+        self.assertIn('approve:clear', [button.callback_data for button in buttons])
+        self.assertIn('approve:close', [button.callback_data for button in buttons])
 
     def test_reference_matches_registered_sources(self):
         from tools.command_reference import reference
@@ -89,16 +125,6 @@ class ModernCommandsTests(unittest.IsolatedAsyncioTestCase):
             await api.stop_poll_command(None,msg)
             send.assert_awaited_once_with('stopPoll',{'chat_id':-1001,'message_id':9})
 
-    async def test_topic_rename_is_forum_and_admin_guarded(self):
-        msg=message(['topicrename','New','topic'],forum=True)
-        with patch.object(api,'is_user_authorized',AsyncMock(return_value=True)),patch.object(api,'bot_api',AsyncMock(return_value=(200,{'ok':True,'result':True}))) as send,patch.object(api,'rich_reply',AsyncMock()):
-            await api.topic_command(None,msg)
-            send.assert_awaited_once_with('editForumTopic',{'chat_id':-1001,'message_thread_id':22,'name':'New topic'})
-        msg.chat.is_forum=False
-        with patch.object(api,'bot_api',AsyncMock()) as send,patch.object(api,'rich_reply',AsyncMock()):
-            await api.topic_command(None,msg)
-            send.assert_not_awaited()
-
     async def test_owner_callback_never_leaks_directory_in_group(self):
         query=SimpleNamespace(message=message([]),from_user=SimpleNamespace(id=6265999542),data='cmds:owner:0',answer=AsyncMock())
         with patch.object(professional,'rich_edit',AsyncMock()) as edit:
@@ -106,18 +132,80 @@ class ModernCommandsTests(unittest.IsolatedAsyncioTestCase):
             edit.assert_not_awaited()
             self.assertTrue(query.answer.call_args.kwargs['show_alert'])
 
-    async def test_ping_has_one_read_only_request_and_no_probe_message(self):
+    async def test_ping_reports_safe_live_metrics_with_only_one_telegram_probe(self):
         from videl.app.router import Context,Parsed
-        client=SimpleNamespace(get_me=AsyncMock())
+        client=SimpleNamespace(get_me=AsyncMock(),is_connected=True)
         ctx=Context(client,message(['ping']),Parsed('ping',''))
-        screen=await ping.ping(ctx)
+        snapshot={"cpu":12.0,"process_cpu":1.0,"logical_cpus":2,"cpu_limit":1.0,"load":"0.10 · 0.20 · 0.30",
+                  "memory_label":"Container RAM","memory_used":512*1024**2,"memory_total":1024*1024**2,
+                  "memory_percent":50.0,"rss":200*1024**2,"vms":400*1024**2,"disk":"□□□□□□□□□□ 4% · 96 GiB free",
+                  "threads":8,"file_descriptors":12}
+        with (
+            patch.object(ping,"_resource_snapshot",return_value=snapshot),
+            patch.object(ping,"_database_probe",AsyncMock(return_value=("Connected",4))),
+            patch("videl.core.watcher.watchdog_status",return_value={"healthy":True}),
+            patch("videl.utils.assistant.assistant_status",return_value={"ready":True,"configured":True}),
+        ):
+            screen=await ping.ping(ctx)
         client.get_me.assert_awaited_once()
-        self.assertIn('Connection',__import__('videl.plugins.base',fromlist=['plain']).plain(screen.html))
+        plain=__import__('videl.plugins.base',fromlist=['plain']).plain(screen.html)
+        for label in ("Live system health","Telegram API","CPU","Container RAM","Process memory","Load avg","Disk","MongoDB","Voice assistant","Maintenance","Music queue","Build"):
+            self.assertIn(label,plain)
+        self.assertNotIn("/sys/fs",screen.html)
+        self.assertNotIn("mongodb+srv",screen.html)
 
-    def test_public_modern_help_omits_private_operations(self):
-        self.assertNotIn('/apiinfo',api.public_help(message(['modernhelp'])))
+    async def test_ping_stays_useful_when_probes_fail_without_echoing_errors(self):
+        from videl.app.router import Context,Parsed
+        client=SimpleNamespace(get_me=AsyncMock(side_effect=RuntimeError("secret-token-value")),is_connected=False)
+        ctx=Context(client,message(['ping']),Parsed('ping',''))
+        with (
+            patch.object(ping,"_resource_snapshot",side_effect=OSError("private filesystem path")),
+            patch.object(ping,"_database_probe",AsyncMock(return_value=("Unreachable",None))),
+            patch("videl.core.watcher.watchdog_status",side_effect=RuntimeError("secret")),
+            patch("videl.utils.assistant.assistant_status",side_effect=RuntimeError("secret")),
+        ):
+            screen=await ping.ping(ctx)
+        plain=__import__('videl.plugins.base',fromlist=['plain']).plain(screen.html)
+        self.assertIn("Telegram API",plain)
+        self.assertIn("Unreachable",plain)
+        self.assertIn("MongoDB",plain)
+        self.assertIn("Unknown",plain)
+        self.assertNotIn("secret-token-value",screen.html)
+        self.assertNotIn("private filesystem path",screen.html)
+
+    def test_public_telegram_tools_help_omits_private_operations(self):
+        self.assertNotIn('/apiinfo',api.public_help(message(['help'])))
+
+    def test_telegram_tools_help_uses_rich_sections_and_command_tables(self):
+        public = api.public_help(message(['help']))
+        self.assertGreaterEqual(public.count('<table'), 3)
+        self.assertIn('<h3>', public)
+        self.assertNotIn('/emojiinfo', public)
+        self.assertIn('/emojiinfo', api.HELP)
+        self.assertTrue('<tg-emoji' in public or '🎛' in public)
 
 class StyledFallbackTests(unittest.IsolatedAsyncioTestCase):
+    async def test_premium_emoji_rejection_never_silently_downgrades_message_text(self):
+        from pyrogram.errors import BadRequest
+        from videl.utils.command_ui import rich_send
+        send = AsyncMock(side_effect=BadRequest("CUSTOM_EMOJI_INVALID"))
+        with patch("videl.utils.command_ui._send", send):
+            with self.assertRaises(BadRequest):
+                await rich_send(
+                    SimpleNamespace(), 123,
+                    '<tg-emoji emoji-id="123">🎵</tg-emoji>', navigation=False,
+                )
+        send.assert_awaited_once()
+        self.assertIn("<tg-emoji", send.await_args.args[2])
+
+    async def test_unrelated_bad_request_does_not_strip_premium_emoji_or_retry(self):
+        from pyrogram.errors import BadRequest
+        from videl.utils.bot_ui import visual_call
+        send = AsyncMock(side_effect=BadRequest("CHAT_WRITE_FORBIDDEN"))
+        with self.assertRaises(BadRequest):
+            await visual_call(send, text='<tg-emoji emoji-id="123">🎵</tg-emoji> Track')
+        send.assert_awaited_once()
+
     async def test_definite_style_rejection_drops_only_visuals(self):
         from pyrogram.errors import BadRequest
         from pyrogram.enums import ButtonStyle
@@ -138,3 +226,17 @@ class StyledFallbackTests(unittest.IsolatedAsyncioTestCase):
         _,markup=_native_buttons(rich_button('Save changes',callback_data='save:1'))
         self.assertEqual(markup.inline_keyboard[0][0].style,ButtonStyle.SUCCESS)
         self.assertEqual(markup.inline_keyboard[0][0].callback_data,'save:1')
+
+    async def test_unstyled_command_buttons_gain_icons_without_mutating_actions(self):
+        from pyrogram.types import InlineKeyboardButton,InlineKeyboardMarkup
+        from videl.utils import premium_emojis
+        from videl.utils.bot_ui import visual_call
+        from unittest.mock import AsyncMock
+        original=InlineKeyboardMarkup([[InlineKeyboardButton('Ban member',callback_data='ban:7')]])
+        send=AsyncMock(return_value='sent')
+        with patch('videl.utils.bot_ui.ICONS_ENABLED',True):
+            await visual_call(send,reply_markup=original)
+        decorated=send.call_args.kwargs['reply_markup'].inline_keyboard[0][0]
+        self.assertEqual(decorated.callback_data,'ban:7')
+        self.assertEqual(decorated.icon_custom_emoji_id,premium_emojis.PREMIUM_IDS['rijif_forbid'])
+        self.assertIsNone(original.inline_keyboard[0][0].icon_custom_emoji_id)

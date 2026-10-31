@@ -90,11 +90,19 @@ _ANY_TAG_RE = re.compile(r"<[^>]+>")
 _RICH_TAGS_RE = re.compile(
     r"</?(?:h[1-6]|table|thead|tbody|tr|th|td|details|summary|mark|sub|sup|ul|ol|li|hr|aside|footer"
     r"|tg-button-row|tg-button|tg-math-block|tg-collage|tg-slideshow|tg-map|tg-document|tg-thinking"
-    r"|button|img)(?=[\s/>])",
+    r"|button|img|tg-emoji|emoji)(?=[\s/>])",
     re.I,
 )
 _BUTTON_RE = re.compile(r"<tg-button\b([^>]*)>(.*?)</tg-button>", re.I | re.S)
 _ATTR_RE = re.compile(r'([\w-]+)\s*=\s*"([^"]*)"')
+def _is_button_style_rejection(error) -> bool:
+    message = str(error).casefold()
+    return any(marker in message for marker in (
+        "button_style", "style_invalid", "style is not allowed", "unsupported button style",
+    ))
+
+
+
 
 _html_hooks = []
 
@@ -541,10 +549,11 @@ async def rich_send(
         )
     except Exception as e:
         # Only retry a definite Telegram rejection, never an ambiguous network failure.
-        if isinstance(e, BadRequest) and not markdown and ("<tg-emoji" in html_text or any(getattr(btn, "icon_custom_emoji_id", None) or getattr(getattr(btn, "style", None), "value", "default") != "default" for row in getattr(reply_markup, "inline_keyboard", []) for btn in row)):
+        if isinstance(e, BadRequest) and not markdown and _is_button_style_rejection(e):
+            logger.info("[rich_send] Telegram rejected button styling; retrying with Premium Emoji text and icon IDs preserved")
             import copy
             from pyrogram.types import InlineKeyboardMarkup
-            plain = _EMOJI_TAG_RE.sub(r"\1", _plain_fallback(html_text))
+            plain = _plain_fallback(html_text)
             safe_shared = dict(shared)
             if reply_markup is not None:
                 rows=[]
@@ -552,7 +561,6 @@ async def rich_send(
                     clean=[]
                     for button in row:
                         clone=copy.copy(button)
-                        clone.icon_custom_emoji_id=None
                         from pyrogram.enums import ButtonStyle
                         clone.style=ButtonStyle.DEFAULT
                         clean.append(clone)
@@ -927,12 +935,13 @@ async def _rich_edit_via_client(
     except MessageNotModified:
         return None
     except Exception as e:
-        if isinstance(e, BadRequest) and not markdown:
-            from videl.utils.bot_ui import plain_keyboard
+        if isinstance(e, BadRequest) and not markdown and _is_button_style_rejection(e):
+            logger.info("[rich_edit] Telegram rejected button styling; retrying with Premium Emoji text and icon IDs preserved")
+            from videl.utils.bot_ui import unstyled_keyboard
             try:
                 return await app.edit_message_text(chat_id=chat_id, message_id=message_id,
-                    text=_EMOJI_TAG_RE.sub(r"\1", _plain_fallback(html_text)), parse_mode=ParseMode.HTML,
-                    reply_markup=plain_keyboard(reply_markup), link_preview_options=None, **extra)
+                    text=_plain_fallback(html_text), parse_mode=ParseMode.HTML,
+                    reply_markup=unstyled_keyboard(reply_markup), link_preview_options=None, **extra)
             except MessageNotModified:
                 return None
             except Exception as fallback_error:

@@ -8,6 +8,7 @@ import { PanelBoundary } from "@/components/studio/PanelBoundary";
 import { OwnerGate } from "@/components/studio/OwnerGate";
 import { BackendStatus } from "@/components/studio/BackendStatus";
 import { ToolFinder } from "@/components/studio/ToolFinder";
+import { StudioMotion } from "@/components/studio/StudioMotion";
 import Home from "@/components/studio/screens/Home";
 const loading = () => (
   <div className="py-20 text-center text-indigo-200/50" role="status">
@@ -40,6 +41,7 @@ const screens = {
   }),
   auth: dynamic(() => import("@/components/studio/screens/Auth"), { loading }),
   arcade: dynamic(() => import("@/components/studio/screens/Arcade"), { loading }),
+  music: dynamic(() => import("@/components/studio/screens/Music"), { loading }),
 };
 export default function Studio() {
   const { tab } = useStudio();
@@ -54,21 +56,22 @@ export default function Studio() {
     <div className="studio-panel" id="studio-panel" tabIndex={-1}>
       {authenticated && <BackendStatus />}
       {tab !== 'chat' && <ToolFinder />}
+      <StudioMotion />
       <div className="sr-only" aria-live="polite">
         {tab} panel
       </div>
       {Object.entries(screens).map(([key, Screen]) =>
         canOpenSection(key, authenticated) && (visited.includes(key) || key === tab) ? (
-          <div key={key} hidden={key !== tab}>
+          <div key={key} data-panel={key} hidden={key !== tab}>
             <PanelBoundary name={key}>
               {[
                 "chat",
-                "groups",
                 "federations",
                 "automation",
                 "analytics",
                 "broadcast",
                 "settings",
+                "music",
               ].includes(key) ? (
                 <OwnerGate>
                   <Screen />

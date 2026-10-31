@@ -19,7 +19,10 @@ from videl.utils.rich_ui import (
     rich_esc, rich_details, rich_send, rich_button
 )
 
+from videl.utils.redaction import RedactingFilter, redact_secrets
+
 logger = logging.getLogger("videl.logger")
+logger.addFilter(RedactingFilter())
 
 def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
@@ -48,9 +51,9 @@ def _save_error_mongo(where: str, err: str, context: str = ""):
             return
         col = _db["error_logs"]
         col.insert_one({
-            "where": where,
-            "error": str(err)[:2000],
-            "context": context[:500],
+            "where": redact_secrets(where, limit=200),
+            "error": redact_secrets(err, limit=2000),
+            "context": redact_secrets(context, limit=500),
             "time": datetime.now(timezone.utc).isoformat(),
             "ts": time.time(),
         })

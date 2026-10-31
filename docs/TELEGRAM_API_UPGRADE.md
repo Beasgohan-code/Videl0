@@ -10,7 +10,7 @@
 - Existing Richgram fork: https://github.com/Badmunda05/richgram — original MIT license retained at `vendor/richgram/LICENSE`. Videl's fallback changes are local to that fork.
 - Eldian Network music downloader and attribution remain intact.
 
-No external bot code or emoji packs were blindly imported. Existing configured IDs are retained, not claimed universally valid. `/emojiinfo check` asks Telegram to resolve them at runtime.
+Custom emoji IDs were supplied by the project owner and registered as numbered packs; the source attributions are preserved in the catalog. IDs are not claimed universally valid. `/emojiinfo check` asks Telegram to resolve them at runtime.
 
 ## Integrated
 
@@ -18,15 +18,15 @@ No external bot code or emoji packs were blindly imported. Existing configured I
 | --- | --- |
 | Bot UI | Shared semantic native keyboard factory: primary Studio actions, success confirmations, danger destructive actions; stable existing callback data and URLs. Adopted by active modules, shared plugin runtime and music controls. |
 | Rich cards | Existing rich-message engine retained; one semantic premium icon in bot-authored headings, readable HTML fallback. User message bodies are not rewritten. |
-| Music | Readable now-playing card, escaped track/requester values, clear repeat/queue state, updated native controls and a bounded progress indicator. Voice streaming APIs/dependencies are unchanged. |
+| Music | Generated 1280×720 now-playing posters with track artwork, an original Videl record-sleeve layout, cover-derived accent colors, artist/requester chips and a decorative waveform; live playback progress stays in the editable caption. Pillow is optional and falls back to the existing thumbnail/rich card. All voice streams use the configurable PyTgCalls Studio preset by default (96 kbps stereo); seek/effect restarts retain the same preset, and the player card reports it. Lower `VOICE_AUDIO_QUALITY` presets are available for unstable links; source recordings and Telegram/network limits still bound perceived quality. yt-dlp now selects the best available audio format instead of preferring M4A. |
 | Start | Rich/text welcome rather than an unreliable external image/caption fallback chain; no repeated sends after ambiguous network failures. Mini App launch buttons preserve signed identity in private chats. Missing database counts say Unavailable, not zero. |
 | Polls | `/poll [flags] Question | A | B`; optional multiple answers, public identity, shuffle, added options, hidden results and members-only voting. Anonymous by default. |
 | Quizzes | `/quiz Question | *Correct | Other`, including multiple *correct answers through current `correct_option_ids`. Strict question/option validation; same-topic delivery. |
 | Reactions | `/react 👍` or `/react clear` on a reply, restricted to owner/group admins. Telegram's allowed-chat reactions still apply. No automatic reactions or paid reactions. |
-| Topics | `/topicnew Title`, `/topicclose`, `/topicopen`; forum/admin checks, explicit refusal to alter the General topic through these commands. Bot must have Telegram topic-management permission. |
+| Topics | Topic-management slash commands (`/topicnew`, `/topicrename`, `/topicclose`, `/topicopen`) are retired. Previously posted inline close/reopen controls remain permission-checked. |
 | Copy buttons | Actual `CopyTextButton` actions in owner ID/emoji diagnostics. |
-| Diagnostics | Owner-only `/apiinfo` verifies bot identity; `/emojiinfo` extracts replied custom emoji IDs; `/emojiinfo check` resolves configured IDs without claiming rendering eligibility. |
-| Menus | A canonical public command menu used by startup and Studio sync; an additional owner-private menu on startup. `/modernhelp` and start/help buttons explain the new tools. |
+| Diagnostics | Owner-only `/apiinfo` verifies bot identity; `/emojiinfo` extracts replied custom emoji IDs; `/emojiinfo list` browses every supplied pack with custom previews, copyable IDs and bot aliases; `/emojiinfo check` resolves configured IDs without claiming rendering eligibility. `/setbotphoto` uploads the bundled Videl image through Bot API `setMyProfilePhoto`. |
+| Menus | A canonical public command menu used by startup and Studio sync; an additional owner-private menu on startup. `/help`, `/commands` and the Start/help buttons explain the new tools. |
 | Transport | Bounded HTTP calls outside the event loop; no tokens/URLs in exception logs. A definite HTTP 400 may retry without visual extras, preserving destinations, privacy options and button actions. Timeouts, 429s and server errors are never automatically retried. |
 
 ## Eligibility and safety
@@ -39,7 +39,7 @@ PyTgCalls 3.x / NTgCalls 3.x are separate breaking voice-engine upgrades, not Bo
 
 ## Validation and rollout
 
-Run `.venv/bin/python -m unittest discover -s tests -q` and import all `ALL_MODULES` offline. Tests mock network calls, confirm topic/admin checks, preserve callback actions, exercise emoji rejection fallbacks, and prohibit duplicate sends after ambiguous timeouts. No real messages, reactions, topics or polls are created by the tests.
+Run `.venv/bin/python -m unittest discover -s tests -q` and import all `ALL_MODULES` offline. Tests mock network calls, confirm legacy topic-callback/admin checks, preserve callback actions, exercise emoji rejection fallbacks, and prohibit duplicate sends after ambiguous timeouts. No real messages, reactions, topics or polls are created by the tests.
 
 The **Render backend must deploy this commit** for bot handlers/UI changes to take effect; Vercel alone cannot update a running bot. Live custom emoji eligibility, real voice playback, and Telegram admin rights still need verification on the configured bot. Do not paste bot tokens into chat.
 
@@ -66,13 +66,13 @@ styled Close/Reopen controls whose callbacks check the message's chat and curren
 admin privileges on every click. General-topic actions are refused. `/apiinfo`
 and `/emojiinfo` are exact-owner/private only.
 
-Removed demo commands remain removed; the retained command catalogue stays at
-155 names, including aliases. New features are added to useful existing commands,
-not reintroduced as showcase commands. The implementation does not claim support
-for every Bot API method or universal client support.
+Removed demo commands remain removed; the command catalogue is generated from
+registered handlers, including aliases. New features are added to useful existing
+commands, not reintroduced as showcase commands. The implementation does not
+claim support for every Bot API method or universal client support.
 
-Latest validation: 97 Python tests and 36 frontend tests passed; compilation and
-all registered module imports passed. Tests include real Richgram-to-native
+Validation at the original integration checkpoint: 97 Python tests and 36
+frontend tests passed; compilation and all registered module imports passed. Tests include real Richgram-to-native
 fallback rendering with mocked Telegram calls, explicit keyboard preservation,
 public/owner start separation, native transport exceptions, topic callbacks and
 poll validation. Production rollout and live voice/forum/poll verification remain

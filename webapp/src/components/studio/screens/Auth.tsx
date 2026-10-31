@@ -11,7 +11,7 @@ export default function AuthPage() {
   const [failed, setFailed] = useState(false);
   const [busy, setBusy] = useState(false);
   const botUsername = (
-    process.env.NEXT_PUBLIC_BOT_USERNAME || "Videl0Bot"
+    process.env.NEXT_PUBLIC_BOT_USERNAME || "videlapp"
   ).replace(/^@/, "");
   async function authenticate(user: unknown) {
     if (busy) return;

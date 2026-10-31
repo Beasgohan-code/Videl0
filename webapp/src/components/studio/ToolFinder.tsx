@@ -55,7 +55,7 @@ const tools: Tool[] = [
   {
     tab: "arcade",
     title: "Arcade",
-    description: "Play Ludo, Checkers, Connect Four, Reversi or Tic-tac-toe with a room code",
+    description: "Play Chess, Checkers, Ludo, Five in a Row, Connect Four, Reversi or Tic-tac-toe with a room code and live voice",
     icon: Gamepad2,
   },
   {

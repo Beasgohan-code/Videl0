@@ -87,7 +87,7 @@ class TransportTests(unittest.TestCase):
         rejected = Mock(status_code=400)
         rejected.json.return_value = {
             "ok": False,
-            "description": "CUSTOM_EMOJI_INVALID",
+            "description": "BUTTON_STYLE_INVALID",
         }
         accepted = Mock(status_code=200)
         accepted.json.return_value = {"ok": True, "result": {"message_id": 9}}
@@ -99,10 +99,10 @@ class TransportTests(unittest.TestCase):
         fallback = send.call_args_list[1].kwargs["json"]
         self.assertEqual(fallback["message_thread_id"], 22)
         self.assertTrue(fallback["protect_content"])
-        self.assertEqual(fallback["text"], "🎵 Hello")
+        self.assertEqual(fallback["text"], '<tg-emoji emoji-id="123">🎵</tg-emoji> Hello')
         self.assertEqual(
             fallback["reply_markup"]["inline_keyboard"][0][0],
-            {"text": "Open", "url": "https://example.com"},
+            {"text": "Open", "url": "https://example.com", "icon_custom_emoji_id": "123"},
         )
         self.assertIn(
             "icon_custom_emoji_id", original["reply_markup"]["inline_keyboard"][0][0]
@@ -136,6 +136,108 @@ class TransportTests(unittest.TestCase):
         self.assertEqual(status, 429)
         self.assertEqual(result["parameters"]["retry_after"], 20)
 
+    def test_multipart_upload_serializes_profile_photo_object_correctly(self):
+        response = Mock(status_code=200)
+        response.json.return_value = {"ok": True, "result": True}
+        payload = {"photo": {"type": "static", "photo": "attach://profile_photo"}}
+        photo = ("videl-bot-pfp.jpg", b"jpeg-data", "image/jpeg")
+        with patch.object(transport.requests, "post", return_value=response) as send:
+            status, result = transport.call_bot_api(
+                "setMyProfilePhoto", payload, files={"profile_photo": photo}
+            )
+        self.assertEqual(status, 200)
+        self.assertTrue(result["ok"])
+        self.assertEqual(send.call_args.kwargs["data"]["photo"], __import__("json").dumps(payload["photo"]))
+        self.assertEqual(send.call_args.kwargs["files"]["profile_photo"], photo)
+
+
+class BotProfileTests(unittest.TestCase):
+    def test_image_bytes_become_square_jpeg_for_telegram(self):
+        from io import BytesIO
+        from PIL import Image
+        from videl.utils.bot_profile import profile_photo_upload
+
+        source = BytesIO()
+        Image.new("RGB", (800, 400), (40, 90, 140)).save(source, format="PNG")
+        payload, files = profile_photo_upload(source.getvalue())
+        self.assertEqual(payload["photo"]["type"], "static")
+        with Image.open(BytesIO(files["profile_photo"][1])) as converted:
+            self.assertEqual((converted.format, converted.size), ("JPEG", (640, 640)))
+
+    def test_bundled_profile_asset_becomes_square_jpeg_for_telegram(self):
+        from io import BytesIO
+        from PIL import Image
+        from videl.utils.bot_profile import profile_photo_upload
+
+        payload, files = profile_photo_upload()
+        self.assertEqual(payload["photo"]["type"], "static")
+        self.assertEqual(payload["photo"]["photo"], "attach://profile_photo")
+        filename, content, mime = files["profile_photo"]
+        self.assertEqual((filename, mime), ("videl-bot-pfp.jpg", "image/jpeg"))
+        with Image.open(BytesIO(content)) as image:
+            self.assertEqual(image.format, "JPEG")
+            self.assertEqual(image.size, (640, 640))
+
+
+class BotProfileCommandTests(unittest.IsolatedAsyncioTestCase):
+    async def test_owner_profile_command_sends_the_bundled_photo_to_telegram(self):
+        payload = {"photo": {"type": "static", "photo": "attach://profile_photo"}}
+        files = {"profile_photo": ("videl-bot-pfp.jpg", b"jpeg", "image/jpeg")}
+        with patch("videl.utils.bot_profile.profile_photo_upload", return_value=(payload, files)), \
+             patch.object(api_tools_module, "bot_api", AsyncMock(return_value=(200, {"ok": True}))) as call, \
+             patch.object(api_tools_module, "rich_reply", AsyncMock()) as reply:
+            await api_tools_module.set_bot_profile_photo(None, SimpleNamespace())
+        call.assert_awaited_once_with("setMyProfilePhoto", payload, files=files)
+        reply.assert_awaited_once()
+
+    async def test_owner_profile_command_accepts_a_direct_image_url(self):
+        payload = {"photo": {"type": "static", "photo": "attach://profile_photo"}}
+        files = {"profile_photo": ("videl-bot-pfp.jpg", b"jpeg", "image/jpeg")}
+        client = SimpleNamespace()
+        message = SimpleNamespace(command=["/setbotphoto", "https://iili.io/nvbEFV9.jpg"])
+        with patch("videl.utils.bot_profile.download_profile_image", return_value=b"image") as download, \
+             patch("videl.utils.bot_profile.profile_photo_upload", return_value=(payload, files)) as prepare, \
+             patch.object(api_tools_module, "bot_api", AsyncMock(return_value=(200, {"ok": True}))), \
+             patch.object(api_tools_module, "rich_reply", AsyncMock()):
+            await api_tools_module.set_bot_profile_photo(client, message)
+        download.assert_called_once_with("https://iili.io/nvbEFV9.jpg")
+        prepare.assert_called_once_with(b"image")
+
+    async def test_owner_profile_command_accepts_a_replied_photo(self):
+        from io import BytesIO
+        payload = {"photo": {"type": "static", "photo": "attach://profile_photo"}}
+        files = {"profile_photo": ("videl-bot-pfp.jpg", b"jpeg", "image/jpeg")}
+        client = SimpleNamespace(download_media=AsyncMock(return_value=BytesIO(b"image")))
+        media = SimpleNamespace(file_id="telegram-file-id", mime_type="image/jpeg")
+        message = SimpleNamespace(reply_to_message=SimpleNamespace(photo=media), command=["/setbotphoto"])
+        with patch("videl.utils.bot_profile.profile_photo_upload", return_value=(payload, files)) as prepare, \
+             patch.object(api_tools_module, "bot_api", AsyncMock(return_value=(200, {"ok": True}))), \
+             patch.object(api_tools_module, "rich_reply", AsyncMock()):
+            await api_tools_module.set_bot_profile_photo(client, message)
+        client.download_media.assert_awaited_once_with("telegram-file-id", in_memory=True)
+        prepare.assert_called_once_with(b"image")
+
+    async def test_owner_can_set_name_and_descriptions_via_bot_api(self):
+        message = SimpleNamespace(command=["/setbotname", "Videl", "Music", "🎵"])
+        methods = AsyncMock(return_value=(200, {"ok": True}))
+        with patch.object(api_tools_module, "bot_api", methods), patch.object(api_tools_module, "rich_reply", AsyncMock()):
+            await api_tools_module.set_bot_name(None, message)
+            message.command = ["/setbotdescription", "Music", "for", "your", "groups"]
+            await api_tools_module.set_bot_description(None, message)
+            message.command = ["/setbotshortdescription", "Play", "music", "with", "Videl"]
+            await api_tools_module.set_bot_short_description(None, message)
+        self.assertEqual(methods.await_args_list[0].args, ("setMyName", {"name": "Videl Music 🎵"}))
+        self.assertEqual(methods.await_args_list[1].args, ("setMyDescription", {"description": "Music for your groups"}))
+        self.assertEqual(methods.await_args_list[2].args, ("setMyShortDescription", {"short_description": "Play music with Videl"}))
+
+    async def test_bot_name_limit_is_enforced_without_calling_telegram(self):
+        message = SimpleNamespace(command=["/setbotname", "X" * 65])
+        with patch.object(api_tools_module, "bot_api", AsyncMock()) as call, \
+             patch.object(api_tools_module, "rich_reply", AsyncMock()) as reply:
+            await api_tools_module.set_bot_name(None, message)
+        call.assert_not_awaited()
+        self.assertIn("allows up to 64", str(reply.await_args.args[1]))
+
 
 class KeyboardTests(unittest.TestCase):
     def test_semantic_styles_keep_actions(self):
@@ -149,18 +251,35 @@ class KeyboardTests(unittest.TestCase):
         self.assertEqual(
             button("Resume", callback_data="resume").style, ButtonStyle.SUCCESS
         )
+        self.assertEqual(button("Music & playlists", callback_data="help:music").style, ButtonStyle.PRIMARY)
+        self.assertEqual(button("Help center", callback_data="help:home").style, ButtonStyle.PRIMARY)
         item = button("Previous", callback_data="page_1")
         markup = InlineKeyboardMarkup([[item]])
         basic = plain_keyboard(markup)
         self.assertEqual(basic.inline_keyboard[0][0].callback_data, "page_1")
         self.assertIsNone(basic.inline_keyboard[0][0].icon_custom_emoji_id)
+        self.assertEqual(basic.inline_keyboard[0][0].text, "⬅️ Previous")
         self.assertIsNot(basic.inline_keyboard[0][0], item)
 
-    def test_emoji_ids_and_fallback_text_are_safe(self):
-        from videl.utils.premium_emojis import tg_emoji
+    def test_rejected_music_icon_keeps_a_readable_unicode_badge(self):
+        original = button("Choose this track", callback_data="pick:1", icon="music")
+        basic = plain_keyboard(InlineKeyboardMarkup([[original]]))
+        fallback = basic.inline_keyboard[0][0]
+        self.assertEqual(fallback.text, "🎵 Choose this track")
+        self.assertIsNone(fallback.icon_custom_emoji_id)
+        self.assertEqual(fallback.callback_data, "pick:1")
 
-        self.assertEqual(tg_emoji('1" onclick="bad', "<unsafe>"), "&lt;unsafe&gt;")
-        self.assertEqual(tg_emoji("9999999999999999999", "Hi"), "Hi")
+    def test_emoji_ids_and_fallback_text_are_safe(self):
+        from videl.utils import premium_emojis
+
+        self.assertEqual(premium_emojis.tg_emoji('1" onclick="bad', "<unsafe>"), "&lt;unsafe&gt;")
+        self.assertEqual(premium_emojis.tg_emoji("9999999999999999999", "Hi"), "Hi")
+        self.assertEqual(set(premium_emojis.PREMIUM_IDS), set(premium_emojis.FALLBACK))
+        with patch.object(premium_emojis, "USE_PREMIUM", True):
+            self.assertIn('>✨</tg-emoji>', premium_emojis.pe("spark", ""))
+            self.assertIn('>⚡️</tg-emoji>', premium_emojis.pe("line", ""))
+        with patch.object(premium_emojis, "USE_PREMIUM", False):
+            self.assertEqual(premium_emojis.pe("spark", ""), "✨")
 
     def test_start_uses_signed_mini_app_launch_buttons_in_private(self):
         from videl.plugins.start import group_keyboard, private_keyboard
@@ -171,7 +290,7 @@ class KeyboardTests(unittest.TestCase):
         owner = private_keyboard(True, "Videl0Bot").inline_keyboard
         self.assertIsNotNone(owner[0][0].web_app)
         self.assertFalse(any(item.callback_data == "cmds:owner:0" for row in private for item in row))
-        self.assertIsNotNone(group[-1][0].url)
+        self.assertTrue(any(item.url for row in group for item in row))
 
     def test_missing_database_is_not_displayed_as_zero(self):
         from videl.plugins.start import owner_caption
@@ -187,7 +306,7 @@ class AsyncBehaviorTests(unittest.IsolatedAsyncioTestCase):
         markup = InlineKeyboardMarkup(
             [[button("Stop", callback_data="stop", icon="cross")]]
         )
-        send = AsyncMock(side_effect=[BadRequest("CUSTOM_EMOJI_INVALID"), "accepted"])
+        send = AsyncMock(side_effect=[BadRequest("STYLE_INVALID"), "accepted"])
         result = await visual_call(
             send,
             1,
@@ -195,17 +314,78 @@ class AsyncBehaviorTests(unittest.IsolatedAsyncioTestCase):
             reply_markup=markup,
         )
         self.assertEqual(result, "accepted")
-        self.assertEqual(send.call_args.kwargs["caption"], "🎵 Track")
+        self.assertEqual(send.call_args.kwargs["caption"], '<tg-emoji emoji-id="123">🎵</tg-emoji> Track')
         self.assertEqual(
             send.call_args.kwargs["reply_markup"].inline_keyboard[0][0].callback_data,
             "stop",
         )
+        self.assertIsNotNone(send.call_args.kwargs["reply_markup"].inline_keyboard[0][0].icon_custom_emoji_id)
+
+    async def test_rich_bad_request_for_an_unrelated_reason_does_not_strip_custom_emoji(self):
+        from vendor.richgram.richgram import rich_ui as transport
+        client = SimpleNamespace(send_message=AsyncMock(side_effect=BadRequest("CHAT_WRITE_FORBIDDEN")))
+        with patch.object(transport, "RICH_AVAILABLE", False):
+            result = await transport.rich_send(client, 1, '<tg-emoji emoji-id="123">🎵</tg-emoji> Track')
+        self.assertIsNone(result)
+        client.send_message.assert_awaited_once()
+        self.assertIn("<tg-emoji", client.send_message.await_args.kwargs["text"])
 
     async def test_native_network_error_does_not_send_twice(self):
         send = AsyncMock(side_effect=TimeoutError())
         with self.assertRaises(TimeoutError):
             await visual_call(send, 1, text="Hello")
         send.assert_awaited_once()
+
+    async def test_rich_edit_unrelated_bad_request_preserves_emoji_through_html_fallback(self):
+        from vendor.richgram.richgram import rich_ui as rich_transport
+        client = SimpleNamespace(edit_message_text=AsyncMock(side_effect=BadRequest("CHAT_WRITE_FORBIDDEN")))
+        payload = '<tg-emoji emoji-id="123">🎵</tg-emoji> Track'
+        with patch.object(rich_transport, "RICH_AVAILABLE", True):
+            result = await rich_transport._rich_edit_via_client(client, 1, 2, payload, None)
+        self.assertIsNone(result)
+        self.assertEqual(client.edit_message_text.await_count, 2)
+        self.assertEqual(client.edit_message_text.call_args_list[0].kwargs["rich_message"].html, payload)
+        self.assertIn("<tg-emoji", client.edit_message_text.call_args_list[1].kwargs["text"])
+
+    async def test_custom_emoji_markup_selects_rich_send_and_edit_transport(self):
+        from vendor.richgram.richgram import rich_ui as rich_transport
+
+        payload = '<tg-emoji emoji-id="123">🎵</tg-emoji> Now playing'
+        sender = SimpleNamespace(
+            send_rich_message=AsyncMock(return_value="sent"),
+            send_message=AsyncMock(),
+        )
+        editor = SimpleNamespace(
+            edit_message_text=AsyncMock(return_value="edited"),
+        )
+        with patch.object(rich_transport, "RICH_AVAILABLE", True):
+            self.assertEqual(await rich_transport.rich_send(sender, 1, payload), "sent")
+            self.assertEqual(
+                sender.send_rich_message.await_args.kwargs["rich_message"].html,
+                payload,
+            )
+            self.assertEqual(
+                await rich_transport._rich_edit_via_client(editor, 1, 2, payload, None),
+                "edited",
+            )
+        self.assertEqual(
+            editor.edit_message_text.await_args.kwargs["rich_message"].html,
+            payload,
+        )
+        sender.send_message.assert_not_awaited()
+
+    async def test_custom_emoji_edit_rejection_never_downgrades_to_unicode(self):
+        from vendor.richgram.richgram import rich_ui as rich_transport
+
+        payload = '<tg-emoji emoji-id="123">🎵</tg-emoji> Now playing'
+        client = SimpleNamespace(
+            edit_message_text=AsyncMock(side_effect=BadRequest("CUSTOM_EMOJI_INVALID")),
+        )
+        with patch.object(rich_transport, "RICH_AVAILABLE", False):
+            result = await rich_transport._rich_edit_via_client(client, 1, 2, payload, None)
+        self.assertIsNone(result)
+        client.edit_message_text.assert_awaited_once()
+        self.assertEqual(client.edit_message_text.await_args.kwargs["text"], payload)
 
     async def test_rich_timeout_does_not_fall_through_to_a_second_send(self):
         from vendor.richgram.richgram.rich_ui import rich_send
@@ -225,15 +405,6 @@ class AsyncBehaviorTests(unittest.IsolatedAsyncioTestCase):
             module, "rich_reply", AsyncMock()
         ):
             await module.react_command(None, SimpleNamespace())
-        call.assert_not_awaited()
-
-    async def test_topic_actions_require_a_forum(self):
-        module = importlib.import_module("videl.modules.api_tools")
-        message = SimpleNamespace(chat=SimpleNamespace(is_forum=False))
-        with patch.object(module, "bot_api", AsyncMock()) as call, patch.object(
-            module, "rich_reply", AsyncMock()
-        ):
-            await module.topic_command(None, message)
         call.assert_not_awaited()
 
     async def test_poll_keeps_topic_routing(self):
@@ -257,7 +428,7 @@ class AsyncBehaviorTests(unittest.IsolatedAsyncioTestCase):
         from videl.plugins.base import plain as plain_caps
         self.assertIn("poll sent", plain_caps(screen.html).lower())
 
-    async def test_rich_edit_rejection_strips_icons_but_keeps_callbacks(self):
+    async def test_rich_edit_fallback_preserves_premium_emoji_ids_and_callbacks(self):
         from vendor.richgram.richgram.rich_ui import _rich_edit_via_client
 
         client = SimpleNamespace(
@@ -277,11 +448,11 @@ class AsyncBehaviorTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(result, "edited")
         fallback = client.edit_message_text.call_args.kwargs
-        self.assertEqual(fallback["text"], "🎵 Track")
+        self.assertEqual(fallback["text"], '<tg-emoji emoji-id="123">🎵</tg-emoji> Track')
         self.assertEqual(
             fallback["reply_markup"].inline_keyboard[0][0].callback_data, "stop"
         )
-        self.assertIsNone(
+        self.assertIsNotNone(
             fallback["reply_markup"].inline_keyboard[0][0].icon_custom_emoji_id
         )
 
@@ -298,7 +469,7 @@ class AsyncBehaviorTests(unittest.IsolatedAsyncioTestCase):
         )
         client.edit_message_text.assert_awaited_once()
 
-    async def test_rich_edit_rejection_strips_icons_but_keeps_callbacks(self):
+    async def test_rich_edit_fallback_preserves_premium_emoji_ids_and_callbacks(self):
         from vendor.richgram.richgram.rich_ui import _rich_edit_via_client
 
         client = SimpleNamespace(
@@ -318,11 +489,11 @@ class AsyncBehaviorTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(result, "edited")
         fallback = client.edit_message_text.call_args.kwargs
-        self.assertEqual(fallback["text"], "🎵 Track")
+        self.assertEqual(fallback["text"], '<tg-emoji emoji-id="123">🎵</tg-emoji> Track')
         self.assertEqual(
             fallback["reply_markup"].inline_keyboard[0][0].callback_data, "stop"
         )
-        self.assertIsNone(
+        self.assertIsNotNone(
             fallback["reply_markup"].inline_keyboard[0][0].icon_custom_emoji_id
         )
 
@@ -339,7 +510,7 @@ class AsyncBehaviorTests(unittest.IsolatedAsyncioTestCase):
         )
         client.edit_message_text.assert_awaited_once()
 
-    async def test_rich_edit_rejection_strips_icons_but_keeps_callbacks(self):
+    async def test_rich_edit_fallback_preserves_premium_emoji_ids_and_callbacks(self):
         from vendor.richgram.richgram.rich_ui import _rich_edit_via_client
 
         client = SimpleNamespace(
@@ -359,11 +530,11 @@ class AsyncBehaviorTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(result, "edited")
         fallback = client.edit_message_text.call_args.kwargs
-        self.assertEqual(fallback["text"], "🎵 Track")
+        self.assertEqual(fallback["text"], '<tg-emoji emoji-id="123">🎵</tg-emoji> Track')
         self.assertEqual(
             fallback["reply_markup"].inline_keyboard[0][0].callback_data, "stop"
         )
-        self.assertIsNone(
+        self.assertIsNotNone(
             fallback["reply_markup"].inline_keyboard[0][0].icon_custom_emoji_id
         )
 
@@ -380,7 +551,7 @@ class AsyncBehaviorTests(unittest.IsolatedAsyncioTestCase):
         )
         client.edit_message_text.assert_awaited_once()
 
-    async def test_rich_edit_rejection_strips_icons_but_keeps_callbacks(self):
+    async def test_rich_edit_fallback_preserves_premium_emoji_ids_and_callbacks(self):
         from vendor.richgram.richgram.rich_ui import _rich_edit_via_client
 
         client = SimpleNamespace(
@@ -400,11 +571,11 @@ class AsyncBehaviorTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(result, "edited")
         fallback = client.edit_message_text.call_args.kwargs
-        self.assertEqual(fallback["text"], "🎵 Track")
+        self.assertEqual(fallback["text"], '<tg-emoji emoji-id="123">🎵</tg-emoji> Track')
         self.assertEqual(
             fallback["reply_markup"].inline_keyboard[0][0].callback_data, "stop"
         )
-        self.assertIsNone(
+        self.assertIsNotNone(
             fallback["reply_markup"].inline_keyboard[0][0].icon_custom_emoji_id
         )
 
