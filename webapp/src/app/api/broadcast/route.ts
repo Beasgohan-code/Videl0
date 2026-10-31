@@ -10,17 +10,18 @@ export async function POST(req: NextRequest) {
   if (denied) return denied;
   const backend = backendUrl(), secret = internalSecret();
   if (!backend || !secret) return unavailableBackend();
-  if (Number(req.headers.get("content-length") || 0) > 4_400_000)
-    return Response.json({ ok: false, error: "Broadcast image upload is too large (4 MB maximum)" }, { status: 413 });
+  if (Number(req.headers.get("content-length") || 0) > 8_800_000)
+    return Response.json({ ok: false, error: "Broadcast media upload is too large (8 MB total maximum)" }, { status: 413 });
 
   const multipart = req.headers.get("content-type")?.includes("multipart/form-data");
-  let body: Record<string, unknown>, image: File | null = null;
+  let body: Record<string, unknown>, images: File[] = [];
   try {
     if (multipart) {
       const form = await req.formData();
       body = Object.fromEntries(form.entries());
-      const candidate = form.get("image");
-      if (candidate instanceof File) image = candidate;
+      images = form.getAll("images").filter((item): item is File => item instanceof File && item.size > 0);
+      const legacyImage = form.get("image");
+      if (images.length === 0 && legacyImage instanceof File && legacyImage.size > 0) images = [legacyImage];
     } else {
       const parsed = await req.json();
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("invalid body");
@@ -41,19 +42,22 @@ export async function POST(req: NextRequest) {
     return Response.json({ ok: false, error: "Choose a valid broadcast audience" }, { status: 400 });
   if (buttons === null)
     return Response.json({ ok: false, error: "Buttons must use secure HTTPS links, with up to eight buttons of 64 characters each" }, { status: 400 });
-  if (image && (!["image/jpeg", "image/png", "image/webp"].includes(image.type) || image.size > 4 * 1024 * 1024))
-    return Response.json({ ok: false, error: "Use a JPEG, PNG or WebP image under 4 MB" }, { status: 400 });
-  if (!text && !image)
-    return Response.json({ ok: false, error: "Add announcement text or an image" }, { status: 400 });
-  if (visibleLength(text) > (image ? 1024 : 4096))
-    return Response.json({ ok: false, error: image ? "Image captions allow 1,024 visible characters" : "Broadcast text is limited to 4,096 visible characters" }, { status: 400 });
+  const totalImageBytes = images.reduce((total, file) => total + file.size, 0);
+  if (images.length > 10 || totalImageBytes > 8 * 1024 * 1024 || images.some((file) => !["image/jpeg", "image/png", "image/webp"].includes(file.type) || file.size > 4 * 1024 * 1024))
+    return Response.json({ ok: false, error: "Choose up to ten JPEG, PNG or WebP images, each under 4 MB and 8 MB total" }, { status: 400 });
+  if (!text && images.length === 0)
+    return Response.json({ ok: false, error: "Add announcement text or media" }, { status: 400 });
+  if (images.length > 1 && buttons.length > 0)
+    return Response.json({ ok: false, error: "Telegram does not support inline keyboards on media albums. Remove the buttons or use a single image." }, { status: 400 });
+  if (visibleLength(text) > (images.length ? 1024 : 4096))
+    return Response.json({ ok: false, error: images.length ? "Media captions allow 1,024 visible characters" : "Broadcast text is limited to 4,096 visible characters" }, { status: 400 });
 
   try {
     let outgoing: BodyInit;
     const headers: Record<string, string> = { "X-Videl-Internal": secret };
-    if (image) {
+    if (images.length > 0) {
       const form = new FormData();
-      form.set("image", image, image.name || "broadcast-image");
+      for (const image of images) form.append("images", image, image.name || "broadcast-image");
       form.set("text", text);
       form.set("scope", scope);
       form.set("buttons", JSON.stringify(buttons));

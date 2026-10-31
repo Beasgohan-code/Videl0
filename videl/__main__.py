@@ -1044,25 +1044,32 @@ def _internal_chat_settings():
 def _internal_broadcast():
     if not _internal_authorized():
         return jsonify({"ok": False, "error": "unauthorized"}), 403
-    if request.content_length and request.content_length > 4400000:
-        return jsonify({"ok": False, "error": "Broadcast image upload is too large (4 MB maximum)"}), 413
-    upload = request.files.get("image") if request.mimetype == "multipart/form-data" else None
-    image_data = None
-    image_mime = None
-    if upload is not None:
+    if request.content_length and request.content_length > 8800000:
+        return jsonify({"ok": False, "error": "Broadcast media upload is too large (8 MB total maximum)"}), 413
+    uploads = request.files.getlist("images") if request.mimetype == "multipart/form-data" else []
+    if not uploads and request.mimetype == "multipart/form-data" and request.files.get("image"):
+        uploads = [request.files.get("image")]
+    media_items = []
+    if len(uploads) > 10:
+        return jsonify({"ok": False, "error": "A media album supports up to ten images"}), 400
+    if uploads:
         from io import BytesIO
         from PIL import Image, UnidentifiedImageError
-        image_data = upload.stream.read(4 * 1024 * 1024 + 1)
-        if len(image_data) > 4 * 1024 * 1024:
-            return jsonify({"ok": False, "error": "Use an image under 4 MB"}), 413
-        try:
-            with Image.open(BytesIO(image_data)) as image:
-                image_mime = {"JPEG": "image/jpeg", "PNG": "image/png", "WEBP": "image/webp"}.get(image.format)
-                if not image_mime or image.width * image.height > 25000000:
-                    raise ValueError("Unsupported image type or dimensions")
-                image.verify()
-        except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError):
-            return jsonify({"ok": False, "error": "Upload a valid PNG, JPEG or WebP under 25 megapixels"}), 400
+        total_bytes = 0
+        for upload in uploads:
+            image_data = upload.stream.read(4 * 1024 * 1024 + 1)
+            total_bytes += len(image_data)
+            if len(image_data) > 4 * 1024 * 1024 or total_bytes > 8 * 1024 * 1024:
+                return jsonify({"ok": False, "error": "Each image must be under 4 MB and the album under 8 MB total"}), 413
+            try:
+                with Image.open(BytesIO(image_data)) as image:
+                    image_mime = {"JPEG": "image/jpeg", "PNG": "image/png", "WEBP": "image/webp"}.get(image.format)
+                    if not image_mime or image.width * image.height > 25000000:
+                        raise ValueError("Unsupported image type or dimensions")
+                    image.verify()
+            except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError):
+                return jsonify({"ok": False, "error": "Upload valid PNG, JPEG or WebP images under 25 megapixels"}), 400
+            media_items.append({"bytes": image_data, "mime": image_mime, "filename": upload.filename or "broadcast-image"})
     body = request.form.to_dict() if request.mimetype == "multipart/form-data" else request.get_json(silent=True)
     if not isinstance(body, dict):
         return jsonify({"ok": False, "error": "A JSON object is required"}), 400
@@ -1093,8 +1100,10 @@ def _internal_broadcast():
         if not isinstance(label, str) or not label.strip() or len(label.strip()) > 64 or not valid_url:
             return jsonify({"ok": False, "error": "Buttons need a label up to 64 characters and a secure HTTPS URL"}), 400
         buttons.append({"text": label.strip(), "url": parsed_url.geturl()})
-    if not text and image_data is None:
-        return jsonify({"ok": False, "error": "Add announcement text or an image"}), 400
+    if not text and not media_items:
+        return jsonify({"ok": False, "error": "Add announcement text or media"}), 400
+    if len(media_items) > 1 and buttons:
+        return jsonify({"ok": False, "error": "Telegram does not support inline keyboards on media albums. Remove the buttons or use one image."}), 400
     parse_mode = "HTML" if text else None
     if parse_mode:
         from videl.utils.group_view import normalize_rich
@@ -1103,8 +1112,8 @@ def _internal_broadcast():
             parse_mode = None
     from videl.utils.post_format import post_text_length
     text_length = post_text_length(text, parse_mode)
-    if text_length > (1024 if image_data is not None else 4096):
-        return jsonify({"ok": False, "error": "Image captions allow 1024 characters" if image_data is not None else "Broadcast text is limited to 4096 visible characters"}), 400
+    if text_length > (1024 if media_items else 4096):
+        return jsonify({"ok": False, "error": "Media captions allow 1024 characters" if media_items else "Broadcast text is limited to 4096 visible characters"}), 400
     try:
         from videl.utils.db import get_db
         db = get_db()
@@ -1122,19 +1131,35 @@ def _internal_broadcast():
         reply_markup = {"inline_keyboard": [[button] for button in buttons]} if buttons else None
         for chat_id in unique_targets:
             payload = {"chat_id": chat_id}
-            if image_data is not None:
+            files = None
+            if len(media_items) > 1:
+                from io import BytesIO
+                method = "sendMediaGroup"
+                album = []
+                files = {}
+                for index, item in enumerate(media_items):
+                    field = f"photo{index}"
+                    entry = {"type": "photo", "media": f"attach://{field}"}
+                    if index == 0 and text:
+                        entry["caption"] = text
+                        if parse_mode:
+                            entry["parse_mode"] = parse_mode
+                    album.append(entry)
+                    files[field] = (item["filename"], BytesIO(item["bytes"]), item["mime"])
+                payload["media"] = album
+            elif media_items:
                 from io import BytesIO
                 method = "sendPhoto"
                 payload["caption"] = text
                 if parse_mode:
                     payload["parse_mode"] = parse_mode
-                files = {"photo": (upload.filename or "broadcast-image", BytesIO(image_data), image_mime)}
+                item = media_items[0]
+                files = {"photo": (item["filename"], BytesIO(item["bytes"]), item["mime"])}
             else:
                 method = "sendMessage"
                 payload["text"] = text
                 if parse_mode:
                     payload["parse_mode"] = parse_mode
-                files = None
             if reply_markup:
                 payload["reply_markup"] = reply_markup
             status, res = _bot_api(method, payload, files=files)
