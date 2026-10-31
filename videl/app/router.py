@@ -148,6 +148,8 @@ class Router:
         parsed=parse(getattr(message,'text',None),getattr(me,'username','') or '')
         if parsed is None or parsed.name not in self.commands:return False
         command=self.commands[parsed.name]
+        if chat_kind(message) in {'group','supergroup'}:
+            log.info('Group command reached router: /%s', command.name)
         original_message=message
         actor=getattr(message,'from_user',None)
         # Only the explicit connected-command allowlist may use a saved group
@@ -244,9 +246,16 @@ class Router:
                     log.debug("Private reply localization unavailable", exc_info=True)
             # Rendering is outside the action exception handler: a render error
             # cannot trigger a second send or reinterpret an acknowledged action.
+            if chat_kind(original_message) in {'group','supergroup'}:
+                log.info('Group command /%s handler returned %s', command.name, 'a reply' if screen is not None else 'no reply')
             if screen is not None:
                 if screen.animation is None:
-                    await rich_reply(original_message,screen.html,reply_markup=screen.keyboard,client=client,navigation=False)
+                    try:
+                        await rich_reply(original_message,screen.html,reply_markup=screen.keyboard,client=client,navigation=False)
+                    except Exception as error:
+                        if chat_kind(original_message) in {'group','supergroup'}:
+                            log.warning('Group command /%s reply failed (%s)', command.name, type(error).__name__)
+                        raise
                 else:
                     # GIF delivery is a single media send. Retry only a definite
                     # visual rejection; never send a second copy after a timeout.

@@ -23,6 +23,18 @@ from videl.utils.command_ui import notice, rich_reply
 _COMMAND = re.compile(r"^/([A-Za-z0-9_]{1,32})(?:@([A-Za-z0-9_]{1,32}))?(?:\s|$)")
 
 
+@bot.on_message(filters.group & filters.text, group=-2)
+async def trace_group_commands(_, message):
+    """Log only command names and mention-match state to diagnose missing replies."""
+    match = _COMMAND.match(getattr(message, "text", "") or "")
+    if not match:
+        return
+    mention = match.group(2)
+    username = getattr(getattr(bot, "me", None), "username", "") or ""
+    mention_matches = not mention or bool(username and mention.casefold() == username.casefold())
+    LOGGER.info("Group command update received: /%s (bot mention matches: %s)", match.group(1).casefold(), mention_matches)
+
+
 @bot.on_message(filters.group & filters.text, group=-1)
 async def disabled_command_gate(_, message):
     """Refuse a command the group switched off, then stop lower handlers."""
@@ -47,6 +59,7 @@ async def disabled_command_gate(_, message):
             return
     except Exception:
         LOGGER.debug("admin check failed in the command gate", exc_info=True)
+    LOGGER.warning("Group command blocked by disabled-command policy: /%s", name)
     try:
         await rich_reply(
             message,
@@ -57,6 +70,6 @@ async def disabled_command_gate(_, message):
             ),
             client=bot,
         )
-    except Exception:
-        LOGGER.debug("the command gate could not send its notice", exc_info=True)
+    except Exception as error:
+        LOGGER.warning("The disabled-command notice failed to send (%s)", type(error).__name__)
     raise StopPropagation
