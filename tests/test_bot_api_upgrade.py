@@ -374,6 +374,19 @@ class AsyncBehaviorTests(unittest.IsolatedAsyncioTestCase):
         )
         sender.send_message.assert_not_awaited()
 
+    async def test_custom_emoji_edit_rejection_never_downgrades_to_unicode(self):
+        from vendor.richgram.richgram import rich_ui as rich_transport
+
+        payload = '<tg-emoji emoji-id="123">🎵</tg-emoji> Now playing'
+        client = SimpleNamespace(
+            edit_message_text=AsyncMock(side_effect=BadRequest("CUSTOM_EMOJI_INVALID")),
+        )
+        with patch.object(rich_transport, "RICH_AVAILABLE", False):
+            result = await rich_transport._rich_edit_via_client(client, 1, 2, payload, None)
+        self.assertIsNone(result)
+        client.edit_message_text.assert_awaited_once()
+        self.assertEqual(client.edit_message_text.await_args.kwargs["text"], payload)
+
     async def test_rich_timeout_does_not_fall_through_to_a_second_send(self):
         from vendor.richgram.richgram.rich_ui import rich_send
 
