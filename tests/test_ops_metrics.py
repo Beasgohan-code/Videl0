@@ -104,6 +104,32 @@ class OpsMetricsTests(unittest.TestCase):
         self.assertNotIn("private context", repr(payload))
         self.assertNotIn("error", event)
 
+    def test_ops_logs_are_bounded_to_20_recent_records_and_exclude_raw_message(self):
+        db = mongomock.MongoClient().videl
+        now = __import__("time").time()
+        db["error_logs"].insert_many([
+            {"where": f"component-{index}", "error": "database timeout", "ts": now - index}
+            for index in range(25)
+        ] + [{"where": "old", "error": "old timeout", "ts": now - 90000}])
+        with patch.object(self.api.config, "WEBAPP_SECRET", "ops-test-secret"):
+            with patch("videl.utils.db.get_db", return_value=db):
+                response = self.client.get("/internal/ops/logs", headers={"X-Videl-Internal": "ops-test-secret"})
+        payload = response.get_json()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(payload["events"]), 20)
+        self.assertNotIn("error", payload["events"][0])
+        self.assertNotIn("old", repr(payload))
+
+    def test_ops_protection_reports_unavailable_when_database_is_down(self):
+        with patch.object(self.api.config, "WEBAPP_SECRET", "ops-test-secret"):
+            with patch("videl.utils.db.get_db", return_value=None):
+                response = self.client.get("/internal/ops/protection", headers={"X-Videl-Internal": "ops-test-secret"})
+        payload = response.get_json()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["state"], "unavailable")
+        self.assertIsNone(payload["protected_groups"])
+        self.assertNotIn("error", payload)
+
     def test_ops_event_feed_requires_secret_and_returns_only_bounded_safe_schema(self):
         db = mongomock.MongoClient().videl
         db["command_events"].insert_many([
