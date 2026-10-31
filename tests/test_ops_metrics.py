@@ -84,6 +84,26 @@ class OpsMetricsTests(unittest.TestCase):
         self.assertFalse(payload["sample_truncated"])
         self.assertNotIn("chat_id", repr(payload))
 
+    def test_ops_logs_return_only_redacted_categories_and_sources(self):
+        db = mongomock.MongoClient().videl
+        db["error_logs"].insert_one({
+            "where": "plugins.command user 12345", "error": "database timeout user@example.com bearer secret-value",
+            "context": "private context", "ts": __import__("time").time(),
+        })
+        with patch.object(self.api.config, "WEBAPP_SECRET", "ops-test-secret"):
+            with patch("videl.utils.db.get_db", return_value=db):
+                self.assertEqual(self.client.get("/internal/ops/logs").status_code, 403)
+                response = self.client.get("/internal/ops/logs", headers={"X-Videl-Internal": "ops-test-secret"})
+        payload = response.get_json()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["schema_version"], 1)
+        event = payload["events"][0]
+        self.assertEqual(event["kind"], "timeout")
+        self.assertNotIn("12345", repr(payload))
+        self.assertNotIn("example.com", repr(payload))
+        self.assertNotIn("private context", repr(payload))
+        self.assertNotIn("error", event)
+
     def test_ops_event_feed_requires_secret_and_returns_only_bounded_safe_schema(self):
         db = mongomock.MongoClient().videl
         db["command_events"].insert_many([

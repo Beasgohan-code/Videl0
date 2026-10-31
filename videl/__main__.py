@@ -683,6 +683,45 @@ def _internal_ops_protection():
                         "protected_groups": None}), 200
 
 
+@_flask.get("/internal/ops/logs")
+def _internal_ops_logs():
+    """Expose a short error feed as redacted categories, never raw log text."""
+    if not _internal_authorized():
+        return jsonify({"ok": False, "error": "unauthorized"}), 403
+    try:
+        from videl.utils.db import get_db
+        from videl.utils.redaction import redact_secrets
+        db = get_db()
+        if db is None:
+            raise RuntimeError("database unavailable")
+        since = time.time() - 86400
+        rows = db["error_logs"].find(
+            {"ts": {"$gte": since}}, {"_id": 0, "where": 1, "error": 1, "ts": 1},
+        ).sort("ts", -1).limit(20)
+        events = []
+        for row in rows:
+            error = str(row.get("error") or "").lower()
+            kind = next((name for token, name in (
+                ("timeout", "timeout"), ("timed out", "timeout"),
+                ("connect", "connection"), ("mongo", "database"),
+                ("permission", "permission"), ("forbidden", "permission"),
+                ("rate limit", "rate_limit"), ("429", "rate_limit"),
+                ("invalid", "validation"), ("provider", "provider"),
+            ) if token in error), "error")
+            where = redact_secrets(row.get("where") or "unknown", limit=300)
+            where = re.sub(r"https?://\S+", "<url>", where)
+            where = re.sub(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}", "<email>", where)
+            where = re.sub(r"[A-Za-z0-9_-]{24,}", "<redacted>", where)
+            where = re.sub(r"\d{4,}", "<id>", where)[:80]
+            stamp = row.get("ts")
+            events.append({"at": int(stamp) if isinstance(stamp, (int, float)) else None,
+                           "source": where, "kind": kind})
+        return jsonify({"ok": True, "schema_version": 1, "window_seconds": 86400,
+                        "measured_at": int(time.time()), "events": events}), 200
+    except Exception:
+        return jsonify({"ok": False, "schema_version": 1, "events": []}), 503
+
+
 @_flask.get("/internal/ops/events")
 def _internal_ops_events():
 
