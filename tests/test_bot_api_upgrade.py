@@ -87,7 +87,7 @@ class TransportTests(unittest.TestCase):
         rejected = Mock(status_code=400)
         rejected.json.return_value = {
             "ok": False,
-            "description": "CUSTOM_EMOJI_INVALID",
+            "description": "BUTTON_STYLE_INVALID",
         }
         accepted = Mock(status_code=200)
         accepted.json.return_value = {"ok": True, "result": {"message_id": 9}}
@@ -99,10 +99,10 @@ class TransportTests(unittest.TestCase):
         fallback = send.call_args_list[1].kwargs["json"]
         self.assertEqual(fallback["message_thread_id"], 22)
         self.assertTrue(fallback["protect_content"])
-        self.assertEqual(fallback["text"], "🎵 Hello")
+        self.assertEqual(fallback["text"], '<tg-emoji emoji-id="123">🎵</tg-emoji> Hello')
         self.assertEqual(
             fallback["reply_markup"]["inline_keyboard"][0][0],
-            {"text": "Open", "url": "https://example.com"},
+            {"text": "Open", "url": "https://example.com", "icon_custom_emoji_id": "123"},
         )
         self.assertIn(
             "icon_custom_emoji_id", original["reply_markup"]["inline_keyboard"][0][0]
@@ -306,7 +306,7 @@ class AsyncBehaviorTests(unittest.IsolatedAsyncioTestCase):
         markup = InlineKeyboardMarkup(
             [[button("Stop", callback_data="stop", icon="cross")]]
         )
-        send = AsyncMock(side_effect=[BadRequest("CUSTOM_EMOJI_INVALID"), "accepted"])
+        send = AsyncMock(side_effect=[BadRequest("STYLE_INVALID"), "accepted"])
         result = await visual_call(
             send,
             1,
@@ -314,11 +314,12 @@ class AsyncBehaviorTests(unittest.IsolatedAsyncioTestCase):
             reply_markup=markup,
         )
         self.assertEqual(result, "accepted")
-        self.assertEqual(send.call_args.kwargs["caption"], "🎵 Track")
+        self.assertEqual(send.call_args.kwargs["caption"], '<tg-emoji emoji-id="123">🎵</tg-emoji> Track')
         self.assertEqual(
             send.call_args.kwargs["reply_markup"].inline_keyboard[0][0].callback_data,
             "stop",
         )
+        self.assertIsNotNone(send.call_args.kwargs["reply_markup"].inline_keyboard[0][0].icon_custom_emoji_id)
 
     async def test_rich_bad_request_for_an_unrelated_reason_does_not_strip_custom_emoji(self):
         from vendor.richgram.richgram import rich_ui as transport
@@ -335,15 +336,43 @@ class AsyncBehaviorTests(unittest.IsolatedAsyncioTestCase):
             await visual_call(send, 1, text="Hello")
         send.assert_awaited_once()
 
-    async def test_rich_edit_unrelated_bad_request_keeps_emoji_and_does_not_retry(self):
-        from vendor.richgram.richgram.rich_ui import _rich_edit_via_client
+    async def test_rich_edit_unrelated_bad_request_preserves_emoji_through_html_fallback(self):
+        from vendor.richgram.richgram import rich_ui as rich_transport
         client = SimpleNamespace(edit_message_text=AsyncMock(side_effect=BadRequest("CHAT_WRITE_FORBIDDEN")))
-        result = await _rich_edit_via_client(
-            client, 1, 2, '<tg-emoji emoji-id="123">🎵</tg-emoji> Track', None
-        )
+        payload = '<tg-emoji emoji-id="123">🎵</tg-emoji> Track'
+        with patch.object(rich_transport, "RICH_AVAILABLE", True):
+            result = await rich_transport._rich_edit_via_client(client, 1, 2, payload, None)
         self.assertIsNone(result)
-        client.edit_message_text.assert_awaited_once()
-        self.assertIn("<tg-emoji", client.edit_message_text.await_args.kwargs["text"])
+        self.assertEqual(client.edit_message_text.await_count, 2)
+        self.assertEqual(client.edit_message_text.call_args_list[0].kwargs["rich_message"].html, payload)
+        self.assertIn("<tg-emoji", client.edit_message_text.call_args_list[1].kwargs["text"])
+
+    async def test_custom_emoji_markup_selects_rich_send_and_edit_transport(self):
+        from vendor.richgram.richgram import rich_ui as rich_transport
+
+        payload = '<tg-emoji emoji-id="123">🎵</tg-emoji> Now playing'
+        sender = SimpleNamespace(
+            send_rich_message=AsyncMock(return_value="sent"),
+            send_message=AsyncMock(),
+        )
+        editor = SimpleNamespace(
+            edit_message_text=AsyncMock(return_value="edited"),
+        )
+        with patch.object(rich_transport, "RICH_AVAILABLE", True):
+            self.assertEqual(await rich_transport.rich_send(sender, 1, payload), "sent")
+            self.assertEqual(
+                sender.send_rich_message.await_args.kwargs["rich_message"].html,
+                payload,
+            )
+            self.assertEqual(
+                await rich_transport._rich_edit_via_client(editor, 1, 2, payload, None),
+                "edited",
+            )
+        self.assertEqual(
+            editor.edit_message_text.await_args.kwargs["rich_message"].html,
+            payload,
+        )
+        sender.send_message.assert_not_awaited()
 
     async def test_rich_timeout_does_not_fall_through_to_a_second_send(self):
         from vendor.richgram.richgram.rich_ui import rich_send
@@ -386,7 +415,7 @@ class AsyncBehaviorTests(unittest.IsolatedAsyncioTestCase):
         from videl.plugins.base import plain as plain_caps
         self.assertIn("poll sent", plain_caps(screen.html).lower())
 
-    async def test_rich_edit_rejection_strips_icons_but_keeps_callbacks(self):
+    async def test_rich_edit_fallback_preserves_premium_emoji_ids_and_callbacks(self):
         from vendor.richgram.richgram.rich_ui import _rich_edit_via_client
 
         client = SimpleNamespace(
@@ -406,11 +435,11 @@ class AsyncBehaviorTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(result, "edited")
         fallback = client.edit_message_text.call_args.kwargs
-        self.assertEqual(fallback["text"], "🎵 Track")
+        self.assertEqual(fallback["text"], '<tg-emoji emoji-id="123">🎵</tg-emoji> Track')
         self.assertEqual(
             fallback["reply_markup"].inline_keyboard[0][0].callback_data, "stop"
         )
-        self.assertIsNone(
+        self.assertIsNotNone(
             fallback["reply_markup"].inline_keyboard[0][0].icon_custom_emoji_id
         )
 
@@ -427,7 +456,7 @@ class AsyncBehaviorTests(unittest.IsolatedAsyncioTestCase):
         )
         client.edit_message_text.assert_awaited_once()
 
-    async def test_rich_edit_rejection_strips_icons_but_keeps_callbacks(self):
+    async def test_rich_edit_fallback_preserves_premium_emoji_ids_and_callbacks(self):
         from vendor.richgram.richgram.rich_ui import _rich_edit_via_client
 
         client = SimpleNamespace(
@@ -447,11 +476,11 @@ class AsyncBehaviorTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(result, "edited")
         fallback = client.edit_message_text.call_args.kwargs
-        self.assertEqual(fallback["text"], "🎵 Track")
+        self.assertEqual(fallback["text"], '<tg-emoji emoji-id="123">🎵</tg-emoji> Track')
         self.assertEqual(
             fallback["reply_markup"].inline_keyboard[0][0].callback_data, "stop"
         )
-        self.assertIsNone(
+        self.assertIsNotNone(
             fallback["reply_markup"].inline_keyboard[0][0].icon_custom_emoji_id
         )
 
@@ -468,7 +497,7 @@ class AsyncBehaviorTests(unittest.IsolatedAsyncioTestCase):
         )
         client.edit_message_text.assert_awaited_once()
 
-    async def test_rich_edit_rejection_strips_icons_but_keeps_callbacks(self):
+    async def test_rich_edit_fallback_preserves_premium_emoji_ids_and_callbacks(self):
         from vendor.richgram.richgram.rich_ui import _rich_edit_via_client
 
         client = SimpleNamespace(
@@ -488,11 +517,11 @@ class AsyncBehaviorTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(result, "edited")
         fallback = client.edit_message_text.call_args.kwargs
-        self.assertEqual(fallback["text"], "🎵 Track")
+        self.assertEqual(fallback["text"], '<tg-emoji emoji-id="123">🎵</tg-emoji> Track')
         self.assertEqual(
             fallback["reply_markup"].inline_keyboard[0][0].callback_data, "stop"
         )
-        self.assertIsNone(
+        self.assertIsNotNone(
             fallback["reply_markup"].inline_keyboard[0][0].icon_custom_emoji_id
         )
 
@@ -509,7 +538,7 @@ class AsyncBehaviorTests(unittest.IsolatedAsyncioTestCase):
         )
         client.edit_message_text.assert_awaited_once()
 
-    async def test_rich_edit_rejection_strips_icons_but_keeps_callbacks(self):
+    async def test_rich_edit_fallback_preserves_premium_emoji_ids_and_callbacks(self):
         from vendor.richgram.richgram.rich_ui import _rich_edit_via_client
 
         client = SimpleNamespace(
@@ -529,11 +558,11 @@ class AsyncBehaviorTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(result, "edited")
         fallback = client.edit_message_text.call_args.kwargs
-        self.assertEqual(fallback["text"], "🎵 Track")
+        self.assertEqual(fallback["text"], '<tg-emoji emoji-id="123">🎵</tg-emoji> Track')
         self.assertEqual(
             fallback["reply_markup"].inline_keyboard[0][0].callback_data, "stop"
         )
-        self.assertIsNone(
+        self.assertIsNotNone(
             fallback["reply_markup"].inline_keyboard[0][0].icon_custom_emoji_id
         )
 

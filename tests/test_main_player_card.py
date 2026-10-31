@@ -28,12 +28,13 @@ class MainPlayerCardTests(unittest.IsolatedAsyncioTestCase):
             patch.dict(player._np_total, {CHAT_ID: 180}),
             patch.dict(player._player_media_file_ids, {CHAT_ID: "telegram-file-id"}),
             patch.object(player, "current_position", return_value=12),
-            patch.object(player, "_now_playing_caption", return_value="<h2>Now playing</h2>"),
+            patch.object(player, "_now_playing_caption", return_value='<h2><tg-emoji emoji-id="6037364759811068375">🎶</tg-emoji> Now playing</h2>'),
             patch.object(player, "rich_edit", new=AsyncMock()) as edit,
         ):
             await player.refresh_np_ui(CHAT_ID)
         self.assertIn("<img src=\"tg://photo?id=videl_player_art\"", edit.await_args.args[1])
         self.assertIn("Now playing", edit.await_args.args[1])
+        self.assertIn('<tg-emoji emoji-id="6037364759811068375">🎶</tg-emoji>', edit.await_args.args[1])
         self.assertEqual(edit.await_args.kwargs["media"][0].id, "videl_player_art")
         self.assertEqual(edit.await_args.kwargs["media"][0].media.media, "telegram-file-id")
 

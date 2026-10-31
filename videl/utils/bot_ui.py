@@ -26,38 +26,6 @@ _ICON_FALLBACKS = {
     for key, emoji_id in PREMIUM_IDS.items()
     if FALLBACK.get(key)
 }
-_VISUAL_REJECTION_MARKERS = (
-    "custom_emoji", "custom emoji", "icon_custom_emoji", "button_style",
-    "style_invalid", "style is not allowed", "button_type_invalid",
-    "unsupported button style", "unsupported start tag 'tg-emoji'",
-    'unsupported start tag "tg-emoji"',
-)
-
-
-def _has_visual_content(args, kwargs) -> tuple[bool, bool]:
-    texts = [value for value in args if isinstance(value, str)]
-    texts.extend(kwargs.get(name) for name in ("text", "caption") if isinstance(kwargs.get(name), str))
-    has_custom_emoji = any("<tg-emoji" in value.casefold() for value in texts)
-    markups = [kwargs.get(name) for name in ("reply_markup", "markup")]
-    has_button_visual = any(
-        getattr(item, "icon_custom_emoji_id", None)
-        or getattr(getattr(item, "style", None), "value", "default") != "default"
-        for markup in markups
-        for row in getattr(markup, "inline_keyboard", [])
-        for item in row
-    )
-    return has_custom_emoji, has_button_visual
-
-
-def _is_visual_rejection(error, args, kwargs) -> bool:
-    message = str(error).casefold()
-    has_custom_emoji, has_button_visual = _has_visual_content(args, kwargs)
-    return bool(
-        any(marker in message for marker in _VISUAL_REJECTION_MARKERS)
-        and (has_custom_emoji or has_button_visual)
-    )
-
-
 def button(text: str, *args, style=None, icon=None, **kwargs) -> NativeButton:
     """Keep every existing action intact while applying a restrained semantic style."""
     if args:
@@ -224,8 +192,31 @@ def plain_keyboard(markup):
     return InlineKeyboardMarkup(rows)
 
 
+
+
+def unstyled_keyboard(markup):
+    """Drop rejected button styles while preserving Premium Emoji icon IDs."""
+    if not isinstance(markup, InlineKeyboardMarkup):
+        return markup
+    rows = []
+    for row in markup.inline_keyboard:
+        clean = []
+        for item in row:
+            clone = copy.copy(item)
+            clone.style = enums.ButtonStyle.DEFAULT
+            clean.append(clone)
+        rows.append(clean)
+    return InlineKeyboardMarkup(rows)
+
+
+def _is_button_style_rejection(error) -> bool:
+    message = str(error).casefold()
+    return any(marker in message for marker in (
+        "button_style", "style_invalid", "style is not allowed", "unsupported button style",
+    ))
+
 async def visual_call(function, *args, **kwargs):
-    """Retry only rejected custom visuals. Never automatically retry network failures."""
+    """Retry rejected button styles only; never downgrade Premium Emoji entities."""
     from pyrogram.errors import BadRequest, MessageNotModified
 
     kwargs = dict(kwargs)
@@ -237,33 +228,17 @@ async def visual_call(function, *args, **kwargs):
     except MessageNotModified:
         return None
     except BadRequest as error:
-        if not _is_visual_rejection(error, args, kwargs):
+        if not _is_button_style_rejection(error):
             raise
         logging.getLogger(__name__).info(
-            "Telegram rejected optional custom emoji/button visuals; retrying this message with standard visuals"
+            "Telegram rejected button styling; retrying with Premium Emoji text and icon IDs preserved"
         )
         safe = dict(kwargs)
         safe_args = list(args)
         changed = False
-        # Richgram adapters often receive the message text positionally, while
-        # native Pyrogram calls may pass it by keyword. Strip only optional
-        # premium entities from either form when Telegram rejects them.
-        for index, value in enumerate(safe_args):
-            if isinstance(value, str) and "<tg-emoji" in value:
-                safe_args[index] = re.sub(
-                    r"<tg-emoji\b[^>]*>(.*?)</tg-emoji>", r"\1", value, flags=re.I | re.S
-                )
-                changed = True
-        for field in ("text", "caption"):
-            value = safe.get(field)
-            if isinstance(value, str) and "<tg-emoji" in value:
-                safe[field] = re.sub(
-                    r"<tg-emoji\b[^>]*>(.*?)</tg-emoji>",
-                    r"\1",
-                    value,
-                    flags=re.I | re.S,
-                )
-                changed = True
+        # Keep custom-emoji text and button icon IDs intact. Only strip rejected
+        # button styles; flattening <tg-emoji> made rich edits look successful
+        # while replacing Premium Emoji with ordinary glyphs.
         for field in ("reply_markup", "markup"):
             markup = safe.get(field)
             if any(
@@ -272,7 +247,7 @@ async def visual_call(function, *args, **kwargs):
                 for row in getattr(markup, "inline_keyboard", [])
                 for item in row
             ):
-                safe[field] = plain_keyboard(markup)
+                safe[field] = unstyled_keyboard(markup)
                 changed = True
         if not changed:
             raise

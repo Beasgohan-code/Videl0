@@ -185,20 +185,18 @@ class ModernCommandsTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue('<tg-emoji' in public or '🎛' in public)
 
 class StyledFallbackTests(unittest.IsolatedAsyncioTestCase):
-    async def test_rich_send_retries_premium_emoji_rejection_with_unicode_fallback(self):
+    async def test_premium_emoji_rejection_never_silently_downgrades_message_text(self):
         from pyrogram.errors import BadRequest
         from videl.utils.command_ui import rich_send
-        send = AsyncMock(side_effect=[BadRequest("CUSTOM_EMOJI_INVALID"), "sent"])
+        send = AsyncMock(side_effect=BadRequest("CUSTOM_EMOJI_INVALID"))
         with patch("videl.utils.command_ui._send", send):
-            result = await rich_send(
-                SimpleNamespace(), 123,
-                '<tg-emoji emoji-id="123">🎵</tg-emoji>', navigation=False,
-            )
-        self.assertEqual(result, "sent")
-        self.assertEqual(send.await_count, 2)
-        retry_text = send.await_args.args[2]
-        self.assertNotIn("<tg-emoji", retry_text)
-        self.assertIn("🎵", retry_text)
+            with self.assertRaises(BadRequest):
+                await rich_send(
+                    SimpleNamespace(), 123,
+                    '<tg-emoji emoji-id="123">🎵</tg-emoji>', navigation=False,
+                )
+        send.assert_awaited_once()
+        self.assertIn("<tg-emoji", send.await_args.args[2])
 
     async def test_unrelated_bad_request_does_not_strip_premium_emoji_or_retry(self):
         from pyrogram.errors import BadRequest
