@@ -50,6 +50,19 @@ class CommandRegistryAuditTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(router.commands["settings"].policy, "group")
         self.assertEqual(router.commands["setup"].policy, "group")
 
+    def test_group_command_manager_uses_the_existing_disable_store(self):
+        path = Path(__file__).parents[1] / "videl/plugins/settings.py"
+        source = path.read_text()
+        tree = ast.parse(source)
+        screen = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "_screen")
+        callback = next(node for node in tree.body if isinstance(node, ast.AsyncFunctionDef) and node.name == "settings_callback")
+        self.assertIn('section=="commands"', ast.get_source_segment(source, screen))
+        self.assertIn("disabled_cmds", ast.get_source_segment(source, screen))
+        callback_source = ast.get_source_segment(source, callback)
+        self.assertIn("disable_cmd", callback_source)
+        self.assertIn("enable_cmd", callback_source)
+        self.assertIn("record_bot", callback_source)
+
     def test_every_declared_command_plugin_is_mounted(self):
         mounted = {command.handler.__module__.rsplit(".", 1)[-1] for command in router.commands.values()
                    if command.handler.__module__.startswith("videl.plugins.")}
@@ -60,9 +73,10 @@ class CommandRegistryAuditTests(unittest.IsolatedAsyncioTestCase):
         for name, _description in OWNER_COMMANDS:
             self.assertIn(name, registered, f"Telegram menu command /{name} has no handler")
 
-    def test_retired_aliases_are_gone_and_rose_style_adminlist_alias_is_registered(self):
+    def test_setup_alias_and_rose_style_adminlist_alias_are_registered(self):
         registered = {entry["name"] for entry in commands()}
-        self.assertNotIn("setup", router.commands)
+        self.assertIn("setup", router.commands)
+        self.assertIn("setup", registered)
         self.assertNotIn("modernhelp", registered)
         self.assertIn("adminlist", registered)
         self.assertEqual(router.commands["adminlist"].handler.__name__, "admins")

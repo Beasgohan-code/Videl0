@@ -13,7 +13,7 @@ from videl.utils.bot_ui import button
 from videl.utils.command_ui import rich_edit
 from videl.utils.moderation import LOCK_TYPES
 
-_TABS = {"home", "music", "welcome", "safety", "moderation", "retention", "blocklist", "presets", "sessions"}
+_TABS = {"home", "music", "welcome", "safety", "moderation", "retention", "blocklist", "presets", "sessions", "commands"}
 _LOCK_KEYS = {f"lock_{kind}" for kind in LOCK_TYPES} | {"lock_forwards"}
 _PROMPTS: dict[tuple[int, int], tuple[int, str, float]] = {}
 _TOGGLES = {
@@ -29,9 +29,10 @@ def _switch(chat_id, key, label, default=False):
 def _nav(chat_id):
     return [[button("Overview",callback_data=f"settings:{chat_id}:tab:home"),button("Music",callback_data=f"settings:{chat_id}:tab:music"),button("Welcome",callback_data=f"settings:{chat_id}:tab:welcome")],
             [button("Protection",callback_data=f"settings:{chat_id}:tab:safety"),button("Moderation",callback_data=f"settings:{chat_id}:tab:moderation"),button("Retention",callback_data=f"settings:{chat_id}:tab:retention")],
-            [button("Music blocklist",callback_data=f"settings:{chat_id}:tab:blocklist"),button("Queue presets",callback_data=f"settings:{chat_id}:tab:presets"),button("Listening sessions",callback_data=f"settings:{chat_id}:tab:sessions")]]
+            [button("Music blocklist",callback_data=f"settings:{chat_id}:tab:blocklist"),button("Queue presets",callback_data=f"settings:{chat_id}:tab:presets"),button("Listening sessions",callback_data=f"settings:{chat_id}:tab:sessions")],
+            [button("Command manager",callback_data=f"settings:{chat_id}:tab:commands")]]
 
-def _screen(chat_id, section="home"):
+def _screen(chat_id, section="home", *, query="", category="all", page=0):
     markup=_nav(chat_id)
     if section=="home":
         fields=(("Member music requests","music_requests_enabled",True),("Music request approval","music_approval_required",False),("Shuffle new requests","music_shuffle_enabled",False),("Welcome messages","welcome_enabled",True),("Goodbye messages","goodbye_enabled",False),("New-member verification","captcha_enabled",False),("Anti-flood","antispam",False))
@@ -94,15 +95,59 @@ def _screen(chat_id, section="home"):
             markup.append([button("Cancel session",callback_data=f"settings:{chat_id}:session:cancel:{item['_id']}",style="danger")])
         text=heading("Scheduled listening sessions",3)+body("Schedule a one-time group announcement up to 30 days ahead. When it fires, member music requests are opened automatically. Times are UTC.")+table(rows if rows else [("Upcoming sessions","None")])
         markup.append([button("＋ Schedule a session",callback_data=f"settings:{chat_id}:session:schedule")])
+    elif section=="commands":
+        from videl.utils.db import get_db
+        from videl.utils.command_catalog import commands as registered_commands
+        try:
+            db=get_db()
+            if db is None: raise RuntimeError("MongoDB unavailable")
+            disabled={str(item.get("cmd","")).casefold() for item in db["disabled_cmds"].find({"chat":chat_id},{"_id":0,"cmd":1})}
+            entries=[entry for entry in registered_commands() if not entry.get("owner") and entry.get("context")!="private"
+                     and (category=="all" or entry.get("category")==category)
+                     and (not query or query.casefold() in entry["name"] or query.casefold() in entry["summary"].casefold())]
+        except Exception:
+            text=heading("Command manager unavailable",3)+body("Videl could not verify the registered commands or read this group’s command switches. No status is guessed; try Refresh later.")
+            entries=[]; disabled=set(); unavailable=True
+        else: unavailable=False
+        if not unavailable:
+            categories=("all","manage","music","tools")
+            title="Command manager"+(f" · {category}" if category!="all" else "")
+            if query: title+=f" · search: {query[:40]}"
+            text=heading(title,3)+body("Search with <code>/settings commands word</code> or filter by category. Core recovery commands are protected from new changes here. Changes apply only in this group.")
+            markup.append([button(name.title(),callback_data=f"settings:{chat_id}:commands:{name}:0",style="primary" if name==category else None) for name in categories])
+            page_size=6; pages=max(1,(len(entries)+page_size-1)//page_size); page=max(0,min(int(page),pages-1))
+            current=entries[page*page_size:(page+1)*page_size]
+            rows=[]
+            protected={"start","help","commands","id","ping","settings","setup","permissions"}
+            for entry in current:
+                name=entry["name"]; off=name in disabled; state="OFF" if off else "ON"
+                rows.append((f"/{name} · {state}",entry["summary"][:72]))
+                if name not in protected:
+                    markup.append([button(f"/{name}: {'Enable' if off else 'Disable'}",callback_data=f"settings:{chat_id}:cmd:{name}:{'on' if off else 'off'}",style="success" if off else "danger")])
+                else:
+                    markup.append([button(f"/{name} · protected",callback_data=f"settings:{chat_id}:commands:{category}:{page}")])
+            text+=table(rows if rows else [("Commands","No matching group commands")])
+            if pages>1:
+                controls=[]
+                if page>0: controls.append(button("← Previous",callback_data=f"settings:{chat_id}:commands:{category}:{page-1}"))
+                controls.append(button(f"Page {page+1}/{pages}"))
+                if page+1<pages: controls.append(button("Next →",callback_data=f"settings:{chat_id}:commands:{category}:{page+1}"))
+                markup.append(controls)
+            text+=body(f"Showing {len(current)} of {len(entries)} commands. Owner-only and private-only commands are excluded.")
     else: raise ValueError("Unknown settings section")
     markup.append([button("Refresh",callback_data=f"settings:{chat_id}:refresh")])
     return Screen(text,InlineKeyboardMarkup(markup))
 
 async def settings(ctx):
     if base.chat_kind(ctx.message) not in {"group","supergroup"}: raise CommandError("Open <code>/settings</code> in the group you want to configure.")
-    return _screen(int(ctx.message.chat.id))
+    chat_id=int(ctx.message.chat.id)
+    arguments=str(getattr(ctx.command,"arguments","") or "").strip()
+    if arguments.casefold().startswith("commands"):
+        query=arguments[len("commands"):].strip()[:40]
+        return _screen(chat_id,"commands",query=query)
+    return _screen(chat_id)
 
-_PATTERN=r"^settings:-?[0-9]{1,20}:(?:tab:(?:home|music|welcome|safety|moderation|retention|blocklist|presets|sessions)|(?:music_requests_enabled|music_approval_required|welcome_enabled|goodbye_enabled|captcha_enabled|antispam|lock_[a-z_]+):(?:on|off)|raid:(?:on|off)|warn_threshold:(?:2|3|5|10)|retention:[a-z_]+:(?:30|90|180|365|off)|blocklist:(?:add:(?:track|artist)|remove:[1-9][0-9]?)|preset:(?:save|apply:[1-9][0-9]?|delete:[1-9][0-9]?)|session:(?:schedule|cancel:[A-Za-z0-9]+)|refresh)$"
+_PATTERN=r"^settings:-?[0-9]{1,20}:(?:tab:(?:home|music|welcome|safety|moderation|retention|blocklist|presets|sessions|commands)|commands:(?:all|manage|music|tools):[0-9]{1,3}|cmd:[a-z][a-z0-9_]{0,31}:(?:on|off)|(?:music_requests_enabled|music_approval_required|welcome_enabled|goodbye_enabled|captcha_enabled|antispam|lock_[a-z_]+):(?:on|off)|raid:(?:on|off)|warn_threshold:(?:2|3|5|10)|retention:[a-z_]+:(?:30|90|180|365|off)|blocklist:(?:add:(?:track|artist)|remove:[1-9][0-9]?)|preset:(?:save|apply:[1-9][0-9]?|delete:[1-9][0-9]?)|session:(?:schedule|cancel:[A-Za-z0-9]+)|refresh)$"
 @bot.on_callback_query(filters.regex(_PATTERN))
 async def settings_callback(client,query):
     message=getattr(query,"message",None); actor=getattr(query,"from_user",None)
@@ -110,8 +155,12 @@ async def settings_callback(client,query):
     try:
         parts=str(query.data).split(":"); chat_id=int(parts[1])
         if chat_id!=int(message.chat.id): return await query.answer("These settings belong to another group.",show_alert=True)
-        key=value=None; section="home"
+        key=value=None; section="home"; category="all"; page=0
         if len(parts)==4 and parts[2]=="tab" and parts[3] in _TABS: section=parts[3]
+        elif len(parts)==5 and parts[2]=="commands" and parts[3] in {"all","manage","music","tools"} and parts[4].isdecimal():
+            section,category,page="commands",parts[3],min(int(parts[4]),999)
+        elif len(parts)==5 and parts[2]=="cmd" and parts[4] in {"on","off"}:
+            key,value,section="__command_toggle__",(parts[3],parts[4]=="on"),"commands"
         elif len(parts)==4 and parts[2] in ({k for values in _TOGGLES.values() for _,k,_ in values}|_LOCK_KEYS) and parts[3] in {"on","off"}:
             key,value=parts[2],parts[3]=="on"; section="safety" if key=="antispam" or key in _LOCK_KEYS else ("music" if key.startswith("music_") else "welcome")
         elif len(parts)==4 and parts[2]=="raid" and parts[3] in {"on","off"}:
@@ -145,6 +194,26 @@ async def settings_callback(client,query):
         if len(_PROMPTS)>=500: _PROMPTS.pop(next(iter(_PROMPTS)),None)
         _PROMPTS[(chat_id,int(actor.id))]=(int(prompt.id),kind,monotonic()+300)
         await query.answer("Reply to the prompt to continue."); return
+    if key=="__command_toggle__":
+        name,enable=value
+        from videl.utils.command_catalog import commands as registered_commands
+        from videl.utils.db import disable_cmd,enable_cmd,get_db
+        protected={"start","help","commands","id","ping","settings","setup","permissions"}
+        entry=next((item for item in registered_commands() if item["name"]==name),None)
+        if entry is None or entry.get("owner") or entry.get("context")=="private" or name in protected:
+            return await query.answer("That command cannot be changed here.",show_alert=True)
+        db=get_db()
+        if db is None: return await query.answer("Command switches are unavailable because the database is not connected.",show_alert=True)
+        try:
+            if enable: enable_cmd(chat_id,name)
+            else: disable_cmd(chat_id,name)
+            from videl.utils import db as db_module
+            db_module._DISABLED_CACHE.pop(chat_id,None)
+            persisted=db["disabled_cmds"].find_one({"chat":chat_id,"cmd":name}) is not None
+            if persisted==enable:
+                return await query.answer("The command switch could not be verified; no success was reported.",show_alert=True)
+        except Exception:
+            return await query.answer("The command switch could not be saved or verified.",show_alert=True)
     if key=="__session_cancel__":
         from videl.utils.db import get_db
         from videl.utils.listening_sessions import cancel
@@ -182,14 +251,14 @@ async def settings_callback(client,query):
         from videl.utils.retention import save
         cat,days=value; saved=await asyncio.to_thread(save,get_db(),chat_id,cat,days)
         if saved is None: return await query.answer("Retention could not be saved.",show_alert=True)
-    elif key and not base.set_setting(chat_id,key,value): return await query.answer("The setting could not be saved.",show_alert=True)
+    elif key and key!="__command_toggle__" and not base.set_setting(chat_id,key,value): return await query.answer("The setting could not be saved.",show_alert=True)
     if key:
         try:
             from videl.utils.audit import record_bot
             await asyncio.to_thread(record_bot,chat_id,"settings",action="group_setting",detail=f"{key}={value}",actor=int(actor.id))
         except Exception: pass
     await query.answer("Settings refreshed." if key is None else "Setting saved.")
-    screen=_screen(chat_id,section); await rich_edit(message,screen.html,reply_markup=screen.keyboard)
+    screen=_screen(chat_id,section,category=category,page=page); await rich_edit(message,screen.html,reply_markup=screen.keyboard)
 
 # Run after the declarative command router (group 0). A broad text listener in
 # the same Pyrogram group would consume every group message before /start/help.
