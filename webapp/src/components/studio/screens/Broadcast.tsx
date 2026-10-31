@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { Eye, PencilLine, Send, Users, Megaphone } from "lucide-react";
-import { previewHtml } from "@/lib/telegram-format";
+import { previewHtml, visibleLength } from "@/lib/telegram-format";
 import type { BroadcastButton } from "@/lib/broadcast";
 import { BusyLabel, Callout, PageHeader } from "../ui";
 
@@ -25,8 +25,10 @@ export default function Broadcast() {
   const [previewOpen, setPreviewOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ tone: "success" | "danger"; text: string } | null>(null);
-  const remaining = LIMIT - text.length;
+  const textLimit = images.length ? 1024 : LIMIT;
+  const remaining = textLimit - visibleLength(text);
   const nearLimit = remaining <= 200;
+  const tooLong = remaining < 0;
   useEffect(() => {
     const urls = images.map((image) => URL.createObjectURL(image));
     setImagePreviews(urls);
@@ -34,7 +36,7 @@ export default function Broadcast() {
   }, [images]);
 
   async function send() {
-    if (sending.current || !confirmed || (!text.trim() && images.length === 0) || (images.length > 1 && buttons.length > 0)) return;
+    if (sending.current || !confirmed || tooLong || (!text.trim() && images.length === 0) || (images.length > 1 && buttons.length > 0)) return;
     const fingerprint = JSON.stringify([scope, text, buttons, images.map((image) => [image.name, image.size, image.lastModified])]);
     if (
       previous.current === fingerprint &&
@@ -114,7 +116,7 @@ export default function Broadcast() {
           <div className="flex items-baseline justify-between gap-3">
             <label className="text-sm font-medium" htmlFor="broadcast-text">Announcement</label>
             <span className={`mono text-[11px] ${nearLimit ? "text-amber-200" : "text-[var(--ios-label-tertiary)]"}`}>
-              {text.length}/{LIMIT}
+              {visibleLength(text)}/{textLimit}
             </span>
           </div>
           <textarea
@@ -140,6 +142,8 @@ export default function Broadcast() {
           <div className="flex items-center justify-between gap-3"><div><h2 className="text-sm font-medium">Inline URL buttons</h2><p className="ios-caption mt-1">Optional. Up to eight secure HTTPS links.{images.length > 1 ? " Remove extra images or these buttons; Telegram albums do not support inline keyboards." : ""}</p></div><button type="button" disabled={buttons.length >= 8 || images.length > 1} onClick={() => { setButtons((current) => [...current, { text: "Visit link", url: "https://" }]); setPreviewOpen(false); setConfirmed(false); }} className="ios-btn ios-btn-glass text-xs">Add button</button></div>
           {buttons.map((button, index) => <div key={index} className="grid gap-2 rounded-xl border border-white/10 bg-white/[.025] p-3 sm:grid-cols-[1fr_2fr_auto]"><label className="text-xs text-indigo-100/55">Button label<input className="ios-input mt-1" maxLength={64} value={button.text} onChange={(event) => { const value = event.target.value; setButtons((current) => current.map((item, i) => i === index ? { ...item, text: value } : item)); setPreviewOpen(false); setConfirmed(false); }} /></label><label className="text-xs text-indigo-100/55">HTTPS destination<input className="ios-input mt-1" type="url" maxLength={2048} value={button.url} onChange={(event) => { const value = event.target.value; setButtons((current) => current.map((item, i) => i === index ? { ...item, url: value } : item)); setPreviewOpen(false); setConfirmed(false); }} placeholder="https://example.com" /></label><button type="button" onClick={() => { setButtons((current) => current.filter((_, i) => i !== index)); setPreviewOpen(false); setConfirmed(false); }} className="ios-btn ios-btn-glass self-end text-xs">Remove</button></div>)}
         </section>
+        {tooLong && <Callout tone="warn">This message exceeds Telegram’s {textLimit}-character limit for the selected media.</Callout>}
+        {images.length > 1 && buttons.length > 0 && <Callout tone="warn">Telegram does not support inline buttons on media albums. Remove the extra images or remove the buttons before previewing.</Callout>}
         {previewOpen ? (
           <section aria-label="Broadcast preview" className="rounded-2xl border border-indigo-300/20 bg-[#0a1020] p-4">
             <div className="flex items-center justify-between gap-3">
@@ -151,7 +155,7 @@ export default function Broadcast() {
             {buttons.length > 0 && <div className="mt-3 grid gap-2">{buttons.map((button, index) => <div key={index} className="rounded-lg border border-blue-300/15 bg-blue-400/10 px-3 py-2 text-center text-xs text-blue-100">{button.text || "Button"}</div>)}</div>}
           </section>
         ) : (
-          <button type="button" className="ios-btn ios-btn-glass" disabled={(!text.trim() && images.length === 0) || (images.length > 1 && buttons.length > 0)} onClick={() => { setConfirmed(false); setPreviewOpen(true); }}><Eye size={16} aria-hidden /> Preview message</button>
+          <button type="button" className="ios-btn ios-btn-glass" disabled={tooLong || (!text.trim() && images.length === 0) || (images.length > 1 && buttons.length > 0)} onClick={() => { setConfirmed(false); setPreviewOpen(true); }}><Eye size={16} aria-hidden /> Preview message</button>
         )}
         <Callout tone="info" title="This is a single request, not a campaign">
           Limited to the first 60 recipients. Do not retry a timed-out request without checking
@@ -169,7 +173,7 @@ export default function Broadcast() {
         <div className="flex flex-wrap items-center gap-3">
           <button
             className="ios-btn ios-btn-primary"
-            disabled={!previewOpen || !confirmed || (!text.trim() && images.length === 0) || (images.length > 1 && buttons.length > 0) || busy}
+            disabled={!previewOpen || !confirmed || tooLong || (!text.trim() && images.length === 0) || (images.length > 1 && buttons.length > 0) || busy}
             onClick={() => void send()}
           >
             <Send size={16} aria-hidden />

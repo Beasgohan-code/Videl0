@@ -1069,7 +1069,8 @@ def _internal_broadcast():
                     image.verify()
             except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError):
                 return jsonify({"ok": False, "error": "Upload valid PNG, JPEG or WebP images under 25 megapixels"}), 400
-            media_items.append({"bytes": image_data, "mime": image_mime, "filename": upload.filename or "broadcast-image"})
+            extension = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp"}[image_mime]
+            media_items.append({"bytes": image_data, "mime": image_mime, "filename": f"broadcast-{len(media_items) + 1}.{extension}"})
     body = request.form.to_dict() if request.mimetype == "multipart/form-data" else request.get_json(silent=True)
     if not isinstance(body, dict):
         return jsonify({"ok": False, "error": "A JSON object is required"}), 400
