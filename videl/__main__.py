@@ -1044,7 +1044,26 @@ def _internal_chat_settings():
 def _internal_broadcast():
     if not _internal_authorized():
         return jsonify({"ok": False, "error": "unauthorized"}), 403
-    body = request.get_json(silent=True)
+    if request.content_length and request.content_length > 4400000:
+        return jsonify({"ok": False, "error": "Broadcast image upload is too large (4 MB maximum)"}), 413
+    upload = request.files.get("image") if request.mimetype == "multipart/form-data" else None
+    image_data = None
+    image_mime = None
+    if upload is not None:
+        from io import BytesIO
+        from PIL import Image, UnidentifiedImageError
+        image_data = upload.stream.read(4 * 1024 * 1024 + 1)
+        if len(image_data) > 4 * 1024 * 1024:
+            return jsonify({"ok": False, "error": "Use an image under 4 MB"}), 413
+        try:
+            with Image.open(BytesIO(image_data)) as image:
+                image_mime = {"JPEG": "image/jpeg", "PNG": "image/png", "WEBP": "image/webp"}.get(image.format)
+                if not image_mime or image.width * image.height > 25000000:
+                    raise ValueError("Unsupported image type or dimensions")
+                image.verify()
+        except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError):
+            return jsonify({"ok": False, "error": "Upload a valid PNG, JPEG or WebP under 25 megapixels"}), 400
+    body = request.form.to_dict() if request.mimetype == "multipart/form-data" else request.get_json(silent=True)
     if not isinstance(body, dict):
         return jsonify({"ok": False, "error": "A JSON object is required"}), 400
     text = str(body.get("text", "")).strip()
@@ -1052,6 +1071,12 @@ def _internal_broadcast():
     if scope not in ("chats", "users", "all"):
         return jsonify({"ok": False, "error": "Invalid broadcast audience"}), 400
     raw_buttons = body.get("buttons", [])
+    if isinstance(raw_buttons, str):
+        import json
+        try:
+            raw_buttons = json.loads(raw_buttons)
+        except ValueError:
+            return jsonify({"ok": False, "error": "Invalid button layout"}), 400
     if not isinstance(raw_buttons, list) or len(raw_buttons) > 8:
         return jsonify({"ok": False, "error": "Up to eight HTTPS inline buttons are supported"}), 400
     buttons = []
@@ -1068,8 +1093,18 @@ def _internal_broadcast():
         if not isinstance(label, str) or not label.strip() or len(label.strip()) > 64 or not valid_url:
             return jsonify({"ok": False, "error": "Buttons need a label up to 64 characters and a secure HTTPS URL"}), 400
         buttons.append({"text": label.strip(), "url": parsed_url.geturl()})
-    if not text or len(text) > 4096:
-        return jsonify({"ok": False, "error": "Broadcast text (1–4096 chars) is required"}), 400
+    if not text and image_data is None:
+        return jsonify({"ok": False, "error": "Add announcement text or an image"}), 400
+    parse_mode = "HTML" if text else None
+    if parse_mode:
+        from videl.utils.group_view import normalize_rich
+        text, _, used = normalize_rich(text)
+        if not used:
+            parse_mode = None
+    from videl.utils.post_format import post_text_length
+    text_length = post_text_length(text, parse_mode)
+    if text_length > (1024 if image_data is not None else 4096):
+        return jsonify({"ok": False, "error": "Image captions allow 1024 characters" if image_data is not None else "Broadcast text is limited to 4096 visible characters"}), 400
     try:
         from videl.utils.db import get_db
         db = get_db()
@@ -1086,10 +1121,23 @@ def _internal_broadcast():
         sent, failed = 0, 0
         reply_markup = {"inline_keyboard": [[button] for button in buttons]} if buttons else None
         for chat_id in unique_targets:
-            payload = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
+            payload = {"chat_id": chat_id}
+            if image_data is not None:
+                from io import BytesIO
+                method = "sendPhoto"
+                payload["caption"] = text
+                if parse_mode:
+                    payload["parse_mode"] = parse_mode
+                files = {"photo": (upload.filename or "broadcast-image", BytesIO(image_data), image_mime)}
+            else:
+                method = "sendMessage"
+                payload["text"] = text
+                if parse_mode:
+                    payload["parse_mode"] = parse_mode
+                files = None
             if reply_markup:
                 payload["reply_markup"] = reply_markup
-            status, res = _bot_api("sendMessage", payload)
+            status, res = _bot_api(method, payload, files=files)
             if status and res.get("ok"):
                 sent += 1
             else:

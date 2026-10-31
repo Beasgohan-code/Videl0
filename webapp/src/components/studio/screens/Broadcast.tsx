@@ -1,5 +1,5 @@
 "use client";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Eye, PencilLine, Send, Users, Megaphone } from "lucide-react";
 import { previewHtml } from "@/lib/telegram-format";
 import type { BroadcastButton } from "@/lib/broadcast";
@@ -17,6 +17,8 @@ export default function Broadcast() {
   const sending = useRef(false);
   const previous = useRef("");
   const [text, setText] = useState("");
+  const [image, setImage] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState("");
   const [buttons, setButtons] = useState<BroadcastButton[]>([]);
   const [scope, setScope] = useState<(typeof audiences)[number]["value"]>("chats");
   const [confirmed, setConfirmed] = useState(false);
@@ -25,10 +27,16 @@ export default function Broadcast() {
   const [result, setResult] = useState<{ tone: "success" | "danger"; text: string } | null>(null);
   const remaining = LIMIT - text.length;
   const nearLimit = remaining <= 200;
+  useEffect(() => {
+    if (!image) { setImagePreview(""); return; }
+    const url = URL.createObjectURL(image);
+    setImagePreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [image]);
 
   async function send() {
-    if (sending.current || !confirmed || !text.trim()) return;
-    const fingerprint = JSON.stringify([scope, text, buttons]);
+    if (sending.current || !confirmed || (!text.trim() && !image)) return;
+    const fingerprint = JSON.stringify([scope, text, buttons, image ? [image.name, image.size, image.lastModified] : null]);
     if (
       previous.current === fingerprint &&
       !window.confirm("This exact broadcast already completed. Send it to the audience again?")
@@ -38,11 +46,20 @@ export default function Broadcast() {
     setBusy(true);
     setResult(null);
     try {
-      const response = await fetch("/api/broadcast", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, scope, buttons }),
-      });
+      let requestBody: BodyInit;
+      const headers: Record<string, string> = {};
+      if (image) {
+        const form = new FormData();
+        form.set("image", image, image.name);
+        form.set("text", text);
+        form.set("scope", scope);
+        form.set("buttons", JSON.stringify(buttons));
+        requestBody = form;
+      } else {
+        headers["Content-Type"] = "application/json";
+        requestBody = JSON.stringify({ text, scope, buttons });
+      }
+      const response = await fetch("/api/broadcast", { method: "POST", headers, body: requestBody });
       const data = await response.json();
       if (!response.ok || !data.ok) throw new Error(data.error || "Broadcast failed");
       previous.current = fingerprint;
@@ -115,6 +132,10 @@ export default function Broadcast() {
             placeholder="Write your community update…"
           />
           <p className="ios-caption mt-2">Telegram HTML is supported. The preview is exactly what will be sent.</p>
+          <label className="mt-4 block text-xs font-medium text-indigo-100/65">Optional image (JPEG, PNG or WebP, up to 4 MB)
+            <input className="ios-input mt-2" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => { const file = event.target.files?.[0] || null; setConfirmed(false); setPreviewOpen(false); if (file && (file.size > 4 * 1024 * 1024 || !["image/jpeg", "image/png", "image/webp"].includes(file.type))) { setImage(null); setResult({ tone: "danger", text: "Use a JPEG, PNG or WebP image under 4 MB." }); event.currentTarget.value = ""; return; } setResult(null); setImage(file); }} />
+          </label>
+          {image && <div className="mt-3 flex items-center gap-3 rounded-xl border border-white/10 bg-white/[.03] p-3"><img src={imagePreview} alt="Selected broadcast media preview" className="h-16 w-16 rounded-lg object-cover"/><span className="min-w-0 flex-1 truncate text-xs">{image.name}</span><button type="button" onClick={() => { setImage(null); setPreviewOpen(false); setConfirmed(false); }} className="ios-btn ios-btn-glass text-xs">Remove image</button></div>}
         </div>
         <section className="space-y-3" aria-label="Inline buttons">
           <div className="flex items-center justify-between gap-3"><div><h2 className="text-sm font-medium">Inline URL buttons</h2><p className="ios-caption mt-1">Optional. Up to eight secure HTTPS links.</p></div><button type="button" disabled={buttons.length >= 8} onClick={() => { setButtons((current) => [...current, { text: "Visit link", url: "https://" }]); setPreviewOpen(false); setConfirmed(false); }} className="ios-btn ios-btn-glass text-xs">Add button</button></div>
@@ -126,11 +147,12 @@ export default function Broadcast() {
               <div><p className="text-xs font-semibold text-indigo-100">Preview before sending</p><p className="mt-1 text-[10px] text-indigo-100/45">Audience: {audiences.find((item) => item.value === scope)?.label}</p></div>
               <button type="button" onClick={() => { setPreviewOpen(false); setConfirmed(false); }} className="ios-btn ios-btn-glass text-xs"><PencilLine size={14} aria-hidden /> Edit</button>
             </div>
+            {imagePreview && <img src={imagePreview} alt="Broadcast image" className="mt-3 max-h-72 w-full rounded-xl object-contain" />}
             <div className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-white" dangerouslySetInnerHTML={{ __html: previewHtml(text) }} />
             {buttons.length > 0 && <div className="mt-3 grid gap-2">{buttons.map((button, index) => <div key={index} className="rounded-lg border border-blue-300/15 bg-blue-400/10 px-3 py-2 text-center text-xs text-blue-100">{button.text || "Button"}</div>)}</div>}
           </section>
         ) : (
-          <button type="button" className="ios-btn ios-btn-glass" disabled={!text.trim()} onClick={() => { setConfirmed(false); setPreviewOpen(true); }}><Eye size={16} aria-hidden /> Preview message</button>
+          <button type="button" className="ios-btn ios-btn-glass" disabled={!text.trim() && !image} onClick={() => { setConfirmed(false); setPreviewOpen(true); }}><Eye size={16} aria-hidden /> Preview message</button>
         )}
         <Callout tone="info" title="This is a single request, not a campaign">
           Limited to the first 60 recipients. Do not retry a timed-out request without checking
@@ -148,7 +170,7 @@ export default function Broadcast() {
         <div className="flex flex-wrap items-center gap-3">
           <button
             className="ios-btn ios-btn-primary"
-            disabled={!previewOpen || !confirmed || !text.trim() || busy}
+            disabled={!previewOpen || !confirmed || (!text.trim() && !image) || busy}
             onClick={() => void send()}
           >
             <Send size={16} aria-hidden />

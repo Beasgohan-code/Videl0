@@ -42,6 +42,29 @@ class BroadcastApiTests(unittest.TestCase):
         self.assertEqual(response.get_json(), {"ok": True, "sent": 1, "failed": 0, "total": 1})
         self.assertEqual(send.call_args.args[1]["reply_markup"], {"inline_keyboard": [[{"text": "Read more", "url": "https://example.com/news"}]]})
 
+    def test_uploaded_image_is_sent_as_a_photo_with_caption_and_buttons(self):
+        from io import BytesIO
+        from PIL import Image
+        stream = BytesIO()
+        Image.new("RGB", (20, 20), "blue").save(stream, format="PNG")
+        stream.seek(0)
+        db = Database({"served_chats": Collection([{"_id": -1001}]), "served_users": Collection([])})
+        with patch.object(self.api.config, "WEBAPP_SECRET", "offline-test-only"), patch(
+            "videl.utils.db.get_db", return_value=db
+        ), patch.object(self.api, "_bot_api", return_value=(200, {"ok": True})) as send:
+            response = self.client.post(
+                "/internal/broadcast",
+                headers={"X-Videl-Internal": "offline-test-only"},
+                data={"text": "Caption", "scope": "chats", "buttons": '[{"text":"Read more","url":"https://example.com"}]', "image": (stream, "cover.png")},
+                content_type="multipart/form-data",
+            )
+        self.assertEqual(response.status_code, 200)
+        method, payload = send.call_args.args
+        self.assertEqual(method, "sendPhoto")
+        self.assertEqual(payload["caption"], "Caption")
+        self.assertEqual(payload["reply_markup"]["inline_keyboard"][0][0]["text"], "Read more")
+        self.assertEqual(send.call_args.kwargs["files"]["photo"][2], "image/png")
+
     def test_unsafe_or_oversized_buttons_are_rejected_before_any_delivery(self):
         for button in (
             {"text": "bad", "url": "javascript:alert(1)"},
