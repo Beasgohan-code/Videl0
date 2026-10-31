@@ -66,6 +66,56 @@ async def view_queue(ctx):
     return Screen(result("Music queue", rows, body=footer) + controls)
 
 
+async def manage_queue(ctx):
+    """Admin-only, one-based edits for upcoming tracks; the current track is position zero."""
+    from .router import Screen,CommandError
+
+    chat_id=int(ctx.message.chat.id)
+    name=ctx.command.name
+    parts=str(ctx.command.arguments or "").split()
+    required=2 if name=="move" else 1
+    if len(parts)!=required or any(not part.isdecimal() for part in parts):
+        usage={"remove":"/remove <upcoming position>","move":"/move <from position> <to position>","jump":"/jump <upcoming position>"}.get(name,"/queue")
+        raise CommandError(f"Use <code>{usage}</code>. Positions start at 1 for the first upcoming track; the current track cannot be edited.")
+    positions=[int(part) for part in parts]
+    async with lock(chat_id):
+        tracks=queue.get_queue(chat_id)
+        if not tracks:
+            raise CommandError("There is no active queue to edit.")
+        if any(position<1 or position>=len(tracks) for position in positions):
+            raise CommandError(f"Choose upcoming positions from 1 to {max(0,len(tracks)-1)}. The current track is protected.")
+        if name=="remove":
+            removed=queue.remove_upcoming(chat_id,positions[0])
+            from videl.core.transitions import cleanup
+            cleanup([removed])
+            return Screen(result("Track removed",body=f"Removed upcoming track #{positions[0]}."))
+        if name=="move":
+            source,destination=positions
+            if source==destination:
+                raise CommandError("Choose two different upcoming positions.")
+            if not queue.move_upcoming(chat_id,source,destination):
+                raise CommandError("The queue changed before the move could be applied. Refresh /queue and try again.")
+            return Screen(result("Queue reordered",body=f"Moved upcoming track #{source} to position #{destination}."))
+        if name=="jump":
+            position=positions[0]
+            original=list(tracks)
+            selected=queue.promote_upcoming(chat_id,position)
+            if selected is None:
+                raise CommandError("The selected track is no longer queued. Refresh /queue and try again.")
+            from videl.core.transitions import transition
+            try:
+                outcome=await transition(chat_id,"skip",expected=original[0])
+            except Exception as error:
+                queue.restore_snapshot(chat_id,original)
+                log.warning("Queue jump unconfirmed; order restored (%s)",type(error).__name__)
+                raise CommandError("Playback was not confirmed; the original queue order was restored.") from error
+            if not outcome.confirmed:
+                queue.restore_snapshot(chat_id,original)
+                raise CommandError(outcome.body)
+            return Screen(result("Jumped to track",body=f"Started upcoming track #{position} after voice playback was confirmed."))
+        raise CommandError("Unknown queue action.")
+
+
 async def control(ctx, *, cycle=False):
     chat_id=ctx.message.chat.id
     name=ctx.command.name
@@ -100,7 +150,8 @@ async def control(ctx, *, cycle=False):
             tracks=queue.get_queue(chat_id)
             pending=tracks[1:];random.shuffle(pending);tracks[1:]=pending
             title='Upcoming tracks shuffled';body=f'{len(pending)} upcoming tracks shuffled. Current playback is unchanged.'
-        elif name=='clear':
+        elif name in {'clear','clearqueue'}:
+            if str(ctx.command.arguments or "").strip():raise CommandError(f'Use <code>/{name}</code> without arguments.')
             from videl.core.autoplay import stop_autoplay
             stop_autoplay(chat_id)
             removed=queue.clear_pending(chat_id)

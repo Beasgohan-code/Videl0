@@ -67,6 +67,44 @@ def peek_next(chat_id: int) -> dict | None:
     return queue[1]
 
 
+def remove_upcoming(chat_id: int, position: int) -> dict | None:
+    """Remove a one-based upcoming position without ever targeting the current item."""
+    tracks = chat_queues.get(chat_id)
+    position = int(position)
+    if tracks is None or position < 1 or position >= len(tracks):
+        return None
+    return tracks.pop(position)
+
+
+def move_upcoming(chat_id: int, source: int, destination: int) -> bool:
+    """Move one upcoming track between one-based upcoming positions."""
+    tracks = chat_queues.get(chat_id)
+    source, destination = int(source), int(destination)
+    if tracks is None or source < 1 or destination < 1 or source >= len(tracks) or destination >= len(tracks):
+        return False
+    if source == destination:
+        return False
+    tracks.insert(destination, tracks.pop(source))
+    return True
+
+
+def promote_upcoming(chat_id: int, position: int) -> dict | None:
+    """Move an upcoming track to the head-after-current slot for a confirmed skip."""
+    tracks = chat_queues.get(chat_id)
+    position = int(position)
+    if tracks is None or position < 1 or position >= len(tracks):
+        return None
+    selected = tracks.pop(position)
+    tracks.insert(1, selected)
+    return selected
+
+
+def restore_snapshot(chat_id: int, snapshot: list) -> None:
+    """Restore a pre-transition queue order in place after an unconfirmed jump."""
+    tracks = chat_queues.setdefault(chat_id, [])
+    tracks[:] = list(snapshot)
+
+
 def clear_queue(chat_id: int) -> list:
     return chat_queues.pop(chat_id, [])
 

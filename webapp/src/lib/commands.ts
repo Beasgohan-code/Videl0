@@ -853,6 +853,14 @@ export const BOT_COMMANDS: BotCommand[] = [
     "owner": false
   },
   {
+    "name": "clearqueue",
+    "usage": "/clearqueue (group admin; preserves current playback)",
+    "summary": "Clear upcoming tracks while preserving current playback",
+    "category": "music",
+    "context": "group",
+    "owner": false
+  },
+  {
     "name": "cplay",
     "usage": "/cplay",
     "summary": "Play audio into a linked channel's voice chat",
@@ -917,6 +925,14 @@ export const BOT_COMMANDS: BotCommand[] = [
     "owner": false
   },
   {
+    "name": "jump",
+    "usage": "/jump <upcoming position> (group admin)",
+    "summary": "Play a selected upcoming queue track",
+    "category": "music",
+    "context": "group",
+    "owner": false
+  },
+  {
     "name": "loop",
     "usage": "/loop",
     "summary": "Set the loop mode",
@@ -930,6 +946,14 @@ export const BOT_COMMANDS: BotCommand[] = [
     "summary": "Find lyrics for the current track",
     "category": "music",
     "context": "chat",
+    "owner": false
+  },
+  {
+    "name": "move",
+    "usage": "/move <from position> <to position> (group admin)",
+    "summary": "Reorder upcoming queue tracks",
+    "category": "music",
+    "context": "group",
     "owner": false
   },
   {
@@ -984,6 +1008,14 @@ export const BOT_COMMANDS: BotCommand[] = [
     "name": "queue",
     "usage": "/queue",
     "summary": "Show the current track and upcoming queue",
+    "category": "music",
+    "context": "group",
+    "owner": false
+  },
+  {
+    "name": "remove",
+    "usage": "/remove <upcoming position> (group admin)",
+    "summary": "Remove an upcoming queue track",
     "category": "music",
     "context": "group",
     "owner": false

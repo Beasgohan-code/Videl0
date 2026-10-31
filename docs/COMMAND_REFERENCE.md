@@ -5,7 +5,7 @@ This documents navigation and source coverage, not verified live Telegram behavi
 Aliases are listed separately; permissions remain enforced by the referenced handler.
 Owner operations are hidden from public `/commands` results.
 
-199 distinct command names.
+203 distinct command names.
 
 ## Music & playlists
 
@@ -16,16 +16,19 @@ Owner operations are hidden from public `/commands` results.
 | `/bassoff` | group | `videl/modules/effects.py::bassoff_cmd` |
 | `/channelplay` | group | `videl/modules/cplay.py::channelplay_cmd` |
 | `/clear` | group | `videl/app/music.py::control` |
+| `/clearqueue` | group | `videl/app/music.py::control` |
 | `/cplay` | group | `videl/modules/cplay.py::cplay_handler` |
 | `/cvplay` | group | `videl/modules/cplay.py::cplay_handler` |
 | `/deleteplaylist` | chat | `videl/modules/playlist.py::delete_playlist_cmd` |
-| `/download` | group | `videl/modules/downloader.py::download_cmd` |
+| `/download` | group & private | `videl/modules/downloader.py::download_cmd` |
 | `/effectoff` | group | `videl/modules/effects.py::effectoff_cmd` |
 | `/effecton` | group | `videl/modules/effects.py::effecton_cmd` |
 | `/effects` | group | `videl/modules/effects.py::effects_status_cmd` |
 | `/end` | group | `videl/app/music.py::control` |
+| `/jump` | group | `videl/app/music.py::manage_queue` |
 | `/loop` | group | `videl/app/music.py::control` |
 | `/lyrics` | chat | `videl/modules/lyrics.py::lyrics_cmd` |
+| `/move` | group | `videl/app/music.py::manage_queue` |
 | `/pause` | group | `videl/app/music.py::control` |
 | `/play` | group | `videl/modules/play.py::play_handler` |
 | `/playlist` | group | `videl/modules/playlist.py::load_playlist_cmd` |
@@ -33,6 +36,7 @@ Owner operations are hidden from public `/commands` results.
 | `/playnext` | group | `videl/modules/play.py::play_handler` |
 | `/q` | group | `videl/app/music.py::view_queue` |
 | `/queue` | group | `videl/app/music.py::view_queue` |
+| `/remove` | group | `videl/app/music.py::manage_queue` |
 | `/replay` | group | `videl/app/music.py::control` |
 | `/resetplayer` | group | `videl/app/music.py::control` |
 | `/resume` | group | `videl/app/music.py::control` |
@@ -41,13 +45,13 @@ Owner operations are hidden from public `/commands` results.
 | `/seekback` | group | `videl/modules/seek.py::seekback_cmd` |
 | `/shuffle` | group | `videl/app/music.py::control` |
 | `/skip` | group | `videl/app/music.py::control` |
-| `/song` | group | `videl/modules/downloader.py::song_cmd` |
+| `/song` | group & private | `videl/modules/downloader.py::song_cmd` |
 | `/speed` | group | `videl/modules/effects.py::speed_cmd` |
 | `/speedreset` | group | `videl/modules/effects.py::speedreset_cmd` |
 | `/stop` | group | `videl/app/music.py::control` |
 | `/voteskip` | group | `videl/modules/smartqueue.py::set_voteskip_cmd` |
 | `/vplay` | group | `videl/modules/play.py::play_handler` |
-| `/vsong` | group | `videl/modules/downloader.py::vsong_cmd` |
+| `/vsong` | group & private | `videl/modules/downloader.py::vsong_cmd` |
 
 ## Groups & protection
 
@@ -230,7 +234,7 @@ Owner operations are hidden from public `/commands` results.
 
 Run `/connect` in a group as a current Telegram administrator. From private chat, only these registered commands are routed to that saved group:
 
-`/adminlist`, `/admins`, `/appealresolve`, `/appeals`, `/ban`, `/banlist`, `/clear`, `/clearrules`, `/clearwarns`, `/dban`, `/delnote`, `/demote`, `/dkick`, `/end`, `/filter`, `/filters`, `/get`, `/goodbye`, `/greetings`, `/kick`, `/lock`, `/locks`, `/loop`, `/mute`, `/notes`, `/pause`, `/promote`, `/q`, `/queue`, `/replay`, `/reports`, `/resetplayer`, `/resolve`, `/resume`, `/rules`, `/save`, `/setcaptcha`, `/setdescription`, `/setgoodbye`, `/setrules`, `/settitle`, `/setwarnlimit`, `/setwelcome`, `/shuffle`, `/skip`, `/slowmode`, `/stop`, `/stopfilter`, `/tban`, `/tmute`, `/unban`, `/unlock`, `/unmute`, `/unwarn`, `/warn`, `/warnings`, `/welcome`
+`/adminlist`, `/admins`, `/appealresolve`, `/appeals`, `/ban`, `/banlist`, `/clear`, `/clearqueue`, `/clearrules`, `/clearwarns`, `/dban`, `/delnote`, `/demote`, `/dkick`, `/end`, `/filter`, `/filters`, `/get`, `/goodbye`, `/greetings`, `/jump`, `/kick`, `/lock`, `/locks`, `/loop`, `/move`, `/mute`, `/notes`, `/pause`, `/promote`, `/q`, `/queue`, `/remove`, `/replay`, `/reports`, `/resetplayer`, `/resolve`, `/resume`, `/rules`, `/save`, `/setcaptcha`, `/setdescription`, `/setgoodbye`, `/setrules`, `/settitle`, `/setwarnlimit`, `/setwelcome`, `/shuffle`, `/skip`, `/slowmode`, `/stop`, `/stopfilter`, `/tban`, `/tmute`, `/unban`, `/unlock`, `/unmute`, `/unwarn`, `/warn`, `/warnings`, `/welcome`
 
 Every routed request uses the server-stored group ID, preserves the actual Telegram user, rechecks current group-admin status, and removes private reply targets. Use a username or numeric Telegram ID instead of replying to a private message.
 
