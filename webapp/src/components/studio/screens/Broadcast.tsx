@@ -1,6 +1,7 @@
 "use client";
 import { useRef, useState } from "react";
-import { Send, Users, Megaphone } from "lucide-react";
+import { Eye, PencilLine, Send, Users, Megaphone } from "lucide-react";
+import { previewHtml } from "@/lib/telegram-format";
 import { BusyLabel, Callout, PageHeader } from "../ui";
 
 const audiences = [
@@ -17,6 +18,7 @@ export default function Broadcast() {
   const [text, setText] = useState("");
   const [scope, setScope] = useState<(typeof audiences)[number]["value"]>("chats");
   const [confirmed, setConfirmed] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ tone: "success" | "danger"; text: string } | null>(null);
   const remaining = LIMIT - text.length;
@@ -78,6 +80,7 @@ export default function Broadcast() {
                 onClick={() => {
                   setScope(option.value);
                   setConfirmed(false);
+                  setPreviewOpen(false);
                 }}
                 className="ios-chip"
               >
@@ -105,16 +108,28 @@ export default function Broadcast() {
             onChange={(event) => {
               setText(event.target.value);
               setConfirmed(false);
+              setPreviewOpen(false);
             }}
             placeholder="Write your community update…"
           />
           <p className="ios-caption mt-2">Telegram HTML is supported. The preview is exactly what will be sent.</p>
         </div>
+        {previewOpen ? (
+          <section aria-label="Broadcast preview" className="rounded-2xl border border-indigo-300/20 bg-[#0a1020] p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div><p className="text-xs font-semibold text-indigo-100">Preview before sending</p><p className="mt-1 text-[10px] text-indigo-100/45">Audience: {audiences.find((item) => item.value === scope)?.label}</p></div>
+              <button type="button" onClick={() => { setPreviewOpen(false); setConfirmed(false); }} className="ios-btn ios-btn-glass text-xs"><PencilLine size={14} aria-hidden /> Edit</button>
+            </div>
+            <div className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-white" dangerouslySetInnerHTML={{ __html: previewHtml(text) }} />
+          </section>
+        ) : (
+          <button type="button" className="ios-btn ios-btn-glass" disabled={!text.trim()} onClick={() => { setConfirmed(false); setPreviewOpen(true); }}><Eye size={16} aria-hidden /> Preview message</button>
+        )}
         <Callout tone="info" title="This is a single request, not a campaign">
           Limited to the first 60 recipients. Do not retry a timed-out request without checking
           Telegram first — some recipients may already have received it.
         </Callout>
-        <label className="flex items-start gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-3.5 text-sm text-indigo-50/80">
+        {previewOpen && <label className="flex items-start gap-3 rounded-xl border border-white/10 bg-white/[0.03] p-3.5 text-sm text-indigo-50/80">
           <input
             type="checkbox"
             className="mt-1"
@@ -122,11 +137,11 @@ export default function Broadcast() {
             onChange={(event) => setConfirmed(event.target.checked)}
           />
           I confirm this sends real messages to the selected audience.
-        </label>
+        </label>}
         <div className="flex flex-wrap items-center gap-3">
           <button
             className="ios-btn ios-btn-primary"
-            disabled={!confirmed || !text.trim() || busy}
+            disabled={!previewOpen || !confirmed || !text.trim() || busy}
             onClick={() => void send()}
           >
             <Send size={16} aria-hidden />

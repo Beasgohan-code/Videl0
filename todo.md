@@ -22,6 +22,23 @@ Backlog IDs are stable; gaps mean completed or deliberately removed entries. Tre
 48. RSS-to-announcement rules — publish updates from approved feeds with rate limits and preview.
 49. Redacted CSV exports — export selected group activity for review without unnecessary personal details.
 50. Configuration import/export — move a group’s Videl settings between environments with validation first.
+223. Better queue and playlist management — improve music queue editing, ordering, playlist creation and reuse; verify behavior against the live Telegram voice stack before claiming successful playback.
+224. More advanced image editing — expand post-creator image adjustments with clear previews and safe, reversible controls.
+225. More reusable post templates — let owners save, organize, duplicate and reuse post layouts/content without accidentally reusing stale destinations or schedules.
+226. Cross-device draft synchronization — securely sync drafts across the owner’s signed-in devices, with conflict handling, deletion semantics and clear limits for local media.
+227. Broadcast Center upgrade (High) — expand the text-first Broadcast screen to support media, albums and inline buttons; require a reviewable preview before send; support scheduled campaigns, delivery history with failure details, safe retries and campaign duplication. A queued or UI-reported success is not proof of Telegram delivery.
+228. Advanced automation builder (High) — add a visual trigger → condition → action workflow builder, including welcome/goodbye workflows, keyword replies, scheduled actions, execution history and actionable error notifications. Clearly distinguish configured rules from confirmed executions.
+229. Multi-admin workspace (Medium) — add owner, administrator, moderator and viewer roles; per-section permissions; admin activity history; and secure invitation, revocation and access-management flows.
+230. Better analytics (Medium) — add 7-day and 30-day trends, member growth, group comparisons, moderation statistics, broadcast performance and downloadable reports with privacy-safe aggregation and clear data scope.
+231. Notification Center (Medium) — centralize failed broadcasts, group alerts, bot disconnections, pending reports, automation failures and scheduled-post results, with honest delivery state and user-controlled notification preferences.
+232. Arcade reliability improvements (Polish) — improve reconnect handling, player presence and voice reliability; assess and verify TURN relay support as a documented reliability upgrade, including real network-path testing.
+233. Music and creator improvements (Polish) — coordinate the related queue/playlist, image-editing, reusable-template and cross-device-draft work in #223–226, alongside a persistent music player that remains available across sections.
+
+### Important things to verify
+- No AI integration is currently enabled; do not describe any UI or workflow as AI-powered unless an actual integration is added, configured and tested.
+- Inbox capture is limited by the messages and events Telegram actually delivers to the bot; do not imply complete chat history or archive coverage.
+- Music playback and scheduled publishing require production-like delivery checks. A visible queue, schedule or success-shaped UI state alone does not prove Telegram accepted or delivered the action.
+- The Arcade voice experience has network reliability limitations; verify connection recovery and communicate degraded/offline behavior honestly before claiming dependable voice play.
 
 ## Core upgrade backlog
 
