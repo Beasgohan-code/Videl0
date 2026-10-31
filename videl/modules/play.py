@@ -15,11 +15,12 @@ from videl.utils.bot_ui import button as InlineKeyboardButton
 import config
 from videl import bot, LOGGER
 from videl.core.player import play_song
-from videl.core.queue import add_to_queue, insert_next, peek_current, queue_size
+from videl.core.queue import add_request, peek_current, queue_size, requester_capacity
 from videl.modules.block import group_allowed, user_allowed
 from videl.utils.assistant import is_assistant_in, try_join_assistant
 from videl.utils.db import add_served_chat, add_served_user
-from videl.utils.formatters import fmt_time, iso_to_human, iso_to_sec, sc, short
+from videl.utils.formatters import fmt_time, iso_to_human, iso_to_sec, short
+from videl.utils.premium_emojis import pe
 from videl.utils.rich_ui import rich_esc, rich_heading, rich_kv_table, rich_note
 from videl.utils.command_ui import rich_edit, rich_send
 from videl.utils.youtube import search_yt
@@ -204,7 +205,20 @@ async def _play_local_media(message: Message, chat_id: int, user_id: int, force_
         "local_file": True,
     }
 
-    pos = insert_next(chat_id, song) if play_next else add_to_queue(chat_id, song)
+    pos = add_request(chat_id, song, play_next=play_next)
+    if pos == -3:
+        await rich_edit(pm, rich_heading("Track blocked by group settings", level=3) + rich_note("An admin has blocked this track or artist."))
+        return True
+    if pos == -2:
+        await rich_edit(pm, rich_heading("Music requests are disabled", level=3) + rich_note("A group admin can re-enable requests with <code>/musicrequests on</code>."))
+        return True
+    if pos == -1:
+        await rich_edit(pm, rich_heading("Request sent for approval", level=3) + rich_note("A group admin must approve this track before it enters playback."))
+        return True
+    if pos is None:
+        await rich_edit(pm, rich_heading("Queue share reached", level=3)
+                        + rich_note("You already have three upcoming tracks in this chat. Wait for one to play before adding more."))
+        return True
     if pos == 1:
         await play_song(chat_id, pm, song)
     else:
@@ -239,6 +253,11 @@ async def play_handler(_, message: Message) -> None:
     cmd = (cmd_match.group("cmd") if cmd_match else "play") or "play"
     force_video = cmd == "vplay"
     play_next = cmd == "playnext"
+
+    if user_id and requester_capacity(chat_id, user_id) <= 0:
+        await rich_send(bot, chat_id, rich_heading("Queue share reached", level=3)
+                        + rich_note("You already have three upcoming tracks in this chat. Wait for one to play before adding more."))
+        return
 
     # ── Replied audio / video / document (mkv, mp4, …) ─────────────────────────
     if message.reply_to_message:
@@ -373,8 +392,8 @@ async def _process_play(message: Message, query: str, video: bool = False, play_
         buttons = []
         for i, r in enumerate(results):
             label = f"{i+1}. {short(r['title'], 32)} [{r.get('duration', '?')}]"
-            buttons.append([InlineKeyboardButton(label, callback_data=f"ytpick:{i}:{key}")])
-        buttons.append([InlineKeyboardButton("✕ Cancel", callback_data=f"ytpick:cancel:{key}")])
+            buttons.append([InlineKeyboardButton(label, callback_data=f"ytpick:{i}:{key}", icon="music")])
+        buttons.append([InlineKeyboardButton("Cancel", callback_data=f"ytpick:cancel:{key}", icon="cross")])
 
         lines = []
         for i, r in enumerate(results):
@@ -383,7 +402,7 @@ async def _process_play(message: Message, query: str, video: bool = False, play_
 
         await rich_edit(
             pm,
-            rich_heading(f"🔍 {sc('choose a track')}", level=3)
+            rich_heading(f"{pe('search')} Choose a track", level=3)
             + rich_note("\n".join(lines)),
             reply_markup=InlineKeyboardMarkup(buttons),
         )
@@ -413,6 +432,7 @@ async def _process_play(message: Message, query: str, video: bool = False, play_
 
         first_was_empty = queue_size(chat_id) == 0
 
+        added_count = 0
         for offset, item in enumerate(items):
             song = {
                 "url":              item["link"],
@@ -423,21 +443,38 @@ async def _process_play(message: Message, query: str, video: bool = False, play_
                 "requester_id":     req_id,
                 "thumbnail":        item["thumbnail"],
             }
-            if play_next:
-                insert_next(chat_id, song, offset=offset)
-            else:
-                add_to_queue(chat_id, song)
+            position = add_request(chat_id, song, play_next=play_next, offset=added_count)
+            if position == -3:
+                await rich_edit(pm, rich_heading("Track blocked by group settings", level=3) + rich_note("An admin has blocked this track or artist."))
+                break
+            if position == -2:
+                await rich_edit(pm, rich_heading("Music requests are disabled", level=3) + rich_note("A group admin can re-enable requests with <code>/musicrequests on</code>."))
+                break
+            if position == -1:
+                await rich_edit(pm, rich_heading("Request sent for approval", level=3) + rich_note("This playlist track is pending admin approval."))
+                continue
+            if position is None:
+                break
+            added_count += 1
+
+        if not added_count:
+            await rich_edit(pm, rich_heading("Queue share reached", level=3)
+                            + rich_note("You already have three upcoming tracks in this chat. Wait for one to play before adding more."))
+            return
 
         rows = [
-            ("songs", f"<code>{len(items)}</code>"),
+            ("songs", f"<code>{added_count}</code>"),
             ("first", f"<code>{rich_esc(short(items[0]['title']))}</code>"),
         ]
         if len(items) > 1:
             rows.append(("next", f"<code>{rich_esc(short(items[1]['title']))}</code>"))
 
+        notice = ""
+        if added_count < len(items):
+            notice = rich_note(f"Added {added_count} of {len(items)} tracks. You can keep up to three upcoming tracks in the queue at a time.")
         await rich_send(
             bot, chat_id,
-            rich_heading("❍ playlist added", level=3) + rich_kv_table(rows),
+            rich_heading("❍ playlist added", level=3) + rich_kv_table(rows) + notice,
         )
 
         if first_was_empty:
@@ -491,7 +528,20 @@ async def _process_play(message: Message, query: str, video: bool = False, play_
         "video_id":         vid,
     }
 
-    pos = insert_next(chat_id, song) if play_next else add_to_queue(chat_id, song)
+    pos = add_request(chat_id, song, play_next=play_next)
+    if pos == -3:
+        await rich_edit(pm, rich_heading("Track blocked by group settings", level=3) + rich_note("An admin has blocked this track or artist."))
+        return True
+    if pos == -2:
+        await rich_edit(pm, rich_heading("Music requests are disabled", level=3) + rich_note("A group admin can re-enable requests with <code>/musicrequests on</code>."))
+        return True
+    if pos == -1:
+        await rich_edit(pm, rich_heading("Request sent for approval", level=3) + rich_note("A group admin must approve this track before it enters playback."))
+        return True
+    if pos is None:
+        await rich_edit(pm, rich_heading("Queue share reached", level=3)
+                        + rich_note("You already have three upcoming tracks in this chat. Wait for one to play before adding more."))
+        return
 
     if pos == 1:
         await play_song(chat_id, pm, song)
@@ -595,7 +645,19 @@ async def ytpick_callback(_, cq: CallbackQuery) -> None:
     }
 
     play_next = bool(cache.get("play_next"))
-    pos = insert_next(chat_id, song) if play_next else add_to_queue(chat_id, song)
+    pos = add_request(chat_id, song, play_next=play_next)
+    if pos == -3:
+        await rich_edit(pm, rich_heading("Track blocked by group settings", level=3) + rich_note("An admin has blocked this track or artist."))
+        return True
+    if pos == -2:
+        await rich_edit(pm, rich_heading("Music requests are disabled", level=3) + rich_note("A group admin can re-enable requests with <code>/musicrequests on</code>."))
+        return True
+    if pos == -1:
+        await rich_edit(pm, rich_heading("Request sent for approval", level=3) + rich_note("A group admin must approve this track before it enters playback."))
+        return True
+    if pos is None:
+        await cq.answer("You already have three upcoming tracks in this chat.", show_alert=True)
+        return
     if pos == 1:
         status = "Starting playback"
     elif play_next and pos == 2:

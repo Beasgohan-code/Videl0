@@ -8,7 +8,7 @@ import base64
 from flask import jsonify, request
 
 from videl.api.actor import ActorError, require_actor
-from videl.games import GAMES, store
+from videl.games import GAMES, community_events, store
 from videl.games.registry import GameError
 from videl.utils import avatars, players
 from videl.utils.chat_admins import check as admin_check
@@ -70,10 +70,105 @@ def register_arcade_routes(app, authorized, api, secret):
                                 visibility=body.get("visibility", "private"),
                                 chat_id=chat_id, title=body.get("title"))
             return jsonify({"ok": True, "room": room})
-        except (GameError, ActorError) as error:
+        except (GameError, ActorError, community_events.EventError) as error:
             return _answer(error)
         except Exception:
             return jsonify({"ok": False, "error": "The arcade is unavailable; no game was changed"}), 503
+
+    @app.route("/internal/arcade/event-groups", methods=["GET"])
+    def arcade_event_groups():
+        if not authorized():
+            return jsonify({"ok": False, "error": "unauthorized"}), 403
+        try:
+            user = actor()
+            from videl.utils.chat_admins import my_groups
+            groups = my_groups(get_db(), api, user, refresh=True, limit=25)
+            return jsonify({"ok": True, "groups": groups})
+        except ActorError as error:
+            return _answer(error)
+        except Exception:
+            return jsonify({"ok": False, "error": "Your admin groups could not be loaded"}), 503
+
+    @app.route("/internal/arcade/events", methods=["GET", "POST"])
+    def arcade_events():
+        if not authorized():
+            return jsonify({"ok": False, "error": "unauthorized"}), 403
+        try:
+            user = actor()
+            if request.method == "GET":
+                return jsonify({"ok": True, "events": community_events.list_for(user)})
+            body = request.get_json(silent=True)
+            if not isinstance(body, dict):
+                raise GameError("A JSON object is required")
+            try:
+                chat_id = int(body.get("chat_id"))
+            except (TypeError, ValueError):
+                raise community_events.EventError("Choose a Telegram group you administer") from None
+            admin = admin_check(get_db(), api, chat_id, user, force=True)
+            if not admin["admin"]:
+                raise community_events.EventError("Only a current group administrator can create an event", 403)
+            status, chat = api("getChat", {"chat_id": chat_id})
+            if status != 200 or not isinstance(chat, dict) or not chat.get("ok"):
+                raise community_events.EventError("Telegram could not confirm that group", 400)
+            info = chat.get("result") or {}
+            if info.get("type") not in {"group", "supergroup"}:
+                raise community_events.EventError("Events can only be hosted in a Telegram group")
+            if body.get("game_room"):
+                store.validate_event_link(body.get("game_room"), user, chat_id)
+            event = community_events.create(user, _player(user).get("name"), body, chat_id,
+                                            info.get("title") or info.get("username"))
+            # Publishing is intentionally an ordinary group message; the event
+            # is still usable in Videl if Telegram delivery is temporarily down.
+            from config import WEBAPP_URL
+            link = f"{str(WEBAPP_URL).rstrip('/')}/?tab=arcade&event={event['id']}"
+            from datetime import datetime, timezone
+            starts = datetime.fromisoformat(event["starts_at"].replace("Z", "+00:00")).astimezone(timezone.utc)
+            text = (f"📅 {event['title']}\n{starts.strftime('%a, %d %b %Y · %H:%M UTC')}\n\n"
+                    f"{event['description']}\n\nRSVP and join the room: {link}").strip()
+            sent, result = api("sendMessage", {"chat_id": chat_id, "text": text, "disable_web_page_preview": True})
+            event["announcement_sent"] = bool(sent == 200 and isinstance(result, dict) and result.get("ok"))
+            return jsonify({"ok": True, "event": event})
+        except (GameError, ActorError, community_events.EventError) as error:
+            return _answer(error)
+        except Exception:
+            return jsonify({"ok": False, "error": "The event room could not be created"}), 503
+
+    @app.route("/internal/arcade/events/<event_id>", methods=["GET", "POST"])
+    def arcade_event(event_id):
+        if not authorized():
+            return jsonify({"ok": False, "error": "unauthorized"}), 403
+        try:
+            user = actor()
+            if request.method == "GET":
+                return jsonify({"ok": True, "event": community_events.get(event_id, user)})
+            body = request.get_json(silent=True)
+            if not isinstance(body, dict):
+                raise GameError("An RSVP choice is required")
+            if body.get("action") in {"cancel", "edit"}:
+                current = community_events.get(event_id, user)
+                admin = admin_check(get_db(), api, int(current["chat_id"]), user, force=True)
+                if not admin["admin"]:
+                    verb = "edit" if body.get("action") == "edit" else "cancel"
+                    raise community_events.EventError(f"Only a current group administrator can {verb} this event", 403)
+                if body.get("action") == "cancel":
+                    event = community_events.cancel(event_id, user)
+                    notice = f"Event cancelled: {event['title']}"
+                    key = "cancellation_sent"
+                else:
+                    if body.get("game_room"):
+                        store.validate_event_link(body.get("game_room"), user, int(current["chat_id"]))
+                    event = community_events.update(event_id, user, body)
+                    notice = f"Event updated: {event['title']}\nStarts: {event['starts_at']}"
+                    key = "update_notice_sent"
+                sent, result = api("sendMessage", {"chat_id": int(event["chat_id"]), "text": notice})
+                event[key] = bool(sent == 200 and isinstance(result, dict) and result.get("ok"))
+                return jsonify({"ok": True, "event": event})
+            event = community_events.rsvp(event_id, user, _player(user).get("name"), body.get("status"))
+            return jsonify({"ok": True, "event": event})
+        except (GameError, ActorError, community_events.EventError) as error:
+            return _answer(error)
+        except Exception:
+            return jsonify({"ok": False, "error": "That event room is unavailable"}), 503
 
     @app.route("/internal/arcade/join", methods=["POST"])
     def arcade_join():

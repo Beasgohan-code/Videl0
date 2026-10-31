@@ -12,8 +12,10 @@ from pymongo import MongoClient
 from pymongo.errors import ConnectionFailure, DuplicateKeyError, ServerSelectionTimeoutError
 
 import config
+from videl.utils.redaction import RedactingFilter
 
 logger = logging.getLogger(__name__)
+logger.addFilter(RedactingFilter())
 
 # ── Client ─────────────────────────────────────────────────────────────────────
 _client: Optional[MongoClient] = None
@@ -73,9 +75,15 @@ def start_mongo() -> bool:
 
 INDEX_SPECS = {
     "mgmt_chat_settings": [([("chat_id", 1)], {})],
+    "mgmt_custom_commands": [([("chat_id", 1), ("name", 1)], {"unique": True})],
+    "onboarding_daily": [([("day", 1)], {"expireAfterSeconds": 90 * 86400})],
     "mgmt_warnings": [([("chat_id", 1), ("user_id", 1)], {})],
     "mgmt_join_requests": [([("chat_id", 1), ("status", 1)], {})],
     "mgmt_reports": [([("chat_id", 1), ("status", 1)], {})],
+    "mgmt_case_notes": [([("chat_id", 1), ("user_id", 1), ("ts", -1)], {})],
+    "mgmt_escalations": [([("chat_id", 1), ("status", 1), ("created_at", -1)], {}),
+                         ([("chat_id", 1), ("user_id", 1)], {"unique": True, "partialFilterExpression": {"status": "open"}})],
+    "mgmt_appeals": [([("chat_id", 1), ("status", 1), ("ts", -1)], {}), ([ ("user_id", 1), ("ts", -1)], {})],
     "mgmt_notes": [([("chat_id", 1)], {})],
     "mgmt_filters": [([("chat_id", 1)], {})],
     "blacklist": [([("chat", 1), ("trigger", 1)], {})],
@@ -83,6 +91,7 @@ INDEX_SPECS = {
     "disabled_cmds": [([("chat", 1), ("cmd", 1)], {})],
     "backups": [([("chat", 1), ("time", -1)], {})],
     "scheduled_posts": [([("owner_id", 1), ("status", 1), ("due_at", 1)], {})],
+    "listening_sessions": [([("status", 1), ("due_at", 1)], {}), ([ ("chat_id", 1), ("status", 1), ("due_at", 1)], {})],
     "studio_library": [([("owner_id", 1), ("key", 1)], {"unique": True})],
     # Arcade: one document per room, one per event. The manager reads admins by
     # user, and players by rating.
@@ -92,6 +101,8 @@ INDEX_SPECS = {
                     ([("expires_at", 1)], {"expireAfterSeconds": 0})],
     "players": [([("stats.connect4.rating", -1)], {})],
     "chat_admins": [([("user", 1)], {}), ([("chat", 1)], {})],
+    "community_events": [([("status", 1), ("starts_at", 1)], {}),
+                         ([("creator_id", 1), ("starts_at", 1)], {})],
 }
 
 
@@ -1648,14 +1659,30 @@ def get_quiet_hours(chat_id: int) -> dict:
     return get_automation(chat_id)["quiet_hours"]
 
 
-def save_backup(chat_id: int, data: dict) -> str:
+def save_backup(chat_id: int, data: dict, label: str | None = None) -> str:
     col = _col("backups")
     if col is None: return ""
     try:
         bid=__import__("uuid").uuid4().hex[:8]
-        col.update_one({"_id": bid}, {"$set": {"_id": bid, "chat": chat_id, "data": data, "time": __import__("time").time()}}, upsert=True)
+        col.update_one({"_id": bid}, {"$set": {
+            "_id": bid, "chat": chat_id, "data": data,
+            "time": __import__("time").time(),
+            "label": str(label or "Before last import")[:60],
+            "kind": "named" if label else "automatic",
+        }}, upsert=True)
+        # Keep a small, useful history per group, including automatic rollback points.
+        old=list(col.find({"chat": chat_id}, {"_id": 1}).sort("time", -1).skip(12))
+        if old:
+            col.delete_many({"_id": {"$in": [item["_id"] for item in old]}})
         return bid
     except: return ""
+
+def list_backups(chat_id: int, limit: int = 12) -> list[dict]:
+    col = _col("backups")
+    if col is None: return []
+    try:
+        return list(col.find({"chat": int(chat_id)}, {"data": 0}).sort("time", -1).limit(max(1, min(int(limit), 12))))
+    except: return []
 
 def get_backup(bid: str) -> dict | None:
     col = _col("backups")

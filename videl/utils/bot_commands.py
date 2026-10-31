@@ -27,6 +27,7 @@ PUBLIC_COMMANDS = (
     ("quiz", "Create a quiz with one correct answer"),
     ("afk", "Set an away status with auto-replies"),
     ("remind", "Schedule a reminder"),
+    ("preferences", "Private updates and quiet hours"),
     ("id", "Read chat and user identifiers"),
     ("whois", "Show a member's profile"),
     ("kang", "Save a replied sticker to your personal pack"),

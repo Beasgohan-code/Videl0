@@ -149,7 +149,7 @@ async def approval_info(_, m):
 @bot.on_callback_query(filters.regex(r"^approve:"))
 async def approve_cbs(_, q):
     if not await is_user_authorized(q):
-        return await q.answer("⚠️ " + sc("admin only"), show_alert=True)
+        return await q.answer(sc("admin only"), show_alert=True)
     chat_id = q.message.chat.id if q.message and q.message.chat else 0
     data = q.data or ""
     if data == "approve:list":
@@ -182,9 +182,9 @@ async def approve_cbs(_, q):
         try:
             uid = int(data.split(":")[2])
         except Exception:
-            return await q.answer("⚠️ " + sc("invalid"), show_alert=True)
+            return await q.answer(sc("invalid"), show_alert=True)
         disapprove_user(chat_id, uid)
-        await q.answer("✅ Member removed from the approved list.")
+        await q.answer("Member removed from the approved list.")
         arr = list_approved(chat_id)
         if not arr:
             try:
@@ -219,7 +219,7 @@ async def approve_cbs(_, q):
         arr = list_approved(chat_id)
         for uid in arr:
             disapprove_user(chat_id, uid)
-        await q.answer("✅ Approved-member list cleared.")
+        await q.answer("Approved-member list cleared.")
         try:
             await rich_edit(q.message, rich_heading("✅ Approved-member list cleared", level=3) + rich_note("No members are currently approved in this group."))
         except Exception:

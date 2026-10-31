@@ -179,7 +179,7 @@ async def list_bl_stickers_cmd(_, m):
 @bot.on_callback_query(filters.regex(r"^bl:"))
 async def bl_cbs(_, q):
     if not await is_user_authorized(q):
-        return await q.answer("⚠️ " + sc("admin only"), show_alert=True)
+        return await q.answer(sc("admin only"), show_alert=True)
     chat_id = q.message.chat.id if q.message and q.message.chat else 0
     data = (q.data or "").split(":")
     cmd = data[1] if len(data)>1 else ""
@@ -203,7 +203,7 @@ async def bl_cbs(_, q):
     if cmd == "rm" and len(data)>2:
         trig = data[2]
         if remove_blacklist(chat_id, trig):
-            await q.answer("✅ " + sc("removed") + " " + trig)
+            await q.answer(sc("removed") + " " + trig)
             bl = get_blacklist(chat_id)
             mode = get_blacklist_mode(chat_id)
             if not bl:
@@ -219,7 +219,7 @@ async def bl_cbs(_, q):
             except Exception:
                 pass
         else:
-            await q.answer("⚠️ " + sc("not found"), show_alert=True)
+            await q.answer(sc("not found"), show_alert=True)
         return
     if cmd == "mode":
         if len(data)>2:
@@ -227,7 +227,7 @@ async def bl_cbs(_, q):
             if mode_name.startswith("tban"):
                 mode_name = "tban_" + mode_name.split("_")[-1] if "_" in mode_name else "tban_1h"
             set_blacklist_mode(chat_id, mode_name)
-            await q.answer("✅ " + mode_name)
+            await q.answer(mode_name)
             try:
                 await rich_edit(q.message, _hdr(pe("check","✅") + " " + sc("mode updated"),3) + rich_kv_table([(pe("target","") + " " + sc("mode"), "<code>" + rich_esc(mode_name) + "</code>")]))
             except Exception:
@@ -247,7 +247,7 @@ async def bl_cbs(_, q):
         bl = get_blacklist(chat_id)
         for b in bl:
             remove_blacklist(chat_id, b["trigger"])
-        await q.answer("✅ " + sc("cleared") + " " + str(len(bl)))
+        await q.answer(sc("cleared") + " " + str(len(bl)))
         try:
             await rich_edit(q.message, _hdr(pe("check","✅") + " " + sc("blacklist cleared"),3))
         except Exception:

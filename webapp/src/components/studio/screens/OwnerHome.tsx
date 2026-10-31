@@ -25,8 +25,28 @@ type Metrics = {
   uptime?: number;
 };
 type Analytics = {
+  total_commands?: number;
+  active_users?: number;
+  series?: { time: string; commands: number }[];
   recent_events?: { command: string; chat_id: string; at: string | null }[];
   top_chats?: { id: string; commands: number }[];
+};
+type PulseGroup = {
+  id: number | string;
+  title: string;
+  available?: boolean;
+  bot_admin?: boolean;
+  counts?: { reports?: number; pending_joins?: number };
+  health?: { attention?: boolean; issues?: string[] };
+};
+type GroupsPulse = {
+  chats?: PulseGroup[];
+  total?: number;
+  summary?: { attention?: number; unreachable?: number };
+};
+type OnboardingPulse = {
+  totals?: { joins?: number; challenged?: number; verified?: number; timed_out?: number };
+  groups_with_joins?: number;
 };
 const actions: {
   tab: Section;
@@ -36,7 +56,7 @@ const actions: {
 }[] = [
   {
     tab: "music",
-    label: "Listen to music",
+    label: "Open Videl Music",
     icon: Music2,
     color: "from-emerald-400 to-teal-600",
   },
@@ -87,6 +107,8 @@ export default function Home() {
   const [measured, setMeasured] = useState<string | null>(null);
   const [stats, setStats] = useState<Metrics | null>(null);
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
+  const [groupsPulse, setGroupsPulse] = useState<GroupsPulse | null>(null);
+  const [onboarding, setOnboarding] = useState<OnboardingPulse | null>(null);
   const [health, setHealth] = useState<{
     status?: string;
     bot_status?: string;
@@ -146,6 +168,19 @@ export default function Home() {
           .catch(() => {
             if (active) setAnalytics(null);
           }),
+        (telegram.authenticated
+          ? read("/api/groups?limit=100")
+          : Promise.resolve(null)
+        )
+          .then((data) => {
+            if (active) setGroupsPulse(data);
+          })
+          .catch(() => {
+            if (active) setGroupsPulse(null);
+          }),
+        (telegram.authenticated ? read("/api/onboarding") : Promise.resolve(null))
+          .then((data) => { if (active) setOnboarding(data); })
+          .catch(() => { if (active) setOnboarding(null); }),
         read("/api/health")
           .then((data) => {
             if (active) setHealth(data);
@@ -189,6 +224,20 @@ export default function Home() {
       ? `${Math.floor(uptimeSeconds / 3600)}h ${Math.floor((uptimeSeconds % 3600) / 60)}m`
       : "—";
   const name = telegram.user?.first_name || "Creator";
+  const pulseGroupsList = groupsPulse?.chats ?? [];
+  const attentionGroups = pulseGroupsList.filter(
+    (group) => group.health?.attention || group.available === false || group.bot_admin === false,
+  );
+  const openReports = pulseGroupsList.reduce((sum, group) => sum + (group.counts?.reports ?? 0), 0);
+  const pendingJoins = pulseGroupsList.reduce((sum, group) => sum + (group.counts?.pending_joins ?? 0), 0);
+  const onboardingTotals = onboarding?.totals;
+  const verificationRate = (onboardingTotals?.challenged ?? 0) > 0
+    ? Math.round(((onboardingTotals?.verified ?? 0) / (onboardingTotals?.challenged ?? 1)) * 100)
+    : null;
+  const peakHour = analytics?.series?.reduce<{ time: string; commands: number } | null>(
+    (peak, point) => (!peak || point.commands > peak.commands ? point : peak),
+    null,
+  );
   const hour = new Date().getHours();
   const greeting =
     hour < 12 ? "Good Morning" : hour < 18 ? "Good Afternoon" : "Good Evening";
@@ -288,6 +337,7 @@ export default function Home() {
           <div
             key={m.label}
             className="ios-card flex items-center gap-4 p-4 sm:p-5"
+            data-screen-stagger
           >
             <span
               aria-hidden
@@ -345,6 +395,72 @@ export default function Home() {
           </div>
         </Callout>
       )}
+      <section data-screen-stagger className="ios-card mt-5 overflow-hidden p-5" aria-label="Community Pulse">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="ios-caps text-[10px] text-indigo-300">Community Pulse · last 24 hours</p>
+            <h2 className="mt-1 text-base font-semibold">What needs your attention?</h2>
+          </div>
+          <button onClick={() => open("groups")} className="ios-btn ios-btn-glass text-xs">
+            Review groups <ArrowUpRight size={14} />
+          </button>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="rounded-xl border border-indigo-300/10 bg-indigo-400/[0.035] p-3">
+            <p className="text-[10px] text-indigo-100/45">Commands used</p>
+            <p className="mt-1 text-xl font-bold">{count(analytics?.total_commands)}</p>
+            <p className="mt-1 text-[10px] text-indigo-100/35">{count(analytics?.active_users)} active users</p>
+          </div>
+          <div className="rounded-xl border border-indigo-300/10 bg-indigo-400/[0.035] p-3">
+            <p className="text-[10px] text-indigo-100/45">Busiest hour</p>
+            <p className="mt-1 text-xl font-bold">{peakHour?.time ?? "—"}</p>
+            <p className="mt-1 text-[10px] text-indigo-100/35">{peakHour ? `${count(peakHour.commands)} commands` : "Hourly activity"}</p>
+          </div>
+          <div className="rounded-xl border border-amber-300/10 bg-amber-300/[0.035] p-3">
+            <p className="text-[10px] text-indigo-100/45">Groups to review</p>
+            <p className="mt-1 text-xl font-bold">{count(groupsPulse?.summary?.attention ?? attentionGroups.length)}</p>
+            <p className="mt-1 text-[10px] text-indigo-100/35">Bot access or protection needs checking</p>
+          </div>
+          <div className="rounded-xl border border-indigo-300/10 bg-indigo-400/[0.035] p-3">
+            <p className="text-[10px] text-indigo-100/45">Open community queue</p>
+            <p className="mt-1 text-xl font-bold">{count(openReports + pendingJoins)}</p>
+            <p className="mt-1 text-[10px] text-indigo-100/35">{count(openReports)} reports · {count(pendingJoins)} join requests</p>
+          </div>
+        </div>
+        {attentionGroups.length > 0 && (
+          <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-indigo-300/10 pt-3">
+            <span className="text-[10px] text-indigo-100/45">Review first:</span>
+            {attentionGroups.slice(0, 3).map((group) => (
+              <button key={group.id} onClick={() => open("groups")} className="max-w-full truncate rounded-full border border-amber-300/15 bg-amber-300/5 px-3 py-1 text-[10px] text-amber-100/80">
+                {group.title}
+              </button>
+            ))}
+            {attentionGroups.length > 3 && <span className="text-[10px] text-indigo-100/45">+{attentionGroups.length - 3} more</span>}
+          </div>
+        )}
+        {groupsPulse?.total !== undefined && groupsPulse.total > pulseGroupsList.length && (
+          <p className="mt-3 text-[10px] text-indigo-100/35">Queue and group checks summarize {pulseGroupsList.length} of {groupsPulse.total} groups.</p>
+        )}
+      </section>
+      <section data-screen-stagger className="ios-card mt-5 p-5" aria-label="New-member onboarding insights">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="ios-caps text-[10px] text-cyan-200">New-member onboarding · 7 days</p>
+            <h2 className="mt-1 text-base font-semibold">Are new members getting through?</h2>
+          </div>
+          <span className="rounded-full border border-cyan-300/10 bg-cyan-300/5 px-3 py-1.5 text-[10px] text-cyan-100/60">Aggregate counts only · no member IDs stored</span>
+        </div>
+        <div className="mt-4 grid grid-cols-2 gap-3 xl:grid-cols-5">
+          {[
+            ["Joined", count(onboardingTotals?.joins)],
+            ["Challenges issued", count(onboardingTotals?.challenged)],
+            ["Verified", count(onboardingTotals?.verified)],
+            ["Timed out", count(onboardingTotals?.timed_out)],
+            ["Challenge completion", verificationRate === null ? "—" : `${verificationRate}%`],
+          ].map(([label, value]) => <div key={label} className="rounded-xl border border-cyan-300/10 bg-cyan-300/[0.025] p-3"><p className="text-[10px] text-indigo-100/45">{label}</p><p className="mt-1 text-lg font-semibold">{value}</p></div>)}
+        </div>
+        <p className="mt-3 text-[10px] text-indigo-100/35">{count(onboarding?.groups_with_joins)} groups had new joins. Completion is verified ÷ challenges issued; members who joined while verification was off are not included in that rate.</p>
+      </section>
       <div className="mt-5 grid gap-5 lg:grid-cols-[1.2fr_1fr]">
         <section className="ios-card p-5">
           <div className="flex items-center justify-between">

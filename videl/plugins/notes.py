@@ -423,6 +423,61 @@ async def filter_watcher(_, message) -> None:
         LOGGER.debug("Filter reply failed", exc_info=True)
 
 
+@bot.on_message(filters.group, group=19)
+async def custom_command_watcher(client, message) -> None:
+    raw = message.text or ""
+    if not raw or raw[0] not in config.COMMAND_PREFIX_LIST:
+        return
+    user = getattr(message, "from_user", None)
+    if user is None or getattr(user, "is_bot", False):
+        return
+    parts = raw.split(maxsplit=1)
+    token = parts[0]
+    match = re.fullmatch(rf"({config.COMMAND_PREFIX_PATTERN})([a-zA-Z][a-zA-Z0-9_]{{1,31}})(?:@([a-zA-Z0-9_]+))?", token)
+    if not match:
+        return
+    name = match.group(2).lower()
+    mention_bot = match.group(3)
+    if mention_bot:
+        me = await client.get_me()
+        if mention_bot.casefold() != str(getattr(me, "username", "") or "").casefold():
+            return
+    database = base.db()
+    if database is None:
+        return
+    from videl.utils.db import is_disabled
+    if await asyncio.to_thread(is_disabled, message.chat.id, name):
+        return
+    try:
+        row = await asyncio.to_thread(database["mgmt_custom_commands"].find_one,
+                                      {"chat_id": message.chat.id, "name": name})
+        if not row or not isinstance(row.get("response"), str):
+            return
+        first_name = str(getattr(user, "first_name", "") or "Guest")
+        last_name = str(getattr(user, "last_name", "") or "")
+        display = (first_name + (" " + last_name if last_name else "")).strip()
+        username = str(getattr(user, "username", "") or "")
+        values = {
+            "name": display, "mention": "@" + username if username else display,
+            "id": str(user.id), "chat": str(getattr(message.chat, "title", "") or "this chat"),
+            "username": ("@" + username) if username else "",
+            "args": parts[1] if len(parts) > 1 else "",
+        }
+        from videl.utils.custom_commands import allow_use, is_native, render
+        if is_native(name):
+            return
+        allowed, _retry_after = allow_use(message.chat.id, name, user.id, row.get("cooldown_seconds", 0))
+        if not allowed:
+            return
+        response = render(row["response"], values)
+        if len(response.encode("utf-16-le")) // 2 > 4096:
+            await message.reply_text("That custom command's reply is too long to send.", parse_mode=None)
+            return
+        await message.reply_text(response, parse_mode=None)
+    except Exception:
+        LOGGER.debug("Custom command reply failed", exc_info=True)
+
+
 @bot.on_message(filters.group, group=18)
 async def note_watcher(_, message) -> None:
     text = message.text or ""

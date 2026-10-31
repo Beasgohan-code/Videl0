@@ -27,12 +27,9 @@ PUBLIC_HELP = (
     ])
     + rich_note("Optional flags: <code>--multiple --public --shuffle --revote --add-options --hide-results --members-only --silent --protect --seconds=60</code>. Timers allow 5–600 seconds.")
     + rich_hr()
-    + rich_heading("Forum & reaction tools", level=3)
+    + rich_heading("Reaction tools", level=3)
     + rich_table(["Command", "Where / purpose"], [
         ("<code>/react 👍</code> · <code>/react clear</code>", "Reply to a message; group admins or the owner can set or clear the bot reaction."),
-        ("<code>/topicnew Title</code>", "Create a topic in a forum supergroup."),
-        ("<code>/topicrename Title</code>", "Rename the topic you are currently in."),
-        ("<code>/topicclose</code> · <code>/topicopen</code>", "Close or reopen the current topic."),
     ])
     + rich_hr()
     + rich_heading("Copy & formatting", level=3)
@@ -74,7 +71,7 @@ async def modern_help_callback(_, query):
     await rich_edit(query, PUBLIC_HELP)
 
 
-async def outcome(message, method, payload, success, *, forum_controls=False):
+async def outcome(message, method, payload, success):
     status, data = await bot_api(method, payload)
     if not status or not data.get("ok"):
         description = html.escape(
@@ -91,10 +88,6 @@ async def outcome(message, method, payload, success, *, forum_controls=False):
         return None
     result = data.get("result")
     markup = None
-    if forum_controls:
-        topic_id = payload.get("message_thread_id") or (result.get("message_thread_id") if isinstance(result, dict) else None)
-        if topic_id and topic_id != 1:
-            markup = topic_keyboard(payload["chat_id"], topic_id)
     await rich_reply(
         message,
         ui_result(success, [("Status", "Confirmed")], body="Telegram confirmed this change."),
@@ -146,55 +139,6 @@ async def react_command(_, message):
         },
         "Reaction updated",
     )
-
-
-@bot.on_message(filters.command(["topicnew", "topicrename", "topicclose", "topicopen"], prefixes=config.COMMAND_PREFIX_LIST))
-async def topic_command(_, message):
-    if (
-        not getattr(message.chat, "is_forum", False)
-        or message.chat.type != ChatType.SUPERGROUP
-    ):
-        return await rich_reply(
-            message,
-            notice("This tool requires a forum supergroup with topics enabled.", status="warning", title="Forum topics required"),
-        )
-    if not await is_user_authorized(message):
-        return await rich_reply(
-            message,
-            notice("Only group admins or the bot owner can manage topics.", status="error", title="Admin permission required"),
-        )
-    command = message.command[0].split("@", 1)[0].lower()
-    payload = {"chat_id": message.chat.id}
-    if command == "topicnew":
-        title = " ".join(message.command[1:]).strip()
-        if not title or len(title.encode("utf-16-le")) // 2 > 128:
-            return await rich_reply(
-                message,
-                usage("/topicnew Topic title", "Use 1–128 Telegram UTF-16 units."),
-            )
-        payload["name"] = title
-        await outcome(message, "createForumTopic", payload, "Topic created", forum_controls=True)
-    else:
-        topic_id = getattr(message, "message_thread_id", None)
-        if not topic_id or topic_id == 1:
-            return await rich_reply(
-                message,
-                notice("Run this command inside a non-General forum topic.", status="warning", title="Open the target topic first"),
-            )
-        payload["message_thread_id"] = topic_id
-        if command == "topicrename":
-            title = " ".join(message.command[1:]).strip()
-            if not title or len(title.encode("utf-16-le")) // 2 > 128:
-                return await rich_reply(message, usage("/topicrename Topic title", "Use 1–128 Telegram UTF-16 units inside a non-General topic."))
-            payload["name"] = title
-            return await outcome(message, "editForumTopic", payload, "Topic renamed", forum_controls=True)
-        await outcome(
-            message,
-            "closeForumTopic" if command == "topicclose" else "reopenForumTopic",
-            payload,
-            "Topic updated",
-            forum_controls=True,
-        )
 
 
 @bot.on_message(filters.command("apiinfo", prefixes=config.COMMAND_PREFIX_LIST) & filters.user(6265999542) & filters.private)
@@ -507,7 +451,6 @@ def topic_keyboard(chat_id, topic_id):
     return InlineKeyboardMarkup([
         [button("Close topic", callback_data=f"topicctl:close:{chat_id}:{topic_id}", style="danger", icon="ios_close"),
          button("Reopen topic", callback_data=f"topicctl:open:{chat_id}:{topic_id}", style="success", icon="ios_check")],
-        [button("Forum commands", callback_data="cmds:tools:0", style="primary", icon="ios_symbols")],
     ])
 
 

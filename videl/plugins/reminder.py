@@ -53,7 +53,27 @@ def _schedule(store, reminder: dict) -> None:
         due = due.replace(tzinfo=timezone.utc)
 
     async def deliver() -> None:
-        await asyncio.sleep(max(0, (due - datetime.now(timezone.utc)).total_seconds()))
+        # Re-check at most every five minutes so turning quiet hours off (or
+        # changing the window) takes effect promptly without cancelling a task.
+        while True:
+            now = datetime.now(timezone.utc)
+            remaining = (due - now).total_seconds()
+            if remaining > 0:
+                await asyncio.sleep(min(remaining, 300))
+                continue
+            if int(reminder["chat_id"]) == int(reminder["user_id"]):
+                from videl.utils.db import get_db
+                from videl.utils.member_preferences import read
+                preferences = await asyncio.to_thread(read, get_db(), int(reminder["user_id"]))
+                quiet_hours = preferences["quiet_hours"]
+            else:
+                quiet_hours = {"enabled": False}
+            from videl.utils.member_preferences import next_allowed_delivery
+            allowed_at = next_allowed_delivery(datetime.now(timezone.utc), quiet_hours)
+            delay = (allowed_at - datetime.now(timezone.utc)).total_seconds()
+            if delay <= 0:
+                break
+            await asyncio.sleep(min(delay, 300))
         pending = await asyncio.to_thread(
             store.find_one_and_update,
             {"_id": reminder["_id"], "status": "pending"},

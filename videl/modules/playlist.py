@@ -17,7 +17,7 @@ from pyrogram.types import Message
 
 import config
 from videl import bot
-from videl.core.queue import add_to_queue, get_queue, queue_size
+from videl.core.queue import add_request, get_queue, queue_size
 from videl.modules.block import group_allowed, user_allowed
 from videl.utils.db import (
     delete_playlist,
@@ -139,6 +139,7 @@ async def load_playlist_cmd(_, message: Message) -> None:
             return
 
     added = 0
+    share_limited = False
     requester = message.from_user.first_name if message.from_user else "User"
     requester_id = message.from_user.id if message.from_user else 0
 
@@ -155,7 +156,14 @@ async def load_playlist_cmd(_, message: Message) -> None:
             "requester_id": requester_id,
             "from_playlist": pl.get("display_name") or name,
         }
-        add_to_queue(chat_id, song)
+        position = add_request(chat_id, song)
+        if position == -2:
+            break
+        if position == -1:
+            continue
+        if position is None:
+            share_limited = True
+            break
         added += 1
 
     await rich_send(
@@ -166,6 +174,7 @@ async def load_playlist_cmd(_, message: Message) -> None:
             ("Added", str(added)),
             ("Queue size", str(queue_size(chat_id))),
         ])
+        + (rich_note("Your share is full: the queue keeps at most three upcoming tracks per requester.") if share_limited else "")
         + rich_note("Use <code>/play</code> or wait for autoplay if something is already playing."),
     )
 

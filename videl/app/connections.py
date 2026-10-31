@@ -15,7 +15,7 @@ CONNECTED_COMMANDS = frozenset({
     "notes", "save", "get", "delnote", "filter", "filters", "stopfilter",
     "settitle", "setdescription", "slowmode",
     "pause", "resume", "loop", "shuffle", "clear", "skip", "stop", "end", "resetplayer",
-    "replay", "queue", "q", "reports", "resolve",
+    "replay", "queue", "q", "reports", "resolve", "appeals", "appealresolve",
 })
 
 

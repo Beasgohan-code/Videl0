@@ -10,6 +10,7 @@ REMOVED={
     'delpl','rmplaylist','ytaudio','mdown','yta','ytvideo','vdownload','dl',
     'addapprove','rmapprove','disapprove','approvelist','addbl','rembl','blacklists',
     'blist','blmode','blaction','addblackliststicker','remblsticker','blackliststickers',
+    'topicnew','topicrename','topicclose','topicopen','remaind',
 }
 
 class CommandCleanupTests(unittest.TestCase):
@@ -20,7 +21,7 @@ class CommandCleanupTests(unittest.TestCase):
         for required in ('play','vplay','cplay','autoplay','queue','q','playlist','saveplaylist',
                          'playlists','deleteplaylist','song','vsong','download','ban','warn',
                          'lock','unapprove','addblacklist','rmblacklist','adminlist','permissions',
-                         'poll','quiz','copy','topicrename','remind','watchdog','dbcleanup','tagall'):
+                         'poll','quiz','copy','remind','watchdog','dbcleanup','tagall'):
             self.assertIn(required,names)
 
     def test_unused_dependency_declarations_are_gone(self):

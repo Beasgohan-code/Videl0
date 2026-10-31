@@ -228,7 +228,7 @@ class ManifestTests(unittest.TestCase):
         self.assertEqual(len(names), len(set(names)))
         for command in COMMANDS:
             self.assertIn(command.category, {"tools", "music", "manage", "owner"})
-            self.assertIn(command.policy, {"public", "group", "admin", "owner"})
+            self.assertIn(command.policy, {"public", "group", "admin", "owner", "dj"})
         by_name = {command.name: command for command in COMMANDS}
         for name in ("settitle", "setdescription", "setphoto", "delphoto"):
             self.assertEqual(by_name[name].policy, "admin")

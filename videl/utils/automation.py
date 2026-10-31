@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 
 QUIET_DEFAULT = {"enabled": False, "start": "22:00", "end": "07:00", "tz_offset": 0}
 ESCALATION_DEFAULT = {"enabled": True, "action": "ban", "mute_hours": 6,
-                      "decay_days": 0, "ladder": ()}
+                      "decay_days": 0, "ladder": (), "review_severe": False}
 PROTECTION_DEFAULT = {"enabled": False, "start": "22:00", "end": "07:00", "locks": []}
 MAX_WINDOW_LOCKS = 24
 ESCALATION_ACTIONS = ("ban", "mute", "kick", "none")
@@ -101,12 +101,14 @@ def normalize_escalation(raw) -> dict:
         if not rising or order[rung] > order[rising[-1]]:
             rising.append(rung)
     ladder = rising
+    review_severe = source.get("review_severe") is True
     return {
         "enabled": True if enabled is None else enabled is True,
         "action": action,
         "mute_hours": hours,
         "decay_days": decay,
         "ladder": tuple(ladder),
+        "review_severe": review_severe,
     }
 
 

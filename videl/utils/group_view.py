@@ -122,6 +122,22 @@ def aware(value):
     return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
 
 
+def case_timestamp(value):
+    """Normalize legacy ISO strings, Mongo datetimes and epoch seconds."""
+    try:
+        if isinstance(value, datetime):
+            stamp=aware(value)
+        elif isinstance(value, (int,float)):
+            stamp=datetime.fromtimestamp(float(value),timezone.utc)
+        elif isinstance(value,str):
+            stamp=datetime.fromisoformat(value.replace('Z','+00:00'))
+            stamp=aware(stamp)
+        else:return None
+        return stamp.isoformat()
+    except (TypeError,ValueError,OverflowError,OSError):
+        return None
+
+
 _ENTITY_MARKS={'BOLD':'b','ITALIC':'i','UNDERLINE':'u','STRIKETHROUGH':'s','SPOILER':'tg-spoiler','CODE':'code','PRE':'pre','BLOCKQUOTE':'blockquote'}
 
 
@@ -489,7 +505,7 @@ class GroupView:
     #: Actions that stay with the bot owner even though a group admin could
     #: otherwise reach them. Importing a backup overwrites protection state;
     #: recording starts capturing member messages; purging destroys evidence.
-    OWNER_ONLY={'backup_import','backup_restore','recording','purge_history'}
+    OWNER_ONLY={'backup_import','backup_restore','backup_snapshot','backup_list','recording','purge_history'}
 
     def __init__(self,db,api,actor=OWNER_ID,scope='owner'):
         if db is None:raise ViewError('MongoDB is not connected.',503)
@@ -598,7 +614,10 @@ class GroupView:
                 'username':str((me or {}).get('username') or '')[:64] or None,
                 'status':member_status if member_status in {'creator','administrator','member','restricted','left','kicked'} else None,
                 'is_admin':member_status in {'creator','administrator'},
-                'can_manage':bool((bot_member or {}).get('can_manage_chat')) if member_status=='administrator' else False}
+                'can_manage':bool((bot_member or {}).get('can_manage_chat')) if member_status=='administrator' else False,
+                'can_delete_messages':bool((bot_member or {}).get('can_delete_messages')) if member_status=='administrator' else False,
+                'can_restrict_members':bool((bot_member or {}).get('can_restrict_members')) if member_status=='administrator' else False,
+                'can_invite_users':bool((bot_member or {}).get('can_invite_users')) if member_status=='administrator' else False}
             base['owner']={'status':actor.get('status') if actor.get('status') in {'creator','administrator','member','restricted','left','kicked'} else None}
         invite=None
         if cid<0:
@@ -689,8 +708,10 @@ class GroupView:
         try:
             notes=list(self.db['mgmt_notes'].find({'chat_id':cid},{'_id':0,'name':1,'type':1}).limit(60))
             filters=list(self.db['mgmt_filters'].find({'chat_id':cid},{'_id':0,'keyword':1,'reply':1}).limit(60))
+            from videl.utils.custom_commands import list_for as list_custom_commands
+            custom_commands=list_custom_commands(self.db,cid)
         except Exception:
-            notes,filters=[],[]
+            notes,filters,custom_commands=[],[],[]
         try:blacklist=list(self.db['blacklist'].find({'chat':cid},{'_id':0,'trigger':1,'mode':1}).limit(120))
         except Exception:blacklist=[]
         try:approved=[int(item) for item in self.db['approved'].distinct('user',{'chat':cid})][:120]
@@ -703,13 +724,34 @@ class GroupView:
         except Exception:warns=[]
         try:automation=get_automation(cid)
         except Exception:automation=normalize({})
-        return {'ok':True,'scope':self.scope,'chat':info,'settings':self.snapshot(cid),'presets':PRESETS,
-                'revision':self.revision(cid),'automation':automation,
+        current_settings=self.snapshot(cid)
+        required_rights=info.get('bot') or {}
+        protection_keys=[key for key in current_settings if key.startswith('lock_')]
+        protected=any(bool(current_settings.get(key)) for key in protection_keys) or bool(current_settings.get('antispam'))
+        onboarding_ready=bool(current_settings.get('captcha_enabled') or current_settings.get('welcome_message') or current_settings.get('rules'))
+        setup_checklist=[
+            {'id':'bot_admin','label':'Bot is a group administrator','complete':bool(required_rights.get('is_admin')),
+             'detail':'Needed for reliable group management.'},
+            {'id':'delete_messages','label':'Bot can delete messages','complete':bool(required_rights.get('can_delete_messages')),
+             'detail':'Needed for content locks and anti-flood enforcement.'},
+            {'id':'restrict_members','label':'Bot can restrict members','complete':bool(required_rights.get('can_restrict_members')),
+             'detail':'Needed for mutes, bans and join verification.'},
+            {'id':'protection','label':'At least one protection is configured','complete':protected,
+             'detail':'Enable a suitable content lock or anti-flood rule for this group.'},
+            {'id':'onboarding','label':'Welcome, rules or join verification is configured','complete':onboarding_ready,
+             'detail':'Set a welcome message, publish rules or enable the CAPTCHA challenge.'},
+        ]
+        try:cases=self.case_history(cid)
+        except Exception:cases=[]
+        return {'ok':True,'scope':self.scope,'chat':info,'settings':current_settings,'presets':PRESETS,
+                'revision':self.revision(cid),'automation':automation,'cases':cases,
+                'setup_checklist':setup_checklist,
                 'inbox':self.inbox(cid),
                 'community':{
                     'warns':warns,'warn_limit':get_warn_limit(cid),
                     'notes':[{'name':str(item.get('name','')),'type':str(item.get('type','text'))} for item in notes],
                     'filters':[{'keyword':str(item.get('keyword','')),'reply':str(item.get('reply',''))[:160]} for item in filters],
+                    'custom_commands':custom_commands,
                     'blacklist':[{'trigger':str(item.get('trigger','')),'mode':str(item.get('mode','del'))} for item in blacklist],
                     'approved':approved,'disabled_commands':disabled,
                 },
@@ -719,15 +761,40 @@ class GroupView:
     AUDIT_KINDS={'settings':'settings','protect':'settings','preset':'preset','warn_limit':'warn_limit',
         'welcome':'welcome','goodbye':'goodbye','rules':'rules','blacklist_add':'blacklist',
         'blacklist_remove':'blacklist','blacklist_mode':'blacklist_mode','note_delete':'note',
-        'filter_delete':'filter','filter_create':'filter','note_create':'note','approved_remove':'approval','warn_reset':'warn_reset',
-        'automation':'automation','command_disable':'commands','command_enable':'commands','backup_import':'backup','backup_restore':'backup',
-        'join_request':'join_request','report_update':'report','member_action':'moderation','invite_link':'invite','recording':'recording','purge_history':'purge'}
+        'filter_delete':'filter','filter_create':'filter','custom_command_create':'commands','custom_command_delete':'commands','note_create':'note','approved_remove':'approval','warn_reset':'warn_reset',
+        'automation':'automation','command_disable':'commands','command_enable':'commands','backup_import':'backup','backup_restore':'backup','backup_snapshot':'backup',
+        'join_request':'join_request','report_update':'report','case_note':'moderation','escalation_review':'escalation','member_action':'moderation','invite_link':'invite','recording':'recording','purge_history':'purge'}
 
-    def log(self,cid,action,body=None,source='web'):
-        """Record a successful change. Never raises: the change already happened."""
+    @staticmethod
+    def _audit_value(value):
+        if type(value) is bool:return 'on' if value else 'off'
+        if value is None:return 'unset'
+        if isinstance(value,str):return f'{len(value)} chars'
+        if isinstance(value,(int,float)):return str(value)[:32]
+        if isinstance(value,(list,tuple,set)):return f'{len(value)} items'
+        return 'changed'
+
+    def log(self,cid,action,body=None,source='web',before=None,after=None):
+        """Record a successful change and privacy-safe before/after values."""
         body=body if isinstance(body,dict) else {}
         try:detail=audit_detail(action,body)
         except Exception:detail=''
+        if isinstance(before,dict) and isinstance(after,dict):
+            def flatten(value,prefix=''):
+                output={}
+                if isinstance(value,dict):
+                    for key,item in value.items():
+                        child=f'{prefix}.{key}' if prefix else str(key)
+                        output.update(flatten(item,child))
+                else:output[prefix]=value
+                return output
+            old_values,new_values=flatten(before),flatten(after)
+            differences=[]
+            for key in sorted(set(old_values)&set(new_values)):
+                if old_values[key]!=new_values[key]:
+                    differences.append(f'{key}: {self._audit_value(old_values[key])} → {self._audit_value(new_values[key])}')
+            if differences:
+                detail=(detail+'; ' if detail else '')+'previous/current: '+', '.join(differences[:5])
         try:audit_log.record(self.db,cid,self.AUDIT_KINDS.get(action,'settings'),action=action,
             detail=detail,actor=self.actor,source=source)
         except Exception:log.debug('audit record failed',exc_info=True)
@@ -791,6 +858,36 @@ class GroupView:
             'blacklist': [row for row in blacklist if row['trigger']],
             'commands_disabled': commands,
         }}
+
+    def save_snapshot(self, chat_id, body):
+        cid = integer(chat_id)
+        if cid > 0:
+            raise ViewError('Group snapshots are group-only.', 403)
+        label = str((body or {}).get('label') or '').strip()
+        if not label or len(label) > 60:
+            raise ViewError('Give this snapshot a name between 1 and 60 characters.')
+        from videl.utils.db import save_backup
+        document = self.export_group(cid)['backup']
+        identifier = save_backup(cid, document, label=label)
+        if not identifier:
+            raise ViewError('The snapshot could not be saved. Check the database connection and retry.', 503)
+        self.log(cid, 'backup_snapshot', {'label': label})
+        return {'ok': True, 'snapshot': {'id': identifier, 'label': label, 'kind': 'named', 'time': now()},
+                'snapshots': self.list_snapshots(cid)['snapshots']}
+
+    def list_snapshots(self, chat_id):
+        cid = integer(chat_id)
+        if cid > 0:
+            raise ViewError('Group snapshots are group-only.', 403)
+        from videl.utils.db import list_backups
+        rows = list_backups(cid, 12)
+        return {'ok': True, 'snapshots': [
+            {'id': str(row.get('_id') or ''),
+             'label': str(row.get('label') or ('Before last import' if row.get('kind') != 'named' else 'Saved snapshot'))[:60],
+             'kind': str(row.get('kind') or 'automatic'),
+             'time': row.get('time')}
+            for row in rows
+        ]}
 
     def _read_backup(self, payload):
         """Accept only the documented shape; unknown keys are ignored, not applied."""
@@ -871,7 +968,7 @@ class GroupView:
                          'enable': sorted(live_commands - wanted_commands)},
         }
 
-    def _apply_backup(self, cid, settings, automation, blacklist, commands, expected=None):
+    def _apply_backup(self, cid, settings, automation, blacklist, commands, expected=None, sections=None):
         from videl.utils.db import disable_cmd, enable_cmd, set_automation
         # Check once, up front: an import writes settings and automation in two
         # steps, so a per-write guard would conflict with its own first write.
@@ -879,29 +976,33 @@ class GroupView:
             settings_store.check(cid, expected, self.db)
         except settings_store.SettingsConflict as error:
             raise self._stale(error) from None
-        if settings:
+        sections = set(sections or {'settings','automation','blacklist','commands'})
+        if 'settings' in sections and settings:
             settings_store.write(cid, settings, db=self.db)
-        set_automation(cid, quiet_hours=automation['quiet_hours'],
-                       escalation=automation['escalation'], protection=automation['protection'])
-        wanted = {row['trigger'] for row in blacklist}
-        try:
-            self.db['blacklist'].delete_many({'chat': cid, 'trigger': {'$nin': sorted(wanted)}})
-            for row in blacklist:
-                self.db['blacklist'].update_one(
-                    {'chat': cid, 'trigger': row['trigger']},
-                    {'$set': {'chat': cid, 'trigger': row['trigger'], 'mode': row['mode']}},
-                    upsert=True)
-        except Exception:
-            log.debug('blacklist restore partially failed', exc_info=True)
-        wanted_commands = set(commands)
-        try:
-            live_commands = {str(name) for name in self.db['disabled_cmds'].distinct('cmd', {'chat': cid})}
-        except Exception:
-            live_commands = set()
-        for name in sorted(wanted_commands - live_commands):
-            disable_cmd(cid, name)
-        for name in sorted(live_commands - wanted_commands):
-            enable_cmd(cid, name)
+        if 'automation' in sections:
+            set_automation(cid, quiet_hours=automation['quiet_hours'],
+                           escalation=automation['escalation'], protection=automation['protection'])
+        if 'blacklist' in sections:
+            wanted = {row['trigger'] for row in blacklist}
+            try:
+                self.db['blacklist'].delete_many({'chat': cid, 'trigger': {'$nin': sorted(wanted)}})
+                for row in blacklist:
+                    self.db['blacklist'].update_one(
+                        {'chat': cid, 'trigger': row['trigger']},
+                        {'$set': {'chat': cid, 'trigger': row['trigger'], 'mode': row['mode']}},
+                        upsert=True)
+            except Exception:
+                log.debug('blacklist restore partially failed', exc_info=True)
+        if 'commands' in sections:
+            wanted_commands = set(commands)
+            try:
+                live_commands = {str(name) for name in self.db['disabled_cmds'].distinct('cmd', {'chat': cid})}
+            except Exception:
+                live_commands = set()
+            for name in sorted(wanted_commands - live_commands):
+                disable_cmd(cid, name)
+            for name in sorted(live_commands - wanted_commands):
+                enable_cmd(cid, name)
 
     def import_group(self, chat_id, actor, body, *, source='web'):
         """Dry-run by default: the panel previews a diff, then confirms."""
@@ -911,7 +1012,27 @@ class GroupView:
         if self.db['served_chats'].find_one({'_id': cid}) is None:
             raise ViewError('Choose a group already served by this bot.', 404)
         body = body if isinstance(body, dict) else {}
+        allowed_sections={'settings','automation','blacklist','commands'}
+        raw_sections=body.get('sections')
+        if raw_sections is None:
+            sections=set(allowed_sections)
+        elif isinstance(raw_sections,list) and all(isinstance(item,str) for item in raw_sections):
+            sections=set(raw_sections)
+            if not sections or not sections<=allowed_sections:
+                raise ViewError('Choose one or more valid configuration sections.')
+        else:
+            raise ViewError('Configuration sections must be a list.')
         settings, automation, blacklist, commands = self._read_backup(body.get('document') or body)
+        from videl.utils.db import get_automation
+        if 'settings' not in sections:settings={}
+        if 'automation' not in sections:automation=get_automation(cid)
+        if 'blacklist' not in sections:
+            try:blacklist=[{'trigger':str(row.get('trigger') or ''),'mode':str(row.get('mode') or 'del')}
+                           for row in self.db['blacklist'].find({'chat':cid}) if row.get('trigger')]
+            except Exception:blacklist=[]
+        if 'commands' not in sections:
+            try:commands=sorted({str(name) for name in self.db['disabled_cmds'].distinct('cmd',{'chat':cid})})
+            except Exception:commands=[]
         changes = self._backup_changes(cid, settings, automation, blacklist, commands)
         empty = not (changes['settings']['after'] or changes['automation']
                      or changes['blacklist']['add'] or changes['blacklist']['remove']
@@ -928,7 +1049,7 @@ class GroupView:
         previous['exported_at'] = datetime.now(timezone.utc).isoformat()
         backup_id = save_backup(cid, previous) or None
         self._apply_backup(cid, settings, automation, blacklist, commands,
-                           expected=self._expected(body))
+                           expected=self._expected(body), sections=sections)
         summary = []
         if changes['settings']['after']:
             summary.append(f"{len(changes['settings']['after'])} settings")
@@ -970,6 +1091,147 @@ class GroupView:
             return get_automation(cid)
         except Exception:
             return normalize({})
+
+    # ── per-member case timeline ────────────────────────────────────────────
+    def case_history(self,cid,*,limit=40):
+        """Merge warnings, reports, moderator actions and case notes by member."""
+        cid=integer(cid)
+        if cid>0:raise ViewError('Case history is group-only.',403)
+        grouped={}
+        open_reports={}
+        def add(user_id,kind,action,detail,at,actor=None,source='bot',event_id=''):
+            try:user_id=int(user_id)
+            except (TypeError,ValueError):return
+            if user_id<=0:return
+            when=case_timestamp(at)
+            event={'id':str(event_id or f'{kind}:{user_id}:{len(grouped.get(user_id,[]))}'),
+                   'kind':str(kind)[:32],'action':str(action)[:48],
+                   'detail':str(detail or '')[:400],'at':when,'actor':actor if isinstance(actor,int) else None,
+                   'source':str(source)[:16]}
+            grouped.setdefault(user_id,[]).append(event)
+
+        try:
+            for doc in self.db['mgmt_warnings'].find({'chat_id':cid}).sort('updated',-1).limit(80):
+                user=doc.get('user_id')
+                for index,item in enumerate((doc.get('reasons') or [])[-30:]):
+                    if isinstance(item,dict):reason=item.get('reason') or 'Warning issued';stamp=item.get('ts') or doc.get('updated')
+                    else:reason=str(item or 'Warning issued');stamp=doc.get('updated')
+                    add(user,'warning','warn',reason,stamp,source='bot',event_id=f"warn:{user}:{index}")
+        except Exception:pass
+        try:
+            for row in self.db['mgmt_reports'].find({'chat_id':cid}).sort('ts',-1).limit(120):
+                target=row.get('target',row.get('target_id'))
+                report_id=str(row.get('_id') or '')
+                if str(row.get('status') or 'open')=='open':
+                    try:open_reports[int(target)]=open_reports.get(int(target),0)+1
+                    except (TypeError,ValueError):pass
+                reason=str(row.get('reason') or row.get('text') or 'Reported message')
+                add(target,'report','report submitted',reason,row.get('ts'),row.get('reporter'),source='report',event_id='report:'+report_id)
+                if row.get('status') not in {None,'open','pending'}:
+                    add(target,'report',str(row.get('decision') or row.get('status')),
+                        'Report outcome recorded',row.get('resolved') or row.get('updated') or row.get('ts'),
+                        row.get('resolved_by'),source='report',event_id='report-outcome:'+report_id)
+        except Exception:pass
+        try:
+            for row in self.db['mgmt_banned_users'].find({'chat_id':cid}).sort('ts',-1).limit(80):
+                add(row.get('user_id'),'moderation','ban record',row.get('reason') or 'Ban recorded',row.get('ts'),source='bot',event_id='ban:'+str(row.get('user_id')))
+        except Exception:pass
+        try:
+            for row in self.db['mgmt_audit'].find({'chat_id':cid,'kind':{'$in':['moderation','warn_reset']}}).sort('ts',-1).limit(180):
+                if row.get('action')=='case_note':continue
+                detail=str(row.get('detail') or '')
+                match=re.search(r'(?:member|user(?:_id)?)\s*(?:[:#]\s*)?(\d+)',detail,re.I)
+                if not match:continue
+                add(match.group(1),row.get('kind'),row.get('action'),detail,row.get('ts'),row.get('actor'),
+                    source=row.get('source','bot'),event_id=str(row.get('_id') or ''))
+        except Exception:pass
+        pending_by_user={}
+        try:
+            for row in self.db['mgmt_escalations'].find({'chat_id':cid}).sort('created_at',-1).limit(120):
+                user=row.get('user_id')
+                action=str(row.get('action') or 'ban')
+                status=str(row.get('status') or 'open')
+                stamp=row.get('created_at') or row.get('updated_at')
+                detail=f"{action} after {int(row.get('warning_count') or 0)} warnings"
+                if row.get('reason'):detail+=f": {str(row.get('reason'))[:240]}"
+                add(user,'escalation','review requested' if status=='open' else f"review {status}",detail,
+                    stamp if status=='open' else row.get('resolved_at') or stamp,
+                    row.get('requested_by') if status=='open' else row.get('resolved_by'),
+                    source='bot',event_id='escalation:'+str(row.get('_id') or ''))
+                if status=='open':
+                    try:user_key=int(user)
+                    except (TypeError,ValueError):continue
+                    pending_by_user.setdefault(user_key,[]).append({
+                        'id':str(row.get('_id') or ''),'action':action,
+                        'warning_count':int(row.get('warning_count') or 0),
+                        'reason':str(row.get('reason') or '')[:300],
+                        'at':case_timestamp(stamp),
+                    })
+        except Exception:pass
+        try:
+            for row in self.db['mgmt_case_notes'].find({'chat_id':cid}).sort('ts',-1).limit(200):
+                add(row.get('user_id'),'note','moderator note',row.get('text'),row.get('ts'),row.get('actor'),
+                    source='studio',event_id='case-note:'+str(row.get('_id') or ''))
+        except Exception:pass
+        output=[]
+        for user,events in grouped.items():
+            events.sort(key=lambda event:event.get('at') or '',reverse=True)
+            output.append({'user_id':user,'event_count':len(events),'open_reports':open_reports.get(user,0),
+                           'pending_escalations':pending_by_user.get(user,[]),
+                           'latest':events[0]['at'] if events else None,'events':events[:40]})
+        output.sort(key=lambda case:case.get('latest') or '',reverse=True)
+        try:limit=max(1,min(int(limit),80))
+        except (TypeError,ValueError):limit=40
+        return output[:limit]
+
+    def review_escalation(self,cid,body):
+        from bson import ObjectId
+        cid=integer(cid)
+        if cid>0:raise ViewError('Escalation reviews are group-only.',403)
+        raw=str((body or {}).get('id') or '')
+        try:identifier=ObjectId(raw)
+        except Exception:raise ViewError('A valid pending escalation ID is required.') from None
+        decision=str((body or {}).get('decision') or '')
+        if decision not in {'approve','reject'}:raise ViewError('Choose approve or reject.')
+        query={'_id':identifier,'chat_id':cid,'status':'open'}
+        row=self.db['mgmt_escalations'].find_one(query)
+        if row is None:raise ViewError('That escalation is already reviewed or belongs to another group.',404)
+        _,actor=self.access(cid)
+        self.rights(cid,actor,['can_restrict_members'])
+        claimed=self.db['mgmt_escalations'].update_one(query,{'$set':{'status':'reviewing','reviewed_by':self.actor}})
+        if not getattr(claimed,'modified_count',0):raise ViewError('Another admin is already reviewing this action.',409)
+        action=str(row.get('action') or '')
+        target=integer(row.get('user_id'),positive=True)
+        if decision=='approve':
+            try:
+                if action=='ban':self.call('banChatMember',{'chat_id':cid,'user_id':target})
+                elif action=='kick':
+                    self.call('banChatMember',{'chat_id':cid,'user_id':target})
+                    self.call('unbanChatMember',{'chat_id':cid,'user_id':target,'only_if_banned':True})
+                else:raise ViewError('The pending escalation has an unsupported action.',409)
+            except Exception:
+                self.db['mgmt_escalations'].update_one({'_id':identifier,'status':'reviewing'},
+                    {'$set':{'status':'open'},'$unset':{'reviewed_by':''}})
+                raise
+        resolved='approved' if decision=='approve' else 'rejected'
+        result=self.db['mgmt_escalations'].update_one({'_id':identifier,'status':'reviewing'},
+            {'$set':{'status':resolved,'resolved_at':now(),'resolved_by':self.actor}})
+        if not getattr(result,'modified_count',0):
+            raise ViewError('Telegram may have confirmed the action, but the review record could not be finalized. Check the group before retrying.',503)
+        self.log(cid,'escalation_review',{'user_id':target,'decision':decision,'verb':action})
+        return {'ok':True,'id':raw,'status':resolved,'cases':self.case_history(cid)}
+
+    def case_note(self,cid,body):
+        cid=integer(cid)
+        if cid>0:raise ViewError('Case notes are group-only.',403)
+        user=integer((body or {}).get('user_id'),positive=True)
+        text=(body or {}).get('text')
+        if not isinstance(text,str) or not text.strip() or len(text.strip())>600:
+            raise ViewError('A moderator note must contain 1–600 characters.')
+        self.db['mgmt_case_notes'].insert_one({'chat_id':cid,'user_id':user,'text':text.strip(),
+            'actor':self.actor,'ts':now()})
+        self.log(cid,'case_note',{'user_id':user},source='web')
+        return {'ok':True,'cases':self.case_history(cid)}
 
     # ── owner inbox: reports and join requests ───────────────────────────────
     def inbox(self,cid):
@@ -1021,7 +1283,7 @@ class GroupView:
         if status not in {'resolved','dismissed'}:raise ViewError('Choose resolved or dismissed.')
         row=self.db['mgmt_reports'].find_one({'_id':identifier,'chat_id':cid})
         if row is None:raise ViewError('This report was not found.',404)
-        self.db['mgmt_reports'].update_one({'_id':identifier},{'$set':{'status':status,'resolved':now()}})
+        self.db['mgmt_reports'].update_one({'_id':identifier},{'$set':{'status':status,'resolved':now(),'resolved_by':self.actor}})
         self.log(cid,'report_update',{'id':raw,'status':status})
         return {'ok':True,'id':raw,'status':status,'inbox':self.inbox(cid)}
 
@@ -1061,7 +1323,16 @@ class GroupView:
             shown=min(count,limit)
             if plan['reached']:
                 action=warning_rules.ladder_action(escalation,plan['stage']) if escalation.get('enabled') else 'none'
-                if action=='ban':
+                if action in {'ban','kick'} and escalation.get('review_severe'):
+                    try:
+                        from videl.utils.escalations import queue_review
+                        identifier=queue_review(self.db,cid,target,action,shown,str(row.get('reason') or 'Report warning'),
+                                                self.actor,'web')
+                        note=f'{shown}/{limit} warnings; {action} pending admin review (case {identifier})'
+                    except Exception:
+                        log.exception('Could not queue report escalation review for chat %s member %s',cid,target)
+                        note=f'{shown}/{limit} warnings; review queue unavailable, so {action} was not applied'
+                elif action=='ban':
                     self.call('banChatMember',{'chat_id':cid,'user_id':target})
                     note=f'{shown}/{limit} warnings; member banned'
                 elif action=='kick':
@@ -1080,7 +1351,7 @@ class GroupView:
             if plan['decayed']:
                 note+=f" ({plan['decayed']} older lapsed)"
         self.db['mgmt_reports'].update_one({'_id':identifier},{'$set':{
-            'status':'resolved','resolved':now(),'decision':decision}})
+            'status':'resolved','resolved':now(),'decision':decision,'resolved_by':self.actor}})
         self.log(cid,'report_update',{'id':raw,'decision':decision,'user_id':target})
         return {'ok':True,'id':raw,'status':'resolved','decision':decision,
                 'note':note,'inbox':self.inbox(cid)}
@@ -1100,6 +1371,7 @@ class GroupView:
 
     def _automation(self,cid,body):
         from videl.utils.db import get_automation,set_automation
+        previous=get_automation(cid)
         quiet=body.get('quiet_hours');escalation=body.get('escalation');protection=body.get('protection')
         if quiet is None and escalation is None and protection is None:
             raise ViewError('Send quiet_hours, escalation or protection settings.')
@@ -1127,6 +1399,8 @@ class GroupView:
                     raise ViewError(f'The mute length must be {MUTE_RANGE[0]}–{MUTE_RANGE[1]} hours.')
             if 'enabled' in escalation and type(escalation['enabled']) is not bool:
                 raise ViewError('Escalation enabled must be true or false.')
+            if 'review_severe' in escalation and type(escalation['review_severe']) is not bool:
+                raise ViewError('Severe-action review must be true or false.')
             if 'decay_days' in escalation:
                 decay=escalation['decay_days']
                 if isinstance(decay,bool) or not isinstance(decay,int) or not DECAY_RANGE[0]<=decay<=DECAY_RANGE[1]:
@@ -1162,18 +1436,25 @@ class GroupView:
                                   expected=self._expected(body))
         except settings_store.SettingsConflict as error:
             raise self._stale(error) from None
-        self.log(cid,'automation',{'quiet':quiet,'escalation':escalation,'protection':protection})
+        self.log(cid,'automation',{'quiet':quiet,'escalation':escalation,'protection':protection},
+                 before=previous,after=config)
         return {'ok':True,'automation':config}
 
     def admin(self,cid,actor,body,source='web'):
         """Typed admin actions. Every write re-reads the document afterwards."""
         action=body.get('action')
+        if self.scope!='owner' and action in self.OWNER_ONLY:
+            raise ViewError('Only the bot owner can do that.',403)
         service=action in {'automation','command_disable','command_enable','join_request','report_update',
-                           'backup_import','backup_restore'}
+                           'backup_import','backup_restore','backup_snapshot','backup_list','case_note','escalation_review'}
+        tracked={'settings','preset','warn_limit','welcome','goodbye','rules','blacklist_mode'}
+        before=self.snapshot(cid) if action in tracked else None
         result=self._service(cid,body) if service else self._admin(cid,actor,body)
         # ``protect`` is written by settings(), which records its own event;
         # service actions record their own history.
-        if not service and action!='protect':self.log(cid,action,body,source)
+        if not service and action!='protect':
+            self.log(cid,action,body,source,before=before,
+                     after=self.snapshot(cid) if before is not None else None)
         if isinstance(result,dict) and result.get('ok'):
             # The panel replaces its token after every accepted write, so the
             # next switch does not conflict with its own previous save.
@@ -1188,6 +1469,10 @@ class GroupView:
         if action=='report_update':return self._report_update(cid,body)
         if action=='backup_import':return self.import_group(cid,OWNER_ID,body)
         if action=='backup_restore':return self.restore_saved(cid,OWNER_ID,body)
+        if action=='backup_snapshot':return self.save_snapshot(cid,body)
+        if action=='backup_list':return self.list_snapshots(cid)
+        if action=='case_note':return self.case_note(cid,body)
+        if action=='escalation_review':return self.review_escalation(cid,body)
         raise ViewError('Unsupported group management action.')
 
     def _admin(self,cid,actor,body):
@@ -1268,6 +1553,20 @@ class GroupView:
             if not keyword:raise ViewError('A filter keyword is required.')
             self.db['mgmt_filters'].delete_one({'chat_id':cid,'keyword':keyword})
             return {'ok':True,'deleted':keyword}
+        if action=='custom_command_create':
+            from videl.utils import custom_commands
+            try:
+                name=custom_commands.save(self.db,cid,body.get('name'),body.get('response'),body.get('cooldown_seconds',0))
+            except custom_commands.CustomCommandError as error:
+                raise ViewError(str(error)) from None
+            return {'ok':True,'saved':name,'custom_commands':custom_commands.list_for(self.db,cid)}
+        if action=='custom_command_delete':
+            from videl.utils import custom_commands
+            try:
+                name=custom_commands.delete(self.db,cid,body.get('name'))
+            except custom_commands.CustomCommandError as error:
+                raise ViewError(str(error)) from None
+            return {'ok':True,'deleted':name,'custom_commands':custom_commands.list_for(self.db,cid)}
         if action=='approved_remove':
             user=integer(body.get('user_id'),positive=True)
             self.db['approved'].delete_one({'chat':cid,'user':user})
@@ -1305,9 +1604,11 @@ class GroupView:
             if not isinstance(settings,dict) or not settings or set(settings)-PROTECTION or any(type(v) is not bool for v in settings.values()):
                 raise ViewError('Only supported boolean group protection settings are accepted.')
             self.rights(cid,actor,['can_delete_messages'])
+            before=self.snapshot(cid)
             revision=self._write_settings(cid,settings,body)
-            self.log(cid,'protect',{'settings':settings})
-            return {'ok':True,'settings':settings,'revision':revision}
+            after=self.snapshot(cid)
+            self.log(cid,'protect',{'settings':settings},before=before,after=after)
+            return {'ok':True,'settings':after,'revision':revision}
         raise ViewError('Unknown setting action.')
 
     def act(self,body,source='web'):
@@ -1316,7 +1617,7 @@ class GroupView:
         if self.scope!='owner' and action in self.OWNER_ONLY:
             raise ViewError('Only the bot owner can do that.',403)
         if action in {'recording','purge_history','protect'}:return self.settings(cid,actor,body)
-        if action in {'settings','preset','warn_limit','welcome','goodbye','rules','blacklist_add','blacklist_remove','blacklist_mode','note_create','note_delete','filter_create','filter_delete','approved_remove','warn_reset','automation','command_disable','command_enable','join_request','report_update'}:
+        if action in {'settings','preset','warn_limit','welcome','goodbye','rules','blacklist_add','blacklist_remove','blacklist_mode','note_create','note_delete','filter_create','filter_delete','custom_command_create','custom_command_delete','approved_remove','warn_reset','automation','command_disable','command_enable','join_request','report_update','backup_snapshot','backup_list','backup_import','backup_restore','case_note','escalation_review'}:
             return self.admin(cid,actor,body,source)
         if cid>0 and action not in {'send','reply','delete','react','poll','forward'}:raise ViewError('This action is group-only.',403)
         if action not in {'send','reply','delete','react','poll','forward','mute','unmute','ban','pin','unpin'}:raise ViewError('Unsupported group action.')

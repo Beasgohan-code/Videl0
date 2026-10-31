@@ -354,7 +354,7 @@ async def fed_cbs(_, q):
     chat_id = q.message.chat.id if q.message and q.message.chat else 0
     if action in ("join","leave","delete","fban","unfban","info","chats","bans","demote","myfeds","mychats"):
         if not await is_user_authorized(q):
-            return await q.answer("⚠️ " + sc("admin only"), show_alert=True)
+            return await q.answer(sc("admin only"), show_alert=True)
     if action == "myfeds":
         feds = [f for f in list_feds() if f["owner"] == q.from_user.id or is_fed_admin(f["_id"], q.from_user.id)]
         if not feds:
@@ -463,7 +463,7 @@ async def fed_cbs(_, q):
         if get_chat_fed(chat_id) != fid:
             return await q.answer(sc("could not save federation membership"), show_alert=True)
         applied, failed = await _enforce_existing_bans(chat_id, fid)
-        await q.answer("✅ " + sc("joined") + " " + fid)
+        await q.answer(sc("joined") + " " + fid)
         try:
             body = _hdr(pe("check","✅") + " " + sc("joined federation"),3) + rich_kv_table([(pe("hex","") + " " + sc("fed"), "<code>" + rich_esc(fid) + "</code>"), (pe("ban","⛔️") + " " + sc("existing bans enforced"), "<code>" + str(len(applied)) + "/" + str(len(applied) + len(failed)) + "</code>")])
             if failed:
@@ -480,7 +480,7 @@ async def fed_cbs(_, q):
         set_chat_fed(chat_id, None)
         if get_chat_fed(chat_id) is not None:
             return await q.answer(sc("could not save federation leave"), show_alert=True)
-        await q.answer("✅ " + sc("left") + " " + fid)
+        await q.answer(sc("left") + " " + fid)
         try:
             await rich_edit(q.message, _hdr(pe("cross","❌") + " " + sc("left federation"),3))
         except Exception:
@@ -501,10 +501,10 @@ async def fed_cbs(_, q):
                     await bot.unban_chat_member(cid, uid)
                 except Exception:
                     failed.append(cid)
-            status = "✅ " + sc("unfbanned") + " " + str(uid) + " • " + str(len(chats) - len(failed)) + "/" + str(len(chats))
+            status = sc("unfbanned") + " " + str(uid) + " • " + str(len(chats) - len(failed)) + "/" + str(len(chats))
             await q.answer(status + (" • " + sc("some group bans remain") if failed else ""), show_alert=bool(failed))
         except Exception:
-            await q.answer("⚠️ " + sc("failed"), show_alert=True)
+            await q.answer(sc("failed"), show_alert=True)
         return
     await q.answer()
 

@@ -8,7 +8,7 @@ import os
 import re
 from pyrogram import enums
 from pyrogram.types import InlineKeyboardButton as NativeButton, InlineKeyboardMarkup
-from videl.utils.premium_emojis import PREMIUM_IDS, USE_PREMIUM
+from videl.utils.premium_emojis import FALLBACK, PREMIUM_IDS, USE_PREMIUM
 
 ICONS_ENABLED = os.getenv(
     "USE_PREMIUM_BUTTON_ICONS", "1" if USE_PREMIUM else "0"
@@ -18,6 +18,13 @@ _STYLES = {
     "primary": enums.ButtonStyle.PRIMARY,
     "success": enums.ButtonStyle.SUCCESS,
     "danger": enums.ButtonStyle.DANGER,
+}
+# When Telegram rejects premium button icons, restore the visible Unicode badge
+# that was promoted into the native icon by button().
+_ICON_FALLBACKS = {
+    str(emoji_id): FALLBACK.get(key, "")
+    for key, emoji_id in PREMIUM_IDS.items()
+    if FALLBACK.get(key)
 }
 _VISUAL_REJECTION_MARKERS = (
     "custom_emoji", "custom emoji", "icon_custom_emoji", "button_style",
@@ -62,6 +69,17 @@ def button(text: str, *args, style=None, icon=None, **kwargs) -> NativeButton:
     label = html.unescape(re.sub(r"<[^>]+>", "", source)).strip()
     label = label.translate(str.maketrans("ᴀʙᴄᴅᴇғɢʜɪᴊᴋʟᴍɴᴏᴘǫʀsᴛᴜᴠᴡxʏᴢ", "abcdefghijklmnopqrstuvwxyz"))
     label = re.sub(r"^[◍⬪⫶⬩𖦹⦿◎⬢]+\s*", "", label)
+    leading_emoji_key = None
+    if ICONS_ENABLED:
+        prefixes = sorted(FALLBACK.items(), key=lambda item: len(item[1]), reverse=True)
+        while label:
+            for key, glyph in prefixes:
+                if glyph and label.startswith(glyph):
+                    leading_emoji_key = leading_emoji_key or key
+                    label = label[len(glyph):].lstrip(" \t·|—–-:")
+                    break
+            else:
+                break
     lower = label.lower()
     semantic = None
     if any(
@@ -139,7 +157,7 @@ def button(text: str, *args, style=None, icon=None, **kwargs) -> NativeButton:
     if not emoji_id and embedded:
         emoji_id = embedded[1]
     if ICONS_ENABLED:
-        emoji_id = emoji_id or PREMIUM_IDS.get(icon or semantic or "", "") or None
+        emoji_id = emoji_id or PREMIUM_IDS.get(icon or leading_emoji_key or semantic or "", "") or None
     else:
         emoji_id = None
     if emoji_id is not None and (
@@ -165,15 +183,20 @@ def icon_keyboard(markup):
         decorated = []
         for item in row:
             icon_id = getattr(item, "icon_custom_emoji_id", None)
-            if not icon_id and getattr(item, "text", None):
-                # Probe only the semantic icon. Keep the original button object
-                # (copied) so URLs, callback data, web apps and other actions
-                # remain byte-for-byte unchanged.
+            probe = None
+            if getattr(item, "text", None):
+                # Keep the action fields unchanged; a prefixed Unicode badge is
+                # moved to Telegram's native custom-emoji button icon instead.
                 probe = button(item.text, callback_data="videl:icon-probe")
-                icon_id = probe.icon_custom_emoji_id
-            if icon_id and not getattr(item, "icon_custom_emoji_id", None):
+                icon_id = icon_id or probe.icon_custom_emoji_id
+            if icon_id and (
+                not getattr(item, "icon_custom_emoji_id", None)
+                or (probe is not None and item.text != probe.text)
+            ):
                 item = copy.copy(item)
                 item.icon_custom_emoji_id = str(icon_id)
+                if probe is not None:
+                    item.text = probe.text
                 changed = True
             decorated.append(item)
         rows.append(decorated)
@@ -189,6 +212,11 @@ def plain_keyboard(markup):
         clean = []
         for item in row:
             clone = copy.copy(item)
+            icon_id = str(getattr(item, "icon_custom_emoji_id", "") or "")
+            glyph = _ICON_FALLBACKS.get(icon_id, "")
+            text = str(getattr(clone, "text", "") or "")
+            if glyph and not text.startswith(glyph):
+                clone.text = f"{glyph} {text}".strip()
             clone.icon_custom_emoji_id = None
             clone.style = enums.ButtonStyle.DEFAULT
             clean.append(clone)

@@ -78,6 +78,21 @@ class RouterTests(unittest.IsolatedAsyncioTestCase):
         client.get_chat_member.side_effect=TimeoutError()
         self.assertFalse(await authorize(command,ctx))
 
+    async def test_dj_policy_allows_assigned_member_but_denies_unassigned(self):
+        command=Command('control',AsyncMock(),'Control',policy='dj',category='music')
+        client=SimpleNamespace(get_chat_member=AsyncMock(return_value=SimpleNamespace(status=ChatMemberStatus.MEMBER)))
+        ctx=Context(client,message(kind=ChatType.SUPERGROUP,uid=43),Parsed('control',''))
+        with patch('videl.plugins.base.get_setting',return_value={'user_id': 43}):
+            self.assertTrue(await authorize(command,ctx))
+        with patch('videl.plugins.base.get_setting',return_value={'user_id': 99}):
+            self.assertFalse(await authorize(command,ctx))
+        client.get_chat_member.return_value.status=ChatMemberStatus.LEFT
+        with patch('videl.plugins.base.get_setting',return_value={'user_id': 43}):
+            self.assertFalse(await authorize(command,ctx), 'a stale DJ assignment must not authorize someone outside the group')
+        client.get_chat_member.return_value.status=ChatMemberStatus.ADMINISTRATOR
+        with patch('videl.plugins.base.get_setting',return_value={}):
+            self.assertTrue(await authorize(command,ctx))
+
     async def test_safe_validation_escapes_content_and_provider_errors_are_not_exposed(self):
         handler=AsyncMock(side_effect=CommandError('<unsafe>'))
         router=Router([Command('test',handler,'Test')])

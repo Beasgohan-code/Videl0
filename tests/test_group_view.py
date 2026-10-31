@@ -42,6 +42,106 @@ class GroupViewerTests(unittest.TestCase):
     def action(self,name,**extra):
         return self.service.act({'chat_id':CID,'message_id':25,'action':name,'request_id':str(uuid.uuid4()),**extra})
 
+    def test_config_audit_includes_previous_and_current_values_without_storing_text(self):
+        self.action('settings',settings={'lock_links':True})
+        row=self.db['mgmt_audit'].find_one({'chat_id':CID,'action':'settings'})
+        self.assertIn('lock_links: off → on',row['detail'])
+        secret='Private welcome copy should never be in audit'
+        self.action('welcome',text=secret)
+        row=self.db['mgmt_audit'].find_one({'chat_id':CID,'action':'welcome'})
+        self.assertIn('welcome_message:',row['detail'])
+        self.assertNotIn(secret,row['detail'])
+
+    def test_case_history_merges_member_warnings_reports_actions_and_notes(self):
+        stamp=view.now()
+        self.db['mgmt_warnings'].insert_one({'chat_id':CID,'user_id':123,'count':1,'updated':stamp,
+            'reasons':[{'reason':'Repeated links','ts':stamp.isoformat()}]})
+        self.db['mgmt_reports'].insert_one({'chat_id':CID,'reporter':456,'target':123,'reason':'Spam',
+            'status':'open','ts':stamp})
+        self.db['mgmt_audit'].insert_one({'chat_id':CID,'kind':'moderation','action':'mute',
+            'detail':'member 123: repeated links','actor':789,'source':'bot','ts':stamp})
+        self.db['mgmt_case_notes'].insert_one({'chat_id':CID,'user_id':123,'text':'Check context with admin team',
+            'actor':789,'ts':stamp})
+        cases=self.service.case_history(CID)
+        case=next(item for item in cases if item['user_id']==123)
+        self.assertEqual(case['open_reports'],1)
+        self.assertEqual(case['event_count'],4)
+        self.assertEqual({event['kind'] for event in case['events']},{'warning','report','moderation','note'})
+
+    def test_severe_escalation_review_requires_permission_and_records_decision(self):
+        from videl.utils.escalations import queue_review
+        identifier=queue_review(self.db,CID,123,'ban',3,'Repeated spam',actor=456,source='bot')
+        result=self.action('escalation_review',id=identifier,decision='approve')
+        self.assertEqual(result['status'],'approved')
+        row=self.db['mgmt_escalations'].find_one({'_id':__import__('bson').ObjectId(identifier)})
+        self.assertEqual(row['resolved_by'],view.OWNER_ID)
+        self.api.assert_any_call('banChatMember',{'chat_id':CID,'user_id':123})
+
+    def test_escalation_review_rechecks_restrict_right_before_telegram_action(self):
+        from videl.utils.escalations import queue_review
+        identifier=queue_review(self.db,CID,123,'kick',3,'Repeated spam',actor=456,source='bot')
+        self.actor={'status':'administrator','can_restrict_members':False,'can_delete_messages':True,'can_pin_messages':True}
+        with self.assertRaises(view.ViewError) as denied:
+            self.action('escalation_review',id=identifier,decision='approve')
+        self.assertEqual(denied.exception.status,403)
+        self.assertFalse(any(call.args[0]=='banChatMember' for call in self.api.call_args_list))
+
+    def test_case_note_action_is_group_scoped_and_records_admin(self):
+        result=self.action('case_note',user_id=123,text='Review prior report before action')
+        self.assertTrue(result['ok'])
+        self.assertEqual(result['cases'][0]['user_id'],123)
+        row=self.db['mgmt_case_notes'].find_one({'chat_id':CID,'user_id':123})
+        self.assertEqual(row['actor'],view.OWNER_ID)
+        with self.assertRaises(view.ViewError):
+            self.service.act({'chat_id':42,'action':'case_note','user_id':123,'text':'no'})
+
+    def test_backup_preview_can_select_only_requested_sections(self):
+        document=self.service.export_group(CID)['backup']
+        document['settings']['lock_links']=True
+        document['blacklist']=[{'trigger':'example spam','mode':'del'}]
+        document['commands_disabled']=['play']
+        preview=self.service.import_group(CID,view.OWNER_ID,{
+            'document':document,'dry_run':True,'sections':['settings']})
+        self.assertTrue(preview['dry_run'])
+        self.assertIn('lock_links',preview['changes']['settings']['after'])
+        self.assertEqual(preview['changes']['blacklist'],{'add':[],'remove':[]})
+        self.assertEqual(preview['changes']['commands'],{'disable':[],'enable':[]})
+        self.assertEqual(preview['changes']['automation'],[])
+
+    def test_backup_preview_rejects_empty_or_unknown_section_selection(self):
+        document=self.service.export_group(CID)['backup']
+        for sections in ([],['secrets']):
+            with self.assertRaises(view.ViewError):
+                self.service.import_group(CID,view.OWNER_ID,{
+                    'document':document,'dry_run':True,'sections':sections})
+
+    def test_group_setup_checklist_reflects_live_bot_rights_and_stored_settings(self):
+        self.bot_member.update({'can_delete_messages':True,'can_restrict_members':True})
+        self.db['mgmt_chat_settings'].insert_one({'chat_id':CID,'lock_links':True,'captcha_enabled':True})
+        result=self.service.describe(CID)
+        checks={item['id']:item['complete'] for item in result['setup_checklist']}
+        self.assertTrue(checks['bot_admin'])
+        self.assertTrue(checks['delete_messages'])
+        self.assertTrue(checks['restrict_members'])
+        self.assertTrue(checks['protection'])
+        self.assertTrue(checks['onboarding'])
+
+    def test_named_snapshots_are_owner_scoped_and_listed_without_the_payload(self):
+        with patch('videl.utils.db._col', return_value=self.db['backups']):
+            result=self.service.act({'chat_id':CID,'action':'backup_snapshot','label':'Before policy change'})
+            self.assertTrue(result['ok'])
+            self.assertEqual(len(result['snapshots']),1)
+            self.assertEqual(result['snapshots'][0]['label'],'Before policy change')
+            listed=self.service.act({'chat_id':CID,'action':'backup_list'})
+            self.assertEqual(listed['snapshots'][0]['id'],result['snapshot']['id'])
+            self.assertNotIn('data',listed['snapshots'][0])
+            with self.assertRaises(view.ViewError):
+                self.service.act({'chat_id':42,'action':'backup_list'})
+            admin_view=view.GroupView(self.db,self.api,actor=view.OWNER_ID,scope='admin')
+            with self.assertRaises(view.ViewError) as denied:
+                admin_view.act({'chat_id':CID,'action':'backup_list'})
+            self.assertEqual(denied.exception.status,403)
+
     def test_reads_only_served_groups_and_current_owner_admin(self):
         for cid in [42,-999]:
             with self.assertRaises(view.ViewError):self.service.read(cid)

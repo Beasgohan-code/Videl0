@@ -45,9 +45,41 @@ export const BOT_COMMANDS: BotCommand[] = [
     "owner": false
   },
   {
+    "name": "adminsummary",
+    "usage": "/adminsummary HH:MM|status|off (UTC, group admin)",
+    "summary": "Schedule a daily private admin digest in UTC",
+    "category": "manage",
+    "context": "group",
+    "owner": false
+  },
+  {
     "name": "antispam",
     "usage": "/antispam",
     "summary": "Toggle anti-flood protection",
+    "category": "manage",
+    "context": "group",
+    "owner": false
+  },
+  {
+    "name": "appeal",
+    "usage": "/appeal <group ID> <reason> (private chat; currently banned or muted members)",
+    "summary": "Submit a private appeal for a group ban or mute",
+    "category": "manage",
+    "context": "private",
+    "owner": false
+  },
+  {
+    "name": "appealresolve",
+    "usage": "/appealresolve <appeal ID> accept|deny (connected group admin)",
+    "summary": "Accept or deny a group-ban appeal",
+    "category": "manage",
+    "context": "group",
+    "owner": false
+  },
+  {
+    "name": "appeals",
+    "usage": "/appeals (connected group admin)",
+    "summary": "Review open appeals for the connected group",
     "category": "manage",
     "context": "group",
     "owner": false
@@ -144,6 +176,14 @@ export const BOT_COMMANDS: BotCommand[] = [
     "name": "clearwarns",
     "usage": "/clearwarns",
     "summary": "Clear every warning for a member",
+    "category": "manage",
+    "context": "group",
+    "owner": false
+  },
+  {
+    "name": "commandpreset",
+    "usage": "/commandpreset [community|music|moderation] (group admin)",
+    "summary": "Preview and apply a group-specific command profile",
     "category": "manage",
     "context": "group",
     "owner": false
@@ -317,6 +357,14 @@ export const BOT_COMMANDS: BotCommand[] = [
     "owner": false
   },
   {
+    "name": "forgetmember",
+    "usage": "/forgetmember USER_ID confirm (group admin)",
+    "summary": "Remove selected member records from this group",
+    "category": "manage",
+    "context": "group",
+    "owner": false
+  },
+  {
     "name": "fpromote",
     "usage": "/fpromote",
     "summary": "Promote a federation admin",
@@ -421,6 +469,22 @@ export const BOT_COMMANDS: BotCommand[] = [
     "owner": false
   },
   {
+    "name": "maintenance",
+    "usage": "/maintenance status|on protection,onboarding|off (group admin)",
+    "summary": "Pause selected protections or onboarding during an incident",
+    "category": "manage",
+    "context": "group",
+    "owner": false
+  },
+  {
+    "name": "modqueue",
+    "usage": "/modqueue (group admin or read-only reviewer)",
+    "summary": "Send a read-only queue summary to your private chat",
+    "category": "manage",
+    "context": "group",
+    "owner": false
+  },
+  {
     "name": "mute",
     "usage": "/mute [duration]",
     "summary": "Mute a member",
@@ -509,6 +573,22 @@ export const BOT_COMMANDS: BotCommand[] = [
     "owner": false
   },
   {
+    "name": "retention",
+    "usage": "/retention status|preview|notes|reports|requests|appeals|escalations 30|90|180|365|off (group admin)",
+    "summary": "Review or configure how long resolved group history is kept",
+    "category": "manage",
+    "context": "group",
+    "owner": false
+  },
+  {
+    "name": "reviewer",
+    "usage": "/reviewer [add|remove USER_ID] (group admin)",
+    "summary": "Grant or revoke read-only moderation queue access",
+    "category": "manage",
+    "context": "group",
+    "owner": false
+  },
+  {
     "name": "rmblacklist",
     "usage": "/rmblacklist",
     "summary": "Remove a user from the blocklist",
@@ -536,6 +616,14 @@ export const BOT_COMMANDS: BotCommand[] = [
     "name": "setcaptcha",
     "usage": "/setcaptcha",
     "summary": "Require a challenge before new members post",
+    "category": "manage",
+    "context": "group",
+    "owner": false
+  },
+  {
+    "name": "setchecklist",
+    "usage": "/setchecklist Label | https://example.com/start (group admin; up to four HTTPS links)",
+    "summary": "Add HTTPS links to the new-member welcome checklist",
     "category": "manage",
     "context": "group",
     "owner": false
@@ -1085,6 +1173,14 @@ export const BOT_COMMANDS: BotCommand[] = [
     "owner": true
   },
   {
+    "name": "feedbacklist",
+    "usage": "/feedbacklist (owner, private chat)",
+    "summary": "Read anonymous feedback (owner only)",
+    "category": "owner",
+    "context": "private",
+    "owner": true
+  },
+  {
     "name": "gblock",
     "usage": "/gblock",
     "summary": "Block the bot from a group",
@@ -1261,6 +1357,14 @@ export const BOT_COMMANDS: BotCommand[] = [
     "owner": false
   },
   {
+    "name": "feedback",
+    "usage": "/feedback your suggestion (private chat)",
+    "summary": "Send anonymous private feedback",
+    "category": "tools",
+    "context": "chat",
+    "owner": false
+  },
+  {
     "name": "forget",
     "usage": "/forget",
     "summary": "Cancel every pending reminder you created",
@@ -1301,6 +1405,14 @@ export const BOT_COMMANDS: BotCommand[] = [
     "owner": false
   },
   {
+    "name": "mydata",
+    "usage": "/mydata (private chat)",
+    "summary": "Download a private export of your stored Videl data",
+    "category": "tools",
+    "context": "chat",
+    "owner": false
+  },
+  {
     "name": "ping",
     "usage": "/ping",
     "summary": "Measure an acknowledged telegram round trip",
@@ -1320,6 +1432,14 @@ export const BOT_COMMANDS: BotCommand[] = [
     "name": "pollstop",
     "usage": "/pollstop",
     "summary": "Stop a poll the bot posted and show the result",
+    "category": "tools",
+    "context": "chat",
+    "owner": false
+  },
+  {
+    "name": "preferences",
+    "usage": "/preferences notifications on|off · /preferences quiet 22:00-07:00 UTC+05:30",
+    "summary": "Manage opt-in private updates and reminder quiet hours",
     "category": "tools",
     "context": "chat",
     "owner": false
@@ -1392,38 +1512,6 @@ export const BOT_COMMANDS: BotCommand[] = [
     "name": "sudohelp",
     "usage": "/sudohelp",
     "summary": "Show the limited bot sudo command scope",
-    "category": "tools",
-    "context": "chat",
-    "owner": false
-  },
-  {
-    "name": "topicclose",
-    "usage": "/topicclose",
-    "summary": "Close a forum topic",
-    "category": "tools",
-    "context": "chat",
-    "owner": false
-  },
-  {
-    "name": "topicnew",
-    "usage": "/topicnew",
-    "summary": "Create a forum topic",
-    "category": "tools",
-    "context": "chat",
-    "owner": false
-  },
-  {
-    "name": "topicopen",
-    "usage": "/topicopen",
-    "summary": "Reopen a forum topic",
-    "category": "tools",
-    "context": "chat",
-    "owner": false
-  },
-  {
-    "name": "topicrename",
-    "usage": "/topicrename",
-    "summary": "Rename a forum topic",
     "category": "tools",
     "context": "chat",
     "owner": false

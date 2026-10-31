@@ -23,7 +23,7 @@ Custom emoji IDs were supplied by the project owner and registered as numbered p
 | Polls | `/poll [flags] Question | A | B`; optional multiple answers, public identity, shuffle, added options, hidden results and members-only voting. Anonymous by default. |
 | Quizzes | `/quiz Question | *Correct | Other`, including multiple *correct answers through current `correct_option_ids`. Strict question/option validation; same-topic delivery. |
 | Reactions | `/react 👍` or `/react clear` on a reply, restricted to owner/group admins. Telegram's allowed-chat reactions still apply. No automatic reactions or paid reactions. |
-| Topics | `/topicnew Title`, `/topicclose`, `/topicopen`; forum/admin checks, explicit refusal to alter the General topic through these commands. Bot must have Telegram topic-management permission. |
+| Topics | Topic-management slash commands (`/topicnew`, `/topicrename`, `/topicclose`, `/topicopen`) are retired. Previously posted inline close/reopen controls remain permission-checked. |
 | Copy buttons | Actual `CopyTextButton` actions in owner ID/emoji diagnostics. |
 | Diagnostics | Owner-only `/apiinfo` verifies bot identity; `/emojiinfo` extracts replied custom emoji IDs; `/emojiinfo list` browses every supplied pack with custom previews, copyable IDs and bot aliases; `/emojiinfo check` resolves configured IDs without claiming rendering eligibility. `/setbotphoto` uploads the bundled Videl image through Bot API `setMyProfilePhoto`. |
 | Menus | A canonical public command menu used by startup and Studio sync; an additional owner-private menu on startup. `/help`, `/commands` and the Start/help buttons explain the new tools. |
@@ -39,7 +39,7 @@ PyTgCalls 3.x / NTgCalls 3.x are separate breaking voice-engine upgrades, not Bo
 
 ## Validation and rollout
 
-Run `.venv/bin/python -m unittest discover -s tests -q` and import all `ALL_MODULES` offline. Tests mock network calls, confirm topic/admin checks, preserve callback actions, exercise emoji rejection fallbacks, and prohibit duplicate sends after ambiguous timeouts. No real messages, reactions, topics or polls are created by the tests.
+Run `.venv/bin/python -m unittest discover -s tests -q` and import all `ALL_MODULES` offline. Tests mock network calls, confirm legacy topic-callback/admin checks, preserve callback actions, exercise emoji rejection fallbacks, and prohibit duplicate sends after ambiguous timeouts. No real messages, reactions, topics or polls are created by the tests.
 
 The **Render backend must deploy this commit** for bot handlers/UI changes to take effect; Vercel alone cannot update a running bot. Live custom emoji eligibility, real voice playback, and Telegram admin rights still need verification on the configured bot. Do not paste bot tokens into chat.
 

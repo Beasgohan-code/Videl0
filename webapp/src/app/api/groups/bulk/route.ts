@@ -1,5 +1,6 @@
 import { ownerRequired } from "@/lib/auth";
 import { groupCall, validBulk } from "@/lib/group-backend";
+import { readJsonLimited } from "@/lib/request-body";
 
 export const dynamic = "force-dynamic";
 
@@ -7,8 +8,13 @@ export const dynamic = "force-dynamic";
 export async function POST(req: Request) {
   const denied = ownerRequired(req);
   if (denied) return denied;
-  const body = await req.json().catch(() => null);
-  const selection = validBulk(body);
+  const parsed = await readJsonLimited(req, 16 * 1024);
+  if (!parsed.ok)
+    return Response.json(
+      { ok: false, error: parsed.status === 413 ? "Bulk updates are limited to 16 KB" : "A valid JSON request is required" },
+      { status: parsed.status },
+    );
+  const selection = validBulk(parsed.value);
   if (!selection)
     return Response.json(
       { ok: false, error: "Choose 1–15 groups and a preset or protection change" },

@@ -65,6 +65,15 @@ def _quiet_window(chat_id: int) -> dict:
     return config
 
 
+async def _record_rule_stat(chat_id: int, rule: str, field: str = "hits") -> None:
+    try:
+        from videl.utils.db import get_db
+        from videl.utils.rule_effectiveness import record
+        await asyncio.to_thread(record, get_db(), chat_id, rule, field)
+    except Exception:
+        logger.debug("Rule effectiveness counter unavailable", exc_info=True)
+
+
 def _locked(chat_id: int, kind: str) -> bool:
     if base.get_setting(chat_id, f"lock_{kind}", False):
         return True
@@ -82,6 +91,10 @@ async def mgmt_content_checker(_, message) -> None:
         return
     if message.from_user and is_approved(message.chat.id, message.from_user.id):
         return
+    from videl.utils.db import get_db
+    from videl.utils.maintenance import is_paused
+    if is_paused(get_db(), message.chat.id, "protection"):
+        return
     # Quiet hours: remove member messages inside the owner's window. Admins and
     # approved members were exempted above, so this never silences staff.
     if in_quiet_hours(_quiet_window(message.chat.id)):
@@ -91,7 +104,35 @@ async def mgmt_content_checker(_, message) -> None:
         except Exception:
             logger.debug("Quiet-hours deletion failed", exc_info=True)
         return
-    if base.get_setting(message.chat.id, "antispam", False) and message.from_user:
+    # Repeated copy-paste text is a signal for moderators, never an automatic
+    # deletion: benign announcements can legitimately be identical.
+    if message.from_user:
+        content = getattr(message, "text", None) or getattr(message, "caption", None) or ""
+        if content:
+            from videl.utils.duplicate_messages import observe
+            signal = observe(message.chat.id, message.from_user.id, content)
+            if signal.get("alert", False):
+                await _record_rule_stat(message.chat.id, "duplicate_text")
+                try:
+                    record_bot(message.chat.id, "moderation", action="duplicate_text_signal",
+                               detail=f"{signal['distinct_senders']} distinct senders; fingerprint {signal['fingerprint'][:12]}")
+                    await bot.send_message(message.chat.id,
+                        f"⚠️ Possible repeated-text spam: similar text was posted by {signal['distinct_senders']} members recently. Please review manually.")
+                except Exception:
+                    logger.debug("Duplicate-message alert failed", exc_info=True)
+    raid_active = False
+    if message.from_user:
+        from videl.utils.raid import record as record_raid
+        raid_config = base.get_setting(message.chat.id, "raid_mode", {})
+        raid_result = record_raid(message.chat.id, "messages", raid_config)
+        raid_active = raid_result["active"]
+        if raid_result["started"]:
+            await _record_rule_stat(message.chat.id, "raid")
+            try:
+                await bot.send_message(message.chat.id, "⚠️ Temporary raid protections are active. New members may need to complete join verification.")
+            except Exception:
+                logger.debug("Raid-mode announcement failed", exc_info=True)
+    if (base.get_setting(message.chat.id, "antispam", False) or raid_active) and message.from_user:
         key = (message.chat.id, message.from_user.id)
         now = time.monotonic()
         window = _FLOOD_WINDOWS.setdefault(key, deque(maxlen=32))
@@ -101,7 +142,9 @@ async def mgmt_content_checker(_, message) -> None:
         window.append(now)
         while len(_FLOOD_WINDOWS) > 10000:
             _FLOOD_WINDOWS.popitem(last=False)
-        if len(window) > FLOOD_LIMIT:
+        effective_limit = max(2, FLOOD_LIMIT // 2) if raid_active else FLOOD_LIMIT
+        if len(window) > effective_limit:
+            await _record_rule_stat(message.chat.id, "antiflood")
             try:
                 await message.delete()
             except Exception:
@@ -109,6 +152,7 @@ async def mgmt_content_checker(_, message) -> None:
             return
     reason = locked_message_reason(message, lambda kind: _locked(message.chat.id, kind))
     if reason:
+        await _record_rule_stat(message.chat.id, "content_lock")
         try:
             await message.delete()
             logger.info("Lock %s removed a message in %s", reason, message.chat.id)

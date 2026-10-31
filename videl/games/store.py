@@ -122,6 +122,18 @@ def _game(key):
     return game
 
 
+def validate_event_link(code, user, chat_id):
+    """Only let an event publish its organizer's room bound to that group."""
+    doc = rooms().find_one({"_id": str(code or "").upper()})
+    if not doc:
+        raise GameError("That Arcade room could not be found")
+    if int(doc.get("host", 0)) != int(user):
+        raise GameError("Only the Arcade room host can link it to an event", 403)
+    if int(doc.get("chat_id") or 0) != int(chat_id):
+        raise GameError("Create the Arcade room for the same Telegram group as the event")
+    return True
+
+
 def _seat_of(doc, user):
     for member in doc.get("seats", []):
         if int(member.get("user", 0)) == int(user):

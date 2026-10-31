@@ -155,8 +155,16 @@ async def _run_broadcast(message: Message) -> None:
     # ── Load DB ───────────────────────────────────────────────────────────────
     all_docs = get_broadcast_chats()
     counts   = get_broadcast_count()
-    groups   = [d for d in all_docs if d.get("type") == "group"]
-    private  = [d for d in all_docs if d.get("type") == "private"]
+    groups = [d for d in all_docs if d.get("type") == "group"]
+    private_all = [d for d in all_docs if d.get("type") == "private"]
+    private = []
+    opted_out = 0
+    if flag_user:
+        # Private user broadcasts are strictly opt-in. A database/read failure
+        # must never fall back to messaging every known private chat.
+        from videl.utils.db import get_db
+        from videl.utils.member_preferences import opted_in_private_chats
+        private, opted_out = await asyncio.to_thread(opted_in_private_chats, get_db(), private_all)
 
     targets = (0 if flag_nogroup else len(groups)) + (len(private) if flag_user else 0)
 
@@ -178,7 +186,8 @@ async def _run_broadcast(message: Message) -> None:
         + rich_kv_table([
             ("total", f"<code>{counts['total']}</code>"),
             ("groups", f"<code>{len(groups)}</code>"),
-            ("users", f"<code>{len(private)}</code>"),
+            ("opted-in users", f"<code>{len(private)}</code>"),
+            ("users skipped (not opted in)", f"<code>{opted_out}</code>" if flag_user else "not requested"),
             ("targets", f"<code>{targets}</code>"),
             ("flags", f"<code>{active_flags}</code>"),
         ]),

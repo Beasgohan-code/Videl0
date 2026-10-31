@@ -1,6 +1,6 @@
 import unittest
 
-from videl.core.queue import chat_queues, insert_next
+from videl.core.queue import add_request, chat_queues, insert_next, requester_capacity
 
 
 class InsertNextQueueTests(unittest.TestCase):
@@ -27,6 +27,24 @@ class InsertNextQueueTests(unittest.TestCase):
         self.assertEqual(insert_next(chat_id, first), 2)
         self.assertEqual(insert_next(chat_id, second, offset=1), 3)
         self.assertEqual(chat_queues[chat_id], [current, first, second, queued])
+
+    def test_requester_is_limited_to_three_upcoming_tracks(self):
+        chat_id = -91002
+        chat_queues[chat_id] = [{"requester_id": 1, "title": "current"}]
+        for index in range(3):
+            self.assertIsNotNone(add_request(chat_id, {"requester_id": 7, "title": str(index)}))
+        self.assertEqual(requester_capacity(chat_id, 7), 0)
+        before = list(chat_queues[chat_id])
+        self.assertIsNone(add_request(chat_id, {"requester_id": 7, "title": "blocked"}))
+        self.assertEqual(chat_queues[chat_id], before)
+
+    def test_fair_share_is_per_requester_and_allows_idle_chat_to_start(self):
+        chat_id = -91001
+        self.assertEqual(add_request(chat_id, {"requester_id": 7, "title": "first"}), 1)
+        for index in range(3):
+            self.assertIsNotNone(add_request(chat_id, {"requester_id": 7, "title": str(index)}))
+        self.assertEqual(requester_capacity(chat_id, 8), 3)
+        self.assertIsNotNone(add_request(chat_id, {"requester_id": 8, "title": "other"}))
 
     def test_insert_next_starts_current_track_when_queue_is_empty(self):
         chat_id = -91001

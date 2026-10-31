@@ -94,6 +94,99 @@ def _reason(tokens, fallback="No reason supplied") -> str:
     return " ".join(tokens)[:400] or fallback
 
 
+def _action_reason(chat_id: int, action: str, tokens, member: str) -> str:
+    from videl.utils.reason_templates import normalize, select_reason
+    templates = normalize(base.get_setting(chat_id, "moderation_reason_templates", {}))
+    return select_reason(tokens, action, templates, member, "No reason supplied")
+
+
+async def handoff(ctx) -> Screen:
+    chat_id, _ = _names(ctx.message)
+    db = base.db()
+    if db is None:
+        raise CommandError("MongoDB is not connected, so the handoff summary is unavailable.")
+    try:
+        reports = db["mgmt_reports"].count_documents({"chat_id": chat_id, "status": "open"})
+        requests = db["mgmt_join_requests"].count_documents({"chat_id": chat_id, "status": "pending"})
+        reviews = db["mgmt_escalations"].count_documents({"chat_id": chat_id, "status": "open"})
+    except Exception as exc:
+        raise CommandError("The unresolved moderation queues could not be read.") from exc
+    note = ctx.command.arguments.strip()
+    if note:
+        if len(note) > 500:
+            raise CommandError("A handoff note is limited to 500 characters.")
+        actor = getattr(getattr(ctx.message, "from_user", None), "id", None)
+        from datetime import datetime, timezone
+        db["mgmt_handoff_notes"].insert_one({"chat_id": chat_id, "text": note,
+            "actor": actor if isinstance(actor, int) else None,
+            "ts": datetime.now(timezone.utc)})
+        await asyncio.to_thread(record_bot, chat_id, "moderation", action="handoff_note",
+                                detail="Moderator shift handoff note saved", actor=actor)
+    latest = db["mgmt_handoff_notes"].find_one({"chat_id": chat_id}, sort=[("ts", -1)])
+    rows = [("Open reports", str(reports)), ("Pending join requests", str(requests)),
+            ("Pending action reviews", str(reviews))]
+    try:
+        for report in db["mgmt_reports"].find({"chat_id": chat_id, "status": "open"}).sort("ts", -1).limit(5):
+            rid = str(report.get("_id", ""))[-8:]
+            reason = str(report.get("reason") or "No reason supplied")[:100]
+            rows.append((f"Report …{rid}", escape(reason)))
+        for review in db["mgmt_escalations"].find({"chat_id": chat_id, "status": "open"}).sort("created_at", -1).limit(5):
+            rows.append(("Action review", f"{escape(review.get('action', 'action'))} · member {escape(review.get('user_id', 'unknown'))}"))
+    except Exception:
+        pass
+    if latest:
+        rows.append(("Latest handoff", escape(latest.get("text", ""))))
+    return Screen(heading("Moderator handoff", 3) + table(rows)
+                  + body("Add a note for the next shift with <code>/handoff note text</code>. This is visible to group admins only."))
+
+
+async def safety_stats(ctx) -> Screen:
+    from videl.utils.rule_effectiveness import summary
+    rows = summary(base.db(), ctx.message.chat.id)
+    return Screen(heading("Per-rule effectiveness", 3)
+                  + table([(row["rule"], f"{row['hits']} signals · {row['confirmed']} confirmed · {row['false_positives']} false positives") for row in rows])
+                  + body("Counts are aggregate and exclude member IDs and message text. Use <code>/rulefeedback RULE confirmed</code> or <code>false_positive</code> after reviewing a signal."))
+
+
+async def rule_feedback(ctx) -> Screen:
+    from videl.utils.rule_effectiveness import OUTCOMES, RULES, record
+    parts = ctx.command.arguments.strip().split()
+    if len(parts) != 2 or parts[0] not in RULES or parts[1] not in OUTCOMES:
+        return Screen(usage("/rulefeedback content_lock false_positive", "Choose an available rule and confirmed or false_positive."))
+    if not record(base.db(), ctx.message.chat.id, parts[0], parts[1]):
+        raise CommandError("The aggregate feedback counter is unavailable; nothing was changed.")
+    return Screen(heading("✅ Rule feedback recorded", 3)
+                  + body(f"Recorded <code>{escape(parts[1])}</code> feedback for <code>{escape(parts[0])}</code>."))
+
+
+async def set_reason_template(ctx) -> Screen:
+    from videl.utils.reason_templates import ACTIONS, MAX_LENGTH, normalize
+    chat_id, _ = _names(ctx.message)
+    parts = ctx.command.arguments.strip().split(maxsplit=1)
+    if len(parts) != 2 or parts[0].casefold() not in ACTIONS:
+        return Screen(usage("/setreason warn Please follow the group rules.",
+                            "Set a template for warn, ban, tban, kick, mute or tmute. Use {member} for the member's name."))
+    action, text = parts[0].casefold(), parts[1].strip()
+    if not text or len(text) > MAX_LENGTH:
+        raise CommandError(f"A template must contain 1–{MAX_LENGTH} characters.")
+    templates = normalize(base.get_setting(chat_id, "moderation_reason_templates", {}))
+    templates[action] = text
+    if not base.set_setting(chat_id, "moderation_reason_templates", templates):
+        raise CommandError("MongoDB is not connected, so nothing changed.")
+    return Screen(heading("✅ Action reason template saved", 3)
+                  + table([("Action", action), ("Template", escape(text))])
+                  + body("Use <code>template</code> as the reason argument to apply it. Templates are plain text; {member} is substituted."))
+
+
+async def reason_templates(ctx) -> Screen:
+    from videl.utils.reason_templates import normalize
+    chat_id, _ = _names(ctx.message)
+    templates = normalize(base.get_setting(chat_id, "moderation_reason_templates", {}))
+    return Screen(heading("Action reason templates", 3)
+                  + table([(name, escape(text)) for name, text in templates.items()])
+                  + body("Apply one with <code>/warn @member template</code>, <code>/ban @member template</code>, and so on."))
+
+
 def _audit(chat_id: int, user_id: int, reason: str, remove: bool = False) -> bool:
     store = _bans()
     if store is None:
@@ -145,7 +238,7 @@ async def warn(ctx) -> Screen:
     if store is None:
         raise CommandError("MongoDB is not connected, so the warning was not saved.")
     await _protect(ctx, user)
-    reason = _reason(tokens)
+    reason = _action_reason(chat_id, "warn", tokens, getattr(user, "first_name", "member"))
     escalation = _escalation(chat_id)
     document = await asyncio.to_thread(store.find_one, {"chat_id": chat_id, "user_id": user.id})
     limit = warn_limit(chat_id)
@@ -182,6 +275,17 @@ async def warn(ctx) -> Screen:
         action = warnings.ladder_action(escalation, stage) if escalation.get("enabled") else "none"
         if action == "none":
             notes.append(f"The limit of {limit} warnings was reached, but escalation is turned off for this group.")
+        elif action in {"kick", "ban"} and escalation.get("review_severe"):
+            try:
+                from videl.utils.escalations import queue_review
+                identifier = await asyncio.to_thread(
+                    queue_review, base.db(), chat_id, user.id, action, count, reason,
+                    getattr(ctx.user, "id", None), "bot",
+                )
+                notes.append(f"The warning limit was reached; {action} is pending admin review (case <code>{identifier}</code>). No severe action has been applied yet.")
+            except Exception:
+                LOGGER.exception("Could not queue warning escalation review for user %s in chat %s", user.id, chat_id)
+                notes.append("The warning was saved, but the severe action could not be queued for review and was not applied. Ask an admin to review the member’s Cases timeline.")
         else:
             try:
                 await _require(ctx, ("can_restrict_members",))
@@ -227,6 +331,11 @@ async def unwarn(ctx) -> Screen:
         {"chat_id": chat_id, "user_id": user.id},
         {"$set": {"count": count, "reasons": reasons, "stages": stage,
                   "updated": datetime.now(timezone.utc)}},
+    )
+    await asyncio.to_thread(
+        record_bot, chat_id, "warn_reset", action="unwarn",
+        detail=f"member {user.id}: one warning removed",
+        actor=getattr(getattr(ctx.message, "from_user", None), "id", None),
     )
     return Screen(
         heading("✅ Warning removed", 3)
@@ -335,7 +444,7 @@ async def moderate(ctx) -> Screen:
             return Screen(usage(f"/{name} @user 10m reason", "Temporary actions need a duration."))
         seconds = duration(tokens.pop(0))
         until_date = datetime.now(timezone.utc) + timedelta(seconds=seconds)
-    reason = _reason(tokens)
+    reason = _action_reason(chat_id, name, tokens, getattr(user, "first_name", "member"))
     notes: list[str] = []
 
     if name in {"ban", "tban", "dban", "kick", "dkick"}:
@@ -493,6 +602,11 @@ COMMANDS = (
     Command("warnings", warnings, "Show a member's warning history", category="manage"),
     Command("clearwarns", clear_warnings, "Clear every warning for a member", category="manage", policy="admin"),
     Command("setwarnlimit", set_warn_limit, "Set how many warnings trigger a ban", category="manage", policy="admin"),
+    Command("setreason", set_reason_template, "Set a moderation action reason template", category="manage", policy="admin"),
+    Command("safetystats", safety_stats, "Review aggregate per-rule effectiveness", category="manage", policy="admin"),
+    Command("handoff", handoff, "Review open moderation queues and save a shift handoff note", category="manage", policy="admin"),
+    Command("rulefeedback", rule_feedback, "Record moderator feedback about a rule signal", category="manage", policy="admin"),
+    Command("reason", reason_templates, "Show moderation action reason templates", category="manage", policy="admin"),
     Command("banlist", ban_list, "Show recorded bans", category="manage", policy="admin"),
     Command("ban", moderate, "Ban a member", category="manage", policy="admin", rights=("can_restrict_members",)),
     Command("tban", moderate, "Temporarily ban a member", category="manage", policy="admin", rights=("can_restrict_members",)),

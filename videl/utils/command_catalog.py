@@ -132,14 +132,6 @@ def _command_icon(entry):
         return 'ios_symbols'
     if name == 'setbotphoto':
         return 'ios_image'
-    if name == 'topicnew':
-        return 'ios_add'
-    if name == 'topicrename':
-        return 'ios_edit'
-    if name == 'topicclose':
-        return 'ios_close'
-    if name == 'topicopen':
-        return 'ios_check'
     if name == 'pollstop':
         return 'ios_close'
     if name == 'copy':
@@ -166,7 +158,7 @@ def _command_icon(entry):
         return 'ios_image'
     if any(part in name for part in ('note', 'filter', 'get', 'copy', 'rule')):
         return 'ios_memo'
-    if any(part in name for part in ('poll', 'quiz', 'react', 'topic')):
+    if any(part in name for part in ('poll', 'quiz', 'react')):
         return 'ios_symbols'
     if any(part in name for part in ('fed', 'invite', 'link')):
         return 'globe'

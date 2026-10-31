@@ -6,8 +6,9 @@ Placeholders available in a welcome: ``{name}``, ``{id}``, ``{title}``.
 """
 from __future__ import annotations
 
+import asyncio
 from pyrogram import filters
-from pyrogram.enums import ChatMemberStatus
+from pyrogram.enums import ChatMemberStatus, ChatMembersFilter
 from pyrogram.types import CallbackQuery, CopyTextButton, InlineKeyboardMarkup
 
 from videl import LOGGER, bot
@@ -18,7 +19,7 @@ from videl.utils.bot_ui import button
 from videl.utils.captcha import answer_challenge, issue_challenge
 from videl.utils.db import is_approved
 from videl.utils.premium_emojis import pe
-from videl.utils.command_ui import rich_edit
+from videl.utils.command_ui import rich_edit, usage
 
 DEFAULT_WELCOME = "Welcome {name} to {title}!"
 DEFAULT_GOODBYE = "Goodbye {name}."
@@ -120,10 +121,73 @@ async def rules(ctx) -> Screen:
     return Screen(heading("Group rules", 3) + body(escape(text)))
 
 
+async def set_checklist(ctx) -> Screen:
+    """Configure up to four concise, safe links shown with new-member greetings."""
+    raw = ctx.command.arguments.strip()
+    if raw.casefold() == "clear":
+        if not base.set_setting(ctx.message.chat.id, "welcome_checklist", []):
+            raise CommandError("MongoDB is not connected, so nothing changed.")
+        return Screen(heading("Welcome checklist cleared", 3)
+                      + body("New members will no longer see checklist buttons."))
+    if not raw:
+        from videl.utils.welcome_checklist import safe_stored
+        current = safe_stored(base.get_setting(ctx.message.chat.id, "welcome_checklist", []))
+        lines = [f"{item['label']} → {item['url']}" for item in current]
+        return Screen(heading("Welcome checklist links", 3)
+                      + (table([("Current links", "<br>".join(escape(line) for line in lines))]) if lines else body("No checklist links are set."))
+                      + body("Set up to four links, one per line: <code>/setchecklist Start here | https://example.com/start</code>. All links must use HTTPS.")
+                      + body("Use <code>/setchecklist clear</code> to remove them. The checklist appears under the normal welcome message."))
+    from videl.utils.welcome_checklist import validate
+    try:
+        rows = validate(raw)
+    except ValueError as error:
+        raise CommandError(escape(str(error))) from None
+    if not base.set_setting(ctx.message.chat.id, "welcome_checklist", rows):
+        raise CommandError("MongoDB is not connected, so nothing changed.")
+    return Screen(heading("Welcome checklist saved", 3)
+                  + table([("Buttons", " · ".join(escape(item["label"]) for item in rows))])
+                  + body("New members will see these links with the group welcome message."))
+
+
 async def clear_rules(ctx) -> Screen:
     if not base.set_setting(ctx.message.chat.id, "rules", None):
         raise CommandError("MongoDB is not connected, so nothing changed.")
     return Screen(heading("✅ Group rules cleared", 3) + body("The group no longer has published rules. Add them again with <code>/setrules</code>."))
+
+
+async def raidmode(ctx) -> Screen:
+    from videl.utils.raid import normalize
+    chat_id = ctx.message.chat.id
+    parts = ctx.command.arguments.strip().split()
+    current = normalize(base.get_setting(chat_id, "raid_mode", {}))
+    if not parts:
+        return Screen(heading("Raid response mode", 3)
+                      + table([("Status", "On" if current["enabled"] else "Off"),
+                               ("Detection window", f"{current['window_seconds']} seconds"),
+                               ("Join threshold", str(current["join_threshold"])),
+                               ("Message threshold", str(current["message_threshold"])),
+                               ("Protection duration", f"{current['duration_minutes']} minutes")])
+                      + body("Use <code>/raidmode on [window] [joins] [messages] [minutes]</code> or <code>/raidmode off</code>. While active, join verification and anti-flood are temporarily enforced. Admins and approved members remain exempt."))
+    if parts[0].casefold() == "off":
+        value = {**current, "enabled": False}
+    elif parts[0].casefold() == "on" and len(parts) <= 5:
+        names = ("window_seconds", "join_threshold", "message_threshold", "duration_minutes")
+        value = {**current, "enabled": True}
+        for name, raw in zip(names, parts[1:]):
+            if not raw.isdecimal():
+                raise CommandError("Raid thresholds must be positive whole numbers.")
+            value[name] = int(raw)
+        value = normalize(value)
+    else:
+        return Screen(usage("/raidmode on 30 8 20 15", "Set window seconds, join threshold, message threshold and active minutes."))
+    if not base.set_setting(chat_id, "raid_mode", value):
+        raise CommandError("MongoDB is not connected, so nothing changed.")
+    return Screen(heading("✅ Raid response settings saved", 3)
+                  + table([("Status", "On" if value["enabled"] else "Off"),
+                           ("Window", f"{value['window_seconds']} seconds"),
+                           ("Join threshold", str(value["join_threshold"])),
+                           ("Message threshold", str(value["message_threshold"])),
+                           ("Duration", f"{value['duration_minutes']} minutes")]))
 
 
 async def toggle_captcha(ctx) -> Screen:
@@ -209,25 +273,80 @@ async def greeting_toggle_callback(client, query: CallbackQuery) -> None:
     screen = greeting_status_screen(chat_id)
     await rich_edit(message, screen.html, reply_markup=screen.keyboard)
 
+async def _check_lookalike(chat_id: int, member) -> None:
+    """Alert only; resemblance is never grounds for restriction or removal."""
+    try:
+        admins = []
+        async for entry in bot.get_chat_members(chat_id, filter=ChatMembersFilter.ADMINISTRATORS, limit=100):
+            candidate = getattr(entry, "user", None)
+            if candidate is not None:
+                admins.append(candidate)
+        from videl.utils.identity_signals import lookalike
+        match = lookalike(member, admins)
+        if match:
+            from videl.utils.db import get_db
+            from videl.utils.rule_effectiveness import record as record_rule
+            await asyncio.to_thread(record_rule, get_db(), chat_id, "impersonation")
+            incoming = " ".join(filter(None, [getattr(member, "first_name", ""), getattr(member, "last_name", "")]))[:80]
+            await bot.send_message(chat_id,
+                f"⚠️ Possible name impersonation: new member {incoming or 'unknown'} resembles an admin ({match['reference']}, {match['field']}). This is only a warning; please verify manually.")
+    except Exception:
+        LOGGER.debug("Impersonation similarity check unavailable", exc_info=True)
+
+
 @bot.on_message(filters.new_chat_members, group=5)
 async def welcome_handler(_, message) -> None:
     me = await bot.get_me()
+    from videl.utils.onboarding import record as record_onboarding
     for member in message.new_chat_members:
         if member.id == me.id:
             continue
-        if base.get_setting(message.chat.id, "welcome_enabled", True):
+        from videl.utils.db import get_db
+        from videl.utils.maintenance import is_paused
+        maintenance_db = get_db()
+        protection_paused = is_paused(maintenance_db, message.chat.id, "protection")
+        onboarding_paused = is_paused(maintenance_db, message.chat.id, "onboarding")
+        raid_active = False
+        if not getattr(member, "is_bot", False):
+            record_onboarding(message.chat.id, "joins")
+            if not protection_paused:
+                await _check_lookalike(message.chat.id, member)
+                from videl.utils.raid import record as record_raid
+                raid_config = base.get_setting(message.chat.id, "raid_mode", {})
+                raid_result = record_raid(message.chat.id, "joins", raid_config)
+                raid_active = raid_result["active"]
+                if raid_result["started"]:
+                    from videl.utils.rule_effectiveness import record as record_rule
+                    await asyncio.to_thread(record_rule, maintenance_db, message.chat.id, "raid")
+                    try:
+                        await bot.send_message(message.chat.id, "⚠️ Temporary raid protections are active. New members may need to complete join verification.")
+                    except Exception:
+                        LOGGER.debug("Raid-mode announcement failed", exc_info=True)
+        if not onboarding_paused and base.get_setting(message.chat.id, "welcome_enabled", True):
             template = base.get_setting(message.chat.id, "welcome_message", DEFAULT_WELCOME)
+            from videl.utils.welcome_checklist import safe_stored
+            links = safe_stored(base.get_setting(message.chat.id, "welcome_checklist", []))
+            safe_buttons = [button(item["label"], url=item["url"]) for item in links]
+            from videl.utils.member_faq import normalize as normalize_faq
+            faq_items = normalize_faq(base.get_setting(message.chat.id, "welcome_faq", []))
+            checklist_rows = [[item] for item in safe_buttons]
+            if faq_items:
+                checklist_rows.append([button("New-member FAQ", callback_data=f"faq:open:{message.chat.id}")])
+            markup = InlineKeyboardMarkup(checklist_rows) if checklist_rows else None
             try:
-                await bot.send_message(message.chat.id, _render(template, member, message.chat))
+                await bot.send_message(message.chat.id, _render(template, member, message.chat), reply_markup=markup)
             except Exception:
                 LOGGER.debug("Welcome delivery failed", exc_info=True)
         if (
             not getattr(member, "is_bot", False)
-            and base.get_setting(message.chat.id, "captcha_enabled", False)
+            and not onboarding_paused
+            and (base.get_setting(message.chat.id, "captcha_enabled", False) or raid_active)
             and not is_approved(message.chat.id, member.id)
         ):
             try:
-                await issue_challenge(message.chat.id, member.id, getattr(member, "first_name", None) or "New member")
+                established = await issue_challenge(message.chat.id, member.id, getattr(member, "first_name", None) or "New member")
+                if established:
+                    record_onboarding(message.chat.id, "challenged")
             except Exception:
                 LOGGER.debug("Captcha issue failed", exc_info=True)
 
@@ -257,7 +376,9 @@ COMMANDS = (
     Command("setgoodbye", set_goodbye, "Set the message shown when a member leaves", category="manage", policy="admin"),
     Command("goodbye", toggle_goodbye, "Turn goodbye messages on or off", category="manage", policy="admin"),
     Command("setcaptcha", toggle_captcha, "Require a challenge before new members post", category="manage", policy="admin"),
+    Command("raidmode", raidmode, "Configure temporary join and message raid protection", category="manage", policy="admin"),
     Command("setrules", set_rules, "Publish the group rules", category="manage", policy="admin"),
+    Command("setchecklist", set_checklist, "Add HTTPS links to the new-member welcome checklist", category="manage", policy="admin"),
     Command("rules", rules, "Show the group rules", category="manage", policy="group"),
     Command("clearrules", clear_rules, "Remove the published rules", category="manage", policy="admin"),
     Command("greetings", greeting_status, "Show greeting and captcha settings", category="manage", policy="group"),

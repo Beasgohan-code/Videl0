@@ -37,6 +37,7 @@ KINDS = (
     "approval",
     "warn",
     "warn_reset",
+    "escalation",
     "moderation",
     "invite",
     "automation",

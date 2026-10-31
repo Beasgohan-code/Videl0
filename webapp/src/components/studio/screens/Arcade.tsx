@@ -33,6 +33,7 @@ import {
   type Stat,
 } from "@/lib/arcade";
 import { RoomView } from "../RoomView";
+import { EventRooms } from "../EventRooms";
 import { Callout } from "../ui";
 
 /**
@@ -52,6 +53,7 @@ export default function Arcade() {
   const [seats, setSeats] = useState(2);
   const [visibility, setVisibility] = useState<"private" | "public">("private");
   const [room, setRoom] = useState<string | null>(null);
+  const [eventId, setEventId] = useState<string | undefined>();
   const [copied, setCopied] = useState(false);
   const [announcement, setAnnouncement] = useState("");
 
@@ -81,8 +83,11 @@ export default function Arcade() {
   }, [load, player, room]);
 
   useEffect(() => {
-    const wanted = new URLSearchParams(window.location.search).get("room");
+    const params = new URLSearchParams(window.location.search);
+    const wanted = params.get("room");
     if (wanted && /^[A-Z2-9]{4,8}$/i.test(wanted)) setRoom(wanted.toUpperCase());
+    const event = params.get("event");
+    if (event && /^[A-HJ-NP-Z2-9]{8}$/i.test(event)) setEventId(event.toUpperCase());
   }, []);
 
   const openRoom = useCallback((value: string) => {
@@ -401,6 +406,8 @@ export default function Arcade() {
           </button>
         </div>
       </section>
+
+      <EventRooms eventId={eventId} onJoinGame={openRoom} />
 
       <section className="arcade-section" aria-label="Join with a code">
         <div className="arcade-section-head">

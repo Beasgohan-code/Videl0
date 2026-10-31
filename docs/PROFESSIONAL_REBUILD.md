@@ -171,13 +171,13 @@ probe does not trigger a second send. `/start` no longer blindly resends in its
 outer exception handler.
 
 Implemented tools: `/copy` (256 UTF-16 units), `/buttons` (real keyboard preview),
-`/features` (implementation/compatibility guide), `/pollstop` (reply + admin guard,
-Telegram poll ownership still enforced), and `/topicrename` (non-General forum
-context + admin guard + bounded title). Existing advanced poll flags, explicit
-reactions, topic creation/close/reopen and diagnostics remain. No paid actions,
-Stars/gifts, arbitrary execution or AI were introduced. “Modern tools” does not
-mean every Telegram Bot API method is supported or that a live API version has
-been detected.
+`/features` (implementation/compatibility guide), and `/pollstop` (reply + admin
+guard; Telegram poll ownership still enforced). Topic-management slash commands
+have been retired; previously posted inline close/reopen controls remain admin-
+checked. Existing advanced poll flags, explicit reactions and diagnostics remain.
+No paid actions, Stars/gifts, arbitrary execution or AI were introduced. “Modern
+tools” does not mean every Telegram Bot API method is supported or that a live API
+version has been detected.
 
 Saved user text, notes, filters, welcomes, files, polls and broadcast payloads
 intentionally retain their native content/transport; presentation is not allowed

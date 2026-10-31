@@ -21,6 +21,11 @@ test("a player cookie round-trips and cannot be forged", async () => {
   const { playerCookies, validPlayer } = await import("../src/lib/player-auth");
   const cookies = playerCookies({ id: 42, name: "Ada" });
   assert.equal(cookies.length, 2, "a plain and a partitioned cookie for the WebView");
+  assert.ok(cookies[0].includes("HttpOnly") && cookies[0].includes("Secure") && cookies[0].includes("SameSite=Lax") && cookies[0].includes("Max-Age=2592000"));
+  assert.ok(cookies[1].includes("HttpOnly") && cookies[1].includes("Secure") && cookies[1].includes("SameSite=None") && cookies[1].includes("Partitioned") && cookies[1].includes("Max-Age=2592000"));
+  const { clearedPlayerCookies } = await import("../src/lib/player-auth");
+  assert.equal(clearedPlayerCookies().length, 2);
+  assert.ok(clearedPlayerCookies().every((cookie) => cookie.includes("Max-Age=0") && cookie.includes("HttpOnly") && cookie.includes("Secure")));
   const raw = cookies[0].split(";")[0];
   const player = validPlayer(cookieRequest(raw));
   assert.equal(player?.id, 42);

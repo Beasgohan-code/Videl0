@@ -4,7 +4,6 @@
 # --------------------------------------------------------------------------------
 from __future__ import annotations
 import os
-import re
 import logging
 from datetime import datetime, timezone
 
@@ -14,7 +13,10 @@ from videl.utils.rich_ui import (
     rich_esc, rich_details, rich_send,
 )
 
+from videl.utils.redaction import RedactingFilter, redact_secrets
+
 logger = logging.getLogger("videl.url_logger")
+logger.addFilter(RedactingFilter())
 
 
 def _now() -> str:
@@ -24,13 +26,7 @@ def _now() -> str:
 def _mask_url(url: str) -> str:
     if not url:
         return "— not set —"
-    if "bot" in url.lower() and len(url) > 30:
-        url = re.sub(r"bot\d+:[A-Za-z0-9_-]+", "bot****:masked", url)
-    if "mongodb" in url.lower():
-        url = re.sub(r"://[^:]+:[^@]+@", "://***:***@", url)
-        if len(url) > 80:
-            url = url[:60] + "..." + url[-15:]
-    return url
+    return redact_secrets(url, limit=500)
 
 
 async def log_all_urls(client, me=None, assistant_username: str = "", mongo_ok: bool = False):

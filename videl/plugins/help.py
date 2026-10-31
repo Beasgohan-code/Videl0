@@ -112,6 +112,7 @@ def render_section(section: str = "home", page: int = 0, *, owner: bool = False)
         ])
         + rich_footer("Prefixes: <code>/ ! ? &amp; . # ~ $ +</code> · search with <code>/commands keyword</code>")
         + body("Permission checks happen when an action runs. Browsing this guide never grants access.")
+        + body("For a linear, screen-reader-friendly list without icon/table layouts, use <code>/help plain</code> or <code>/commands plain search words</code>.")
     )
     actions = (
         rich_button_row(
@@ -150,8 +151,29 @@ def search(query: str, *, owner: bool = False):
     return text + actions, None
 
 
+def _accessible_help(argument: str, *, owner: bool) -> Screen:
+    from videl.utils.accessible_help import render
+    remainder = argument.strip()
+    category = "all"
+    query = ""
+    if remainder.casefold() in {"music", "manage", "tools", "owner", "all"}:
+        category = remainder.casefold()
+    elif remainder:
+        query = remainder
+    entries = visible_commands(owner=owner, category=category, query=query)
+    title = "Accessible command help" + (f" · {category}" if category != "all" else "")
+    if query:
+        title += f" · search: {query}"
+    return Screen(render(entries, title=title))
+
+
 async def help_command(ctx) -> Screen:
     argument = ctx.command.arguments.strip()
+    if argument.casefold() in {"plain", "accessible"} or argument.casefold().startswith(("plain ", "accessible ")):
+        style, _, query = argument.partition(" ")
+        if style.casefold() == "accessible" and query:
+            query = query.strip()
+        return _accessible_help(query, owner=ctx.owner)
     if not argument:
         text, keyboard = render_section("home", owner=ctx.owner)
         return Screen(text, keyboard)
@@ -164,7 +186,11 @@ async def help_command(ctx) -> Screen:
 
 
 async def directory_command(ctx) -> Screen:
-    query = ctx.command.arguments.casefold().strip()
+    query = ctx.command.arguments.strip()
+    if query.casefold() in {"plain", "accessible"} or query.casefold().startswith(("plain ", "accessible ")):
+        _, _, plain_query = query.partition(" ")
+        return _accessible_help(plain_query, owner=ctx.owner)
+    query = query.casefold()
     if query in {"music", "manage", "tools", "owner", "all"}:
         text, keyboard = directory(query, 0, owner=ctx.owner)
         return Screen(text, keyboard)

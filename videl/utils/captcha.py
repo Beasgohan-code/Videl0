@@ -39,13 +39,13 @@ async def issue_challenge(chat_id, user_id, name):
     col = _collection()
     if col is None:
         log.warning("Join verification skipped: MongoDB unavailable")
-        return
+        return False
     key = {"chat_id": chat_id, "user_id": user_id}
     nonce = secrets.token_hex(8)
     try:
         member = await bot.get_chat_member(chat_id, user_id)
         if member.status in (ChatMemberStatus.OWNER, ChatMemberStatus.ADMINISTRATOR):
-            return
+            return False
         chat = await bot.get_chat(chat_id)
         previous = getattr(member, "permissions", None) or chat.permissions
         if previous is None:
@@ -58,6 +58,7 @@ async def issue_challenge(chat_id, user_id, name):
         markup = InlineKeyboardMarkup([[button(str(choice), callback_data=f"verify:{user_id}:{nonce}:{index}") for index, choice in enumerate(choices)]])
         message = await visual_call(bot.send_message, chat_id, text=f"<b>Welcome, {html.escape(str(name))}</b>\n{question}\nChoose the answer within 2 minutes to stay in this group.", reply_markup=markup)
         await asyncio.to_thread(col.update_one, {**key, "nonce": nonce}, {"$set": {"status": "pending", "msg_id": message.id}})
+        return True
     except Exception as exc:
         log.warning("Join challenge not established (%s)", type(exc).__name__)
         # If sending fails, do not leave someone muted without a usable challenge.
@@ -68,6 +69,7 @@ async def issue_challenge(chat_id, user_id, name):
                 await asyncio.to_thread(col.delete_one, {**key, "nonce": nonce})
         except Exception:
             log.warning("Challenge rollback deferred to expiry recovery")
+        return False
 
 
 async def answer_challenge(query):
@@ -100,6 +102,8 @@ async def answer_challenge(query):
         await asyncio.to_thread(col.update_one, {**key, "status": "verifying"}, {"$set": {"status": "pending"}})
         return await query.answer("Permissions could not be restored. Retry or contact an admin.", show_alert=True)
     await asyncio.to_thread(col.delete_one, {**key, "status": "verifying"})
+    from videl.utils.onboarding import record as record_onboarding
+    record_onboarding(key["chat_id"], "verified")
     await query.answer("Verified. Welcome!")
     try:
         await visual_call(query.message.edit_text, text="<b>Verification complete</b>\nWelcome to the group.", reply_markup=None)
@@ -114,8 +118,17 @@ async def expire_challenges():
     now = datetime.now(timezone.utc)
     selector = {"expires_at": {"$lte": now}, "status": {"$in": ["pending", "preparing", "verifying", "expiring"]}, "$or": [{"lease_until": {"$exists": False}}, {"lease_until": {"$lte": now}}]}
     docs = await asyncio.to_thread(lambda: list(col.find(selector).limit(100)))
+    from videl.utils.db import get_db
+    from videl.utils.maintenance import is_paused
+    database = get_db()
     for doc in docs:
         key = {"chat_id": doc["chat_id"], "user_id": doc["user_id"], "nonce": doc["nonce"]}
+        if is_paused(database, doc.get("chat_id"), "protection"):
+            # Defer, rather than repeatedly rescanning, an expiry while incident
+            # protections are paused. Verification deadlines resume afterwards.
+            await asyncio.to_thread(col.update_one, key,
+                {"$set":{"expires_at":now+timedelta(seconds=30)}})
+            continue
         action = doc.get("expiry_action", "kick" if doc["status"] == "pending" else "restore")
         claimed = await asyncio.to_thread(col.find_one_and_update, {**key, **selector, "status": doc["status"]}, {"$set": {"status": "expiring", "expiry_action": action, "lease_until": now + timedelta(seconds=30)}}, return_document=ReturnDocument.AFTER)
         if not claimed:
@@ -130,6 +143,9 @@ async def expire_challenges():
                 else:
                     await bot.restrict_chat_member(doc["chat_id"], doc["user_id"], ChatPermissions(**claimed["permissions"]))
             await asyncio.to_thread(col.delete_one, key)
+            if action == "kick":
+                from videl.utils.onboarding import record as record_onboarding
+                record_onboarding(doc["chat_id"], "timed_out")
         except Exception as exc:
             log.warning("Challenge expiry deferred (%s)", type(exc).__name__)
 

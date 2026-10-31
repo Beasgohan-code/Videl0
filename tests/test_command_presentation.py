@@ -17,6 +17,7 @@ from videl import bot
 
 with patch.object(bot,'add_handler'):
     tools=importlib.import_module('videl.modules.api_tools')
+    lyrics=importlib.import_module('videl.modules.lyrics')
 
 class PresentationTests(unittest.IsolatedAsyncioTestCase):
     def test_status_notices_get_matching_premium_badges_without_duplicate_icons(self):
@@ -108,6 +109,59 @@ class PresentationTests(unittest.IsolatedAsyncioTestCase):
                 f'<tg-emoji emoji-id="{premium_emojis.PREMIUM_IDS[key]}">',
                 rendered,
             )
+
+    def test_lyrics_heading_uses_the_explicit_premium_memo_icon(self):
+        from videl.utils import premium_emojis
+        with patch.object(premium_emojis, "USE_PREMIUM", True):
+            rendered = lyrics._format_lyrics({"title": "Track", "artist": "Artist", "lyrics": "A lyric line that is long enough to render.", "synced": False})
+        self.assertIn(
+            f'<tg-emoji emoji-id="{premium_emojis.PREMIUM_IDS["ios_memo"]}">📝</tg-emoji>',
+            rendered,
+        )
+
+    def test_button_unicode_badges_move_into_native_custom_emoji_icons(self):
+        from pyrogram.types import InlineKeyboardButton
+        from videl.utils.bot_ui import icon_keyboard
+        from videl.utils import premium_emojis
+        with patch("videl.utils.bot_ui.ICONS_ENABLED", True):
+            native = button("📝 Lyrics", callback_data="lyrics")
+            self.assertEqual(native.text, "Lyrics")
+            self.assertEqual(native.icon_custom_emoji_id, premium_emojis.PREMIUM_IDS["ios_memo"])
+            multi_badge = button("🎵 🔎 Search", callback_data="search")
+            self.assertEqual(multi_badge.text, "Search")
+            original = InlineKeyboardMarkup([[InlineKeyboardButton("🎵 Play in voice chat", callback_data="play")]])
+            decorated = icon_keyboard(original)
+        self.assertEqual(original.inline_keyboard[0][0].text, "🎵 Play in voice chat")
+        self.assertEqual(decorated.inline_keyboard[0][0].text, "Play in voice chat")
+        self.assertEqual(decorated.inline_keyboard[0][0].icon_custom_emoji_id, premium_emojis.PREMIUM_IDS["music"])
+
+    def test_all_premium_fallback_badges_are_removed_from_inline_button_labels(self):
+        from videl.utils.premium_emojis import FALLBACK
+        glyphs = sorted({glyph for glyph in FALLBACK.values() if glyph}, key=len, reverse=True)
+        with patch("videl.utils.bot_ui.ICONS_ENABLED", True):
+            for glyph in glyphs:
+                with self.subTest(glyph=glyph):
+                    item = button(glyph + " Sample action", callback_data="sample")
+                    self.assertEqual(item.text, "Sample action")
+                    self.assertTrue(item.icon_custom_emoji_id)
+
+    def test_callback_toasts_do_not_use_unicode_badges_that_telegram_cannot_render_as_custom(self):
+        from videl.utils.premium_emojis import FALLBACK
+        glyphs = tuple(sorted({glyph for glyph in FALLBACK.values() if glyph}, key=len, reverse=True))
+        paths = list(Path("videl/modules").glob("*.py")) + list(Path("videl/plugins").glob("*.py"))
+        checked = 0
+        for path in paths:
+            for node in ast.walk(ast.parse(path.read_text())):
+                if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "answer" and node.args):
+                    continue
+                try:
+                    value = ast.literal_eval(node.args[0])
+                except (ValueError, TypeError):
+                    continue
+                if isinstance(value, str):
+                    self.assertFalse(value.startswith(glyphs), f"callback toast still has a Unicode badge: {path}:{node.lineno}")
+                    checked += 1
+        self.assertGreater(checked, 20)
 
     def test_every_user_supplied_pack_entry_has_an_addressable_id_and_fallback(self):
         from videl.utils import premium_emojis
@@ -310,7 +364,7 @@ class PresentationTests(unittest.IsolatedAsyncioTestCase):
 
     def test_raw_text_delivery_is_reserved_for_user_payloads(self):
         allowed={('notes','filter_watcher'),('notes','send_note'),('welcome','welcome_handler'),
-                 ('welcome','goodbye_handler'),('reminder','deliver'),('broadcast','_send')}
+                 ('welcome','goodbye_handler'),('reminder','deliver'),('broadcast','_send'),('group_manager','admin_summary_command'),('group_manager','read_only_modqueue')}
         for path in source_paths():
             for function in ast.parse(path.read_text()).body:
                 if not isinstance(function,(ast.FunctionDef,ast.AsyncFunctionDef)):continue

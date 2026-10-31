@@ -79,7 +79,7 @@ class Command:
 
     def __post_init__(self):
         if not re.fullmatch(r'[a-z][a-z0-9_]{0,31}',self.name):raise ValueError('Invalid command name')
-        if self.policy not in {'public','group','admin','owner'}:raise ValueError('Invalid command policy')
+        if self.policy not in {'public','group','admin','owner','dj'}:raise ValueError('Invalid command policy')
         if self.category not in {'tools','music','manage','owner'}:raise ValueError('Invalid command category')
         if self.block_policy not in {'none','user','chat'}:raise ValueError('Invalid block policy')
         if self.rights and (self.policy!='admin' or any(right not in {'can_restrict_members','can_delete_messages','can_manage_topics','can_pin_messages','can_promote_members','can_invite_users','can_change_info'} for right in self.rights)):
@@ -94,7 +94,24 @@ async def authorize(command,ctx):
             return (user is not None and is_user_blocked_db(user.id)) or (command.block_policy=='chat' and is_group_blocked(ctx.message.chat.id))
         if await asyncio.to_thread(blocked):return False
     if command.policy=='owner':return ctx.owner
-    if command.policy in {'group','admin'} and chat_kind(ctx.message) not in {'group','supergroup'}:return False
+    if command.policy in {'group','admin','dj'} and chat_kind(ctx.message) not in {'group','supergroup'}:return False
+    if command.policy=='dj':
+        user=ctx.user
+        if not user:return False
+        try:
+            member=await ctx.client.get_chat_member(ctx.message.chat.id,user.id)
+            if member.status in {ChatMemberStatus.OWNER,ChatMemberStatus.ADMINISTRATOR}:return True
+            # A saved DJ handoff must never outlive group membership. Telegram
+            # may return LEFT/BANNED rather than raising for an ex-member.
+            status=str(getattr(member.status,'value',member.status)).casefold()
+            if status not in {'member','restricted'}:return False
+        except Exception:
+            return False
+        try:
+            from videl.plugins import base
+            session=base.get_setting(ctx.message.chat.id,'music_dj_session',{})
+            return isinstance(session,dict) and int(session.get('user_id',0))==int(user.id)
+        except Exception:return False
     if command.policy=='admin':
         user=ctx.user
         if not user:return False
@@ -192,6 +209,19 @@ class Router:
             except Exception as error:
                 log.warning('Command %s unconfirmed (%s); no automatic retry to avoid duplicate effects',command.name,type(error).__name__,exc_info=True)
                 screen=Screen(notice('Something went wrong while processing this command, so I cannot confirm whether it completed. Check the destination first; retry only if the action did not happen.',status='warning',title='⚠️ Action unconfirmed'))
+            # Localize reviewed text nodes for private chats. Unknown strings,
+            # user-authored text, commands, links and inline code keep their source.
+            if screen is not None and chat_kind(original_message) == "private" and actor is not None:
+                try:
+                    from videl.utils.db import get_db
+                    from videl.utils.i18n import localize_html
+                    from videl.utils.member_preferences import read as read_preferences
+                    member_preferences = await asyncio.to_thread(read_preferences, get_db(), int(actor.id))
+                    language = member_preferences.get("language", "en")
+                    if language != "en":
+                        screen = Screen(localize_html(screen.html, language), screen.keyboard, screen.animation)
+                except Exception:
+                    log.debug("Private reply localization unavailable", exc_info=True)
             # Rendering is outside the action exception handler: a render error
             # cannot trigger a second send or reinterpret an acknowledged action.
             if screen is not None:

@@ -258,7 +258,16 @@ class KeyboardTests(unittest.TestCase):
         basic = plain_keyboard(markup)
         self.assertEqual(basic.inline_keyboard[0][0].callback_data, "page_1")
         self.assertIsNone(basic.inline_keyboard[0][0].icon_custom_emoji_id)
+        self.assertEqual(basic.inline_keyboard[0][0].text, "⬅️ Previous")
         self.assertIsNot(basic.inline_keyboard[0][0], item)
+
+    def test_rejected_music_icon_keeps_a_readable_unicode_badge(self):
+        original = button("Choose this track", callback_data="pick:1", icon="music")
+        basic = plain_keyboard(InlineKeyboardMarkup([[original]]))
+        fallback = basic.inline_keyboard[0][0]
+        self.assertEqual(fallback.text, "🎵 Choose this track")
+        self.assertIsNone(fallback.icon_custom_emoji_id)
+        self.assertEqual(fallback.callback_data, "pick:1")
 
     def test_emoji_ids_and_fallback_text_are_safe(self):
         from videl.utils import premium_emojis
@@ -354,15 +363,6 @@ class AsyncBehaviorTests(unittest.IsolatedAsyncioTestCase):
             module, "rich_reply", AsyncMock()
         ):
             await module.react_command(None, SimpleNamespace())
-        call.assert_not_awaited()
-
-    async def test_topic_actions_require_a_forum(self):
-        module = importlib.import_module("videl.modules.api_tools")
-        message = SimpleNamespace(chat=SimpleNamespace(is_forum=False))
-        with patch.object(module, "bot_api", AsyncMock()) as call, patch.object(
-            module, "rich_reply", AsyncMock()
-        ):
-            await module.topic_command(None, message)
         call.assert_not_awaited()
 
     async def test_poll_keeps_topic_routing(self):

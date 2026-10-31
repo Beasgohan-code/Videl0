@@ -16,8 +16,13 @@ export async function GET(req: Request, context: { params: Promise<{ videoId: st
   if (!backend || !secret) return unavailableBackend();
   let upstream: Response;
   try {
+    const headers = new Headers({ "X-Videl-Internal": secret });
+    const range = req.headers.get("range");
+    const ifRange = req.headers.get("if-range");
+    if (range) headers.set("Range", range);
+    if (ifRange) headers.set("If-Range", ifRange);
     upstream = await fetch(`${backend}/internal/music/track/${videoId}`, {
-      headers: { "X-Videl-Internal": secret },
+      headers,
       cache: "no-store",
       signal: AbortSignal.timeout(300_000),
     });

@@ -922,6 +922,22 @@ def _internal_chats_bulk():
         return jsonify({"ok": False, "error": "bulk update failed"}), 503
 
 
+@_flask.route("/internal/onboarding-analytics")
+def _internal_onboarding_analytics():
+    expected = getattr(config, "WEBAPP_SECRET", "") or ""
+    supplied = request.headers.get("X-Videl-Internal", "")
+    if not expected or not hmac.compare_digest(supplied, expected):
+        return jsonify({"ok": False, "error": "unauthorized"}), 403
+    try:
+        from videl.utils.db import get_db
+        from videl.utils.onboarding import summary
+        result = summary(get_db(), days=7)
+        return jsonify(result), (200 if result.get("ok") else 503)
+    except Exception:
+        LOGGER.exception("onboarding analytics query failed")
+        return jsonify({"ok": False, "error": "onboarding analytics query failed"}), 503
+
+
 @_flask.route("/internal/analytics")
 def _internal_analytics():
     expected = getattr(config, "WEBAPP_SECRET", "") or ""

@@ -33,14 +33,24 @@ to code that actually runs:
   approvals, join-request triage (approve/decline), report triage (warn, ban,
   resolve or dismiss) and a per-group audit trail
   (filterable by kind, paged with an exact cursor, CSV export, 180-day
-  retention). Bot-side changes — locks, antispam, warnings, filters, blacklist
+  retention). Configuration edits include privacy-safe previous/current values;
+  message text is represented by length, never copied into the audit detail.
+  Bot-side changes — locks, antispam, warnings, filters, blacklist
   words or its mode — are recorded too, with the acting admin when Telegram
   reports one.
+- **Protection Test Bench** — run a read-only sample through the current content-lock priority and auto-answer filters before changing settings. It shows the first lock that would delete a member's sample, or whether an admin/approved member is exempt. It makes no Telegram call or settings change and clearly excludes checks that need live history, clocks, message entities or Telegram permissions.
+- **Preset review** — inspect the exact protection toggles a preset would enable or disable, and confirm before applying it to one group. A no-op preset is shown as such rather than silently saved.
+- **Greeting previews** — welcome and goodbye templates render the supported sample placeholders live and flag unknown placeholders before an admin saves the text. Preview text is local to the browser.
 - **Group backups** — download a group's configuration as JSON (locks,
   greetings, rules, automation, blacklist words and switched-off commands) and
-  import it into another group. Imports are previewed as a diff and applied
-  only on confirmation; the replaced state is saved so the import can be
-  undone. Warnings, notes and member identities are never written to the file.
+  import it into another group. Choose which sections to copy; the preview is
+  recalculated for that selection and applied only on confirmation. The
+  replaced state is saved so the import can be undone. Warnings, notes and
+  member identities are never written to the file.
+- **Admin setup checklist** — each group shows a live checklist for bot admin
+  status and moderation rights, configured protections, and welcome/rules/
+  join-verification onboarding. Items are derived from Telegram and saved
+  settings rather than manually checked labels.
   The export endpoint is `/internal/chat/<id>/backup`; imports post
   `backup_import` / `backup_restore` to the usual group endpoint.
 - **No silent overwrites** — each group's settings carry an edit `revision`.
@@ -52,10 +62,22 @@ to code that actually runs:
   turns an open panel's next save into a false conflict. Bot-side writes still
   work without a token but advance the counter, so an open panel notices them.
 - **Group profile commands** — `/settitle`, `/setdescription`, `/setphoto` and `/delphoto` update a group’s title, info-page description and avatar. Each is checked against the caller’s Telegram `Change info` right; title/description lengths are validated before the API call, and results are reported only after Telegram confirms them. `/setdescription clear` removes the description; `/setphoto` uses a replied photo.
-- **Command switches** — any registered command can be turned off
+- **Command switches and presets** — any registered command can be turned off
   for one group. A handler at group −1 refuses it before every other handler,
   so this also covers commands that never pass through the declarative router.
-  Group admins and the bot owner stay exempt.
+  Group admins and the bot owner stay exempt. `/commandpreset` offers reviewed
+  Community, Music-friendly and Moderation-focused profiles; it previews the
+  exact enable/pause list and applies only after an admin confirms.
+- **Read-only moderators** — a current group admin can grant or revoke the
+  `/reviewer` role for a current member. A reviewer can request a queue summary
+  with `/modqueue`; Videl sends it privately and provides no action controls.
+  Every use rechecks membership, and the role never substitutes for Telegram
+  administrator rights.
+- **Scheduled admin summaries** — each current group admin can opt into a daily
+  private digest with `/adminsummary HH:MM` (UTC), check it with `status`, or
+  turn it off. The watchdog rechecks admin status, sends aggregate queue and
+  incident counts, and claims each delivery to avoid duplicate sends across
+  bot instances. A send with an uncertain outcome is not automatically retried.
 - **Limited bot sudo** — the owner can add or remove up to 25 trusted operators
   from private chat with `/addsudo` (optionally with a duration such as `7d`),
   `/delsudo` or `/rmsudo`; temporary grants expire automatically, and `/sudolist`
@@ -162,9 +184,13 @@ being flattened. Premium emoji artwork is resolved server-side through
 
 Rose-style connected-group management is supported per administrator: run `/connect` in a group as a current Telegram admin, then use the supported moderation, rules, notes, group-setting and music commands from private chat. `/connection` checks the saved association and `/disconnect` removes only that user's link. Remote routing uses the server-stored group ID, checks the user is still a group admin on each request, and never forwards private-chat reply IDs into the group; reply-based target commands should use a username or numeric Telegram ID in DM instead. The explicit remote command allowlist is maintained in `videl/app/connections.py`.
 
-Groups also have a report-review workflow: members reply to a message with `/report [reason]`, while admins review the group’s pending queue privately with `/reports` and close an item with `/resolve REPORT_ID` from a connected DM. The bot refuses to display report details in a group chat. Reports store message/user IDs and the optional reason, not a copy of the reported message body. An optional `YT_API_KEY_FALLBACK` can be configured for Shruti; Videl switches to it only on recognizable quota/rate-limit responses. Two keys yield double capacity only if the provider grants independent per-key limits. Authored headings, buttons and table labels use semantic Premium Emoji with readable Unicode fallbacks; actual custom-emoji display still depends on Telegram eligibility.
+Groups also have a report-review workflow: members reply to a message with `/report [reason]`, while admins review the group’s pending queue privately with `/reports` and close an item with `/resolve REPORT_ID` from a connected DM. The bot refuses to display report details in a group chat. Reports store message/user IDs and the optional reason, not a copy of the reported message body. Action templates can be customized with `/setreason ACTION TEXT` and applied by passing `template` as a moderation reason; `/reason` lists defaults and group overrides. `/handoff [note]` summarizes unresolved reports, join requests and action reviews for the next admin shift. `/safetystats` reports aggregate rule signals, and `/rulefeedback RULE confirmed|false_positive` records moderator review without retaining user IDs or message text. `/raidmode on [window] [joins] [messages] [minutes]` temporarily requires join verification and tightens anti-flood thresholds after configured bursts; `/raidmode off` disables detection. Repeated copy-paste text and lookalike admin names generate manual-review warnings only; neither detector automatically removes or restricts a member. An optional `YT_API_KEY_FALLBACK` can be configured for Shruti; Videl switches to it only on recognizable quota/rate-limit responses. Two keys yield double capacity only if the provider grants independent per-key limits. Authored headings, buttons and table labels use semantic Premium Emoji with readable Unicode fallbacks; actual custom-emoji display still depends on Telegram eligibility.
+
+The group Commands studio supports up to 100 plain-text custom slash commands per group. Owners can save and remove namespaced replies with `{name}`, `{mention}`, `{id}`, `{chat}`, `{username}` and `{args}` placeholders. Native command names cannot be shadowed; replies are never evaluated as code or HTML, and disabled-command switches are honored. This is distinct from keyword auto-answers.
 
 Music playback/queue controls, group moderation and MongoDB-backed rules are retained. Telegram tools include advanced polls/quizzes, permission-checked reactions and forum-topic actions. See [API details](docs/TELEGRAM_API_UPGRADE.md) for command and eligibility details.
+
+Event Rooms are available in the Arcade for Telegram group administrators. A current admin can create and announce an event, guests sign in to RSVP, optional music notes and a group-bound Arcade table can be attached, and the bot schedules 24-hour, 1-hour and 15-minute group reminders where those times remain in the future. Event creation re-checks the creator's Telegram admin status; linked game rooms must belong to the same host and group. Delivery still depends on the bot being present and allowed to send messages in that group.
 
 No AI or additional database integration is enabled. Do not infer working delivery, scheduling durability or production playback from UI labels or module counts. Live Telegram checks require the configured bot and appropriate chat permissions.
 

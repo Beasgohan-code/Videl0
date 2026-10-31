@@ -5,6 +5,16 @@ from unittest.mock import AsyncMock, patch
 
 from flask import Flask
 
+import sys
+import types
+from videl import utils
+
+# Keep these API contract tests isolated from optional downloader integrations.
+_youtube_stub = types.ModuleType("videl.utils.youtube")
+_youtube_stub.search_yt_multi = AsyncMock()
+_youtube_stub.download_song = AsyncMock()
+sys.modules.setdefault("videl.utils.youtube", _youtube_stub)
+utils.youtube = sys.modules["videl.utils.youtube"]
 from videl.api.eldian_routes import register_eldian_routes
 
 
@@ -60,6 +70,17 @@ class MusicWebAppApiTests(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
             self.assertIn("inline", response.headers["Content-Disposition"])
             self.assertEqual(response.headers["Cache-Control"], "private, no-store")
+            response.close()
+
+    def test_track_supports_http_range_requests_for_seeking(self):
+        with tempfile.TemporaryDirectory() as directory:
+            track = Path(directory) / "track.mp3"
+            track.write_bytes(b"0123456789")
+            with patch("videl.utils.youtube.download_song", new=AsyncMock(return_value=str(track))):
+                response = self.client.get("/internal/music/track/abcdefghijk", headers={**self.headers, "Range": "bytes=2-5"})
+            self.assertEqual(response.status_code, 206)
+            self.assertEqual(response.headers.get("Content-Range"), "bytes 2-5/10")
+            self.assertEqual(response.get_data(), b"2345")
             response.close()
 
 

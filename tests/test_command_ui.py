@@ -125,16 +125,6 @@ class ModernCommandsTests(unittest.IsolatedAsyncioTestCase):
             await api.stop_poll_command(None,msg)
             send.assert_awaited_once_with('stopPoll',{'chat_id':-1001,'message_id':9})
 
-    async def test_topic_rename_is_forum_and_admin_guarded(self):
-        msg=message(['topicrename','New','topic'],forum=True)
-        with patch.object(api,'is_user_authorized',AsyncMock(return_value=True)),patch.object(api,'bot_api',AsyncMock(return_value=(200,{'ok':True,'result':True}))) as send,patch.object(api,'rich_reply',AsyncMock()):
-            await api.topic_command(None,msg)
-            send.assert_awaited_once_with('editForumTopic',{'chat_id':-1001,'message_thread_id':22,'name':'New topic'})
-        msg.chat.is_forum=False
-        with patch.object(api,'bot_api',AsyncMock()) as send,patch.object(api,'rich_reply',AsyncMock()):
-            await api.topic_command(None,msg)
-            send.assert_not_awaited()
-
     async def test_owner_callback_never_leaks_directory_in_group(self):
         query=SimpleNamespace(message=message([]),from_user=SimpleNamespace(id=6265999542),data='cmds:owner:0',answer=AsyncMock())
         with patch.object(professional,'rich_edit',AsyncMock()) as edit:

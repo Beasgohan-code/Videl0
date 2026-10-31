@@ -11,6 +11,10 @@ import { POST as publish } from "../src/app/api/channel/route";
 import { GET as groupDetail, POST as groupAction } from "../src/app/api/groups/[id]/route";
 import { POST as groupBulk } from "../src/app/api/groups/bulk/route";
 import { POST as broadcast } from "../src/app/api/broadcast/route";
+import { GET as onboarding } from "../src/app/api/onboarding/route";
+import { GET as arcadeEvents, POST as createEvent } from "../src/app/api/arcade/events/route";
+import { GET as eventGroups } from "../src/app/api/arcade/events/groups/route";
+import { GET as eventDetail, POST as rsvpEvent } from "../src/app/api/arcade/events/[id]/route";
 
 test("all private bot APIs deny guests without contacting the backend", async () => {
   const original = globalThis.fetch;
@@ -20,7 +24,7 @@ test("all private bot APIs deny guests without contacting the backend", async ()
     throw new Error("Unexpected backend request");
   };
   try {
-    for (const handler of [stats, groups, chat, analytics, settings])
+    for (const handler of [stats, groups, chat, analytics, settings, onboarding])
       assert.equal(
         (await handler(new NextRequest("https://studio.example/api/private")))
           .status,
@@ -57,6 +61,23 @@ test("all private bot APIs deny guests without contacting the backend", async ()
       ).status,
       401,
     );
+    for (const handler of [arcadeEvents, eventGroups])
+      assert.equal(
+        (await handler(new NextRequest("https://studio.example/api/arcade/events"))).status,
+        401,
+      );
+    assert.equal(
+      (await createEvent(new NextRequest("https://studio.example/api/arcade/events", { method: "POST" }))).status,
+      401,
+    );
+    for (const handler of [eventDetail, rsvpEvent])
+      assert.equal(
+        (await handler(
+          new NextRequest("https://studio.example/api/arcade/events/ABCDEFGH", { method: handler === rsvpEvent ? "POST" : "GET" }),
+          { params: Promise.resolve({ id: "ABCDEFGH" }) },
+        )).status,
+        401,
+      );
     assert.equal(calls, 0);
   } finally {
     globalThis.fetch = original;
@@ -86,7 +107,12 @@ test("auth proxy checks explicit owner even when a backend accepts another user"
       assert.equal(response.headers.getSetCookie().length, 2);
       if (status === 403)
         assert.ok(response.headers.get("set-cookie")?.includes("Max-Age=0"));
-      else assert.equal((await response.json()).owner, true);
+      else {
+        assert.equal((await response.json()).owner, true);
+        const cookies = response.headers.getSetCookie();
+        assert.ok(cookies.some((cookie) => cookie.startsWith("videl_owner=") && cookie.includes("HttpOnly") && cookie.includes("Secure") && cookie.includes("SameSite=Lax") && cookie.includes("Max-Age=86400")));
+        assert.ok(cookies.some((cookie) => cookie.startsWith("videl_owner_embedded=") && cookie.includes("HttpOnly") && cookie.includes("Secure") && cookie.includes("SameSite=None") && cookie.includes("Partitioned") && cookie.includes("Max-Age=86400")));
+      }
     }
   } finally {
     globalThis.fetch = original;

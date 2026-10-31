@@ -266,6 +266,11 @@ async def play_song(chat_id:int, message:Message, song:dict, *, advance=False, r
             if rotate and finished:add_to_queue(chat_id,finished)
         acknowledged(chat_id,song)
         try:
+            from videl.utils.listening_recap import record as record_listening
+            record_listening(chat_id, song)
+        except Exception as error:
+            LOGGER.debug('Listening recap update skipped (%s)', type(error).__name__)
+        try:
             total=parse_dur(str(song.get('duration','0:00'))) or float(song.get('duration_seconds') or 0)
         except (ValueError,TypeError):total=0
         # Establish the playback clock even when every UI delivery fails.
