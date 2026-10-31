@@ -10,7 +10,7 @@ from pytgcalls.types import MediaStream, VideoQuality
 import config
 from videl import LOGGER, bot, call_py
 from videl.utils.formatters import parse_dur, short
-from videl.utils.rich_ui import RICH_AVAILABLE, rich_edit, rich_esc, rich_heading, rich_kv_table, rich_note, rich_send, rich_details
+from videl.utils.rich_ui import rich_edit, rich_esc, rich_heading, rich_kv_table, rich_note, rich_send, rich_details
 from videl.utils.youtube import MediaDownloadError, resolve_stream
 
 _nf_pills = lambda: (
@@ -32,134 +32,22 @@ def _thumb_url(song: dict) -> str:
     return ""
 
 
-_player_media_file_ids: dict[int, str] = {}
-_rich_player_chats: set[int] = set()
-
-
-def _clone_player_photo(source):
-    if hasattr(source, "getvalue"):
-        import io
-        clone = io.BytesIO(source.getvalue())
-        clone.name = getattr(source, "name", "videl-now-playing.jpg")
-        return clone
-    return source
-
-
-def _player_photo_file_id(message) -> str | None:
-    rich_message = getattr(message, "rich_message", None)
-    for block in getattr(rich_message, "blocks", []) or []:
-        photo = getattr(block, "photo", None)
-        file_id = getattr(photo, "file_id", None)
-        if file_id:
-            return str(file_id)
-    photos = getattr(message, "photo", None)
-    if photos:
-        photo = photos[-1] if isinstance(photos, (list, tuple)) else photos
-        file_id = getattr(photo, "file_id", None)
-        if file_id:
-            return str(file_id)
-    return None
-
-
-def _rich_caption_text(caption):
-    """Convert the known player-caption HTML subset to RichText caption entities."""
-    from html.parser import HTMLParser
-    from pyrogram.types import RichTextBold, RichTextCode, RichTextCustomEmoji
-
-    def plain_text(items):
-        return "".join(
-            item if isinstance(item, str) else getattr(item, "alternative_text", "")
-            for item in items
-        )
-
-    class Builder(HTMLParser):
-        def __init__(self):
-            super().__init__(convert_charrefs=True)
-            self.stack = [(None, {}, [])]
-
-        def handle_starttag(self, tag, attrs):
-            attrs = dict(attrs)
-            if tag in {"b", "strong", "code", "tg-emoji"}:
-                self.stack.append((tag, attrs, []))
-            elif tag in {"h1", "h2", "h3", "details", "blockquote", "p"}:
-                if self.stack[-1][2] and not plain_text(self.stack[-1][2]).endswith("\n"):
-                    self.stack[-1][2].append("\n\n")
-            elif tag == "br":
-                self.stack[-1][2].append("\n")
-
-        def handle_endtag(self, tag):
-            if tag in {"b", "strong", "code", "tg-emoji"}:
-                index = next((i for i in range(len(self.stack) - 1, 0, -1)
-                              if self.stack[i][0] == tag), None)
-                if index is None:
-                    return
-                name, attrs, children = self.stack.pop(index)
-                if name in {"b", "strong"}:
-                    item = RichTextBold(children)
-                elif name == "code":
-                    item = RichTextCode(plain_text(children))
-                else:
-                    emoji_id = attrs.get("emoji-id")
-                    alt = plain_text(children)
-                    item = RichTextCustomEmoji(emoji_id, alt) if emoji_id else alt
-                self.stack[-1][2].append(item)
-            elif tag == "summary":
-                self.stack[-1][2].append(" — ")
-            elif tag in {"h1", "h2", "h3", "details", "blockquote", "p"}:
-                self.stack[-1][2].append("\n\n")
-
-        def handle_data(self, data):
-            self.stack[-1][2].append(data)
-
-    parser = Builder()
-    parser.feed(caption)
-    while len(parser.stack) > 1:
-        tag = parser.stack[-1][0]
-        parser.handle_endtag(tag)
-    return parser.stack[0][2]
-
-
-def _player_rich_message(photo, caption):
-    """Keep the card in one RichMessage photo block with an entity-aware caption."""
-    from pyrogram.types import (
-        InputMediaPhoto, InputRichBlockPhoto, InputRichMessage, RichBlockCaption,
-    )
-
-    block = InputRichBlockPhoto(
-        InputMediaPhoto(photo),
-        caption=RichBlockCaption(text=_rich_caption_text(caption)),
-    )
-    return InputRichMessage(blocks=[block])
-
-
 async def _send_player_card(chat_id, message, caption, keyboard, *, poster=None, thumbnail=None):
-    """Send the existing one-message player card using RichMessage photo transport."""
+    """Use the legacy photo-caption transport so Telegram parses Premium Emoji entities.
+
+    Keep the generated poster and exact card content; only use the thumbnail after
+    Telegram definitively rejects the poster upload. Caption edits then follow the
+    same native HTML entity path instead of RichMessage HTML.
+    """
     sources = []
     if poster is not None:
         sources.append(poster)
     if thumbnail and thumbnail != poster:
         sources.append(thumbnail)
-    if RICH_AVAILABLE:
-        for source in sources:
-            try:
-                result = await bot.send_rich_message(
-                    chat_id=chat_id,
-                    rich_message=_player_rich_message(_clone_player_photo(source), caption),
-                    reply_markup=keyboard,
-                )
-                if result is None:
-                    return None
-                file_id = _player_photo_file_id(result)
-                _rich_player_chats.add(chat_id)
-                if file_id:
-                    _player_media_file_ids[chat_id] = file_id
-                return result
-            except BadRequest:
-                continue
     for source in sources:
         try:
             return await visual_call(
-                bot.send_photo, chat_id, photo=_clone_player_photo(source), caption=caption,
+                bot.send_photo, chat_id, photo=source, caption=caption,
                 reply_markup=keyboard,
             )
         except BadRequest:
@@ -208,14 +96,10 @@ def stop_progress(chat_id, reset=True):
     if reset:
         for state in (_paused, _pause_started, _np_msg, _np_song, _np_start, _np_total, _loop_mode):
             state.pop(chat_id, None)
-        _player_media_file_ids.pop(chat_id, None)
-        _rich_player_chats.discard(chat_id)
 
 
 def start_progress(chat_id, message, total, song):
     stop_progress(chat_id, reset=False)
-    _player_media_file_ids.pop(chat_id, None)
-    _rich_player_chats.discard(chat_id)
     _pause_started.pop(chat_id, None)
     _paused[chat_id] = False
     if message is not None:_np_msg[chat_id] = message
@@ -298,18 +182,7 @@ async def refresh_np_ui(chat_id:int):
     elapsed=min(current_position(chat_id),total) if total else current_position(chat_id)
     cap=_now_playing_caption(song,elapsed,total,chat_id=chat_id); kb=_now_playing_kb(chat_id)
     try:
-        if chat_id in _rich_player_chats:
-            photo_file_id = _player_media_file_ids.get(chat_id)
-            if not photo_file_id:
-                return
-            await visual_call(
-                bot.edit_message_text,
-                chat_id=chat_id,
-                message_id=msg.id,
-                rich_message=_player_rich_message(photo_file_id, cap),
-                reply_markup=kb,
-            )
-        elif getattr(msg,"photo",None):
+        if getattr(msg,"photo",None):
             await visual_call(bot.edit_message_caption,chat_id,msg.id,caption=cap,reply_markup=kb)
         else:
             await rich_edit(msg,cap,reply_markup=kb)
