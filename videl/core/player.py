@@ -3,7 +3,6 @@
 #  Readable now-playing cards and semantic native playback controls
 # --------------------------------------------------------------------------------
 import asyncio, time
-from pyrogram.errors import BadRequest
 from pyrogram.types import InlineKeyboardMarkup, Message
 from videl.utils.bot_ui import button as InlineKeyboardButton, visual_call
 from pytgcalls.types import MediaStream, VideoQuality
@@ -30,6 +29,18 @@ def _thumb_url(song: dict) -> str:
     if thumb.startswith("http"): return thumb.split("?")[0]
     if vid: return f"https://i.ytimg.com/vi/{vid}/hqdefault.jpg"
     return ""
+
+
+def _player_image(song: dict) -> str:
+    """Embed a trusted artwork URL in the rich player card, like the seek card."""
+    thumb=_thumb_url(song)
+    if not thumb:
+        return ""
+    try:
+        from videl.utils.player_poster import _allowed_cover_url
+        return rich_img(thumb) if _allowed_cover_url(thumb) else ""
+    except Exception:
+        return ""
 
 _paused: dict[int,bool]={}
 _loop_mode: dict[int,str]={}
@@ -158,7 +169,7 @@ async def refresh_np_ui(chat_id:int):
     cap=_now_playing_caption(song,elapsed,total,chat_id=chat_id); kb=_now_playing_kb(chat_id)
     try:
         if getattr(msg,"photo",None): await visual_call(bot.edit_message_caption,chat_id,msg.id,caption=cap,reply_markup=kb)
-        else: await rich_edit(msg,cap,reply_markup=kb)
+        else: await rich_edit(msg,_player_image(song)+cap,reply_markup=kb)
     except: pass
 
 async def _update_progress(chat_id:int, msg:Message, start_t:float, total:float, song:dict):
@@ -282,37 +293,10 @@ async def play_song(chat_id:int, message:Message, song:dict, *, advance=False, r
         pmsg=None
         try:
             caption=_now_playing_caption(song,0,total,chat_id=chat_id)
+            card=_player_image(song)+caption
             kb=_now_playing_kb(chat_id)
-            thumb=_thumb_url(song)
-            poster=None
-            try:
-                from videl.utils.player_poster import build as build_player_poster
-                poster_song=dict(song)
-                poster_song['thumbnail']=thumb or str(song.get('thumbnail') or '')
-                poster=await asyncio.wait_for(build_player_poster(poster_song),timeout=5.5)
-            except asyncio.CancelledError:
-                raise
-            except Exception as error:
-                LOGGER.debug('Generated player poster skipped (%s)',type(error).__name__)
-            if poster:
-                import io
-                photo=io.BytesIO(poster)
-                photo.name='videl-now-playing.jpg'
-            else:
-                photo=thumb
-            if photo:
-                try:
-                    pmsg=await visual_call(bot.send_photo,chat_id,photo=photo,caption=caption,reply_markup=kb)
-                except BadRequest:
-                    # A definite rejection is safe to fall back to the original
-                    # provider thumbnail, then the classic rich text player.
-                    if poster and thumb:
-                        try:pmsg=await visual_call(bot.send_photo,chat_id,photo=thumb,caption=caption,reply_markup=kb)
-                        except BadRequest:pmsg=await rich_edit(message,caption,reply_markup=kb) if message is not None else await rich_send(bot,chat_id,caption,reply_markup=kb)
-                    else:
-                        pmsg=await rich_edit(message,caption,reply_markup=kb) if message is not None else await rich_send(bot,chat_id,caption,reply_markup=kb)
-            elif message is not None:pmsg=await rich_edit(message,caption,reply_markup=kb)
-            else:pmsg=await rich_send(bot,chat_id,caption,reply_markup=kb)
+            if message is not None:pmsg=await rich_edit(message,card,reply_markup=kb)
+            else:pmsg=await rich_send(bot,chat_id,card,reply_markup=kb)
         except Exception as error:
             LOGGER.warning('Player card unconfirmed after playback ack (%s); no resend',type(error).__name__)
         if pmsg is not None:
