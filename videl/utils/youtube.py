@@ -38,9 +38,7 @@ YT_API_KEY = (os.environ.get("YT_API_KEY") or "").strip()
 YT_API_KEY_FALLBACK = (os.environ.get("YT_API_KEY_FALLBACK") or "").strip()
 DOWNLOAD_DIR = os.environ.get("DOWNLOAD_DIR", "downloads").strip() or "downloads"
 
-# Cookies — YTDLP_COOKIES path or YTDLP_COOKIES_URL (auto-downloaded & saved)
-_COOKIES_FILE = os.environ.get("YTDLP_COOKIES") or os.environ.get("YT_COOKIES_FILE") or os.environ.get("COOKIES_PATH") or ""
-_COOKIES_URL  = (os.environ.get("YTDLP_COOKIES_URL") or "").strip()
+# Cookie jars are optional deployment secrets; never fetch or discover them implicitly.
 
 # Optional proxy configuration for yt-dlp fallback.
 _PROXY_URL  = (os.environ.get("PROXY_URL") or os.environ.get("YOUTUBE_PROXY") or "").strip()
@@ -73,60 +71,29 @@ def _cleanup(path: str) -> None:
         pass
 
 
-def _cookies_save_path() -> str:
-    os.makedirs(DOWNLOAD_DIR, exist_ok=True)
-    env = os.environ.get("YTDLP_COOKIES") or os.environ.get("YT_COOKIES_FILE") or os.environ.get("COOKIES_PATH")
-    if env:
-        parent = os.path.dirname(env) or "."
-        os.makedirs(parent, exist_ok=True)
-        return env
-    return os.path.join(DOWNLOAD_DIR, "cookies.txt")
-
-
 def _is_real_cookies(raw: str) -> bool:
     markers = ("SID", "HSID", "SSID", "LOGIN_INFO", "__Secure-", "SAPISID", "APISID")
     return any(x in raw for x in markers)
 
 
-def _save_cookies_bytes(data: bytes, dest: str | None = None) -> str | None:
-    global _COOKIES_FILE
-    if not data or len(data) < 80:
-        return None
-    dest = dest or _cookies_save_path()
-    try:
-        os.makedirs(os.path.dirname(dest) or ".", exist_ok=True)
-        with open(dest, "wb") as f:
-            f.write(data)
-        if _is_real_cookies(data.decode("utf-8", errors="ignore")):
-            _COOKIES_FILE = dest
-            logger.info(f"[cookies] saved {len(data)} bytes → {dest}")
-            return dest
-    except Exception as e:
-        logger.warning(f"[cookies] save failed: {e}")
-    return None
-
-
 def _cookies_path() -> str | None:
-    global _COOKIES_FILE
-    candidates = [_COOKIES_FILE, "cookies.txt", "/app/cookies.txt", os.path.join(DOWNLOAD_DIR, "cookies.txt"), _cookies_save_path()]
-    for path in candidates:
-        if path and os.path.isfile(path):
-            try:
-                with open(path, encoding="utf-8", errors="ignore") as f:
-                    raw = f.read()
-                if _is_real_cookies(raw):
-                    _COOKIES_FILE = path
-                    return path
-            except Exception:
-                pass
-    if _COOKIES_URL:
+    """Return a valid cookie jar only when an operator explicitly configured its path."""
+    candidates = [
+        os.environ.get("YTDLP_COOKIES"),
+        os.environ.get("YT_COOKIES_FILE"),
+        os.environ.get("COOKIES_PATH"),
+        os.environ.get("YOUTUBE_COOKIES_FILE"),
+    ]
+    for path in dict.fromkeys(candidate.strip() for candidate in candidates if candidate and candidate.strip()):
+        if not os.path.isfile(path):
+            continue
         try:
-            import urllib.request
-            request = urllib.request.Request(_COOKIES_URL, headers={"User-Agent": "Mozilla/5.0 VidelBot"})
-            with urllib.request.urlopen(request, timeout=20) as response:
-                return _save_cookies_bytes(response.read())
-        except Exception as e:
-            logger.warning(f"[cookies] URL fetch failed: {e}")
+            with open(path, encoding="utf-8", errors="ignore") as cookie_file:
+                raw = cookie_file.read()
+            if _is_real_cookies(raw):
+                return path
+        except OSError:
+            continue
     return None
 
 

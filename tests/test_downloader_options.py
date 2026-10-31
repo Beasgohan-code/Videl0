@@ -7,21 +7,37 @@ from unittest.mock import patch, AsyncMock
 
 from videl.modules import downloader
 from videl.modules.downloader import _get_yt_dlp_opts
+from videl.utils import youtube
 
 
 class DownloaderOptionsTests(unittest.IsolatedAsyncioTestCase):
-    def test_placeholder_cookie_template_is_not_passed_to_ytdlp(self):
+    def test_missing_explicit_cookie_path_is_not_passed_to_ytdlp(self):
         with patch.dict(os.environ, {"YTDLP_COOKIES": "cookies.txt", "YT_COOKIES_FILE": ""}, clear=False):
             opts = _get_yt_dlp_opts()
         self.assertNotIn("cookiefile", opts)
 
-    def test_real_netscape_auth_cookie_is_used(self):
+    def test_real_netscape_auth_cookie_is_used_only_from_explicit_path(self):
         with tempfile.TemporaryDirectory() as directory:
             cookie = Path(directory) / "auth.txt"
             cookie.write_text("# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t0\tSID\tsecret-value\n")
             with patch.dict(os.environ, {"YTDLP_COOKIES": str(cookie), "YT_COOKIES_FILE": ""}, clear=False):
                 opts = _get_yt_dlp_opts()
+                self.assertEqual(youtube._cookies_path(), str(cookie))
         self.assertEqual(opts.get("cookiefile"), str(cookie))
+
+    def test_working_directory_cookie_file_is_never_discovered(self):
+        names = {"YTDLP_COOKIES": "", "YT_COOKIES_FILE": "", "COOKIES_PATH": "", "YOUTUBE_COOKIES_FILE": ""}
+        previous_directory = os.getcwd()
+        with tempfile.TemporaryDirectory() as directory:
+            cookie = Path(directory) / "cookies.txt"
+            cookie.write_text("# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t0\tSID\tsecret-value\n")
+            try:
+                os.chdir(directory)
+                with patch.dict(os.environ, names, clear=False):
+                    self.assertNotIn("cookiefile", _get_yt_dlp_opts())
+                    self.assertIsNone(youtube._cookies_path())
+            finally:
+                os.chdir(previous_directory)
 
     def test_does_not_force_deprecated_player_clients_or_chunking(self):
         opts = _get_yt_dlp_opts()

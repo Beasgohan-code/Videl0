@@ -48,14 +48,13 @@ DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 # ── yt-dlp options — professional, uses all external features ────────────────
 def _get_yt_dlp_opts(audio_only: bool = True, out_path: Optional[str] = None) -> dict:
-    """Build professional yt-dlp options with cookies, proxy, external downloader support."""
+    """Build yt-dlp options using cookies only from an explicitly configured path."""
     cookies = None
-    # Never pass the repository's placeholder cookies.txt to yt-dlp. Only
-    # accept an exported Netscape cookie jar containing YouTube auth cookies.
+    # Cookie jars are credentials. Never discover one from the repository or
+    # image working directory; operators must configure a protected mount path.
     candidates = [
         os.getenv("YTDLP_COOKIES"), os.getenv("YT_COOKIES_FILE"),
         os.getenv("COOKIES_PATH"), os.getenv("YOUTUBE_COOKIES_FILE"),
-        "/app/cookies.txt", "cookies.txt",
     ]
     markers = ("\tSID\t", "\tHSID\t", "\tSSID\t", "\tLOGIN_INFO\t",
                "\tSAPISID\t", "\tAPISID\t", "\t__Secure-3PSID\t")

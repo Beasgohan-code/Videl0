@@ -26,7 +26,7 @@ RUN pip install --upgrade pip setuptools wheel && \
 
 COPY vendor ./vendor
 COPY videl ./videl
-COPY config.py main.py start cookies.txt sample.env .env.example ./
+COPY config.py main.py start sample.env .env.example ./
 RUN chmod +x start && mkdir -p downloads logs data && \
     python -m compileall -q videl config.py main.py
 
