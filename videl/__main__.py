@@ -582,8 +582,110 @@ def _internal_ops_metrics():
         return jsonify({"ok": True, "process": None, "state": "unavailable"}), 200
 
 
+@_flask.get("/internal/ops/music")
+def _internal_ops_music():
+    """Aggregate music and voice status without returning chat or track IDs."""
+    if not _internal_authorized():
+        return jsonify({"ok": False, "error": "unauthorized"}), 403
+    measured_at = int(time.time())
+    queue_state = "measured"
+    active_queues = upcoming_tracks = None
+    try:
+        from videl.core import queue
+        snapshots = [list(tracks) for tracks in list(queue.chat_queues.values())]
+        active_queues = sum(bool(tracks) for tracks in snapshots)
+        upcoming_tracks = sum(max(0, len(tracks) - 1) for tracks in snapshots)
+    except Exception:
+        queue_state = "unavailable"
+
+    voice_calls = None
+    voice_state = "unavailable"
+    try:
+        from videl import call_py
+        loop = _BOT_LOOP
+        if call_py is not None and loop is not None and loop.is_running():
+            future = asyncio.run_coroutine_threadsafe(call_py.group_calls, loop)
+            voice_calls = max(0, len(future.result(timeout=2)))
+            voice_state = "measured"
+    except Exception:
+        voice_calls = None
+        voice_state = "unavailable"
+
+    counts = {"preparing": 0, "ready": 0, "failed": 0}
+    observed = 0
+    source = "process_only"
+    try:
+        from datetime import datetime, timedelta, timezone
+        from videl.utils.db import get_db
+        db = get_db()
+        if db is not None:
+            since = datetime.now(timezone.utc) - timedelta(seconds=1800)
+            rows = db["music_preparation_jobs"].find(
+                {"updated_at": {"$gte": since}}, {"_id": 0, "status": 1},
+            ).sort("updated_at", -1).limit(256)
+            for row in rows:
+                status = row.get("status")
+                if status in counts:
+                    counts[status] += 1
+                    observed += 1
+            source = "database"
+        else:
+            raise RuntimeError("database unavailable")
+    except Exception:
+        try:
+            from videl.api.eldian_routes import _LOCK, _MUSIC_TASKS
+            with _LOCK:
+                local = list(_MUSIC_TASKS.values())
+            for row in local:
+                if time.time() - float(row.get("updated_at", 0)) <= 1800 and row.get("status") in counts:
+                    counts[row["status"]] += 1
+                    observed += 1
+        except Exception:
+            source = "unavailable"
+    return jsonify({
+        "ok": True, "schema_version": 1, "measured_at": measured_at,
+        "queue": {"state": queue_state, "active_queues": active_queues, "upcoming_tracks": upcoming_tracks},
+        "voice": {"state": voice_state, "active_calls": voice_calls},
+        "downloads": {"state": source, "window_seconds": 1800, "observed": observed, **counts},
+    }), 200
+
+
+@_flask.get("/internal/ops/protection")
+def _internal_ops_protection():
+    """Bounded fleet-wide protection counts; never expose group identifiers."""
+    if not _internal_authorized():
+        return jsonify({"ok": False, "error": "unauthorized"}), 403
+    try:
+        from videl.utils.db import get_db
+        from videl.utils.group_view import LOCK_KEYS
+        db = get_db()
+        if db is None:
+            raise RuntimeError("database unavailable")
+        keys = [*LOCK_KEYS, "antispam"]
+        projection = {key: 1 for key in keys}
+        projection["_id"] = 0
+        rows = db["mgmt_chat_settings"].find({}, projection).limit(2001)
+        total = enabled = 0
+        for row in rows:
+            if total >= 2000:
+                break
+            total += 1
+            if any(row.get(key) is True for key in keys):
+                enabled += 1
+        truncated = total == 2000 and db["mgmt_chat_settings"].count_documents({}, limit=2001) > 2000
+        return jsonify({"ok": True, "schema_version": 1, "measured_at": int(time.time()),
+                        "state": "measured", "sampled_groups": total, "sample_limit": 2000,
+                        "sample_truncated": truncated, "protected_groups": enabled}), 200
+    except Exception:
+        return jsonify({"ok": True, "schema_version": 1, "measured_at": int(time.time()),
+                        "state": "unavailable", "sampled_groups": None,
+                        "sample_limit": 2000, "sample_truncated": None,
+                        "protected_groups": None}), 200
+
+
 @_flask.get("/internal/ops/events")
 def _internal_ops_events():
+
     """Return only current-schema, identifier-free command events to the owner panel."""
     if not _internal_authorized():
         return jsonify({"ok": False, "error": "unauthorized"}), 403

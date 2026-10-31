@@ -41,6 +41,49 @@ class OpsMetricsTests(unittest.TestCase):
         self.assertIsNone(response.json["process"])
         self.assertEqual(response.json["state"], "unavailable")
 
+    def test_ops_music_aggregates_only_counts_and_marks_unavailable_voice_state(self):
+        from videl.core import queue
+        db = mongomock.MongoClient().videl
+        now = datetime.now(timezone.utc)
+        db["music_preparation_jobs"].insert_many([
+            {"_id": "job-a", "status": "preparing", "updated_at": now},
+            {"_id": "job-b", "status": "ready", "updated_at": now},
+            {"_id": "job-c", "status": "failed", "updated_at": now},
+        ])
+        with patch.object(self.api.config, "WEBAPP_SECRET", "ops-test-secret"):
+            with patch("videl.utils.db.get_db", return_value=db), patch("videl.call_py", None):
+                with patch.object(queue, "chat_queues", {10: [{}, {}], 20: [{}]}):
+                    denied = self.client.get("/internal/ops/music")
+                    self.assertEqual(denied.status_code, 403)
+                    response = self.client.get("/internal/ops/music", headers={"X-Videl-Internal": "ops-test-secret"})
+        payload = response.get_json()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["queue"]["active_queues"], 2)
+        self.assertEqual(payload["queue"]["upcoming_tracks"], 1)
+        self.assertEqual(payload["voice"], {"state": "unavailable", "active_calls": None})
+        self.assertEqual(payload["downloads"]["observed"], 3)
+        self.assertEqual(payload["downloads"]["failed"], 1)
+        self.assertNotIn("job-a", repr(payload))
+        self.assertEqual(set(payload["queue"]), {"state", "active_queues", "upcoming_tracks"})
+
+    def test_protection_ops_returns_only_bounded_group_counts(self):
+        db = mongomock.MongoClient().videl
+        db["mgmt_chat_settings"].insert_many([
+            {"chat_id": -1001, "lock_links": True},
+            {"chat_id": -1002, "antispam": True},
+            {"chat_id": -1003, "lock_links": False},
+        ])
+        with patch.object(self.api.config, "WEBAPP_SECRET", "ops-test-secret"):
+            with patch("videl.utils.db.get_db", return_value=db):
+                self.assertEqual(self.client.get("/internal/ops/protection").status_code, 403)
+                response = self.client.get("/internal/ops/protection", headers={"X-Videl-Internal": "ops-test-secret"})
+        payload = response.get_json()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(payload["sampled_groups"], 3)
+        self.assertEqual(payload["protected_groups"], 2)
+        self.assertFalse(payload["sample_truncated"])
+        self.assertNotIn("chat_id", repr(payload))
+
     def test_ops_event_feed_requires_secret_and_returns_only_bounded_safe_schema(self):
         db = mongomock.MongoClient().videl
         db["command_events"].insert_many([
