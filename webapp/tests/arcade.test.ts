@@ -187,6 +187,15 @@ test("group manager keeps selection loads isolated and makes member actions deli
   assert.match(source, /request !== detailRequest\.current \|\| selectedRef\.current !== id/);
   assert.match(source, /onSubmit=\{\(event\) => event\.preventDefault\(\)\}/, "Enter must not silently trigger a kick");
   assert.match(source, /window\.confirm\(`\$\{verb === "kick" \? "Kick" : "Ban"\}/, "kick and ban need an explicit confirmation");
+  assert.match(source, /Approve join request from/);
+  assert.match(source, /Ban reported member/);
+  assert.match(source, /Group health & setup/);
+  assert.match(source, /How to fix this in Telegram/);
+  assert.match(source, /aria-pressed=\{tab === id\}/, "active admin section is announced to assistive technology");
+  assert.match(source, /aria-label=\"Saved note text\"/);
+  assert.match(source, /aria-label=\"Automatic filter reply\"/);
+  assert.match(source, /audit: \"1\"/);
+  assert.match(source, /Export CSV/);
   assert.match(source, /Bot needs admin/);
   assert.match(source, /owner fleet or backup controls/);
 });

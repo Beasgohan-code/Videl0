@@ -100,7 +100,10 @@ def act(db, api, chat, actor, body):
     return view.act(payload, source="web")
 
 
-def history(db, api, chat, actor, *, limit=40, before=None, kind=None):
+def history(db, api, chat, actor, *, limit=40, before=None, kind=None, query=None,
+            actor_filter=None, date_from=None, date_through=None):
     require_admin(db, api, chat, actor)
     view = GroupView(db, api, actor=actor, scope="admin")
-    return view.events(chat, limit=limit, before=before, kind=kind)
+    return view.events(chat, limit=limit, before=before, kind=kind,
+                       query=query, actor=actor_filter,
+                       after=date_from, until=date_through)

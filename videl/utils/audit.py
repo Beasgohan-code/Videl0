@@ -126,7 +126,8 @@ def object_id(value) -> ObjectId | None:
 def recent(db, chat_id: int, *, limit: int = 40, kind: str | None = None,
            before: datetime | None = None,
            before_id=None, query: str | None = None,
-           actor: int | None = None) -> list[dict]:
+           actor: int | None = None, after: datetime | None = None,
+           until: datetime | None = None) -> list[dict]:
     """Newest first. A cursor is the last row already shown.
 
     Mongo stores milliseconds, so a bulk save can produce several rows with
@@ -153,6 +154,12 @@ def recent(db, chat_id: int, *, limit: int = 40, kind: str | None = None,
         safe = re.escape(needle)
         text_filter = [{"detail": {"$regex": safe, "$options": "i"}},
                        {"action": {"$regex": safe, "$options": "i"}}]
+    time_bounds = {}
+    for key, value, operator in (("after", after, "$gte"), ("until", until, "$lte")):
+        if isinstance(value, datetime):
+            # PyMongo stores UTC without tzinfo; filters must use that shape.
+            normalized = value.astimezone(timezone.utc).replace(tzinfo=None) if value.tzinfo else value
+            time_bounds[operator] = normalized
     if isinstance(before, datetime):
         # PyMongo stores UTC without tzinfo; a cursor must match that shape.
         if before.tzinfo is not None:
@@ -160,11 +167,11 @@ def recent(db, chat_id: int, *, limit: int = 40, kind: str | None = None,
         oid = object_id(before_id) if before_id else None
         if oid is not None:
             page = [{"ts": {"$lt": before}}, {"ts": before, "_id": {"$lt": oid}}]
+            match.setdefault("$and", []).append({"$or": page})
         else:
-            page = None
-            match["ts"] = {"$lt": before}
-        if page:
-            match["$and"] = [{"$or": page}]
+            time_bounds["$lt"] = before
+    if time_bounds:
+        match["ts"] = time_bounds
     if text_filter:
         match.setdefault("$and", []).append({"$or": text_filter})
     try:

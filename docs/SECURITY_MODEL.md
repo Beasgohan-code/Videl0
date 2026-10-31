@@ -35,3 +35,7 @@ This document records Videl's intended trust boundaries. It is a review aid, not
 - Run backend compile and offline permission tests with the pinned Telegram client installed.
 - Review changed workflows, dependency lockfiles, environment examples and telemetry for secrets or unsafe defaults.
 - For any destructive group-wide action, require a clear scope preview, fresh authorization and auditable confirmation.
+
+## Dashboard release checklist
+
+For the webapp preview-to-production sequence, backend/schema compatibility, feature gating, health checks and rollback record, use the [webapp release checklist](WEBAPP_RELEASE_CHECKLIST.md). It is a go/no-go aid, not evidence that a deployment has passed.

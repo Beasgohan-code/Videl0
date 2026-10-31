@@ -799,7 +799,7 @@ class GroupView:
             detail=detail,actor=self.actor,source=source)
         except Exception:log.debug('audit record failed',exc_info=True)
 
-    def events(self,chat_id,*,limit=40,kind=None,before=None,before_id=None,query=None,actor=None):
+    def events(self,chat_id,*,limit=40,kind=None,before=None,before_id=None,query=None,actor=None,after=None,until=None):
         # History lives in MongoDB, so it stays readable even when Telegram no
         # longer answers for the chat — that is exactly when it is needed.
         cid=integer(chat_id)
@@ -809,7 +809,8 @@ class GroupView:
         # Ask for one extra row so the panel knows whether an older page exists
         # without trusting an empty page to mean "end of history".
         rows=audit_log.recent(self.db,cid,limit=limit+1,kind=kind,before=before,
-                              before_id=before_id,query=query,actor=actor)
+                              before_id=before_id,query=query,actor=actor,
+                              after=after,until=until)
         return {'ok':True,'kind':kind or 'all','query':query or '','actor':actor,
                 'kinds':list(audit_log.KINDS),
                 'events':rows[:limit],'has_more':len(rows)>limit}

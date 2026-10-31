@@ -5,11 +5,12 @@ every action is then performed and recorded as the owner, and `backup_import`
 is one request away. These tests pin the actor and the scope.
 """
 import unittest
+from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
 import mongomock
 
-from videl.utils import chat_admins, manager
+from videl.utils import audit, chat_admins, manager
 from videl.utils.group_view import GroupView, ViewError
 
 CHAT = -1001234567890
@@ -149,6 +150,23 @@ class ManagerAccessTests(unittest.TestCase):
         payload = manager.describe(self.db, self.api, CHAT, ADMIN)
         self.assertTrue(payload["members_available"])
         self.assertEqual({row["user_id"] for row in payload["members"]}, {ADMIN, OWNER})
+
+    def test_group_admin_audit_filters_are_scoped_and_bounded(self):
+        audit.record(self.db, CHAT, "settings", action="settings", detail="lock links enabled", actor=ADMIN)
+        audit.record(self.db, CHAT, "moderation", action="ban", detail="member action", actor=MEMBER)
+        old_stamp = datetime.now(timezone.utc) - timedelta(days=3)
+        self.db["mgmt_audit"].insert_one({"chat_id": CHAT, "kind": "settings", "action": "settings",
+                                          "detail": "lock links previously enabled", "actor": ADMIN,
+                                          "source": "web", "ts": old_stamp})
+        now = datetime.now(timezone.utc)
+        result = manager.history(self.db, self.api, CHAT, ADMIN, limit=40,
+                                 query="links", actor_filter=ADMIN,
+                                 date_from=now - timedelta(days=1),
+                                 date_through=now + timedelta(days=1))
+        self.assertEqual(len(result["events"]), 1)
+        self.assertEqual(result["events"][0]["actor"], ADMIN)
+        self.assertIn("links", result["events"][0]["detail"])
+        self.assertFalse(result["has_more"])
 
     def test_group_admin_can_kick_a_member_and_the_action_is_audited(self):
         result = manager.act(self.db, self.api, CHAT, ADMIN,
