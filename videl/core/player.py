@@ -149,7 +149,7 @@ def _now_playing_caption(song: dict, elapsed: float=0, total: float=0, chat_id: 
     # captions. Explicit line breaks keep every Premium Emoji label readable.
     metadata_lines="\n".join(f"{icon} <b>{label}</b> · {value}" for icon,label,value in metadata)
     parts=[
-        rich_heading(f"🎵 {state}",level=2),
+        rich_heading(f"{pe('music')} {state}",level=2),
         f"<b>{rich_esc(title)}</b>",
         metadata_lines,
         f"<code>{_dot(elapsed,total)}</code>",
