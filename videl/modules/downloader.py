@@ -49,25 +49,10 @@ DOWNLOAD_DIR.mkdir(parents=True, exist_ok=True)
 # ── yt-dlp options — professional, uses all external features ────────────────
 def _get_yt_dlp_opts(audio_only: bool = True, out_path: Optional[str] = None) -> dict:
     """Build yt-dlp options using cookies only from an explicitly configured path."""
-    cookies = None
-    # Cookie jars are credentials. Never discover one from the repository or
-    # image working directory; operators must configure a protected mount path.
-    candidates = [
-        os.getenv("YTDLP_COOKIES"), os.getenv("YT_COOKIES_FILE"),
-        os.getenv("COOKIES_PATH"), os.getenv("YOUTUBE_COOKIES_FILE"),
-    ]
-    markers = ("\tSID\t", "\tHSID\t", "\tSSID\t", "\tLOGIN_INFO\t",
-               "\tSAPISID\t", "\tAPISID\t", "\t__Secure-3PSID\t")
-    for candidate in candidates:
-        if not candidate or not Path(candidate).is_file():
-            continue
-        try:
-            raw = Path(candidate).read_text(encoding="utf-8", errors="ignore")
-            if any(marker in raw for marker in markers):
-                cookies = candidate
-                break
-        except OSError:
-            continue
+    # Cookie jars are credentials: accept only explicitly configured absolute
+    # paths outside the checkout and never log the path or cookie contents.
+    from videl.utils.cookie_security import configured_cookie_path
+    cookies = configured_cookie_path()
 
     proxy = (os.getenv("PROXY_URL") or os.getenv("YOUTUBE_PROXY") or "").strip()
     if proxy and "://" not in proxy:
@@ -99,7 +84,7 @@ def _get_yt_dlp_opts(audio_only: bool = True, out_path: Optional[str] = None) ->
     }
     if cookies:
         opts["cookiefile"] = cookies
-        log.debug(f"Using cookies: {cookies}")
+        log.debug("Using explicitly configured YouTube authentication cookies")
     if proxy:
         opts["proxy"] = proxy
     if external_downloader:
@@ -303,7 +288,7 @@ async def _download_media(
         log.info("Media download completed (%.2f MB)", path.stat().st_size / 1024 / 1024)
         return (path, info) if include_info else path
     except Exception as e:
-        log.error("Media download failed for %s (%s)", _source_summary(url), type(e).__name__, exc_info=True)
+        log.error("Media download failed for %s (%s)", _source_summary(url), type(e).__name__)
         shutil.rmtree(tmpdir, ignore_errors=True)
         raise
 
@@ -510,7 +495,7 @@ async def song_cmd(_, m: Message):
                 pass
             log.info(f"/song by {m.from_user.id if m.from_user else 0} in {m.chat.id}: {title} ({size_mb:.2f} MB, {elapsed:.1f}s)")
         except Exception as e:
-            log.error(f"send_audio fail: {e}", exc_info=True)
+            log.error("send_audio failed (%s)", type(e).__name__)
             raise
         finally:
             # Cleanup
@@ -524,7 +509,7 @@ async def song_cmd(_, m: Message):
             + rich_note("Try another title or paste a direct audio/video link."),
         )
     except Exception as e:
-        log.error("/song failed for query length %d (%s)", len(query), type(e).__name__, exc_info=True)
+        log.error("/song failed for query length %d (%s)", len(query), type(e).__name__)
         await rich_edit(
             status,
             rich_heading("⚠️ Download couldn’t be completed", level=3)
@@ -617,7 +602,7 @@ async def vsong_cmd(_, m: Message):
         _cleanup_download(path)
         log.info(f"/vsong {m.from_user.id if m.from_user else 0} → {title} {size_mb:.2f} MB")
     except Exception as e:
-        log.error("/vsong failed (%s)", type(e).__name__, exc_info=True)
+        log.error("/vsong failed (%s)", type(e).__name__)
         await rich_edit(
             status,
             rich_heading("⚠️ Video download couldn’t be completed", level=3)

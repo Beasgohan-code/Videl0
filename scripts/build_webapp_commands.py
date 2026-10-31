@@ -215,12 +215,21 @@ CATEGORY_LABELS = {
     "owner": "Owner operations",
 }
 
+# Aliases retained by the bot for compatibility but intentionally retired from
+# the public guide.
+HIDDEN_FROM_PUBLIC_GUIDE = {"setup", "modernhelp"}
+
 CONTEXT_COPY = {
     "group": "Groups",
     "group_private": "Groups & private chats",
     "chat": "Any chat",
     "private": "DM only",
 }
+
+
+def _sentence_case(value: str) -> str:
+    """Uppercase only the first character without lowercasing acronyms."""
+    return value[:1].upper() + value[1:] if value else value
 
 
 def command_rows() -> list[dict[str, object]]:
@@ -230,6 +239,8 @@ def command_rows() -> list[dict[str, object]]:
     seen: set[str] = set()
     for command in commands():
         name = command["name"].lstrip("/")
+        if name in HIDDEN_FROM_PUBLIC_GUIDE:
+            continue
         if name in seen:
             continue
         seen.add(name)
@@ -237,7 +248,7 @@ def command_rows() -> list[dict[str, object]]:
             {
                 "name": name,
                 "usage": USAGE.get(name, f"/{name}"),
-                "summary": SUMMARY_OVERRIDES.get(name, command["summary"]).strip().capitalize(),
+                "summary": _sentence_case(SUMMARY_OVERRIDES.get(name, command["summary"]).strip()),
                 "category": command["category"],
                 "context": command["context"],
                 "owner": bool(command["owner"]),

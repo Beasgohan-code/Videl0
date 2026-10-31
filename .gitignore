@@ -6,8 +6,11 @@ __pycache__/
 videl.db
 *.db
 downloads/
-# YouTube cookie jars contain live session credentials; provide them only as deployment secrets.
+# YouTube cookie jars contain live session credentials; keep them outside the checkout.
 cookies.txt
+cookies*.txt
+*.cookie
+*.cookies
 log.txt
 .env.*
 !*.example

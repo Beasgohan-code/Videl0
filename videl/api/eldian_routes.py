@@ -104,8 +104,9 @@ def _download(video_id: str, video: bool, directory: Path) -> Path:
         "socket_timeout": 20, "retries": 2, "fragment_retries": 2,
         "max_filesize": MAX_BYTES,
     }
-    cookie = (os.getenv("YTDLP_COOKIES") or os.getenv("YT_COOKIES_FILE") or "").strip()
-    if cookie and Path(cookie).is_file():
+    from videl.utils.cookie_security import configured_cookie_path
+    cookie = configured_cookie_path()
+    if cookie:
         options["cookiefile"] = cookie
     with yt_dlp.YoutubeDL(options) as client:
         info = client.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=True)

@@ -71,30 +71,10 @@ def _cleanup(path: str) -> None:
         pass
 
 
-def _is_real_cookies(raw: str) -> bool:
-    markers = ("SID", "HSID", "SSID", "LOGIN_INFO", "__Secure-", "SAPISID", "APISID")
-    return any(x in raw for x in markers)
-
-
 def _cookies_path() -> str | None:
-    """Return a valid cookie jar only when an operator explicitly configured its path."""
-    candidates = [
-        os.environ.get("YTDLP_COOKIES"),
-        os.environ.get("YT_COOKIES_FILE"),
-        os.environ.get("COOKIES_PATH"),
-        os.environ.get("YOUTUBE_COOKIES_FILE"),
-    ]
-    for path in dict.fromkeys(candidate.strip() for candidate in candidates if candidate and candidate.strip()):
-        if not os.path.isfile(path):
-            continue
-        try:
-            with open(path, encoding="utf-8", errors="ignore") as cookie_file:
-                raw = cookie_file.read()
-            if _is_real_cookies(raw):
-                return path
-        except OSError:
-            continue
-    return None
+    """Resolve only a validated, explicitly configured external cookie path."""
+    from videl.utils.cookie_security import configured_cookie_path
+    return configured_cookie_path()
 
 
 def _load_proxy_list() -> list:
@@ -181,10 +161,12 @@ def _sync_ytdlp(url: str, video: bool = False) -> str | None:
             found=_find_file(video_id,video=video)
             if found:return found
         except Exception as exc:
-            last_error=exc; logger.warning("[yt-dlp] %s",exc)
+            last_error=exc
+            logger.warning("[yt-dlp] extraction failed (%s)", type(exc).__name__)
             if proxy and any(word in str(exc).lower() for word in ("proxy","tunnel","timed out","connection","refused")):
                 _mark_proxy_bad(proxy)
-    if last_error:logger.error("[yt-dlp] final error: %s",last_error)
+    if last_error:
+        logger.error("[yt-dlp] final extraction failure (%s)", type(last_error).__name__)
     return None
 
 

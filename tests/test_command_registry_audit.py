@@ -56,6 +56,22 @@ class CommandRegistryAuditTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(command=name):
                 self.assertEqual(contexts[name], "group_private")
 
+    def test_webapp_guide_is_generated_with_dual_context_labels(self):
+        from scripts.build_webapp_commands import command_rows, render
+
+        rows = {entry["name"]: entry for entry in command_rows()}
+        for name in ("song", "vsong", "download"):
+            with self.subTest(command=name):
+                self.assertEqual(rows[name]["context"], "group_private")
+        self.assertNotIn("setup", rows)
+        self.assertNotIn("modernhelp", rows)
+        self.assertEqual(
+            Path("webapp/src/lib/commands.ts").read_text(),
+            render(command_rows()),
+        )
+        self.assertIn('"summary": "Schedule a daily private admin digest in UTC"',
+                      Path("webapp/src/lib/commands.ts").read_text())
+
     def test_group_command_manager_uses_the_existing_disable_store(self):
         path = Path(__file__).parents[1] / "videl/plugins/settings.py"
         source = path.read_text()

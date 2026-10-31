@@ -20,7 +20,7 @@ Owner operations are hidden from public `/commands` results.
 | `/cplay` | group | `videl/modules/cplay.py::cplay_handler` |
 | `/cvplay` | group | `videl/modules/cplay.py::cplay_handler` |
 | `/deleteplaylist` | chat | `videl/modules/playlist.py::delete_playlist_cmd` |
-| `/download` | group & private | `videl/modules/downloader.py::download_cmd` |
+| `/download` | group_private | `videl/modules/downloader.py::download_cmd` |
 | `/effectoff` | group | `videl/modules/effects.py::effectoff_cmd` |
 | `/effecton` | group | `videl/modules/effects.py::effecton_cmd` |
 | `/effects` | group | `videl/modules/effects.py::effects_status_cmd` |
@@ -45,13 +45,13 @@ Owner operations are hidden from public `/commands` results.
 | `/seekback` | group | `videl/modules/seek.py::seekback_cmd` |
 | `/shuffle` | group | `videl/app/music.py::control` |
 | `/skip` | group | `videl/app/music.py::control` |
-| `/song` | group & private | `videl/modules/downloader.py::song_cmd` |
+| `/song` | group_private | `videl/modules/downloader.py::song_cmd` |
 | `/speed` | group | `videl/modules/effects.py::speed_cmd` |
 | `/speedreset` | group | `videl/modules/effects.py::speedreset_cmd` |
 | `/stop` | group | `videl/app/music.py::control` |
 | `/voteskip` | group | `videl/modules/smartqueue.py::set_voteskip_cmd` |
 | `/vplay` | group | `videl/modules/play.py::play_handler` |
-| `/vsong` | group & private | `videl/modules/downloader.py::vsong_cmd` |
+| `/vsong` | group_private | `videl/modules/downloader.py::vsong_cmd` |
 
 ## Groups & protection
 
@@ -147,8 +147,8 @@ Owner operations are hidden from public `/commands` results.
 | `/setreason` | group | `videl/plugins/moderation.py::set_reason_template` |
 | `/setrules` | group | `videl/plugins/welcome.py::set_rules` |
 | `/settings` | group | `videl/plugins/settings.py::settings` |
-| `/setup` | group | `videl/plugins/settings.py::settings` |
 | `/settitle` | group | `videl/plugins/group.py::set_title` |
+| `/setup` | group | `videl/plugins/settings.py::settings` |
 | `/setwarnlimit` | group | `videl/plugins/moderation.py::set_warn_limit` |
 | `/setwelcome` | group | `videl/plugins/welcome.py::set_welcome` |
 | `/slowmode` | group | `videl/plugins/group.py::slowmode` |
@@ -234,7 +234,7 @@ Owner operations are hidden from public `/commands` results.
 
 Run `/connect` in a group as a current Telegram administrator. From private chat, only these registered commands are routed to that saved group:
 
-`/adminlist`, `/admins`, `/appealresolve`, `/appeals`, `/ban`, `/banlist`, `/clear`, `/clearqueue`, `/clearrules`, `/clearwarns`, `/dban`, `/delnote`, `/demote`, `/dkick`, `/end`, `/filter`, `/filters`, `/get`, `/goodbye`, `/greetings`, `/jump`, `/kick`, `/lock`, `/locks`, `/loop`, `/move`, `/mute`, `/notes`, `/pause`, `/promote`, `/q`, `/queue`, `/remove`, `/replay`, `/reports`, `/resetplayer`, `/resolve`, `/resume`, `/rules`, `/save`, `/setcaptcha`, `/setdescription`, `/setgoodbye`, `/setrules`, `/settitle`, `/setwarnlimit`, `/setwelcome`, `/shuffle`, `/skip`, `/slowmode`, `/stop`, `/stopfilter`, `/tban`, `/tmute`, `/unban`, `/unlock`, `/unmute`, `/unwarn`, `/warn`, `/warnings`, `/welcome`
+`/adminlist`, `/admins`, `/appealresolve`, `/appeals`, `/ban`, `/banlist`, `/clear`, `/clearrules`, `/clearwarns`, `/dban`, `/delnote`, `/demote`, `/dkick`, `/end`, `/filter`, `/filters`, `/get`, `/goodbye`, `/greetings`, `/kick`, `/lock`, `/locks`, `/loop`, `/mute`, `/notes`, `/pause`, `/promote`, `/q`, `/queue`, `/replay`, `/reports`, `/resetplayer`, `/resolve`, `/resume`, `/rules`, `/save`, `/setcaptcha`, `/setdescription`, `/setgoodbye`, `/setrules`, `/settitle`, `/setwarnlimit`, `/setwelcome`, `/shuffle`, `/skip`, `/slowmode`, `/stop`, `/stopfilter`, `/tban`, `/tmute`, `/unban`, `/unlock`, `/unmute`, `/unwarn`, `/warn`, `/warnings`, `/welcome`
 
 Every routed request uses the server-stored group ID, preserves the actual Telegram user, rechecks current group-admin status, and removes private reply targets. Use a username or numeric Telegram ID instead of replying to a private message.
 

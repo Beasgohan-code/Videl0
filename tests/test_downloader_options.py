@@ -25,7 +25,7 @@ class DownloaderOptionsTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(youtube._cookies_path(), str(cookie))
         self.assertEqual(opts.get("cookiefile"), str(cookie))
 
-    def test_working_directory_cookie_file_is_never_discovered(self):
+    def test_working_directory_cookie_file_is_never_discovered_or_used_by_relative_path(self):
         names = {"YTDLP_COOKIES": "", "YT_COOKIES_FILE": "", "COOKIES_PATH": "", "YOUTUBE_COOKIES_FILE": ""}
         previous_directory = os.getcwd()
         with tempfile.TemporaryDirectory() as directory:
@@ -36,8 +36,76 @@ class DownloaderOptionsTests(unittest.IsolatedAsyncioTestCase):
                 with patch.dict(os.environ, names, clear=False):
                     self.assertNotIn("cookiefile", _get_yt_dlp_opts())
                     self.assertIsNone(youtube._cookies_path())
+                with patch.dict(os.environ, {"YTDLP_COOKIES": "cookies.txt", "YT_COOKIES_FILE": ""}, clear=False):
+                    self.assertNotIn("cookiefile", _get_yt_dlp_opts())
+                    self.assertIsNone(youtube._cookies_path())
             finally:
                 os.chdir(previous_directory)
+
+    def test_explicit_cookie_path_inside_checkout_is_rejected(self):
+        from videl.utils import cookie_security
+
+        with tempfile.TemporaryDirectory() as directory:
+            cookie = Path(directory) / "auth.txt"
+            cookie.write_text("# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t0\tSID\tsecret-value\n")
+            with patch.object(cookie_security, "_REPOSITORY_ROOT", Path(directory)):
+                self.assertIsNone(cookie_security.configured_cookie_path({"YTDLP_COOKIES": str(cookie)}))
+
+    def test_cookie_paths_and_contents_are_never_written_to_downloader_logs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cookie = Path(directory) / "private-auth.txt"
+            cookie.write_text("# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t0\tSID\tsecret-value\n")
+            with patch.dict(os.environ, {"YTDLP_COOKIES": str(cookie), "YT_COOKIES_FILE": ""}, clear=False):
+                with self.assertLogs("videl.downloader", level="DEBUG") as captured:
+                    opts = _get_yt_dlp_opts()
+            self.assertIn("cookiefile", opts)
+            output = "\\n".join(captured.output)
+            self.assertNotIn(str(cookie), output)
+            self.assertNotIn("secret-value", output)
+
+    def test_malformed_cookie_file_is_rejected_even_if_it_mentions_auth_cookie_names(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cookie = Path(directory) / "bad.txt"
+            cookie.write_text("SID appears in a comment, not a Netscape auth row\n")
+            with patch.dict(os.environ, {"YTDLP_COOKIES": str(cookie), "YT_COOKIES_FILE": ""}, clear=False):
+                self.assertNotIn("cookiefile", _get_yt_dlp_opts())
+                self.assertIsNone(youtube._cookies_path())
+
+    def test_docker_and_git_context_ignore_cookie_jars(self):
+        for filename in (".gitignore", ".dockerignore"):
+            text = Path(filename).read_text()
+            for pattern in ("cookies.txt", "cookies*.txt", "*.cookie", "*.cookies"):
+                self.assertIn(pattern, text)
+
+    def test_eldian_video_downloader_uses_the_same_external_path_policy(self):
+        from videl.api import eldian_routes
+
+        with tempfile.TemporaryDirectory() as directory:
+            cookie = Path(directory) / "auth.txt"
+            cookie.write_text("# Netscape HTTP Cookie File\n.youtube.com\tTRUE\t/\tTRUE\t0\tSID\tsecret-value\n")
+            captured = {}
+
+            class FakeYDL:
+                def __init__(self, options):
+                    captured.update(options)
+
+                def __enter__(self):
+                    return self
+
+                def __exit__(self, *_):
+                    return False
+
+                def extract_info(self, _url, download=True):
+                    return {"id": "abcdefghijk"}
+
+                def prepare_filename(self, _info):
+                    return str(Path(directory) / "result.mp4")
+
+            with patch.object(eldian_routes.yt_dlp, "YoutubeDL", FakeYDL), patch.dict(
+                os.environ, {"YTDLP_COOKIES": str(cookie), "YT_COOKIES_FILE": ""}, clear=False
+            ):
+                eldian_routes._download("abcdefghijk", video=True, directory=Path(directory))
+            self.assertEqual(captured.get("cookiefile"), str(cookie))
 
     def test_does_not_force_deprecated_player_clients_or_chunking(self):
         opts = _get_yt_dlp_opts()

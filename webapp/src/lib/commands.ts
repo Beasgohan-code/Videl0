@@ -31,7 +31,7 @@ export const BOT_COMMANDS: BotCommand[] = [
   {
     "name": "adminlist",
     "usage": "/adminlist",
-    "summary": "List group administrators (rose-compatible alias for /admins)",
+    "summary": "List group administrators (Rose-compatible alias for /admins)",
     "category": "manage",
     "context": "group",
     "owner": false
@@ -65,7 +65,7 @@ export const BOT_COMMANDS: BotCommand[] = [
     "usage": "/appeal <group ID> <reason> (private chat; currently banned or muted members)",
     "summary": "Submit a private appeal for a group ban or mute",
     "category": "manage",
-    "context": "private",
+    "context": "chat",
     "owner": false
   },
   {
@@ -159,7 +159,7 @@ export const BOT_COMMANDS: BotCommand[] = [
   {
     "name": "cleanup",
     "usage": "/cleanup <count>",
-    "summary": "Delete the last n messages",
+    "summary": "Delete the last N messages",
     "category": "manage",
     "context": "group",
     "owner": false
@@ -191,7 +191,7 @@ export const BOT_COMMANDS: BotCommand[] = [
   {
     "name": "connect",
     "usage": "/connect",
-    "summary": "Connect a group to your dm for admin controls",
+    "summary": "Connect a group to your DM for admin controls",
     "category": "manage",
     "context": "chat",
     "owner": false
@@ -288,6 +288,14 @@ export const BOT_COMMANDS: BotCommand[] = [
     "name": "faddadmin",
     "usage": "/faddadmin",
     "summary": "Add a federation admin",
+    "category": "manage",
+    "context": "group",
+    "owner": false
+  },
+  {
+    "name": "faq",
+    "usage": "/faq",
+    "summary": "Show this group's new-member FAQ",
     "category": "manage",
     "context": "group",
     "owner": false
@@ -421,6 +429,14 @@ export const BOT_COMMANDS: BotCommand[] = [
     "owner": false
   },
   {
+    "name": "handoff",
+    "usage": "/handoff [note text] (group admin)",
+    "summary": "Review open moderation queues and save a shift handoff note",
+    "category": "manage",
+    "context": "group",
+    "owner": false
+  },
+  {
     "name": "invite",
     "usage": "/invite [title]",
     "summary": "Create an approval-only invite link",
@@ -549,6 +565,22 @@ export const BOT_COMMANDS: BotCommand[] = [
     "owner": false
   },
   {
+    "name": "raidmode",
+    "usage": "/raidmode on [window] [joins] [messages] [minutes] | off",
+    "summary": "Configure temporary join and message raid protection",
+    "category": "manage",
+    "context": "group",
+    "owner": false
+  },
+  {
+    "name": "reason",
+    "usage": "/reason (group admin)",
+    "summary": "Show moderation action reason templates",
+    "category": "manage",
+    "context": "group",
+    "owner": false
+  },
+  {
     "name": "report",
     "usage": "/report",
     "summary": "Report a message to the group admins",
@@ -597,9 +629,25 @@ export const BOT_COMMANDS: BotCommand[] = [
     "owner": false
   },
   {
+    "name": "rulefeedback",
+    "usage": "/rulefeedback <rule> <confirmed|false_positive>",
+    "summary": "Record moderator feedback about a rule signal",
+    "category": "manage",
+    "context": "group",
+    "owner": false
+  },
+  {
     "name": "rules",
     "usage": "/rules",
     "summary": "Show the group rules",
+    "category": "manage",
+    "context": "group",
+    "owner": false
+  },
+  {
+    "name": "safetystats",
+    "usage": "/safetystats",
+    "summary": "Review aggregate per-rule effectiveness",
     "category": "manage",
     "context": "group",
     "owner": false
@@ -637,6 +685,14 @@ export const BOT_COMMANDS: BotCommand[] = [
     "owner": false
   },
   {
+    "name": "setfaq",
+    "usage": "/setfaq",
+    "summary": "Add or edit group FAQ entries",
+    "category": "manage",
+    "context": "group",
+    "owner": false
+  },
+  {
     "name": "setgoodbye",
     "usage": "/setgoodbye <text>",
     "summary": "Set the message shown when a member leaves",
@@ -653,9 +709,25 @@ export const BOT_COMMANDS: BotCommand[] = [
     "owner": false
   },
   {
+    "name": "setreason",
+    "usage": "/setreason <action> <template>",
+    "summary": "Set a moderation action reason template",
+    "category": "manage",
+    "context": "group",
+    "owner": false
+  },
+  {
     "name": "setrules",
     "usage": "/setrules <text>",
     "summary": "Publish the group rules",
+    "category": "manage",
+    "context": "group",
+    "owner": false
+  },
+  {
+    "name": "settings",
+    "usage": "/settings",
+    "summary": "Open the full group control center",
     "category": "manage",
     "context": "group",
     "owner": false
@@ -927,7 +999,7 @@ export const BOT_COMMANDS: BotCommand[] = [
   {
     "name": "jump",
     "usage": "/jump <upcoming position> (group admin)",
-    "summary": "Play a selected upcoming queue track",
+    "summary": "Play a selected upcoming track",
     "category": "music",
     "context": "group",
     "owner": false
@@ -1159,7 +1231,7 @@ export const BOT_COMMANDS: BotCommand[] = [
   {
     "name": "apiinfo",
     "usage": "/apiinfo",
-    "summary": "Show telegram api and library versions",
+    "summary": "Show Telegram API and library versions",
     "category": "owner",
     "context": "private",
     "owner": true
@@ -1255,7 +1327,7 @@ export const BOT_COMMANDS: BotCommand[] = [
   {
     "name": "setbotdescription",
     "usage": "/setbotdescription <text> (owner, private chat; maximum 512 characters)",
-    "summary": "Change the bot about description",
+    "summary": "Change the bot About description",
     "category": "owner",
     "context": "private",
     "owner": true
@@ -1271,7 +1343,7 @@ export const BOT_COMMANDS: BotCommand[] = [
   {
     "name": "setbotphoto",
     "usage": "/setbotphoto (owner, private chat) — use the bundled image, a replied photo, or a direct HTTPS image URL",
-    "summary": "Set the bot avatar from a replied photo, https image url, or bundled default.",
+    "summary": "Set the bot avatar from a replied photo, HTTPS image URL, or bundled default.",
     "category": "owner",
     "context": "private",
     "owner": true
@@ -1319,7 +1391,7 @@ export const BOT_COMMANDS: BotCommand[] = [
   {
     "name": "voicehealth",
     "usage": "/voicehealth (owner or bot sudo, private chat)",
-    "summary": "Check assistant, pytgcalls, ffmpeg and downloader readiness",
+    "summary": "Check assistant, PyTgCalls, FFmpeg and downloader readiness",
     "category": "owner",
     "context": "private",
     "owner": true
@@ -1423,7 +1495,7 @@ export const BOT_COMMANDS: BotCommand[] = [
   {
     "name": "inbox",
     "usage": "/inbox",
-    "summary": "Check or stop recording of your own bot dm",
+    "summary": "Check or stop recording of your own bot DM",
     "category": "tools",
     "context": "chat",
     "owner": false
@@ -1431,7 +1503,7 @@ export const BOT_COMMANDS: BotCommand[] = [
   {
     "name": "kang",
     "usage": "/kang (reply to a sticker)",
-    "summary": "Save a replied sticker to your personal telegram pack",
+    "summary": "Save a replied sticker to your personal Telegram pack",
     "category": "tools",
     "context": "chat",
     "owner": false
@@ -1447,7 +1519,7 @@ export const BOT_COMMANDS: BotCommand[] = [
   {
     "name": "ping",
     "usage": "/ping",
-    "summary": "Telegram latency, CPU, RAM, disk and service health",
+    "summary": "Telegram round-trip and live system diagnostics",
     "category": "tools",
     "context": "chat",
     "owner": false
