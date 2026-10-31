@@ -6,7 +6,7 @@ from videl.utils.db import is_user_blocked_db
 from videl.utils.rich_ui import rich_heading, rich_note, rich_kv_table, rich_esc
 from videl.utils.command_ui import rich_send, rich_edit
 
-@bot.on_callback_query(filters.regex(r"^(?:pause|resume|skip|stop|clear|replay|cycle_loop|noop|show_queue|save_pl_hint|vote_skip|close_help|show_help|go_back|song_search|warns_view|warns:[0-9]{1,20}|help_[a-z]+)$"))
+@bot.on_callback_query(filters.regex(r"^(?:pause|resume|skip|stop|clear|replay|cycle_loop|volume_up|volume_down|noop|show_queue|show_history|save_pl_hint|vote_skip|close_help|show_help|go_back|song_search|warns_view|warns:[0-9]{1,20}|help_[a-z]+)$"))
 async def on_callback(client, cbq: CallbackQuery) -> None:
 
     if not cbq.message or not cbq.from_user:

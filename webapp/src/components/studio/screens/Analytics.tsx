@@ -15,6 +15,7 @@ type Analytics = {
   top_chats?: { id: string; commands: number }[];
   top_commands?: { command: string; count: number }[];
   truncated?: boolean;
+  identity_mode?: "pseudonymous" | "aggregate_only";
   error?: string;
 };
 type Stats = {
@@ -71,7 +72,7 @@ export default function AnalyticsPage() {
             x.command,
             x.count,
           ]),
-          ...(analytics.top_chats || []).map((x) => ["chat", x.id, x.commands]),
+          ...(analytics.top_chats || []).map((x) => ["chat fingerprint", x.id, x.commands]),
         ],
       ],
     );
@@ -201,7 +202,7 @@ export default function AnalyticsPage() {
         </section>
       </div>
       <section className="ios-card ios-section p-4 sm:p-5">
-        <SectionHead title="Most active chats" hint="Ranked by commands processed, not message volume." />
+        <SectionHead title="Most active chat fingerprints" hint="Keyed pseudonyms ranked by commands processed—not raw chat IDs." />
         <div className="mt-3 grid gap-2 sm:grid-cols-2">
           {analytics?.top_chats?.length ? (
             analytics.top_chats.map((chat) => (
@@ -221,7 +222,7 @@ export default function AnalyticsPage() {
       </section>
       <div className="ios-caption ios-section flex flex-wrap items-center justify-between gap-2">
         <span>MongoDB status: {stats?.database || "not reported"}</span>
-        <span>Only command name, chat ID and user ID are stored; no message text.</span>
+        <span>{analytics?.identity_mode === "pseudonymous" ? "New events use keyed ID fingerprints; raw IDs and message text are not recorded." : "Without an analytics salt, new command records omit identifiers; raw IDs are not recorded."} Older legacy events expire within 90 days.</span>
         <Link href="/" className="text-white underline decoration-white/25 underline-offset-4">
           Control room →
         </Link>

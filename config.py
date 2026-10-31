@@ -164,6 +164,9 @@ YT_API_KEY_FALLBACK: str = _str("YT_API_KEY_FALLBACK", "")
 SPOTIFY_CLIENT_ID: str = _str("SPOTIFY_CLIENT_ID", "")
 SPOTIFY_CLIENT_SECRET: str = _str("SPOTIFY_CLIENT_SECRET", "")
 GENIUS_API_KEY: str = _str("GENIUS_API_KEY", "")
+# Optional Gemini text provider. A missing key cleanly disables AI replies.
+GEMINI_API_KEY: str = _str("GEMINI_API_KEY", "")
+GEMINI_MODEL: str = _str("GEMINI_MODEL", "gemini-2.5-flash")
 # Optional protected deployment path. Never default to a repository or image cookie file.
 YTDLP_COOKIES: str = _str("YTDLP_COOKIES", "")
 YT_COOKIES_FILE: str = _str("YT_COOKIES_FILE", YTDLP_COOKIES)
@@ -199,6 +202,7 @@ DEFAULT_FLOOD_LIMIT: int = _int("DEFAULT_FLOOD_LIMIT", 5)
 DEFAULT_FLOOD_WINDOW: int = _int("DEFAULT_FLOOD_WINDOW", 6)
 RATE_LIMIT_CMDS: int = _int("RATE_LIMIT_CMDS", 8)
 WEBAPP_SECRET: str = _str("WEBAPP_SECRET", "")
+ANALYTICS_SALT: str = _str("ANALYTICS_SALT", "")
 
 # ── Premium emoji configuration ─────────────────────────────────────────────────────────────────
 USE_PREMIUM_EMOJI: bool = _bool("USE_PREMIUM_EMOJI", True)

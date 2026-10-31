@@ -9,6 +9,8 @@ export type PostDraft = {
   mediaUrl: string;
   buttons: BtnRow[];
   savedAt: string;
+  folder?: string;
+  tags?: string[];
 };
 export const DRAFT_KEY = "videl_channel_drafts_v1";
 export const RECOVERY_KEY = "videl_post_recovery_v1";
@@ -40,6 +42,10 @@ export function parseDraft(value: unknown): PostDraft | null {
     mediaUrl,
     buttons,
     savedAt: d.savedAt,
+    ...(typeof d.folder === "string" ? { folder: d.folder.slice(0, 256).replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, 40) || "Unfiled" } : {}),
+    ...(Array.isArray(d.tags) ? { tags: [...new Set(d.tags.slice(0, 32).filter((tag): tag is string => typeof tag === "string")
+      .map((tag) => tag.slice(0, 128).replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, 24))
+      .filter(Boolean))].slice(0, 8) } : {}),
   };
 }
 export function parseDrafts(json: string): PostDraft[] {

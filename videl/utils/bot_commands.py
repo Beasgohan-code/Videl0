@@ -8,6 +8,7 @@ PUBLIC_COMMANDS = (
     ("play", "Play audio in your group voice chat"),
     ("vplay", "Play video in your group voice chat"),
     ("queue", "Show the playback queue"),
+    ("restorequeue", "Admin: restore saved upcoming tracks after fresh playback starts"),
     ("permissions", "Admin: diagnose missing bot permissions"),
     ("locks", "Review content locks and anti-flood"),
     ("lock", "Admin: block a content type"),

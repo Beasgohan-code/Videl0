@@ -28,7 +28,68 @@ _SLOTS = threading.BoundedSemaphore(2)
 _ACTIVE: set[Path] = set()
 _LOCK = threading.Lock()
 _WINDOWS: OrderedDict = OrderedDict()
+_MUSIC_TASKS: OrderedDict[str, dict] = OrderedDict()
+_MUSIC_TASK_INDEX_READY = False
+_TASK_TTL_SECONDS = 1800
+_MAX_TASKS = 256
 MAX_BYTES = 300 * 1024 * 1024
+
+
+def _persist_music_task(task_id: str, record: dict) -> bool:
+    """Persist minimized preparation status for restart-safe owner diagnostics."""
+    global _MUSIC_TASK_INDEX_READY
+    try:
+        from datetime import datetime, timedelta, timezone
+        from videl.utils.db import get_db
+        db = get_db()
+        if db is None:
+            return False
+        expires = datetime.now(timezone.utc) + timedelta(seconds=_TASK_TTL_SECONDS)
+        payload = {key: record[key] for key in ("video_id", "status", "error", "size_bytes", "started_at", "updated_at")}
+        payload["expires_at"] = expires
+        collection = db["music_preparation_jobs"]
+        if not _MUSIC_TASK_INDEX_READY:
+            try:
+                collection.create_index("expires_at", expireAfterSeconds=0)
+                _MUSIC_TASK_INDEX_READY = True
+            except Exception:
+                pass
+        collection.update_one({"_id": task_id}, {"$set": payload}, upsert=True)
+        return True
+    except Exception:
+        return False
+
+
+def _set_music_task(task_id: str | None, video_id: str, status: str, *, error: str | None = None, size_bytes: int | None = None) -> None:
+    """Keep bounded status locally and durably when MongoDB is available.
+
+    This tracks preparation state; it is not yet a restartable or cancellable
+    worker queue, and callers must not infer Telegram delivery from it.
+    """
+    if not task_id:
+        return
+    now = time.time()
+    with _LOCK:
+        for key, value in list(_MUSIC_TASKS.items()):
+            if now - float(value.get("updated_at", now)) > _TASK_TTL_SECONDS:
+                _MUSIC_TASKS.pop(key, None)
+        previous = _MUSIC_TASKS.get(task_id, {})
+        record = {
+            "video_id": video_id,
+            "status": status,
+            "error": str(error)[:160] if error else None,
+            "size_bytes": max(0, int(size_bytes or 0)),
+            "started_at": float(previous.get("started_at", now)),
+            "updated_at": now,
+        }
+        _MUSIC_TASKS[task_id] = record
+        _MUSIC_TASKS.move_to_end(task_id)
+        while len(_MUSIC_TASKS) > _MAX_TASKS:
+            _MUSIC_TASKS.popitem(last=False)
+    persisted = _persist_music_task(task_id, record)
+    with _LOCK:
+        if task_id in _MUSIC_TASKS:
+            _MUSIC_TASKS[task_id]["persisted"] = persisted
 
 
 def _extract_id(value: str) -> str | None:
@@ -148,17 +209,70 @@ def register_eldian_routes(app: Flask) -> None:
             logger.warning("Music search failed (%s)", type(exc).__name__)
             return jsonify({"ok": False, "error": "Search is temporarily unavailable; try again shortly"}), 503
 
+    @app.get("/internal/music/status")
+    def internal_music_status():
+        if not internal_authorized():
+            return jsonify({"ok": False, "error": "unauthorized"}), 403
+        task_id = str(request.args.get("task_id", ""))
+        if not re.fullmatch(r"[A-Za-z0-9_-]{16,64}", task_id):
+            return jsonify({"ok": False, "error": "Invalid task ID"}), 400
+        now = time.time()
+        with _LOCK:
+            task = _MUSIC_TASKS.get(task_id)
+            if task and now - float(task.get("updated_at", now)) > _TASK_TTL_SECONDS:
+                _MUSIC_TASKS.pop(task_id, None)
+                task = None
+            if task:
+                _MUSIC_TASKS.move_to_end(task_id)
+                result = dict(task)
+                durability = "process_and_database" if task.get("persisted") else "process_only"
+            else:
+                result = None
+                durability = "unknown"
+        if result is None:
+            try:
+                from datetime import datetime, timezone
+                from videl.utils.db import get_db
+                db = get_db()
+                saved = db["music_preparation_jobs"].find_one({"_id": task_id}) if db is not None else None
+                expires = saved.get("expires_at") if saved else None
+                if expires is not None and getattr(expires, "tzinfo", None) is None:
+                    expires = expires.replace(tzinfo=timezone.utc)
+                if saved and (not expires or expires > datetime.now(timezone.utc)):
+                    result = {key: saved.get(key) for key in ("video_id", "status", "error", "size_bytes", "started_at", "updated_at")}
+                    durability = "database"
+            except Exception:
+                result = None
+        if result is None:
+            return jsonify({"ok": True, "task": {"status": "unknown", "durability": durability}}), 200
+        result["elapsed_seconds"] = max(0, int(now - result.get("started_at", now)))
+        result["durability"] = durability
+        result.pop("updated_at", None)
+        result.pop("started_at", None)
+        result.pop("persisted", None)
+        return jsonify({"ok": True, "task": result}), 200
+
     @app.get("/internal/music/track/<video_id>")
     def internal_music_track(video_id: str):
         if not internal_authorized():
             return jsonify({"ok": False, "error": "unauthorized"}), 403
         if not re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id or ""):
             return jsonify({"ok": False, "error": "Invalid track ID"}), 400
+        task_id = str(request.args.get("task_id", "")) or None
+        if task_id and not re.fullmatch(r"[A-Za-z0-9_-]{16,64}", task_id):
+            return jsonify({"ok": False, "error": "Invalid task ID"}), 400
+        _set_music_task(task_id, video_id, "preparing")
         try:
             from videl.utils.youtube import download_song
             path = asyncio.run(asyncio.wait_for(download_song(video_id), timeout=300))
             if not path or not Path(path).is_file():
+                _set_music_task(task_id, video_id, "failed", error="Track could not be prepared by the configured downloaders.")
                 return jsonify({"ok": False, "error": "Track could not be prepared"}), 502
+            size_bytes = Path(path).stat().st_size
+            if not 0 < size_bytes <= MAX_BYTES:
+                _set_music_task(task_id, video_id, "failed", error="Prepared media exceeded the supported size limit.")
+                return jsonify({"ok": False, "error": "Prepared media exceeded the supported size limit"}), 413
+            _set_music_task(task_id, video_id, "ready", size_bytes=size_bytes)
             response = send_file(
                 path,
                 mimetype=mimetypes.guess_type(path)[0] or "audio/mpeg",
@@ -170,6 +284,7 @@ def register_eldian_routes(app: Flask) -> None:
             response.headers["X-Content-Type-Options"] = "nosniff"
             return response
         except Exception as exc:
+            _set_music_task(task_id, video_id, "failed", error="Track preparation failed; check downloader configuration and service availability.")
             logger.warning("Music track preparation failed (%s)", type(exc).__name__)
             return jsonify({"ok": False, "error": "Track could not be prepared; check the downloader status"}), 502
 

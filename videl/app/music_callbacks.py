@@ -18,7 +18,9 @@ from videl.utils.rich_ui import rich_heading, rich_note
 log = logging.getLogger(__name__)
 _ACTIONS = {
     "pause": "pause", "resume": "resume", "clear": "clear", "cycle_loop": "loop",
-    "show_queue": "queue", "skip": "skip", "stop": "stop", "replay": "replay",
+    "show_queue": "queue", "show_history": "history",
+    "volume_up": "volumeup", "volume_down": "volumedown",
+    "skip": "skip", "stop": "stop", "replay": "replay",
 }
 _inflight = set()
 _completed = OrderedDict()
@@ -88,6 +90,8 @@ async def handle(client, query):
         try:
             if name == "queue":
                 screen = await music.view_queue(ctx)
+            elif name == "history":
+                screen = await music.view_history(ctx)
             else:
                 await music.control(ctx, cycle=query.data == "cycle_loop")
         except CommandError as error:

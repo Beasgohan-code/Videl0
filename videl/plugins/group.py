@@ -6,6 +6,8 @@ import asyncio
 import html
 import logging
 import time
+from collections import Counter
+from datetime import datetime, timedelta, timezone
 
 from pyrogram.types import InlineKeyboardMarkup
 
@@ -366,6 +368,49 @@ async def tagall(ctx) -> Screen | None:
     return None
 
 
+async def admin_activity(ctx) -> Screen:
+    """Show an aggregate, content-free summary of recent admin audit actions."""
+    chat_id = int(ctx.message.chat.id)
+    since = datetime.now(timezone.utc) - timedelta(days=30)
+    selector = {"chat_id": chat_id, "ts": {"$gte": since}, "actor": {"$ne": None}}
+    db = base.db()
+    if db is None:
+        raise CommandError("Group audit history is temporarily unavailable.")
+    try:
+        total = db["mgmt_audit"].count_documents(selector)
+        rows = list(db["mgmt_audit"].find(
+            selector, {"_id": 0, "actor": 1, "kind": 1, "action": 1, "ts": 1}
+        ).sort("ts", -1).limit(1000))
+    except Exception as error:
+        LOGGER.exception("Admin activity summary failed for chat %s", chat_id)
+        raise CommandError("Group audit history is temporarily unavailable.") from error
+
+    admins: dict[int, Counter] = {}
+    for row in rows:
+        try:
+            actor = int(row.get("actor"))
+        except (TypeError, ValueError):
+            continue
+        if actor <= 0:
+            continue
+        label = str(row.get("action") or row.get("kind") or "other")[:48]
+        admins.setdefault(actor, Counter())[label] += 1
+    if not admins:
+        return Screen(heading("Admin activity · 30 days", 3) + body("No admin-attributed actions were recorded in this group during this period."))
+
+    ranking = sorted(admins.items(), key=lambda item: (-sum(item[1].values()), item[0]))[:10]
+    summary_rows = []
+    for actor, actions in ranking:
+        action_summary = ", ".join(
+            f"{html.escape(name)} ×{count}"
+            for name, count in actions.most_common(3)
+        )
+        summary_rows.append((f"Admin {actor}", f"{sum(actions.values())} events · {action_summary}"))
+    note = f"<p>Showing the latest {len(rows)} of {total} admin-attributed audit events in the last 30 days. Counts and action types only; message contents and member details are not shown.</p>" if total > len(rows) else "<p>Counts and action types only; message contents and member details are not shown.</p>"
+    content = heading("Admin activity · 30 days", 3) + table(summary_rows) + note
+    return Screen(content)
+
+
 COMMANDS = (
     Command("pin", pin, "Pin a replied message", category="manage", policy="admin", rights=("can_pin_messages",)),
     Command("unpin", pin, "Unpin the latest pin", category="manage", policy="admin", rights=("can_pin_messages",)),
@@ -380,6 +425,7 @@ COMMANDS = (
     Command("quiz", poll, "Create a quiz with one correct answer", category="tools"),
     Command("stickerid", sticker_id, "Read the file id of a sticker", category="tools"),
     Command("stats", stats, "Stored data and uptime", category="tools"),
+    Command("adminactivity", admin_activity, "Summarize group admin actions from the last 30 days", category="manage", policy="admin"),
     Command("invite", invite, "Create an approval-only invite link", category="manage", policy="admin",
             rights=("can_invite_users",)),
     Command("settitle", set_title, "Update the group title", category="manage", policy="admin",

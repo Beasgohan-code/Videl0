@@ -33,6 +33,13 @@ type Track = {
   thumbnail: string;
 };
 
+type DownloadTask = {
+  status: "preparing" | "ready" | "failed" | "unknown" | "unavailable";
+  error?: string;
+  size_bytes?: number;
+  elapsed_seconds?: number;
+};
+
 function clock(seconds: number) {
   if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
   const mins = Math.floor(seconds / 60);
@@ -61,6 +68,8 @@ export default function Music() {
   const [favorites, setFavorites] = useState<string[]>([]);
   const [favoriteTracks, setFavoriteTracks] = useState<Track[]>([]);
   const [history, setHistory] = useState<Track[]>([]);
+  const [downloadTaskId, setDownloadTaskId] = useState("");
+  const [downloadTask, setDownloadTask] = useState<DownloadTask | null>(null);
   const [libraryView, setLibraryView] = useState<"discover" | "favorites" | "history" | "queue">("discover");
 
   useEffect(() => {
@@ -81,6 +90,41 @@ export default function Music() {
   useEffect(() => {
     if (audio.current) audio.current.volume = volume;
   }, [volume]);
+
+  useEffect(() => {
+    if (!downloadTaskId || !loading) return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let attempts = 0;
+    const poll = async () => {
+      attempts += 1;
+      try {
+        const response = await fetch(`/api/music/status?task_id=${encodeURIComponent(downloadTaskId)}`, {
+          cache: "no-store",
+          signal: AbortSignal.timeout(7000),
+        });
+        const payload = await response.json();
+        if (!response.ok || payload.ok !== true || !payload.task) throw new Error("status unavailable");
+        const task = payload.task as DownloadTask;
+        if (stopped) return;
+        setDownloadTask(task);
+        if (task.status === "failed") {
+          setError(task.error || "Videl could not prepare this track. Check downloader configuration and retry.");
+          return;
+        }
+        if (task.status === "ready") return;
+      } catch {
+        if (!stopped && attempts >= 4) setDownloadTask({ status: "unavailable" });
+      }
+      if (!stopped && attempts < 120) timer = setTimeout(() => void poll(), 2500);
+      else if (!stopped && attempts >= 120) setDownloadTask({ status: "unavailable", error: "Preparation status timed out; playback may still finish." });
+    };
+    void poll();
+    return () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [downloadTaskId, loading]);
 
   useEffect(() => {
     if (tab !== "music" || typeof navigator === "undefined" || !("mediaSession" in navigator)) return;
@@ -178,8 +222,13 @@ export default function Music() {
     setDuration(0);
     setLoading(true);
     setError("");
+    const taskId = globalThis.crypto?.randomUUID
+      ? globalThis.crypto.randomUUID().replaceAll("-", "")
+      : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    setDownloadTaskId(taskId);
+    setDownloadTask({ status: "preparing" });
     player.pause();
-    player.src = `/api/music/track/${encodeURIComponent(track.video_id)}`;
+    player.src = `/api/music/track/${encodeURIComponent(track.video_id)}?task_id=${encodeURIComponent(taskId)}`;
     player.load();
     void player.play().then(() => setPlaying(true)).catch(() => {
       setPlaying(false);
@@ -343,7 +392,7 @@ export default function Music() {
       onPlay={() => { setPlaying(true); setLoading(false); }}
       onPause={() => setPlaying(false)}
       onEnded={playNext}
-      onError={() => { setLoading(false); setPlaying(false); if (current) setError("Videl could not prepare this track. Try another one or check downloader health."); }}
+      onError={() => { setLoading(false); setPlaying(false); if (current && downloadTask?.status !== "failed") setError("The browser could not play the prepared audio. Try another track or browser."); }}
     />
   );
 
@@ -412,6 +461,14 @@ export default function Music() {
           </nav>
 
           {error && <p role="alert" className="mt-4 rounded-xl border border-rose-300/15 bg-rose-400/[0.07] px-4 py-3 text-sm text-rose-100/80">{error}</p>}
+          {downloadTask && <p role="status" aria-live="polite" className="mt-3 rounded-xl border border-white/[0.08] bg-white/[0.025] px-4 py-3 text-xs leading-5 text-white/55">
+            <span className="font-medium text-emerald-100/80">Download: {downloadTask.status === "preparing" ? "preparing audio" : downloadTask.status === "ready" ? "audio prepared" : downloadTask.status === "failed" ? "preparation failed" : downloadTask.status === "unknown" ? "status not available" : "status service unavailable"}</span>
+            {downloadTask.status === "preparing" && " · Checking this request’s current preparation status."}
+            {downloadTask.status === "ready" && ` · ${downloadTask.size_bytes ? `${(downloadTask.size_bytes / (1024 * 1024)).toFixed(1)} MB prepared` : "Ready for browser playback"}. This does not indicate Telegram voice-chat delivery.`}
+            {downloadTask.status === "failed" && ` · ${downloadTask.error || "Check downloader configuration and try again."}`}
+            {downloadTask.status === "unknown" && " · The backend has no in-memory record for this request; playback may still complete."}
+            {downloadTask.status === "unavailable" && " · Preparation status could not be reached. The player will report a playback failure if one occurs."}
+          </p>}
 
           {searching && libraryView === "discover" ? (
             <div className="mt-4 flex items-center gap-3 rounded-2xl border border-white/[0.07] bg-white/[0.025] p-5 text-sm text-white/50" role="status">

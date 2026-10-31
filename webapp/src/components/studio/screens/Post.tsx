@@ -105,6 +105,7 @@ export default function ChannelStudio() {
   const [mediaUrl, setMediaUrl] = useState("");
   const [buttons, setButtons] = useState<BtnRow[]>([]);
   const [drafts, setDrafts] = useState<Draft[]>([]);
+  const [draftQuery, setDraftQuery] = useState("");
   const [versions,setVersions]=useState<Draft[]>([]);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
@@ -121,6 +122,11 @@ export default function ChannelStudio() {
   const [autoStatus, setAutoStatus] = useState("");
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [savedAt, setSavedAt] = useState(0);
+  const filteredDrafts = drafts.filter((draft) => {
+    const query = draftQuery.trim().toLowerCase();
+    return !query || [draft.folder, ...(draft.tags || []), draft.chatId, plainPostText(draft.text)]
+      .some((value) => String(value || "").toLowerCase().includes(query));
+  });
   // A "saved 8s ago" that never moves is a lie the moment it is read.
   const [, setClock] = useState(0);
   useEffect(() => {
@@ -312,6 +318,10 @@ export default function ChannelStudio() {
         message: "A copy is in your drafts. Edit this one freely; the copy stays as it was.",
       });
     }
+  }
+
+  function updateDraftMetadata(id: string, patch: Pick<Draft, "folder" | "tags">) {
+    persistDrafts(drafts.map((draft) => draft.id === id ? { ...draft, ...patch } : draft));
   }
 
   function copySavedDraft(draft: Draft) {
@@ -1044,11 +1054,12 @@ export default function ChannelStudio() {
                   Stored in this browser only · not synced
                 </p>
               </div>
-              <span className="ios-pill">{drafts.length}</span>
+              <span className="ios-pill">{filteredDrafts.length} / {drafts.length}</span>
             </div>
+            <input aria-label="Search local drafts" className="ios-input mt-3 text-xs" placeholder="Search text, folder, tag or destination" value={draftQuery} onChange={(event) => setDraftQuery(event.target.value.slice(0, 80))} />
             <div className="mt-3 space-y-2">
-              {drafts.length ? (
-                drafts.map((draft) => (
+              {filteredDrafts.length ? (
+                filteredDrafts.map((draft) => (
                   <div
                     key={draft.id}
                     className="flex items-center gap-2 rounded-xl bg-white/[0.035] p-3"
@@ -1067,6 +1078,10 @@ export default function ChannelStudio() {
                         {new Date(draft.savedAt).toLocaleString()}
                       </span>
                     </button>
+                    <div className="grid w-40 gap-1">
+                      <input aria-label={`Folder for draft ${draft.id}`} className="ios-input !min-h-8 !py-1 text-[10px]" maxLength={40} value={draft.folder || "Unfiled"} onChange={(event) => updateDraftMetadata(draft.id, { folder: event.target.value.slice(0, 40) })} />
+                      <input aria-label={`Tags for draft ${draft.id}`} className="ios-input !min-h-8 !py-1 text-[10px]" maxLength={200} placeholder="Tags, comma separated" value={(draft.tags || []).join(", ")} onChange={(event) => updateDraftMetadata(draft.id, { tags: [...new Set(event.target.value.split(",").map((tag) => tag.trim().slice(0, 24)).filter(Boolean))].slice(0, 8) })} />
+                    </div>
                     <button
                       aria-label="Make a copy of this draft"
                       title="Make a copy"
@@ -1088,7 +1103,7 @@ export default function ChannelStudio() {
                 ))
               ) : (
                 <p className="rounded-xl bg-white/[0.03] p-3 text-sm text-[var(--ios-label-secondary)]">
-                  No local drafts saved.
+                  {drafts.length ? "No drafts match this search." : "No local drafts saved."}
                 </p>
               )}
             </div>

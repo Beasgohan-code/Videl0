@@ -3,6 +3,7 @@
 #  Readable now-playing cards and semantic native playback controls
 # --------------------------------------------------------------------------------
 import asyncio, time
+from collections import OrderedDict
 from pyrogram.errors import BadRequest
 from pyrogram.types import InlineKeyboardMarkup, Message
 from videl.utils.bot_ui import button as InlineKeyboardButton, visual_call
@@ -62,6 +63,23 @@ _np_msg: dict[int,Message]={}
 _np_song: dict[int,dict]={}
 _np_start: dict[int,float]={}
 _np_total: dict[int,float]={}
+_voice_volume: OrderedDict[int, int] = OrderedDict()
+
+
+def volume_percent(chat_id: int) -> int:
+    value = _voice_volume.get(chat_id, 100)
+    if chat_id in _voice_volume:
+        _voice_volume.move_to_end(chat_id)
+    return value
+
+
+def set_volume_percent(chat_id: int, value: int) -> int:
+    value = max(20, min(200, int(value)))
+    _voice_volume[chat_id] = value
+    _voice_volume.move_to_end(chat_id)
+    while len(_voice_volume) > 256:
+        _voice_volume.popitem(last=False)
+    return value
 
 def get_loop(c): return _loop_mode.get(c,"off")
 def set_loop(c,m):
@@ -135,6 +153,7 @@ def _now_playing_caption(song: dict, elapsed: float=0, total: float=0, chat_id: 
     if artist and artist.casefold()!=title.casefold():
         metadata.append((pe("music2"),"Artist",rich_esc(short(artist,60))))
     metadata.append((pe("boseh_person"),"Requested by",f"<b>{rich_esc(requester)}</b>"))
+    metadata.append((pe("speaker"),"Voice volume",f"{volume_percent(chat_id)}%" if chat_id is not None else "100%"))
     # Avoid HTML tables here: Telegram may flatten unsupported table markup in
     # captions. Explicit line breaks keep every Premium Emoji label readable.
     metadata_lines="\n".join(f"{icon} <b>{label}</b> · {value}" for icon,label,value in metadata)
@@ -163,7 +182,10 @@ def _now_playing_kb(chat_id: int|None=None, votes: int=0, votes_needed: int=0) -
         [InlineKeyboardButton("Resume" if paused else "Pause",callback_data="resume" if paused else "pause",style="success" if paused else "primary",icon="ios_play" if paused else "rijif_pause"),
          InlineKeyboardButton("Skip",callback_data="skip",style="primary",icon="ios_play")],
         [InlineKeyboardButton("Queue",callback_data="show_queue",icon="stats"),
+         InlineKeyboardButton("History",callback_data="show_history",icon="music2"),
          InlineKeyboardButton({"off":"Repeat: Off","one":"Repeat: Track","all":"Repeat: Queue"}.get(loop,"Repeat: Off"),callback_data="cycle_loop",icon="ios_repeat")],
+        [InlineKeyboardButton("Volume −",callback_data="volume_down",icon="speaker"),
+         InlineKeyboardButton("Volume +",callback_data="volume_up",icon="speaker")],
         [InlineKeyboardButton("Replay",callback_data="replay",icon="ios_repeat"),
          InlineKeyboardButton("Stop",callback_data="stop",style="danger",icon="ios_close")],
     ]

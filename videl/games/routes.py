@@ -42,7 +42,7 @@ def register_arcade_routes(app, authorized, api, secret):
                 players.touch(user)
                 payload = store.lobby(user)
                 payload["ok"] = True
-                payload["me"] = players.public(players.get(user))
+                payload["me"] = players.public(players.get(user), viewer_id=user)
                 payload["leaderboards"] = {
                     game.key: players.leaderboard(game.key, 5)
                     for game in GAMES.values() if game.seats == (2,)
@@ -232,10 +232,12 @@ def register_arcade_routes(app, authorized, api, secret):
         if not authorized():
             return jsonify({"ok": False, "error": "unauthorized"}), 403
         try:
-            actor()
+            viewer = actor()
             doc = players.get(user_id)
             if doc is None:
                 raise GameError("That player is not in the arcade", 404)
+            if doc.get("profile_private") is True and int(viewer) != int(user_id):
+                raise GameError("That player's profile is private", 404)
             mime, payload = avatars.fetch(doc, api)
             return jsonify({"ok": True, "mime": mime,
                             "data": base64.b64encode(payload).decode("ascii")})
@@ -247,11 +249,11 @@ def register_arcade_routes(app, authorized, api, secret):
         if not authorized():
             return jsonify({"ok": False, "error": "unauthorized"}), 403
         try:
-            actor()
+            viewer = actor()
             doc = players.get(user_id)
             if doc is None:
                 raise GameError("That player is not in the arcade", 404)
-            public = players.public(doc)
+            public = players.public(doc, viewer_id=viewer)
             # The panel needs the name and record; a provider URL is never
             # handed to the browser. Profile images go through our byte proxy.
             safe = {key: public.get(key) for key in ("id", "name", "username", "stats")}
@@ -261,14 +263,20 @@ def register_arcade_routes(app, authorized, api, secret):
         except Exception:
             return jsonify({"ok": False, "error": "That profile is unavailable"}), 503
 
-    @app.route("/internal/arcade/me", methods=["GET"])
+    @app.route("/internal/arcade/me", methods=["GET", "PATCH"])
     def arcade_me():
         if not authorized():
             return jsonify({"ok": False, "error": "unauthorized"}), 403
         try:
             user = actor()
+            if request.method == "PATCH":
+                body = request.get_json(silent=True)
+                if not isinstance(body, dict) or type(body.get("profile_private")) is not bool:
+                    raise GameError("Choose whether your profile is private")
+                if not players.set_profile_private(user, body["profile_private"]):
+                    raise GameError("Open the arcade first to create your player", 404)
             players.touch(user)
-            return jsonify({"ok": True, "me": players.public(players.get(user))})
+            return jsonify({"ok": True, "me": players.public(players.get(user), viewer_id=user)})
         except (GameError, ActorError) as error:
             return _answer(error)
         except Exception:

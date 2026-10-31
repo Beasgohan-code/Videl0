@@ -3,18 +3,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
+import mongomock
 from flask import Flask
 
-import sys
-import types
-from videl import utils
-
-# Keep these API contract tests isolated from optional downloader integrations.
-_youtube_stub = types.ModuleType("videl.utils.youtube")
-_youtube_stub.search_yt_multi = AsyncMock()
-_youtube_stub.download_song = AsyncMock()
-sys.modules.setdefault("videl.utils.youtube", _youtube_stub)
-utils.youtube = sys.modules["videl.utils.youtube"]
+from videl.api import eldian_routes
 from videl.api.eldian_routes import register_eldian_routes
 
 
@@ -27,6 +19,7 @@ class MusicWebAppApiTests(unittest.TestCase):
         self.env.start()
         self.addCleanup(self.env.stop)
         self.headers = {"X-Videl-Internal": "test-internal-secret"}
+        eldian_routes._MUSIC_TASKS.clear()
 
     def test_search_requires_the_internal_backend_secret(self):
         response = self.client.get("/internal/music/search?q=hello")
@@ -60,6 +53,49 @@ class MusicWebAppApiTests(unittest.TestCase):
             response = self.client.get("/internal/music/track/not-an-id", headers=self.headers)
         self.assertEqual(response.status_code, 400)
         download.assert_not_awaited()
+
+    def test_status_requires_internal_auth_and_valid_task_id(self):
+        denied = self.client.get("/internal/music/status?task_id=0123456789abcdef")
+        malformed = self.client.get("/internal/music/status?task_id=bad", headers=self.headers)
+        self.assertEqual(denied.status_code, 403)
+        self.assertEqual(malformed.status_code, 400)
+
+    def test_status_survives_process_local_registry_loss_when_database_is_available(self):
+        task_id = "persisted-task-0123456789012345"
+        db = mongomock.MongoClient().videl
+        with patch("videl.utils.db.get_db", return_value=db):
+            eldian_routes._set_music_task(task_id, "abcdefghijk", "ready", size_bytes=2048)
+            eldian_routes._MUSIC_TASKS.clear()
+            response = self.client.get(f"/internal/music/status?task_id={task_id}", headers=self.headers)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json["task"]["status"], "ready")
+        self.assertEqual(response.json["task"]["durability"], "database")
+        self.assertEqual(response.json["task"]["size_bytes"], 2048)
+        self.assertNotIn("path", response.json["task"])
+
+    def test_status_reports_preparation_failure_without_provider_details(self):
+        task_id = "0123456789abcdef0123456789abcdef"
+        with patch("videl.utils.youtube.download_song", new=AsyncMock(return_value=None)):
+            failed = self.client.get(f"/internal/music/track/abcdefghijk?task_id={task_id}", headers=self.headers)
+        status = self.client.get(f"/internal/music/status?task_id={task_id}", headers=self.headers)
+        self.assertEqual(failed.status_code, 502)
+        self.assertEqual(status.json["task"]["status"], "failed")
+        self.assertIn("configured downloaders", status.json["task"]["error"])
+        self.assertNotIn("provider key", status.json["task"]["error"].lower())
+
+    def test_status_reports_prepared_size_without_claiming_delivery(self):
+        task_id = "fedcba9876543210fedcba9876543210"
+        with tempfile.TemporaryDirectory() as directory:
+            track = Path(directory) / "track.mp3"
+            track.write_bytes(b"prepared audio")
+            with patch("videl.utils.youtube.download_song", new=AsyncMock(return_value=str(track))):
+                response = self.client.get(f"/internal/music/track/abcdefghijk?task_id={task_id}", headers=self.headers)
+            status = self.client.get(f"/internal/music/status?task_id={task_id}", headers=self.headers)
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(status.json["task"]["status"], "ready")
+            self.assertEqual(status.json["task"]["size_bytes"], len(b"prepared audio"))
+            self.assertNotIn("path", status.json["task"])
+            response.close()
 
     def test_track_uses_the_existing_downloader_and_serves_inline_audio(self):
         with tempfile.TemporaryDirectory() as directory:

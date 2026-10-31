@@ -29,6 +29,14 @@ export const BOT_COMMANDS: BotCommand[] = [
     "owner": false
   },
   {
+    "name": "adminactivity",
+    "usage": "/adminactivity",
+    "summary": "Summarize group admin actions from the last 30 days",
+    "category": "manage",
+    "context": "group",
+    "owner": false
+  },
+  {
     "name": "adminlist",
     "usage": "/adminlist",
     "summary": "List group administrators (Rose-compatible alias for /admins)",
@@ -54,7 +62,7 @@ export const BOT_COMMANDS: BotCommand[] = [
   },
   {
     "name": "antispam",
-    "usage": "/antispam",
+    "usage": "/antispam status | on [limit 3–30] [seconds 3–60] | off (group admin)",
     "summary": "Toggle anti-flood protection",
     "category": "manage",
     "context": "group",
@@ -301,6 +309,22 @@ export const BOT_COMMANDS: BotCommand[] = [
     "owner": false
   },
   {
+    "name": "faqassist",
+    "usage": "/faqassist <question> (group FAQ/rules/notes; Gemini must be enabled)",
+    "summary": "Answer from saved group sources; use --private or --stream for an opt-in reply mode",
+    "category": "manage",
+    "context": "group",
+    "owner": false
+  },
+  {
+    "name": "faqcancel",
+    "usage": "/faqcancel",
+    "summary": "Stop your active streamed FAQ answer",
+    "category": "manage",
+    "context": "group",
+    "owner": false
+  },
+  {
     "name": "fban",
     "usage": "/fban",
     "summary": "Ban a user from every federation chat",
@@ -424,6 +448,30 @@ export const BOT_COMMANDS: BotCommand[] = [
     "name": "groupview",
     "usage": "/groupview",
     "summary": "Check or stop bot-visible group recording",
+    "category": "manage",
+    "context": "group",
+    "owner": false
+  },
+  {
+    "name": "guardianai",
+    "usage": "/guardianai on|off (group admin; opt-in, disclosure required)",
+    "summary": "Enable or disable disclosed Gemini safety assistance",
+    "category": "manage",
+    "context": "group",
+    "owner": false
+  },
+  {
+    "name": "guardianjoin",
+    "usage": "/guardianjoin (group admin; rules-only human-review guide)",
+    "summary": "Create a rules-only join-request review guide for human admins",
+    "category": "manage",
+    "context": "group",
+    "owner": false
+  },
+  {
+    "name": "guardiansummary",
+    "usage": "/guardiansummary (group admin; seven-day aggregate counts)",
+    "summary": "Summarize bounded group audit counts for admins",
     "category": "manage",
     "context": "group",
     "owner": false
@@ -640,6 +688,14 @@ export const BOT_COMMANDS: BotCommand[] = [
     "name": "rules",
     "usage": "/rules",
     "summary": "Show the group rules",
+    "category": "manage",
+    "context": "group",
+    "owner": false
+  },
+  {
+    "name": "safetycheck",
+    "usage": "/safetycheck (reply to a message; group admin; advisory only)",
+    "summary": "Ask for a cautious advisory on a replied-to message",
     "category": "manage",
     "context": "group",
     "owner": false
@@ -997,6 +1053,14 @@ export const BOT_COMMANDS: BotCommand[] = [
     "owner": false
   },
   {
+    "name": "history",
+    "usage": "/history",
+    "summary": "Show recent acknowledged playback in this session",
+    "category": "music",
+    "context": "group",
+    "owner": false
+  },
+  {
     "name": "jump",
     "usage": "/jump <upcoming position> (group admin)",
     "summary": "Play a selected upcoming track",
@@ -1109,6 +1173,14 @@ export const BOT_COMMANDS: BotCommand[] = [
     "owner": false
   },
   {
+    "name": "restorequeue",
+    "usage": "/restorequeue",
+    "summary": "Restore saved upcoming tracks after fresh playback starts",
+    "category": "music",
+    "context": "group",
+    "owner": false
+  },
+  {
     "name": "resume",
     "usage": "/resume",
     "summary": "Resume playback",
@@ -1189,6 +1261,22 @@ export const BOT_COMMANDS: BotCommand[] = [
     "owner": false
   },
   {
+    "name": "volumedown",
+    "usage": "/volumedown",
+    "summary": "Adjust voice-chat playback volume",
+    "category": "music",
+    "context": "group",
+    "owner": false
+  },
+  {
+    "name": "volumeup",
+    "usage": "/volumeup",
+    "summary": "Adjust voice-chat playback volume",
+    "category": "music",
+    "context": "group",
+    "owner": false
+  },
+  {
     "name": "voteskip",
     "usage": "/voteskip",
     "summary": "Start a vote to skip the current track",
@@ -1250,6 +1338,14 @@ export const BOT_COMMANDS: BotCommand[] = [
     "summary": "Send a message to every chat the bot owns",
     "category": "owner",
     "context": "chat",
+    "owner": true
+  },
+  {
+    "name": "businessprofile",
+    "usage": "/businessprofile",
+    "summary": "Preview and confirm a consented Business profile edit",
+    "category": "owner",
+    "context": "private",
     "owner": true
   },
   {

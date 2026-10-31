@@ -97,6 +97,19 @@ class SettingsRevisionTests(unittest.TestCase):
         self.assertEqual(caught.exception.status, 409)
         self.assertEqual(self.act(action="warn_limit", revision=1, limit=4)["revision"], 2)
 
+    def test_stale_preset_confirmation_is_refused_without_mutation_or_audit(self):
+        self.act(action="settings", revision=0, settings={"lock_links": False})
+        self.act(action="settings", revision=1, settings={"lock_media": True})
+        before_audits = self.db["mgmt_audit"].count_documents({"chat_id": CID, "kind": "preset"})
+        with self.assertRaises(view.ViewError) as caught:
+            self.act(action="preset", revision=1, preset="strict")
+        self.assertEqual(caught.exception.status, 409)
+        self.assertEqual(caught.exception.revision, 2)
+        current = self.service.snapshot(CID)
+        self.assertTrue(current["lock_media"])
+        self.assertFalse(current["lock_links"])
+        self.assertEqual(self.db["mgmt_audit"].count_documents({"chat_id": CID, "kind": "preset"}), before_audits)
+
     def test_protection_toggles_are_guarded_too(self):
         first = self.act(action="protect", revision=0, settings={"lock_stickers": True})
         self.assertEqual(first["revision"], 1)

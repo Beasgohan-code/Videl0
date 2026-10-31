@@ -560,8 +560,45 @@ def _internal_stats():
         LOGGER.exception("internal stats query failed")
         return jsonify({"ok": False, "error": "database query failed"}), 503
 
+@_flask.get("/internal/ops/metrics")
+def _internal_ops_metrics():
+    """Owner-proxy-only process snapshot; expose measurements, never host paths."""
+    expected = getattr(config, "WEBAPP_SECRET", "") or ""
+    supplied = request.headers.get("X-Videl-Internal", "")
+    if not expected or not hmac.compare_digest(supplied, expected):
+        return jsonify({"ok": False, "error": "unauthorized"}), 403
+    try:
+        from videl.plugins.tools import _resource_snapshot
+        snapshot = _resource_snapshot()
+        safe = {key: snapshot.get(key) for key in (
+            "cpu", "process_cpu", "logical_cpus", "cpu_limit", "load",
+            "memory_label", "memory_used", "memory_total", "memory_percent",
+            "rss", "vms", "disk", "threads", "file_descriptors",
+        )}
+        safe["measured_at"] = int(time.time())
+        return jsonify({"ok": True, "process": safe}), 200
+    except Exception:
+        LOGGER.warning("Process metrics unavailable (%s)", "snapshot_error")
+        return jsonify({"ok": True, "process": None, "state": "unavailable"}), 200
+
+
+@_flask.get("/internal/ops/events")
+def _internal_ops_events():
+    """Return only current-schema, identifier-free command events to the owner panel."""
+    if not _internal_authorized():
+        return jsonify({"ok": False, "error": "unauthorized"}), 403
+    try:
+        from videl.utils.analytics_privacy import recent_events
+        from videl.utils.db import get_db
+        result = recent_events(get_db(), limit=20, hours=24)
+        return jsonify(result), (200 if result.get("ok") else 503)
+    except Exception:
+        return jsonify({"ok": False, "schema_version": 1, "events": []}), 503
+
+
 @_flask.route("/internal/chats")
 def _internal_chats():
+
     expected = getattr(config, "WEBAPP_SECRET", "") or ""
     supplied = request.headers.get("X-Videl-Internal", "")
     if not expected or not hmac.compare_digest(supplied, expected):
@@ -949,54 +986,10 @@ def _internal_analytics():
     if not expected or not hmac.compare_digest(supplied, expected):
         return jsonify({"ok": False, "error": "unauthorized"}), 403
     try:
-        from datetime import datetime, timedelta, timezone
-        from collections import Counter
         from videl.utils.db import get_db
-        db=get_db()
-        if db is None:
-            return jsonify({"ok": False, "error": "MongoDB is not connected"}), 503
-        now=datetime.now(timezone.utc)
-        since=now-timedelta(hours=24)
-        event_filter={"at":{"$gte":since}}
-        total=db["command_events"].count_documents(event_filter)
-        events=list(db["command_events"].find(event_filter,{"_id":0,"at":1,"command":1,"chat_id":1,"user_id":1}).sort("at",1).limit(20000))
-        hours=[]
-        for offset in range(23,-1,-1):
-            hour=(now.replace(minute=0,second=0,microsecond=0)-timedelta(hours=offset))
-            hours.append({"time":hour.strftime("%H:%M"),"commands":0})
-        by_hour={point["time"]:point for point in hours}
-        chats=Counter(); commands=Counter(); users=set()
-        for event in events:
-            dt=event.get("at")
-            if dt is None: continue
-            if dt.tzinfo is None: dt=dt.replace(tzinfo=timezone.utc)
-            bucket=dt.astimezone(timezone.utc).strftime("%H:00")
-            if bucket in by_hour: by_hour[bucket]["commands"]+=1
-            if event.get("chat_id") is not None: chats[str(event["chat_id"])]+=1
-            if event.get("command"): commands[event["command"]]+=1
-            if event.get("user_id") is not None: users.add(str(event["user_id"]))
-        recent_raw = list(db["command_events"].find({}, {"_id": 0, "at": 1, "command": 1, "chat_id": 1}).sort("at", -1).limit(12))
-        recent_events = []
-        for item in recent_raw:
-            dt = item.get("at")
-            if dt is not None and dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            recent_events.append({
-                "command": item.get("command", "command"),
-                "chat_id": str(item.get("chat_id", "")),
-                "at": dt.isoformat() if dt else None,
-            })
-        return jsonify({
-            "ok":True,
-            "window_hours":24,
-            "total_commands":total,
-            "active_users":len(users),
-            "series":hours,
-            "top_chats":[{"id":chat_id,"commands":count} for chat_id,count in chats.most_common(10)],
-            "top_commands":[{"command":command,"count":count} for command,count in commands.most_common(10)],
-            "recent_events":recent_events,
-            "truncated":total>len(events),
-        })
+        from videl.utils.analytics_privacy import summarize
+        result = summarize(get_db(), hours=24)
+        return jsonify(result), (200 if result.get("ok") else 503)
     except Exception:
         LOGGER.exception("internal analytics query failed")
         return jsonify({"ok":False,"error":"analytics query failed"}),503
@@ -1448,6 +1441,13 @@ if __name__ == "__main__":
                 try:
                     await log_error(bot, f"load {mod}", e)
                 except: pass
+
+        try:
+            from videl.core.queue import initialize_recovery
+            recovered = await initialize_recovery()
+            LOGGER.info("Loaded %s saved queue(s) for explicit restore; no streams were resumed", recovered)
+        except Exception as error:
+            LOGGER.warning("Queue recovery initialization unavailable (%s)", type(error).__name__)
 
         from videl.utils.captcha import start_captcha_worker
         start_captcha_worker()

@@ -66,6 +66,53 @@ async def view_queue(ctx):
     return Screen(result("Music queue", rows, body=footer) + controls)
 
 
+async def view_history(ctx):
+    """Show the latest acknowledged tracks for this group in this process session."""
+    from datetime import datetime, timezone
+    from videl.utils.listening_recap import get
+
+    records = get(ctx.message.chat.id)
+    if not records:
+        return Screen(result("Recent playback", body="No acknowledged tracks in this process session yet."))
+    rows = []
+    for index, item in enumerate(reversed(records[-15:]), start=1):
+        played_at = item.get("at")
+        if isinstance(played_at, datetime):
+            if played_at.tzinfo is None:
+                played_at = played_at.replace(tzinfo=timezone.utc)
+            stamp = played_at.astimezone(timezone.utc).strftime("%d %b %H:%M UTC")
+        else:
+            stamp = "time unavailable"
+        title = str(item.get("title") or "Untitled track")[:160]
+        duration = str(item.get("duration") or "Live")[:20]
+        rows.append((f"{index:02d} · {stamp}", f"{title} · {duration}"))
+    return Screen(result("Recent playback", rows, body="Session-only history · titles only · clears when this process restarts."))
+
+
+async def restore_queue(ctx):
+    """Restore only safe upcoming metadata after a fresh track is playing."""
+    chat_id = int(ctx.message.chat.id)
+    if str(ctx.command.arguments or "").strip():
+        raise CommandError("Use <code>/restorequeue</code> without arguments.")
+    info = queue.recovery_info(chat_id)
+    if not info:
+        raise CommandError("There are no saved upcoming tracks for this group.")
+    if not queue.peek_current(chat_id):
+        raise CommandError(
+            "Start a fresh track with /play first. The interrupted track will not be replayed; "
+            "then run /restorequeue to append only the saved upcoming tracks."
+        )
+    async with lock(chat_id):
+        count = queue.restore_upcoming(chat_id)
+    if not count:
+        raise CommandError("The saved queue changed or could not be restored. Nothing was replayed.")
+    try:
+        await player.refresh_np_ui(chat_id)
+    except Exception as error:
+        log.warning("Player card refresh failed after queue restore (%s)", type(error).__name__)
+    return Screen(result("Upcoming tracks restored", body=f"Added {count} saved upcoming tracks. The current track was left unchanged."), player._now_playing_kb(chat_id))
+
+
 async def manage_queue(ctx):
     """Admin-only, one-based edits for upcoming tracks; the current track is position zero."""
     from .router import Screen,CommandError
@@ -129,7 +176,18 @@ async def control(ctx, *, cycle=False):
     # Serialize new pause/resume and queue commands within this chat only.
     async with lock(chat_id):
         if not queue.peek_current(chat_id):raise CommandError('No active track. Start playback with /play song name.')
-        if name in {'pause','resume'}:
+        if name in {'volumeup','volumedown'}:
+            delta = 20 if name == 'volumeup' else -20
+            target = max(20, min(200, player.volume_percent(chat_id) + delta))
+            if target == player.volume_percent(chat_id):
+                return Screen(result('Voice volume unchanged', body=f'Volume is already at the {target}% limit.'), player._now_playing_kb(chat_id))
+            acknowledged = await call_py.change_volume_call(chat_id, target)
+            if acknowledged is False:
+                raise RuntimeError('Voice engine did not acknowledge volume change')
+            player.set_volume_percent(chat_id, target)
+            title = 'Voice volume updated'
+            body = f'Voice-chat playback volume is now {target}%. Use the player card controls to adjust it in 20% steps.'
+        elif name in {'pause','resume'}:
             paused=name=='pause'
             if player.is_paused(chat_id)==paused:
                 return Screen(result('Already paused' if paused else 'Already playing',body='No voice-engine change was requested.'),player._now_playing_kb(chat_id))
@@ -149,6 +207,7 @@ async def control(ctx, *, cycle=False):
         elif name=='shuffle':
             tracks=queue.get_queue(chat_id)
             pending=tracks[1:];random.shuffle(pending);tracks[1:]=pending
+            queue.note_queue_mutation(chat_id)
             title='Upcoming tracks shuffled';body=f'{len(pending)} upcoming tracks shuffled. Current playback is unchanged.'
         elif name in {'clear','clearqueue'}:
             if str(ctx.command.arguments or "").strip():raise CommandError(f'Use <code>/{name}</code> without arguments.')

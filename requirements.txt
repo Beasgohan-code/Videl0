@@ -5,6 +5,8 @@
 # Kurigram provides the pyrogram namespace and current Telegram RPC errors.
 # Do not install archived pyrogram alongside it (both write the same package).
 kurigram==2.2.26
+# Bot API-only Business profile setters; Kurigram remains the primary client/runtime.
+aiogram==3.31.0
 tgcrypto==1.2.5
 # Keep the PyTgCalls voice stack on the tested auto-create/retry baseline.
 py-tgcalls==2.3.3

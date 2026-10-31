@@ -687,7 +687,11 @@ class GroupView:
 
     def _write_settings(self,cid,values,body=None):
         try:
-            return settings_store.write(cid,values,expected=self._expected(body),db=self.db)
+            revision = settings_store.write(cid,values,expected=self._expected(body),db=self.db)
+            if "antispam" in values:
+                from videl.plugins.locks import invalidate_antispam_config
+                invalidate_antispam_config(cid)
+            return revision
         except settings_store.SettingsConflict as error:
             raise self._stale(error) from None
 

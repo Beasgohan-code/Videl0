@@ -97,7 +97,7 @@ export type Lobby = {
   games: GameInfo[];
   public: RoomRow[];
   mine: RoomRow[];
-  me?: PlayerRef & { stats?: Record<string, Stat> };
+  me?: PlayerRef & { stats?: Record<string, Stat>; profile_private?: boolean };
   leaderboards?: Record<string, { id: number; name: string; rating: number; games: number }[]>;
 };
 

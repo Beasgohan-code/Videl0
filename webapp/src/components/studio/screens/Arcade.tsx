@@ -127,6 +127,24 @@ export default function Arcade() {
     }
   }
 
+  async function setProfilePrivate(profile_private: boolean) {
+    setBusy(true);
+    try {
+      const response = await fetch("/api/arcade/profile", {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ profile_private }), cache: "no-store",
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.ok) throw new Error(data.error || "Profile visibility was not changed");
+      setLobby((current) => current ? { ...current, me: data.me } : current);
+      setError("");
+    } catch (failure) {
+      setError((failure as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const games: GameInfo[] = useMemo(
     () => lobby?.games?.length ? lobby.games : FALLBACK_GAMES,
     [lobby],
@@ -514,6 +532,10 @@ export default function Arcade() {
           <p className="mt-2 text-[10px] text-indigo-100/35">
             Ludo is unrated: chance should not move a number you care about.
           </p>
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-[11px] text-indigo-100/55">{lobby.me.profile_private ? "Your profile details and leaderboard rows are hidden from other players." : "Your player card and rated leaderboard results are visible to other players."}</p>
+            <button type="button" disabled={busy} onClick={() => void setProfilePrivate(!lobby.me?.profile_private)} className="ios-btn ios-btn-glass text-xs" aria-pressed={Boolean(lobby.me.profile_private)}>{lobby.me.profile_private ? "Make profile public" : "Hide my profile"}</button>
+          </div>
         </div>
       ) : null}
     </main>

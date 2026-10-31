@@ -416,11 +416,22 @@ async def permission_command(_, message):
 
 @bot.on_chat_join_request()
 async def join_request_seen(_, request):
-    """Record a pending join request for the owner panel.
+    """Queue Telegram's screening query and record the request for human review.
 
-    Telegram keeps the request itself; this row only tells the panel that a
-    person is waiting, so approving still happens through the Bot API.
+    This bot has no AI provider, so it never claims to make an AI decision.
+    Telegram requires screening-query updates to be answered within 10 seconds;
+    QUEUE preserves the request for the existing owner-panel review flow.
     """
+    query_id = getattr(request, "query_id", None)
+    if query_id:
+        try:
+            from pyrogram.enums import ChatJoinRequestQueryResult
+            await bot.answer_chat_join_request_query(
+                chat_join_request_query_id=str(query_id),
+                result=ChatJoinRequestQueryResult.QUEUE,
+            )
+        except Exception:
+            LOGGER.warning("Join-request screening query could not be queued", exc_info=True)
     try:
         from datetime import datetime, timezone
         from videl.utils.db import get_db

@@ -46,11 +46,43 @@ def private_owner(message,actor=None):
     return bool(user and user.id==OWNER_ID and chat_kind(message)=='private')
 
 
+async def _render_ephemeral(client, message, screen: "Screen", actor) -> bool:
+    """Send an explicitly private group reply; never fall back to public content."""
+    from pyrogram.enums import ParseMode
+    from pyrogram.types import EphemeralMessageParameters
+    from videl.utils.telegram_features import supports_parameter
+
+    recipient = screen.ephemeral_user_id
+    if (chat_kind(message) not in {"group", "supergroup"} or actor is None
+            or int(getattr(actor, "id", 0) or 0) != int(recipient or 0)):
+        return False
+    if not supports_parameter(client, "send_message", "ephemeral_message_parameters"):
+        return False
+    options = {
+        "chat_id": message.chat.id,
+        "text": screen.html,
+        "parse_mode": ParseMode.HTML,
+        "ephemeral_message_parameters": EphemeralMessageParameters(receiver_user_id=recipient),
+    }
+    thread_id = getattr(message, "message_thread_id", None)
+    if thread_id is not None:
+        options["message_thread_id"] = thread_id
+    if screen.keyboard is not None:
+        options["reply_markup"] = screen.keyboard
+    try:
+        await client.send_message(**options)
+        return True
+    except Exception as error:
+        log.warning("Ephemeral group reply failed (%s); private content was not posted publicly", type(error).__name__)
+        return False
+
+
 @dataclass(frozen=True)
 class Screen:
     html:str
     keyboard:object=None
     animation:bytes|None=None
+    ephemeral_user_id:int|None=None
 
 
 @dataclass(frozen=True)
@@ -76,11 +108,13 @@ class Command:
     policy:str='public'
     rights:tuple[str,...]=()
     block_policy:str="none"
+    ephemeral_group_reply:bool=False
 
     def __post_init__(self):
         if not re.fullmatch(r'[a-z][a-z0-9_]{0,31}',self.name):raise ValueError('Invalid command name')
         if self.policy not in {'public','group','admin','owner','dj'}:raise ValueError('Invalid command policy')
         if self.category not in {'tools','music','manage','owner'}:raise ValueError('Invalid command category')
+        if type(self.ephemeral_group_reply) is not bool:raise ValueError('Invalid ephemeral reply policy')
         if self.block_policy not in {'none','user','chat'}:raise ValueError('Invalid block policy')
         if self.rights and (self.policy!='admin' or any(right not in {'can_restrict_members','can_delete_messages','can_manage_topics','can_pin_messages','can_promote_members','can_invite_users','can_change_info'} for right in self.rights)):
             raise ValueError('Invalid command administrator rights')
@@ -241,7 +275,7 @@ class Router:
                     member_preferences = await asyncio.to_thread(read_preferences, get_db(), int(actor.id))
                     language = member_preferences.get("language", "en")
                     if language != "en":
-                        screen = Screen(localize_html(screen.html, language), screen.keyboard, screen.animation)
+                        screen = Screen(localize_html(screen.html, language), screen.keyboard, screen.animation, screen.ephemeral_user_id)
                 except Exception:
                     log.debug("Private reply localization unavailable", exc_info=True)
             # Rendering is outside the action exception handler: a render error
@@ -249,7 +283,19 @@ class Router:
             if chat_kind(original_message) in {'group','supergroup'}:
                 log.info('Group command /%s handler returned %s', command.name, 'a reply' if screen is not None else 'no reply')
             if screen is not None:
-                if screen.animation is None:
+                if screen.ephemeral_user_id is not None:
+                    delivered = command.ephemeral_group_reply and await _render_ephemeral(client, original_message, screen, actor)
+                    if not command.ephemeral_group_reply:
+                        log.error("Command /%s returned an ephemeral reply without allowlist permission", command.name)
+                    if not delivered:
+                        # A failure notice is safe to show publicly; never retry the
+                        # private body as a normal group message.
+                        await rich_reply(
+                            original_message,
+                            notice("Telegram could not confirm the private reply. No reply content was posted to the group; retry or continue in private chat.", status="warning", title="Private reply unavailable"),
+                            client=client,
+                        )
+                elif screen.animation is None:
                     try:
                         await rich_reply(original_message,screen.html,reply_markup=screen.keyboard,client=client,navigation=False)
                     except Exception as error:

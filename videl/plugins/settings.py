@@ -2,6 +2,9 @@
 """Inline hub for common group settings."""
 from __future__ import annotations
 import asyncio
+import copy
+import hashlib
+import json
 from time import monotonic
 from pyrogram import filters
 from pyrogram.types import ForceReply, InlineKeyboardMarkup
@@ -19,8 +22,55 @@ _PROMPTS: dict[tuple[int, int], tuple[int, str, float]] = {}
 _TOGGLES = {
  "music": (("Member requests", "music_requests_enabled", True), ("Admin approval", "music_approval_required", False), ("Shuffle new requests", "music_shuffle_enabled", False)),
  "welcome": (("Welcome messages", "welcome_enabled", True), ("Goodbye messages", "goodbye_enabled", False), ("New-member verification", "captcha_enabled", False)),
- "safety": (("Anti-flood", "antispam", False),),
+ "safety": (("Anti-flood", "antispam", False), ("Gemini Guardian assistance", "gemini_guardian_enabled", False)),
 }
+_RESET_DEFAULTS = {
+    "music": {"music_requests_enabled": True, "music_approval_required": False,
+              "music_shuffle_enabled": False, "music_dj_session": {},
+              "music_track_blocklist": [], "music_session_presets": []},
+    "welcome": {"welcome_enabled": True, "goodbye_enabled": False, "captcha_enabled": False},
+    "safety": {"antispam": False, "antispam_limit": 7, "antispam_window": 8,
+               "gemini_guardian_enabled": False, **{key: False for key in _LOCK_KEYS},
+               "raid_mode": {"enabled": False, "window_seconds": 30,
+                             "join_threshold": 8, "message_threshold": 20,
+                             "duration_minutes": 15}},
+    "moderation": {"warn_threshold": 3},
+    "blocklist": {"music_track_blocklist": []},
+    "presets": {"music_session_presets": []},
+}
+
+
+def _revision(chat_id):
+    from videl.utils.settings_store import revision
+    return revision(chat_id)
+
+
+def _tag_keyboard(markup, chat_id):
+    """Bind every settings action button to the state revision it displayed."""
+    revision = _revision(chat_id)
+    rows = []
+    for row in markup.inline_keyboard:
+        tagged = []
+        for item in row:
+            button_copy = copy.copy(item)
+            data = getattr(button_copy, "callback_data", None)
+            if data:
+                button_copy.callback_data = f"{data}:v{revision}"
+            tagged.append(button_copy)
+        rows.append(tagged)
+    return InlineKeyboardMarkup(rows)
+
+
+def _reset_values(chat_id, category):
+    defaults = _RESET_DEFAULTS[category]
+    current = base.get_settings(chat_id)
+    return {key: current.get(key, "__VIDEL_SETTING_UNSET__") for key in defaults}, dict(defaults)
+
+
+def _reset_signature(chat_id, category):
+    current, _ = _reset_values(chat_id, category)
+    raw = json.dumps(current, sort_keys=True, default=str, separators=(",", ":"))
+    return hashlib.sha256(raw.encode()).hexdigest()[:12]
 
 def _switch(chat_id, key, label, default=False):
     enabled=bool(base.get_setting(chat_id,key,default))
@@ -32,16 +82,38 @@ def _nav(chat_id):
             [button("Music blocklist",callback_data=f"settings:{chat_id}:tab:blocklist"),button("Queue presets",callback_data=f"settings:{chat_id}:tab:presets"),button("Listening sessions",callback_data=f"settings:{chat_id}:tab:sessions")],
             [button("Command manager",callback_data=f"settings:{chat_id}:tab:commands")]]
 
+def _reset_confirmation(chat_id, category):
+    current, defaults = _reset_values(chat_id, category)
+    rows=[]
+    for key, default in defaults.items():
+        old=current.get(key, "__VIDEL_SETTING_UNSET__")
+        rows.append((base.escape(key), f"{base.escape(str(old)[:60])} → {base.escape(str(default)[:60])}"))
+    token=_reset_signature(chat_id,category)
+    text=(heading(f"Preview {base.escape(category)} reset",3)
+          +body("Only the listed settings will change. Custom welcome text, group rules, command switches, queue contents, pending sessions and other categories are preserved.")
+          +table(rows)
+          +body("Confirm only if this preview is correct. The reset is audited and will be refused if settings change before confirmation."))
+    keyboard=InlineKeyboardMarkup([
+        [button("Confirm reset",callback_data=f"settings:{chat_id}:resetconfirm:{category}:{token}",style="danger")],
+        [button("Cancel",callback_data=f"settings:{chat_id}:tab:{category}")],
+    ])
+    return Screen(text,_tag_keyboard(keyboard,chat_id))
+
+
 def _screen(chat_id, section="home", *, query="", category="all", page=0):
     markup=_nav(chat_id)
     if section=="home":
-        fields=(("Member music requests","music_requests_enabled",True),("Music request approval","music_approval_required",False),("Shuffle new requests","music_shuffle_enabled",False),("Welcome messages","welcome_enabled",True),("Goodbye messages","goodbye_enabled",False),("New-member verification","captcha_enabled",False),("Anti-flood","antispam",False))
+        fields=(("Member music requests","music_requests_enabled",True),("Music request approval","music_approval_required",False),("Shuffle new requests","music_shuffle_enabled",False),("Welcome messages","welcome_enabled",True),("Goodbye messages","goodbye_enabled",False),("New-member verification","captcha_enabled",False),("Anti-flood","antispam",False),("Gemini Guardian assistance","gemini_guardian_enabled",False))
         text=heading("Full group settings",3)+body("Choose a section. Only current group admins can change settings.")+table([(label,"On" if base.get_setting(chat_id,key,default) else "Off") for label,key,default in fields])+body("Advanced text and custom configuration remain available through their existing commands.")
     elif section in _TOGGLES:
         title={"music":"Music","welcome":"Welcome & onboarding","safety":"Protection"}[section]
-        description={"music":"Members can request tracks when enabled. Approval sends new requests to admin review; use /requests to review.","welcome":"Control welcome, goodbye and verification flows. Edit content with /setwelcome, /setgoodbye, /setrules and /setfaq.","safety":"Configure content locks, anti-flood and raid mode. Admins and approved members are exempt."}[section]
+        description={"music":"Members can request tracks when enabled. Approval sends new requests to admin review; use /requests to review.","welcome":"Control welcome, goodbye and verification flows. Edit content with /setwelcome, /setgoodbye, /setrules and /setfaq.","safety":"Configure content locks, anti-flood (custom thresholds via /antispam) and raid mode. Gemini Guardian is off by default. When enabled, /faqassist sends the question and selected FAQ/rules/text notes; admin /safetycheck sends minimized replied-to text (URL hosts only); /guardiansummary sends aggregate counts. These are sent to Google Gemini; no result takes action."}[section]
         fields=_TOGGLES[section]
         rows=[(label,"On" if base.get_setting(chat_id,key,default) else "Off") for label,key,default in fields]
+        if section=="safety":
+            from videl.plugins.locks import antispam_config
+            flood_limit, flood_window = antispam_config(chat_id)
+            rows.append(("Anti-flood threshold", f"{flood_limit} messages / {flood_window}s · set with /antispam"))
         if section=="music":
             dj=base.get_setting(chat_id,"music_dj_session",{}); rows.append(("Temporary DJ",str(dj.get("user_id")) if isinstance(dj,dict) and dj.get("user_id") else "None · use /dj"))
         text=heading(title,3)+body(description)+table(rows)
@@ -135,8 +207,10 @@ def _screen(chat_id, section="home", *, query="", category="all", page=0):
                 markup.append(controls)
             text+=body(f"Showing {len(current)} of {len(entries)} commands. Owner-only and private-only commands are excluded.")
     else: raise ValueError("Unknown settings section")
+    if section in _RESET_DEFAULTS:
+        markup.append([button("Reset this section…", callback_data=f"settings:{chat_id}:reset:{section}", style="danger")])
     markup.append([button("Refresh",callback_data=f"settings:{chat_id}:refresh")])
-    return Screen(text,InlineKeyboardMarkup(markup))
+    return Screen(text,_tag_keyboard(InlineKeyboardMarkup(markup),chat_id))
 
 async def settings(ctx):
     if base.chat_kind(ctx.message) not in {"group","supergroup"}: raise CommandError("Open <code>/settings</code> in the group you want to configure.")
@@ -147,13 +221,17 @@ async def settings(ctx):
         return _screen(chat_id,"commands",query=query)
     return _screen(chat_id)
 
-_PATTERN=r"^settings:-?[0-9]{1,20}:(?:tab:(?:home|music|welcome|safety|moderation|retention|blocklist|presets|sessions|commands)|commands:(?:all|manage|music|tools):[0-9]{1,3}|cmd:[a-z][a-z0-9_]{0,31}:(?:on|off)|(?:music_requests_enabled|music_approval_required|welcome_enabled|goodbye_enabled|captcha_enabled|antispam|lock_[a-z_]+):(?:on|off)|raid:(?:on|off)|warn_threshold:(?:2|3|5|10)|retention:[a-z_]+:(?:30|90|180|365|off)|blocklist:(?:add:(?:track|artist)|remove:[1-9][0-9]?)|preset:(?:save|apply:[1-9][0-9]?|delete:[1-9][0-9]?)|session:(?:schedule|cancel:[A-Za-z0-9]+)|refresh)$"
+_PATTERN=r"^settings:-?[0-9]{1,20}:(?:tab:(?:home|music|welcome|safety|moderation|retention|blocklist|presets|sessions|commands)|commands:(?:all|manage|music|tools):[0-9]{1,3}|cmd:[a-z][a-z0-9_]{0,31}:(?:on|off)|(?:music_requests_enabled|music_approval_required|welcome_enabled|goodbye_enabled|captcha_enabled|antispam|gemini_guardian_enabled|lock_[a-z_]+):(?:on|off)|raid:(?:on|off)|warn_threshold:(?:2|3|5|10)|retention:[a-z_]+:(?:30|90|180|365|off)|blocklist:(?:add:(?:track|artist)|remove:[1-9][0-9]?)|preset:(?:save|apply:[1-9][0-9]?|delete:[1-9][0-9]?)|session:(?:schedule|cancel:[A-Za-z0-9]+)|reset:(?:music|welcome|safety|moderation|blocklist|presets)|resetconfirm:(?:music|welcome|safety|moderation|blocklist|presets):[a-f0-9]{12}|refresh):v[0-9]{1,12}$"
 @bot.on_callback_query(filters.regex(_PATTERN))
 async def settings_callback(client,query):
     message=getattr(query,"message",None); actor=getattr(query,"from_user",None)
     if message is None or actor is None or base.chat_kind(message) not in {"group","supergroup"}: return await query.answer("Open settings in the group.",show_alert=True)
     try:
-        parts=str(query.data).split(":"); chat_id=int(parts[1])
+        parts=str(query.data).split(":")
+        marker=parts.pop()
+        if not marker.startswith("v") or not marker[1:].isdecimal(): raise ValueError
+        expected_revision=int(marker[1:])
+        chat_id=int(parts[1])
         if chat_id!=int(message.chat.id): return await query.answer("These settings belong to another group.",show_alert=True)
         key=value=None; section="home"; category="all"; page=0
         if len(parts)==4 and parts[2]=="tab" and parts[3] in _TABS: section=parts[3]
@@ -162,7 +240,7 @@ async def settings_callback(client,query):
         elif len(parts)==5 and parts[2]=="cmd" and parts[4] in {"on","off"}:
             key,value,section="__command_toggle__",(parts[3],parts[4]=="on"),"commands"
         elif len(parts)==4 and parts[2] in ({k for values in _TOGGLES.values() for _,k,_ in values}|_LOCK_KEYS) and parts[3] in {"on","off"}:
-            key,value=parts[2],parts[3]=="on"; section="safety" if key=="antispam" or key in _LOCK_KEYS else ("music" if key.startswith("music_") else "welcome")
+            key,value=parts[2],parts[3]=="on"; section="safety" if key in {"antispam", "gemini_guardian_enabled"} or key in _LOCK_KEYS else ("music" if key.startswith("music_") else "welcome")
         elif len(parts)==4 and parts[2]=="raid" and parts[3] in {"on","off"}:
             from videl.utils.raid import normalize
             value=normalize(base.get_setting(chat_id,"raid_mode",{})); value["enabled"]=parts[3]=="on"; key,section="raid_mode","safety"
@@ -176,6 +254,8 @@ async def settings_callback(client,query):
         elif len(parts)==5 and parts[2]=="blocklist" and parts[3]=="remove" and parts[4].isdecimal(): key,value,section="__remove__",int(parts[4]),"blocklist"
         elif len(parts)==4 and parts[2]=="session" and parts[3]=="schedule": key,value,section="__session_schedule__","session","sessions"
         elif len(parts)==5 and parts[2]=="session" and parts[3]=="cancel": key,value,section="__session_cancel__",parts[4],"sessions"
+        elif len(parts)==4 and parts[2]=="reset" and parts[3] in _RESET_DEFAULTS: key,value,section="__reset_preview__",parts[3],parts[3]
+        elif len(parts)==5 and parts[2]=="resetconfirm" and parts[3] in _RESET_DEFAULTS and len(parts[4])==12: key,value,section="__reset_confirm__",(parts[3],parts[4]),parts[3]
         elif len(parts)==4 and parts[2]=="preset" and parts[3]=="save": key,value,section="__preset_save__","preset","presets"
         elif len(parts)==5 and parts[2]=="preset" and parts[3] in {"apply","delete"} and parts[4].isdecimal(): key,value,section=f"__preset_{parts[3]}__",int(parts[4]),"presets"
         elif len(parts)==3 and parts[2]=="refresh": pass
@@ -185,6 +265,45 @@ async def settings_callback(client,query):
         member=await client.get_chat_member(chat_id,int(actor.id)); status=str(getattr(member.status,"value",member.status)).casefold()
         if status not in {"owner","administrator"}: return await query.answer("Only current group admins can change settings.",show_alert=True)
     except Exception: return await query.answer("I could not verify your current group-admin status.",show_alert=True)
+    from videl.utils import settings_store
+    from videl.utils.settings_store import SettingsConflict
+    try:
+        settings_store.check(chat_id,expected_revision)
+    except SettingsConflict:
+        await query.answer("Settings changed since this panel was opened. Review the refreshed values.",show_alert=True)
+        fresh=_screen(chat_id,section,category=category,page=page)
+        return await rich_edit(message,fresh.html,reply_markup=fresh.keyboard)
+    if key == "gemini_guardian_enabled" and value:
+        from videl.utils.gemini import configured
+        if not configured():
+            await query.answer("Gemini is not configured; this option remains off.", show_alert=True)
+            fresh = _screen(chat_id, section, category=category, page=page)
+            return await rich_edit(message, fresh.html, reply_markup=fresh.keyboard)
+    if key=="__reset_preview__":
+        preview=_reset_confirmation(chat_id,value)
+        await query.answer("Review the reset preview; nothing changed.")
+        return await rich_edit(message,preview.html,reply_markup=preview.keyboard)
+    if key=="__reset_confirm__":
+        reset_category,token=value
+        if token!=_reset_signature(chat_id,reset_category):
+            preview=_reset_confirmation(chat_id,reset_category)
+            await query.answer("Settings changed; review the updated reset preview.",show_alert=True)
+            return await rich_edit(message,preview.html,reply_markup=preview.keyboard)
+        _,defaults=_reset_values(chat_id,reset_category)
+        if not base.set_settings(chat_id,defaults,expected_revision=expected_revision):
+            await query.answer("Reset not applied. Settings may have changed; refresh and review again.",show_alert=True)
+            fresh=_screen(chat_id,reset_category)
+            return await rich_edit(message,fresh.html,reply_markup=fresh.keyboard)
+        if reset_category=="safety":
+            from videl.utils.raid import clear
+            clear(chat_id)
+        try:
+            from videl.utils.audit import record_bot
+            await asyncio.to_thread(record_bot,chat_id,"settings",action="settings_reset",detail=f"category={reset_category}; keys={','.join(defaults)}",actor=int(actor.id))
+        except Exception: pass
+        await query.answer("Section reset and audited.")
+        fresh=_screen(chat_id,reset_category)
+        return await rich_edit(message,fresh.html,reply_markup=fresh.keyboard)
     if key in {"__prompt__","__preset_save__","__session_schedule__"}:
         kind = value if key == "__prompt__" else ("preset" if key == "__preset_save__" else "session")
         prompt_text = ("Reply with a name for this preset (1–32 characters)." if kind == "preset" else ("Reply with YYYY-MM-DD HH:MM UTC | Session title. Example: 2026-11-05 19:30 UTC | Friday listening." if kind == "session" else f"Reply to this message with the {kind} name to block (up to 100 characters). This reply is visible in the group."))
@@ -192,9 +311,14 @@ async def settings_callback(client,query):
         expired=[key for key,item in _PROMPTS.items() if item[2] < monotonic()]
         for expired_key in expired: _PROMPTS.pop(expired_key,None)
         if len(_PROMPTS)>=500: _PROMPTS.pop(next(iter(_PROMPTS)),None)
-        _PROMPTS[(chat_id,int(actor.id))]=(int(prompt.id),kind,monotonic()+300)
+        _PROMPTS[(chat_id,int(actor.id))]=(int(prompt.id),kind,monotonic()+300,expected_revision)
         await query.answer("Reply to the prompt to continue."); return
     if key=="__command_toggle__":
+        try: settings_store.write(chat_id,{},expected=expected_revision)
+        except SettingsConflict:
+            await query.answer("Settings changed; refresh before changing command switches.",show_alert=True)
+            fresh=_screen(chat_id,section,category=category,page=page)
+            return await rich_edit(message,fresh.html,reply_markup=fresh.keyboard)
         name,enable=value
         from videl.utils.command_catalog import commands as registered_commands
         from videl.utils.db import disable_cmd,enable_cmd,get_db
@@ -217,6 +341,11 @@ async def settings_callback(client,query):
     if key=="__session_cancel__":
         from videl.utils.db import get_db
         from videl.utils.listening_sessions import cancel
+        try: await asyncio.to_thread(settings_store.write,chat_id,{},expected=expected_revision)
+        except SettingsConflict:
+            await query.answer("Settings changed; refresh before cancelling this session.",show_alert=True)
+            fresh=_screen(chat_id,section,category=category,page=page)
+            return await rich_edit(message,fresh.html,reply_markup=fresh.keyboard)
         if not await asyncio.to_thread(cancel,get_db(),chat_id,value): return await query.answer("Session not found or already started.",show_alert=True)
         key=None
     if key in {"__preset_apply__","__preset_delete__"}:
@@ -226,13 +355,13 @@ async def settings_callback(client,query):
         if preset is None: return await query.answer("That preset no longer exists.",show_alert=True)
         if key=="__preset_delete__":
             presets=remove_preset(presets,value)
-            if not base.set_setting(chat_id,"music_session_presets",presets): return await query.answer("Preset could not be deleted.",show_alert=True)
+            if not base.set_setting(chat_id,"music_session_presets",presets,expected_revision=expected_revision): return await query.answer("Preset could not be deleted; refresh and review settings.",show_alert=True)
         else:
             from videl.core import player,queue
             from videl.core.playback_state import lock
             import random
             values={"music_requests_enabled":bool(preset.get("requests",True)),"music_approval_required":bool(preset.get("approval",False)),"music_shuffle_enabled":bool(preset.get("shuffle",False))}
-            if not base.set_setting(chat_id,values): return await query.answer("Preset could not be applied.",show_alert=True)
+            if not base.set_settings(chat_id,values,expected_revision=expected_revision): return await query.answer("Preset could not be applied; refresh and review settings.",show_alert=True)
             async with lock(chat_id):
                 player.set_loop(chat_id,preset.get("loop","off") if preset.get("loop") in {"off","one","all"} else "off")
                 if values["music_shuffle_enabled"]:
@@ -240,6 +369,7 @@ async def settings_callback(client,query):
                     upcoming=items[1:]
                     random.shuffle(upcoming)
                     items[1:]=upcoming
+                    queue.note_queue_mutation(chat_id)
         key=None
     if key=="__remove__":
         from videl.utils.track_blocklist import normalize,remove
@@ -249,9 +379,18 @@ async def settings_callback(client,query):
     if key=="__retention__":
         from videl.utils.db import get_db
         from videl.utils.retention import save
-        cat,days=value; saved=await asyncio.to_thread(save,get_db(),chat_id,cat,days)
+        cat,days=value
+        try: await asyncio.to_thread(settings_store.write,chat_id,{},expected=expected_revision)
+        except SettingsConflict:
+            await query.answer("Settings changed; refresh and review retention before retrying.",show_alert=True)
+            fresh=_screen(chat_id,section,category=category,page=page)
+            return await rich_edit(message,fresh.html,reply_markup=fresh.keyboard)
+        saved=await asyncio.to_thread(save,get_db(),chat_id,cat,days)
         if saved is None: return await query.answer("Retention could not be saved.",show_alert=True)
-    elif key and key!="__command_toggle__" and not base.set_setting(chat_id,key,value): return await query.answer("The setting could not be saved.",show_alert=True)
+    elif key and key!="__command_toggle__" and not base.set_setting(chat_id,key,value,expected_revision=expected_revision): return await query.answer("The setting could not be saved; refresh and review before retrying.",show_alert=True)
+    if key == "antispam":
+        from videl.plugins.locks import invalidate_antispam_config
+        invalidate_antispam_config(chat_id)
     if key:
         try:
             from videl.utils.audit import record_bot
@@ -279,6 +418,11 @@ async def blocklist_prompt_reply(client,message):
         from videl.utils.listening_sessions import parse_schedule, schedule
         try: due,title=parse_schedule(message.text or "")
         except ValueError as error: return await message.reply_text(str(error))
+        try:
+            from videl.utils import settings_store
+            await asyncio.to_thread(settings_store.write,chat_id,{},expected=prompt[3])
+        except Exception:
+            return await message.reply_text("Settings changed while the prompt was open. Reopen /settings and review before scheduling.")
         identifier=await asyncio.to_thread(schedule,get_db(),chat_id,int(user.id),due,title)
         if identifier is None: return await message.reply_text("Could not schedule this session. Each group may have up to five pending sessions; check that the database is available.")
         await message.reply_text(f"Session scheduled for {due.strftime('%Y-%m-%d %H:%M UTC')}. Requests will open when it starts. Manage it in /settings → Listening sessions.")
@@ -294,7 +438,7 @@ async def blocklist_prompt_reply(client,message):
             presets=add_preset(base.get_setting(chat_id,"music_session_presets",[]),name,snapshot)
         except ValueError as error: return await message.reply_text(str(error))
         except Exception: return await message.reply_text("Could not read the current playback settings.")
-        if not base.set_setting(chat_id,"music_session_presets",presets): return await message.reply_text("The preset could not be saved.")
+        if not base.set_setting(chat_id,"music_session_presets",presets,expected_revision=prompt[3]): return await message.reply_text("The preset could not be saved because settings changed or the database is unavailable. Reopen /settings and review first.")
         await message.reply_text("Saved this group music preset. Open /settings → Queue presets to apply it.")
         return
     try:
@@ -302,7 +446,7 @@ async def blocklist_prompt_reply(client,message):
         current=base.get_setting(chat_id,"music_track_blocklist",[])
         updated=add(current,prompt[1],message.text or "")
     except ValueError as error: return await message.reply_text(str(error))
-    if not base.set_setting(chat_id,"music_track_blocklist",updated): return await message.reply_text("The blocklist could not be saved.")
+    if not base.set_setting(chat_id,"music_track_blocklist",updated,expected_revision=prompt[3]): return await message.reply_text("The blocklist could not be saved because settings changed or the database is unavailable. Reopen /settings and review first.")
     try:
         from videl.utils.audit import record_bot
         await asyncio.to_thread(record_bot,chat_id,"settings",action="music_blocklist_add",detail=f"{prompt[1]} entry",actor=int(user.id))

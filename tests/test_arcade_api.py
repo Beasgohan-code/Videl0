@@ -61,6 +61,24 @@ class ArcadeApiTests(unittest.TestCase):
                                    headers={"X-Videl-Internal": SECRET})
         self.assertEqual(response.status_code, 401)
 
+    def test_profile_privacy_can_only_be_changed_by_the_signed_in_player_and_hides_details(self):
+        response = self.client.patch("/internal/arcade/me", headers=self.headers(1),
+                                     json={"profile_private": True})
+        self.assertEqual(response.status_code, 200, response.get_json())
+        self.assertTrue(response.get_json()["me"]["profile_private"])
+        private = self.client.get("/internal/arcade/player/1", headers=self.headers(2))
+        self.assertEqual(private.status_code, 200)
+        self.assertEqual(private.get_json()["player"]["name"], "Private player")
+        hidden_avatar = self.client.get("/internal/arcade/avatar/1", headers=self.headers(2))
+        self.assertEqual(hidden_avatar.status_code, 404)
+        self.assertEqual(private.get_json()["player"]["stats"], {})
+        self.assertIsNone(private.get_json()["player"]["username"])
+        self.assertEqual(self.client.get("/internal/arcade/player/1", headers=self.headers(1)).get_json()["player"]["name"], "Ada")
+        self.assertNotIn(1, [row["id"] for row in players.leaderboard("connect4")])
+        self.assertEqual(self.client.patch("/internal/arcade/me", headers=self.headers(2),
+                                           json={"profile_private": False}).status_code, 200)
+        self.assertTrue(players.get(1)["profile_private"])
+
     def test_an_actor_cannot_be_renamed(self):
         headers = self.headers(1)
         headers["X-Videl-Actor"] = "2"

@@ -11,6 +11,10 @@ export async function GET(req: Request, context: { params: Promise<{ videoId: st
   if (!/^[A-Za-z0-9_-]{11}$/.test(videoId)) {
     return Response.json({ ok: false, error: "Invalid track ID" }, { status: 400 });
   }
+  const taskId = new URL(req.url).searchParams.get("task_id") || "";
+  if (taskId && !/^[A-Za-z0-9_-]{16,64}$/.test(taskId)) {
+    return Response.json({ ok: false, error: "Invalid music task ID" }, { status: 400 });
+  }
   const backend = backendUrl();
   const secret = internalSecret();
   if (!backend || !secret) return unavailableBackend();
@@ -21,7 +25,8 @@ export async function GET(req: Request, context: { params: Promise<{ videoId: st
     const ifRange = req.headers.get("if-range");
     if (range) headers.set("Range", range);
     if (ifRange) headers.set("If-Range", ifRange);
-    upstream = await fetch(`${backend}/internal/music/track/${videoId}`, {
+    const taskQuery = taskId ? `?task_id=${encodeURIComponent(taskId)}` : "";
+    upstream = await fetch(`${backend}/internal/music/track/${videoId}${taskQuery}`, {
       headers,
       cache: "no-store",
       signal: AbortSignal.timeout(300_000),

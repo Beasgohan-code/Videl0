@@ -44,6 +44,52 @@ class RouterTests(unittest.IsolatedAsyncioTestCase):
             await router.dispatch(client,msg)
             handler.assert_awaited_once();render.assert_awaited_once()
 
+    async def test_ephemeral_reply_is_sent_to_its_requester_without_public_fallback(self):
+        handler=AsyncMock(return_value=Screen('private answer',ephemeral_user_id=42))
+        router=Router([Command('test',handler,'Test',policy='group',ephemeral_group_reply=True)])
+        class Client:
+            def __init__(self): self.sent = None
+            async def send_message(self, chat_id, text, parse_mode=None, ephemeral_message_parameters=None,
+                                   message_thread_id=None, reply_markup=None):
+                self.sent = {"chat_id": chat_id, "text": text, "ephemeral_message_parameters": ephemeral_message_parameters}
+                return object()
+        client=Client()
+        msg=message('/test',uid=42,kind=ChatType.SUPERGROUP)
+        with patch('videl.app.router.rich_reply',AsyncMock()) as render:
+            await router.dispatch(client,msg)
+        self.assertEqual(client.sent['chat_id'],msg.chat.id)
+        self.assertEqual(client.sent['text'],'private answer')
+        self.assertEqual(client.sent['ephemeral_message_parameters'].receiver_user_id,42)
+        render.assert_not_awaited()
+
+    async def test_ephemeral_screen_from_non_allowlisted_command_is_never_sent(self):
+        handler=AsyncMock(return_value=Screen('unapproved private body',ephemeral_user_id=42))
+        router=Router([Command('test',handler,'Test',policy='group')])
+        class Client:
+            def __init__(self): self.called=False
+            async def send_message(self, chat_id, text, parse_mode=None, ephemeral_message_parameters=None):
+                self.called=True
+        client=Client()
+        msg=message('/test',uid=42,kind=ChatType.SUPERGROUP)
+        with patch('videl.app.router.rich_reply',AsyncMock()) as render:
+            await router.dispatch(client,msg)
+        self.assertFalse(client.called)
+        self.assertNotIn('unapproved private body',render.await_args.args[1])
+
+    async def test_ephemeral_failure_never_leaks_body_to_group(self):
+        handler=AsyncMock(return_value=Screen('sensitive private answer',ephemeral_user_id=42))
+        router=Router([Command('test',handler,'Test',policy='group',ephemeral_group_reply=True)])
+        class FailingClient:
+            async def send_message(self, chat_id, text, parse_mode=None, ephemeral_message_parameters=None,
+                                   message_thread_id=None, reply_markup=None):
+                raise TimeoutError()
+        client=FailingClient()
+        msg=message('/test',uid=42,kind=ChatType.SUPERGROUP)
+        with patch('videl.app.router.rich_reply',AsyncMock()) as render:
+            await router.dispatch(client,msg)
+        self.assertNotIn('sensitive private answer',render.await_args.args[1])
+        self.assertIn('No reply content was posted',render.await_args.args[1])
+
     async def test_duplicate_inflight_update_is_not_executed_twice(self):
         begin,finish=asyncio.Event(),asyncio.Event()
         calls=[]

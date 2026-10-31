@@ -5,7 +5,7 @@ This documents navigation and source coverage, not verified live Telegram behavi
 Aliases are listed separately; permissions remain enforced by the referenced handler.
 Owner operations are hidden from public `/commands` results.
 
-203 distinct command names.
+215 distinct command names.
 
 ## Music & playlists
 
@@ -25,6 +25,7 @@ Owner operations are hidden from public `/commands` results.
 | `/effecton` | group | `videl/modules/effects.py::effecton_cmd` |
 | `/effects` | group | `videl/modules/effects.py::effects_status_cmd` |
 | `/end` | group | `videl/app/music.py::control` |
+| `/history` | group | `videl/app/music.py::view_history` |
 | `/jump` | group | `videl/app/music.py::manage_queue` |
 | `/loop` | group | `videl/app/music.py::control` |
 | `/lyrics` | chat | `videl/modules/lyrics.py::lyrics_cmd` |
@@ -39,6 +40,7 @@ Owner operations are hidden from public `/commands` results.
 | `/remove` | group | `videl/app/music.py::manage_queue` |
 | `/replay` | group | `videl/app/music.py::control` |
 | `/resetplayer` | group | `videl/app/music.py::control` |
+| `/restorequeue` | group | `videl/app/music.py::restore_queue` |
 | `/resume` | group | `videl/app/music.py::control` |
 | `/saveplaylist` | group | `videl/modules/playlist.py::save_playlist_cmd` |
 | `/seek` | group | `videl/modules/seek.py::seek_cmd` |
@@ -49,6 +51,8 @@ Owner operations are hidden from public `/commands` results.
 | `/speed` | group | `videl/modules/effects.py::speed_cmd` |
 | `/speedreset` | group | `videl/modules/effects.py::speedreset_cmd` |
 | `/stop` | group | `videl/app/music.py::control` |
+| `/volumedown` | group | `videl/app/music.py::control` |
+| `/volumeup` | group | `videl/app/music.py::control` |
 | `/voteskip` | group | `videl/modules/smartqueue.py::set_voteskip_cmd` |
 | `/vplay` | group | `videl/modules/play.py::play_handler` |
 | `/vsong` | group_private | `videl/modules/downloader.py::vsong_cmd` |
@@ -59,6 +63,7 @@ Owner operations are hidden from public `/commands` results.
 |---|---|---|
 | `/addblacklist` | group | `videl/modules/blocklist.py::addbl_cmd` |
 | `/addblsticker` | group | `videl/modules/blocklist.py::add_bl_sticker` |
+| `/adminactivity` | group | `videl/plugins/group.py::admin_activity` |
 | `/adminlist` | group | `videl/plugins/moderation.py::admins` |
 | `/admins` | group | `videl/plugins/moderation.py::admins` |
 | `/adminsummary` | group | `videl/modules/group_manager.py::admin_summary_command` |
@@ -93,6 +98,8 @@ Owner operations are hidden from public `/commands` results.
 | `/dwarn` | group | `videl/plugins/moderation.py::warn` |
 | `/faddadmin` | group | `videl/modules/federation.py::fpromote_cmd` |
 | `/faq` | group | `videl/plugins/faq.py::faq` |
+| `/faqassist` | group | `videl/plugins/guardian.py::faq_assist` |
+| `/faqcancel` | group | `videl/plugins/guardian.py::faq_cancel` |
 | `/fban` | chat | `videl/modules/federation.py::fban_cmd` |
 | `/fdemote` | group | `videl/modules/federation.py::fdemote_cmd` |
 | `/fedbanlist` | chat | `videl/modules/federation.py::fedbanlist_cmd` |
@@ -109,6 +116,9 @@ Owner operations are hidden from public `/commands` results.
 | `/greetings` | group | `videl/plugins/welcome.py::greeting_status` |
 | `/group` | group | `videl/modules/group_manager.py::group_command` |
 | `/groupview` | group | `videl/app/group_view.py::recording` |
+| `/guardianai` | group | `videl/plugins/guardian.py::guardian_ai` |
+| `/guardianjoin` | group | `videl/plugins/guardian.py::join_review_guide` |
+| `/guardiansummary` | group | `videl/plugins/guardian.py::guardian_summary` |
 | `/handoff` | group | `videl/plugins/moderation.py::handoff` |
 | `/invite` | group | `videl/plugins/group.py::invite` |
 | `/joinfed` | group | `videl/modules/federation.py::joinfed_cmd` |
@@ -136,6 +146,7 @@ Owner operations are hidden from public `/commands` results.
 | `/rmblacklist` | group | `videl/modules/blocklist.py::delbl_cmd` |
 | `/rulefeedback` | group | `videl/plugins/moderation.py::rule_feedback` |
 | `/rules` | group | `videl/plugins/welcome.py::rules` |
+| `/safetycheck` | group | `videl/plugins/guardian.py::safety_check` |
 | `/safetystats` | group | `videl/plugins/moderation.py::safety_stats` |
 | `/save` | group | `videl/plugins/notes.py::save` |
 | `/setcaptcha` | group | `videl/plugins/welcome.py::toggle_captcha` |
@@ -209,6 +220,7 @@ Owner operations are hidden from public `/commands` results.
 | `/apiinfo` | private | `videl/modules/api_tools.py::api_info` |
 | `/blocklist` | chat | `videl/modules/block.py::blocklist_cmd` |
 | `/broadcast` | chat | `videl/modules/broadcast.py::broadcast_cmd` |
+| `/businessprofile` | private | `videl/plugins/business_profile.py::business_profile` |
 | `/dbcleanup` | private | `videl/modules/misc.py::cleanup_cmd` |
 | `/delsudo` | private | `videl/plugins/sudo.py::remove_sudo` |
 | `/emojiinfo` | private | `videl/modules/api_tools.py::emoji_info` |
