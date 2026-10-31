@@ -159,10 +159,10 @@ def _now_playing_caption(song: dict, elapsed: float=0, total: float=0, chat_id: 
         upcoming=peek_next(chat_id)
         if upcoming:
             next_title=rich_esc(short(str(upcoming.get("title","Untitled track")),48))
-            parts.append(rich_details("⏭ Up next",f"<b>{next_title}</b> · {rich_esc(str(upcoming.get('duration','Live'))[:12])}"))
+            parts.append(rich_details(f"{pe('ios_play')} Up next",f"<b>{next_title}</b> · {rich_esc(str(upcoming.get('duration','Live'))[:12])}"))
         queued=max(queue_size(chat_id)-1,0)
         repeat={"off":"Off","one":"This track","all":"Queue"}.get(loop,"Off")
-        parts.append(rich_note(f"<b>{queued}</b> upcoming · Repeat: <b>{repeat}</b>"))
+        parts.append(rich_note(f"{pe('ios_folder')} <b>{queued}</b> upcoming · {pe('ios_repeat')} Repeat: <b>{repeat}</b>"))
     return "\n\n".join(parts)
 
 
