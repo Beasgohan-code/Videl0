@@ -43,6 +43,13 @@ class CommandRegistryAuditTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(group, ast.Constant)
         self.assertGreater(group.value, 0, "broad group text listeners must run after the group-0 command router")
 
+    def test_settings_and_setup_open_the_same_group_control_center(self):
+        self.assertIn("settings", router.commands)
+        self.assertIn("setup", router.commands)
+        self.assertIs(router.commands["settings"].handler, router.commands["setup"].handler)
+        self.assertEqual(router.commands["settings"].policy, "group")
+        self.assertEqual(router.commands["setup"].policy, "group")
+
     def test_every_declared_command_plugin_is_mounted(self):
         mounted = {command.handler.__module__.rsplit(".", 1)[-1] for command in router.commands.values()
                    if command.handler.__module__.startswith("videl.plugins.")}

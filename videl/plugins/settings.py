@@ -240,4 +240,7 @@ async def blocklist_prompt_reply(client,message):
     except Exception: pass
     await message.reply_text("Added to the group music blocklist. Open /settings → Music blocklist to review it.")
 
-COMMANDS=(Command("settings",settings,"Open full group settings",category="manage",policy="group"),)
+COMMANDS=(
+    Command("settings",settings,"Open the full group control center",category="manage",policy="group"),
+    Command("setup",settings,"Alias for /settings; open group settings",category="manage",policy="group"),
+)
