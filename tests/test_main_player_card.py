@@ -93,6 +93,14 @@ class MainPlayerCardTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(edit.await_args.args[0], bot.edit_message_text)
         self.assertIn('emoji-id="5463107823946717464"', edit.await_args.kwargs["text"])
 
+    def test_player_caption_always_uses_premium_ids_even_when_global_fallback_is_enabled(self):
+        from videl.utils import premium_emojis
+
+        with patch.object(premium_emojis, "USE_PREMIUM", False):
+            caption = player._now_playing_caption(SONG, total=178)
+        self.assertIn('emoji-id="5463107823946717464"', caption)
+        self.assertIn('emoji-id="6035162669948867129"', caption)
+
     async def test_legacy_photo_fallback_keeps_premium_caption_entities(self):
         photo = io.BytesIO(b"generated-poster")
         caption = f"<b>{PREMIUM} Now playing</b>\nTrack"

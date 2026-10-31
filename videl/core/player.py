@@ -63,6 +63,17 @@ def _clone_player_photo(source):
     return source
 
 
+def _player_emoji_html(key: str) -> str:
+    """Always emit the configured Telegram Premium Emoji entity for player UI."""
+    from videl.utils.premium_emojis import FALLBACK, PREMIUM_IDS
+
+    emoji_id = PREMIUM_IDS.get(key)
+    fallback = FALLBACK.get(key, "✨")
+    if not emoji_id:
+        return rich_esc(fallback)
+    return f'<tg-emoji emoji-id="{rich_esc(emoji_id)}">{rich_esc(fallback)}</tg-emoji>'
+
+
 def _player_rich_message(photo):
     """Send poster media through RichMessage; keep emoji text on entity-capable HTML."""
     from pyrogram.types import InputMediaPhoto, InputRichBlockPhoto, InputRichMessage
@@ -213,15 +224,14 @@ def _now_playing_caption(song: dict, elapsed: float=0, total: float=0, chat_id: 
     kind="Video" if song.get("video") else "Audio"
     artist=str(song.get("artist") or song.get("uploader") or song.get("channel") or "").strip()
     from videl.core.audio_quality import audio_quality_label
-    from videl.utils.premium_emojis import pe
-    metadata=[(pe("ios_symbols"),"Format",rich_esc(kind)),(pe("boseh_clock"),"Length",rich_esc(duration)),
-              (pe("ios_controls"),"Voice quality",rich_esc(audio_quality_label()))]
+    metadata=[(_player_emoji_html("ios_symbols"),"Format",rich_esc(kind)),(_player_emoji_html("boseh_clock"),"Length",rich_esc(duration)),
+              (_player_emoji_html("ios_controls"),"Voice quality",rich_esc(audio_quality_label()))]
     if artist and artist.casefold()!=title.casefold():
-        metadata.append((pe("music2"),"Artist",rich_esc(short(artist,60))))
-    metadata.append((pe("boseh_person"),"Requested by",rich_esc(requester)))
+        metadata.append((_player_emoji_html("music2"),"Artist",rich_esc(short(artist,60))))
+    metadata.append((_player_emoji_html("boseh_person"),"Requested by",rich_esc(requester)))
     metadata_lines="\n".join(f"{icon} <b>{label}</b> · {value}" for icon,label,value in metadata)
     parts=[
-        f"{pe('music')} <b>{state}</b>",
+        f"{_player_emoji_html('music')} <b>{state}</b>",
         f"<b>{rich_esc(title)}</b>",
         metadata_lines,
         f"<code>{_dot(elapsed,total)}</code>",
@@ -231,10 +241,10 @@ def _now_playing_caption(song: dict, elapsed: float=0, total: float=0, chat_id: 
         if upcoming:
             next_title=rich_esc(short(str(upcoming.get("title","Untitled track")),48))
             next_duration=rich_esc(str(upcoming.get("duration","Live"))[:12])
-            parts.append(f"{pe('ios_play')} <b>Up next</b> · {next_title} · {next_duration}")
+            parts.append(f"{_player_emoji_html('ios_play')} <b>Up next</b> · {next_title} · {next_duration}")
         queued=max(queue_size(chat_id)-1,0)
         repeat={"off":"Off","one":"This track","all":"Queue"}.get(get_loop(chat_id),"Off")
-        parts.append(f"{pe('ios_folder')} <b>{queued}</b> upcoming · {pe('ios_repeat')} Repeat: <b>{repeat}</b>")
+        parts.append(f"{_player_emoji_html('ios_folder')} <b>{queued}</b> upcoming · {_player_emoji_html('ios_repeat')} Repeat: <b>{repeat}</b>")
     return "\n\n".join(parts)
 
 
