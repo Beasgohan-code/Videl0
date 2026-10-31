@@ -32,6 +32,17 @@ class CommandRegistryAuditTests(unittest.IsolatedAsyncioTestCase):
                         module = path.stem
                         self.assertIn(module, ALL_MODULES, f"{module} is documented but never loaded at startup")
 
+    def test_broad_group_text_listener_runs_after_the_command_router(self):
+        path = Path(__file__).parents[1] / "videl/plugins/settings.py"
+        tree = ast.parse(path.read_text())
+        handler = next(node for node in tree.body if isinstance(node, ast.AsyncFunctionDef) and node.name == "blocklist_prompt_reply")
+        calls = [decorator for decorator in handler.decorator_list if isinstance(decorator, ast.Call)
+                 and isinstance(decorator.func, ast.Attribute) and decorator.func.attr == "on_message"]
+        self.assertEqual(len(calls), 1)
+        group = next((keyword.value for keyword in calls[0].keywords if keyword.arg == "group"), None)
+        self.assertIsInstance(group, ast.Constant)
+        self.assertGreater(group.value, 0, "broad group text listeners must run after the group-0 command router")
+
     def test_every_declared_command_plugin_is_mounted(self):
         mounted = {command.handler.__module__.rsplit(".", 1)[-1] for command in router.commands.values()
                    if command.handler.__module__.startswith("videl.plugins.")}

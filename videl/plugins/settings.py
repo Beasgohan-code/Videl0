@@ -191,7 +191,9 @@ async def settings_callback(client,query):
     await query.answer("Settings refreshed." if key is None else "Setting saved.")
     screen=_screen(chat_id,section); await rich_edit(message,screen.html,reply_markup=screen.keyboard)
 
-@bot.on_message(filters.group & filters.text)
+# Run after the declarative command router (group 0). A broad text listener in
+# the same Pyrogram group would consume every group message before /start/help.
+@bot.on_message(filters.group & filters.text, group=1)
 async def blocklist_prompt_reply(client,message):
     user=getattr(message,"from_user",None); reply=getattr(message,"reply_to_message",None)
     if not user or not reply: return
