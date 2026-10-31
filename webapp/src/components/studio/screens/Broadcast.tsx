@@ -2,6 +2,7 @@
 import { useRef, useState } from "react";
 import { Eye, PencilLine, Send, Users, Megaphone } from "lucide-react";
 import { previewHtml } from "@/lib/telegram-format";
+import type { BroadcastButton } from "@/lib/broadcast";
 import { BusyLabel, Callout, PageHeader } from "../ui";
 
 const audiences = [
@@ -16,6 +17,7 @@ export default function Broadcast() {
   const sending = useRef(false);
   const previous = useRef("");
   const [text, setText] = useState("");
+  const [buttons, setButtons] = useState<BroadcastButton[]>([]);
   const [scope, setScope] = useState<(typeof audiences)[number]["value"]>("chats");
   const [confirmed, setConfirmed] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -26,7 +28,7 @@ export default function Broadcast() {
 
   async function send() {
     if (sending.current || !confirmed || !text.trim()) return;
-    const fingerprint = JSON.stringify([scope, text]);
+    const fingerprint = JSON.stringify([scope, text, buttons]);
     if (
       previous.current === fingerprint &&
       !window.confirm("This exact broadcast already completed. Send it to the audience again?")
@@ -39,7 +41,7 @@ export default function Broadcast() {
       const response = await fetch("/api/broadcast", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, scope }),
+        body: JSON.stringify({ text, scope, buttons }),
       });
       const data = await response.json();
       if (!response.ok || !data.ok) throw new Error(data.error || "Broadcast failed");
@@ -114,6 +116,10 @@ export default function Broadcast() {
           />
           <p className="ios-caption mt-2">Telegram HTML is supported. The preview is exactly what will be sent.</p>
         </div>
+        <section className="space-y-3" aria-label="Inline buttons">
+          <div className="flex items-center justify-between gap-3"><div><h2 className="text-sm font-medium">Inline URL buttons</h2><p className="ios-caption mt-1">Optional. Up to eight secure HTTPS links.</p></div><button type="button" disabled={buttons.length >= 8} onClick={() => { setButtons((current) => [...current, { text: "Visit link", url: "https://" }]); setPreviewOpen(false); setConfirmed(false); }} className="ios-btn ios-btn-glass text-xs">Add button</button></div>
+          {buttons.map((button, index) => <div key={index} className="grid gap-2 rounded-xl border border-white/10 bg-white/[.025] p-3 sm:grid-cols-[1fr_2fr_auto]"><label className="text-xs text-indigo-100/55">Button label<input className="ios-input mt-1" maxLength={64} value={button.text} onChange={(event) => { const value = event.target.value; setButtons((current) => current.map((item, i) => i === index ? { ...item, text: value } : item)); setPreviewOpen(false); setConfirmed(false); }} /></label><label className="text-xs text-indigo-100/55">HTTPS destination<input className="ios-input mt-1" type="url" maxLength={2048} value={button.url} onChange={(event) => { const value = event.target.value; setButtons((current) => current.map((item, i) => i === index ? { ...item, url: value } : item)); setPreviewOpen(false); setConfirmed(false); }} placeholder="https://example.com" /></label><button type="button" onClick={() => { setButtons((current) => current.filter((_, i) => i !== index)); setPreviewOpen(false); setConfirmed(false); }} className="ios-btn ios-btn-glass self-end text-xs">Remove</button></div>)}
+        </section>
         {previewOpen ? (
           <section aria-label="Broadcast preview" className="rounded-2xl border border-indigo-300/20 bg-[#0a1020] p-4">
             <div className="flex items-center justify-between gap-3">
@@ -121,6 +127,7 @@ export default function Broadcast() {
               <button type="button" onClick={() => { setPreviewOpen(false); setConfirmed(false); }} className="ios-btn ios-btn-glass text-xs"><PencilLine size={14} aria-hidden /> Edit</button>
             </div>
             <div className="mt-3 whitespace-pre-wrap break-words text-sm leading-6 text-white" dangerouslySetInnerHTML={{ __html: previewHtml(text) }} />
+            {buttons.length > 0 && <div className="mt-3 grid gap-2">{buttons.map((button, index) => <div key={index} className="rounded-lg border border-blue-300/15 bg-blue-400/10 px-3 py-2 text-center text-xs text-blue-100">{button.text || "Button"}</div>)}</div>}
           </section>
         ) : (
           <button type="button" className="ios-btn ios-btn-glass" disabled={!text.trim()} onClick={() => { setConfirmed(false); setPreviewOpen(true); }}><Eye size={16} aria-hidden /> Preview message</button>

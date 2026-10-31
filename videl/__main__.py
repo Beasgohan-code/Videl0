@@ -9,6 +9,7 @@ import re
 import time
 import logging
 import hmac
+from urllib.parse import urlsplit
 import requests
 from collections import deque
 from flask import Flask, g, jsonify, request
@@ -1050,6 +1051,23 @@ def _internal_broadcast():
     scope = str(body.get("scope", "chats")).strip()
     if scope not in ("chats", "users", "all"):
         return jsonify({"ok": False, "error": "Invalid broadcast audience"}), 400
+    raw_buttons = body.get("buttons", [])
+    if not isinstance(raw_buttons, list) or len(raw_buttons) > 8:
+        return jsonify({"ok": False, "error": "Up to eight HTTPS inline buttons are supported"}), 400
+    buttons = []
+    for item in raw_buttons:
+        if not isinstance(item, dict):
+            return jsonify({"ok": False, "error": "Invalid broadcast button"}), 400
+        label = item.get("text")
+        url = item.get("url")
+        try:
+            parsed_url = urlsplit(url) if isinstance(url, str) and len(url) <= 2048 else None
+            valid_url = bool(parsed_url and parsed_url.scheme == "https" and parsed_url.hostname and not parsed_url.username and not parsed_url.password)
+        except ValueError:
+            valid_url = False
+        if not isinstance(label, str) or not label.strip() or len(label.strip()) > 64 or not valid_url:
+            return jsonify({"ok": False, "error": "Buttons need a label up to 64 characters and a secure HTTPS URL"}), 400
+        buttons.append({"text": label.strip(), "url": parsed_url.geturl()})
     if not text or len(text) > 4096:
         return jsonify({"ok": False, "error": "Broadcast text (1–4096 chars) is required"}), 400
     try:
@@ -1066,8 +1084,12 @@ def _internal_broadcast():
         if not unique_targets:
             return jsonify({"ok": False, "error": "No served recipients recorded in MongoDB yet"}), 404
         sent, failed = 0, 0
+        reply_markup = {"inline_keyboard": [[button] for button in buttons]} if buttons else None
         for chat_id in unique_targets:
-            status, res = _bot_api("sendMessage", {"chat_id": chat_id, "text": text, "parse_mode": "HTML"})
+            payload = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
+            if reply_markup:
+                payload["reply_markup"] = reply_markup
+            status, res = _bot_api("sendMessage", payload)
             if status and res.get("ok"):
                 sent += 1
             else:
