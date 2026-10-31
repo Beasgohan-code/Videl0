@@ -121,7 +121,8 @@ class PlayerCardTests(unittest.TestCase):
                     {'title':'A <bright> night','duration':'3:45','requester':'Listener','video':False},
                     elapsed=74,total=225,chat_id=chat_id,
                 )
-            self.assertIn('<details',caption)
+            self.assertNotIn('<details',caption)
+            self.assertNotIn('<h2',caption)
             self.assertIn('&lt;bright&gt;',caption)
             self.assertIn('Requested by',caption)
             self.assertIn('Voice quality',caption)
