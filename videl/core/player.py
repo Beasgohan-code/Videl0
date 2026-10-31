@@ -4,7 +4,6 @@
 # --------------------------------------------------------------------------------
 import asyncio, time
 from pyrogram.errors import BadRequest
-from pyrogram.enums import ParseMode
 from pyrogram.types import InlineKeyboardMarkup, Message
 from videl.utils.bot_ui import button as InlineKeyboardButton, visual_call
 from pytgcalls.types import MediaStream, VideoQuality
@@ -34,8 +33,16 @@ def _thumb_url(song: dict) -> str:
 
 
 _player_media_file_ids: dict[int, str] = {}
-_player_media_messages: dict[int, Message] = {}
 _rich_player_chats: set[int] = set()
+
+
+def _clone_player_photo(source):
+    if hasattr(source, "getvalue"):
+        import io
+        clone = io.BytesIO(source.getvalue())
+        clone.name = getattr(source, "name", "videl-now-playing.jpg")
+        return clone
+    return source
 
 
 def _player_photo_file_id(message) -> str | None:
@@ -54,91 +61,107 @@ def _player_photo_file_id(message) -> str | None:
     return None
 
 
-def _clone_player_photo(source):
-    if hasattr(source, "getvalue"):
-        import io
-        clone = io.BytesIO(source.getvalue())
-        clone.name = getattr(source, "name", "videl-now-playing.jpg")
-        return clone
-    return source
+def _rich_caption_text(caption):
+    """Convert the known player-caption HTML subset to RichText caption entities."""
+    from html.parser import HTMLParser
+    from pyrogram.types import RichTextBold, RichTextCode, RichTextCustomEmoji
+
+    def plain_text(items):
+        return "".join(
+            item if isinstance(item, str) else getattr(item, "alternative_text", "")
+            for item in items
+        )
+
+    class Builder(HTMLParser):
+        def __init__(self):
+            super().__init__(convert_charrefs=True)
+            self.stack = [(None, {}, [])]
+
+        def handle_starttag(self, tag, attrs):
+            attrs = dict(attrs)
+            if tag in {"b", "strong", "code", "tg-emoji"}:
+                self.stack.append((tag, attrs, []))
+            elif tag in {"h1", "h2", "h3", "details", "blockquote", "p"}:
+                if self.stack[-1][2] and not plain_text(self.stack[-1][2]).endswith("\n"):
+                    self.stack[-1][2].append("\n\n")
+            elif tag == "br":
+                self.stack[-1][2].append("\n")
+
+        def handle_endtag(self, tag):
+            if tag in {"b", "strong", "code", "tg-emoji"}:
+                index = next((i for i in range(len(self.stack) - 1, 0, -1)
+                              if self.stack[i][0] == tag), None)
+                if index is None:
+                    return
+                name, attrs, children = self.stack.pop(index)
+                if name in {"b", "strong"}:
+                    item = RichTextBold(children)
+                elif name == "code":
+                    item = RichTextCode(plain_text(children))
+                else:
+                    emoji_id = attrs.get("emoji-id")
+                    alt = plain_text(children)
+                    item = RichTextCustomEmoji(emoji_id, alt) if emoji_id else alt
+                self.stack[-1][2].append(item)
+            elif tag == "summary":
+                self.stack[-1][2].append(" — ")
+            elif tag in {"h1", "h2", "h3", "details", "blockquote", "p"}:
+                self.stack[-1][2].append("\n\n")
+
+        def handle_data(self, data):
+            self.stack[-1][2].append(data)
+
+    parser = Builder()
+    parser.feed(caption)
+    while len(parser.stack) > 1:
+        tag = parser.stack[-1][0]
+        parser.handle_endtag(tag)
+    return parser.stack[0][2]
 
 
-def _player_emoji_html(key: str) -> str:
-    """Always emit the configured Telegram Premium Emoji entity for player UI."""
-    from videl.utils.premium_emojis import FALLBACK, PREMIUM_IDS
+def _player_rich_message(photo, caption):
+    """Keep the card in one RichMessage photo block with an entity-aware caption."""
+    from pyrogram.types import (
+        InputMediaPhoto, InputRichBlockPhoto, InputRichMessage, RichBlockCaption,
+    )
 
-    emoji_id = PREMIUM_IDS.get(key)
-    fallback = FALLBACK.get(key, "✨")
-    if not emoji_id:
-        return rich_esc(fallback)
-    return f'<tg-emoji emoji-id="{rich_esc(emoji_id)}">{rich_esc(fallback)}</tg-emoji>'
-
-
-def _player_rich_message(photo):
-    """Send poster media through RichMessage; keep emoji text on entity-capable HTML."""
-    from pyrogram.types import InputMediaPhoto, InputRichBlockPhoto, InputRichMessage
-
-    return InputRichMessage(blocks=[InputRichBlockPhoto(InputMediaPhoto(photo))])
+    block = InputRichBlockPhoto(
+        InputMediaPhoto(photo),
+        caption=RichBlockCaption(text=_rich_caption_text(caption)),
+    )
+    return InputRichMessage(blocks=[block])
 
 
-async def _send_player_card(chat_id, message, caption, keyboard, *, song, total, poster=None, thumbnail=None):
-    """Use RichMessage photo blocks with native custom-emoji entities; preserve the poster."""
-    if RICH_AVAILABLE:
-        sources = []
-        if poster is not None:
-            sources.append(poster)
-        if thumbnail and thumbnail != poster:
-            sources.append(thumbnail)
-        for source in sources:
-            try:
-                media_message = await bot.send_rich_message(
-                    chat_id=chat_id,
-                    rich_message=_player_rich_message(_clone_player_photo(source)),
-                )
-                if media_message is None:
-                    return None  # Never retry an unconfirmed send and risk duplicate posters.
-            except BadRequest:
-                continue
-            try:
-                text_message = await bot.send_message(
-                    chat_id=chat_id,
-                    text=caption,
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=keyboard,
-                )
-                if text_message is None:
-                    return None
-            except BadRequest:
-                await _delete_message(media_message)
-                break  # Fall back to one standard photo+caption message.
-            except Exception as error:
-                LOGGER.warning(
-                    "Player text card unconfirmed after RichMessage poster (%s); no resend",
-                    type(error).__name__,
-                )
-                return None
-            file_id = _player_photo_file_id(media_message)
-            if file_id:
-                _player_media_file_ids[chat_id] = file_id
-            _player_media_messages[chat_id] = media_message
-            _rich_player_chats.add(chat_id)
-            return text_message
+async def _send_player_card(chat_id, message, caption, keyboard, *, poster=None, thumbnail=None):
+    """Send the existing one-message player card using RichMessage photo transport."""
     sources = []
     if poster is not None:
         sources.append(poster)
     if thumbnail and thumbnail != poster:
         sources.append(thumbnail)
+    if RICH_AVAILABLE:
+        for source in sources:
+            try:
+                result = await bot.send_rich_message(
+                    chat_id=chat_id,
+                    rich_message=_player_rich_message(_clone_player_photo(source), caption),
+                    reply_markup=keyboard,
+                )
+                if result is None:
+                    return None
+                file_id = _player_photo_file_id(result)
+                _rich_player_chats.add(chat_id)
+                if file_id:
+                    _player_media_file_ids[chat_id] = file_id
+                return result
+            except BadRequest:
+                continue
     for source in sources:
         try:
-            result = await visual_call(
+            return await visual_call(
                 bot.send_photo, chat_id, photo=_clone_player_photo(source), caption=caption,
-                parse_mode=ParseMode.HTML, reply_markup=keyboard,
+                reply_markup=keyboard,
             )
-            if result is not None:
-                _player_media_file_ids.pop(chat_id, None)
-                _player_media_messages.pop(chat_id, None)
-                _rich_player_chats.discard(chat_id)
-            return result
         except BadRequest:
             continue
     if message is not None:
@@ -186,7 +209,6 @@ def stop_progress(chat_id, reset=True):
         for state in (_paused, _pause_started, _np_msg, _np_song, _np_start, _np_total, _loop_mode):
             state.pop(chat_id, None)
         _player_media_file_ids.pop(chat_id, None)
-        _player_media_messages.pop(chat_id, None)
         _rich_player_chats.discard(chat_id)
 
 
@@ -214,7 +236,6 @@ def _dot(elapsed: float, total: float) -> str:
 
 
 def _now_playing_caption(song: dict, elapsed: float=0, total: float=0, chat_id: int|None=None) -> str:
-    """Build Telegram HTML with explicit custom-emoji entities (not RichMessage text)."""
     from videl.core.queue import peek_next, queue_size
     title=short(str(song.get("title","Untitled track")),60)
     requester=str(song.get("requester","Community"))
@@ -224,27 +245,30 @@ def _now_playing_caption(song: dict, elapsed: float=0, total: float=0, chat_id: 
     kind="Video" if song.get("video") else "Audio"
     artist=str(song.get("artist") or song.get("uploader") or song.get("channel") or "").strip()
     from videl.core.audio_quality import audio_quality_label
-    metadata=[(_player_emoji_html("ios_symbols"),"Format",rich_esc(kind)),(_player_emoji_html("boseh_clock"),"Length",rich_esc(duration)),
-              (_player_emoji_html("ios_controls"),"Voice quality",rich_esc(audio_quality_label()))]
+    from videl.utils.premium_emojis import pe
+    metadata=[(pe("ios_symbols"),"Format",rich_esc(kind)),(pe("boseh_clock"),"Length",rich_esc(duration)),
+              (pe("ios_controls"),"Voice quality",rich_esc(audio_quality_label()))]
     if artist and artist.casefold()!=title.casefold():
-        metadata.append((_player_emoji_html("music2"),"Artist",rich_esc(short(artist,60))))
-    metadata.append((_player_emoji_html("boseh_person"),"Requested by",rich_esc(requester)))
+        metadata.append((pe("music2"),"Artist",rich_esc(short(artist,60))))
+    metadata.append((pe("boseh_person"),"Requested by",f"<b>{rich_esc(requester)}</b>"))
+    # Avoid HTML tables here: Telegram may flatten unsupported table markup in
+    # captions. Explicit line breaks keep every Premium Emoji label readable.
     metadata_lines="\n".join(f"{icon} <b>{label}</b> · {value}" for icon,label,value in metadata)
     parts=[
-        f"{_player_emoji_html('music')} <b>{state}</b>",
+        rich_heading(f"{pe('music')} {state}",level=2),
         f"<b>{rich_esc(title)}</b>",
         metadata_lines,
         f"<code>{_dot(elapsed,total)}</code>",
     ]
     if chat_id is not None:
+        loop=get_loop(chat_id)
         upcoming=peek_next(chat_id)
         if upcoming:
             next_title=rich_esc(short(str(upcoming.get("title","Untitled track")),48))
-            next_duration=rich_esc(str(upcoming.get("duration","Live"))[:12])
-            parts.append(f"{_player_emoji_html('ios_play')} <b>Up next</b> · {next_title} · {next_duration}")
+            parts.append(rich_details(f"{pe('ios_play')} Up next",f"<b>{next_title}</b> · {rich_esc(str(upcoming.get('duration','Live'))[:12])}"))
         queued=max(queue_size(chat_id)-1,0)
-        repeat={"off":"Off","one":"This track","all":"Queue"}.get(get_loop(chat_id),"Off")
-        parts.append(f"{_player_emoji_html('ios_folder')} <b>{queued}</b> upcoming · {_player_emoji_html('ios_repeat')} Repeat: <b>{repeat}</b>")
+        repeat={"off":"Off","one":"This track","all":"Queue"}.get(loop,"Off")
+        parts.append(rich_note(f"{pe('ios_folder')} <b>{queued}</b> upcoming · {pe('ios_repeat')} Repeat: <b>{repeat}</b>"))
     return "\n\n".join(parts)
 
 
@@ -275,17 +299,17 @@ async def refresh_np_ui(chat_id:int):
     cap=_now_playing_caption(song,elapsed,total,chat_id=chat_id); kb=_now_playing_kb(chat_id)
     try:
         if chat_id in _rich_player_chats:
-            # The poster is its own RichMessage; keep text on Telegram's native
-            # HTML/custom-emoji entity path during every progress edit.
+            photo_file_id = _player_media_file_ids.get(chat_id)
+            if not photo_file_id:
+                return
             await visual_call(
                 bot.edit_message_text,
                 chat_id=chat_id,
                 message_id=msg.id,
-                text=cap,
-                parse_mode=ParseMode.HTML,
+                rich_message=_player_rich_message(photo_file_id, cap),
                 reply_markup=kb,
             )
-        elif getattr(msg, "photo", None):
+        elif getattr(msg,"photo",None):
             await visual_call(bot.edit_message_caption,chat_id,msg.id,caption=cap,reply_markup=kb)
         else:
             await rich_edit(msg,cap,reply_markup=kb)
@@ -329,7 +353,6 @@ async def play_song(chat_id:int, message:Message, song:dict, *, advance=False, r
     from videl.core.queue import peek_current,get_queue,pop_current,add_to_queue
     async with lock(chat_id):
         previous_card = _np_msg.get(chat_id)
-        previous_media_card = _player_media_messages.get(chat_id)
         expected=peek_current(chat_id)
         tracks=get_queue(chat_id)
         if (advance and (len(tracks)<2 or tracks[1] is not song)) or (not advance and expected is not song):
@@ -432,8 +455,7 @@ async def play_song(chat_id:int, message:Message, song:dict, *, advance=False, r
                 photo=io.BytesIO(poster)
                 photo.name='videl-now-playing.jpg'
             pmsg=await _send_player_card(
-                chat_id, message, caption, kb, song=song, total=total,
-                poster=photo, thumbnail=thumb
+                chat_id, message, caption, kb, poster=photo, thumbnail=thumb
             )
         except Exception as error:
             LOGGER.warning('Player card unconfirmed after playback ack (%s); no resend',type(error).__name__)
@@ -442,9 +464,6 @@ async def play_song(chat_id:int, message:Message, song:dict, *, advance=False, r
             # this keeps the old controls available if Telegram rejects the new one.
             if previous_card is not None and not _same_message(previous_card, pmsg):
                 await _delete_message(previous_card)
-            current_media_card = _player_media_messages.get(chat_id)
-            if previous_media_card is not None and not _same_message(previous_media_card, current_media_card):
-                await _delete_message(previous_media_card)
             # Preserve the acknowledgement-time clock (UI delivery can be slow).
             _np_msg[chat_id]=pmsg
             _progress_tasks[chat_id]=asyncio.create_task(_update_progress(chat_id,pmsg,_np_start[chat_id],total,song))
