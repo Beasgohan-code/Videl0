@@ -10,7 +10,7 @@ from pytgcalls.types import MediaStream, VideoQuality
 import config
 from videl import LOGGER, bot, call_py
 from videl.utils.formatters import parse_dur, short
-from videl.utils.rich_ui import rich_edit, rich_esc, rich_heading, rich_kv_table, rich_note, rich_send, rich_details
+from videl.utils.rich_ui import RICH_AVAILABLE, rich_edit, rich_esc, rich_heading, rich_kv_table, rich_note, rich_send, rich_details
 from videl.utils.youtube import MediaDownloadError, resolve_stream
 
 _nf_pills = lambda: (
@@ -32,13 +32,144 @@ def _thumb_url(song: dict) -> str:
     return ""
 
 
-async def _send_player_card(chat_id, message, caption, keyboard, *, poster=None, thumbnail=None):
-    """Use the legacy photo-caption transport so Telegram parses Premium Emoji entities.
+_player_media_file_ids: dict[int, str] = {}
+_rich_player_chats: set[int] = set()
 
-    Keep the generated poster and exact card content; only use the thumbnail after
-    Telegram definitively rejects the poster upload. Caption edits then follow the
-    same native HTML entity path instead of RichMessage HTML.
-    """
+
+def _player_photo_file_id(message) -> str | None:
+    rich_message = getattr(message, "rich_message", None)
+    for block in getattr(rich_message, "blocks", []) or []:
+        photo = getattr(block, "photo", None)
+        file_id = getattr(photo, "file_id", None)
+        if file_id:
+            return str(file_id)
+    photos = getattr(message, "photo", None)
+    if photos:
+        photo = photos[-1] if isinstance(photos, (list, tuple)) else photos
+        file_id = getattr(photo, "file_id", None)
+        if file_id:
+            return str(file_id)
+    return None
+
+
+def _clone_player_photo(source):
+    if hasattr(source, "getvalue"):
+        import io
+        clone = io.BytesIO(source.getvalue())
+        clone.name = getattr(source, "name", "videl-now-playing.jpg")
+        return clone
+    return source
+
+
+def _player_custom_emoji(key: str):
+    from pyrogram.types import RichTextCustomEmoji
+    from videl.utils.premium_emojis import FALLBACK, PREMIUM_IDS, USE_PREMIUM
+
+    fallback = FALLBACK.get(key, "✨")
+    emoji_id = PREMIUM_IDS.get(key)
+    if USE_PREMIUM and emoji_id:
+        return RichTextCustomEmoji(str(emoji_id), fallback)
+    return fallback
+
+
+def _player_rich_message(song, elapsed, total, chat_id, photo):
+    """Build native RichMessage blocks so Premium Emoji IDs become Telegram entities."""
+    from pyrogram.types import (
+        InputMediaPhoto,
+        InputRichBlockBlockQuotation,
+        InputRichBlockDetails,
+        InputRichBlockParagraph,
+        InputRichBlockPhoto,
+        InputRichBlockSectionHeading,
+        InputRichMessage,
+        RichTextBold,
+        RichTextCode,
+    )
+
+    def bold(value):
+        return RichTextBold(str(value))
+
+    state = "Paused" if chat_id is not None and is_paused(chat_id) else "Now playing"
+    title = short(str(song.get("title", "Untitled track")), 60)
+    duration = str(song.get("duration", "Live"))
+    if total <= 0:
+        total = parse_dur(duration) or float(song.get("duration_seconds") or 0)
+    kind = "Video" if song.get("video") else "Audio"
+    artist = str(song.get("artist") or song.get("uploader") or song.get("channel") or "").strip()
+    from videl.core.audio_quality import audio_quality_label
+
+    blocks = [
+        InputRichBlockPhoto(InputMediaPhoto(photo)),
+        InputRichBlockSectionHeading(
+            [_player_custom_emoji("music"), f" {state}"], size=2
+        ),
+        InputRichBlockParagraph(bold(title)),
+    ]
+    metadata = []
+
+    def add_metadata(icon, label, value):
+        if metadata:
+            metadata.append("\n")
+        metadata.extend([_player_custom_emoji(icon), " ", bold(label), " · ", str(value)])
+
+    add_metadata("ios_symbols", "Format", kind)
+    add_metadata("boseh_clock", "Length", duration)
+    add_metadata("ios_controls", "Voice quality", audio_quality_label())
+    if artist and artist.casefold() != title.casefold():
+        add_metadata("music2", "Artist", short(artist, 60))
+    add_metadata("boseh_person", "Requested by", str(song.get("requester", "Community")))
+    blocks.append(InputRichBlockParagraph(metadata))
+    blocks.append(InputRichBlockParagraph(RichTextCode(_dot(elapsed, total))))
+
+    if chat_id is not None:
+        from videl.core.queue import peek_next, queue_size
+
+        upcoming = peek_next(chat_id)
+        if upcoming:
+            next_title = short(str(upcoming.get("title", "Untitled track")), 48)
+            next_duration = str(upcoming.get("duration", "Live"))[:12]
+            blocks.append(InputRichBlockDetails(
+                summary=[_player_custom_emoji("ios_play"), " Up next"],
+                blocks=[InputRichBlockParagraph([bold(next_title), " · ", next_duration])],
+            ))
+        repeat = {"off": "Off", "one": "This track", "all": "Queue"}.get(get_loop(chat_id), "Off")
+        queue_line = [
+            _player_custom_emoji("ios_folder"), " ",
+            bold(max(queue_size(chat_id) - 1, 0)), " upcoming · ",
+            _player_custom_emoji("ios_repeat"), " Repeat: ", bold(repeat),
+        ]
+        blocks.append(InputRichBlockBlockQuotation(
+            blocks=[InputRichBlockParagraph(queue_line)]
+        ))
+    return InputRichMessage(blocks=blocks)
+
+
+async def _send_player_card(chat_id, message, caption, keyboard, *, song, total, poster=None, thumbnail=None):
+    """Use RichMessage photo blocks with native custom-emoji entities; preserve the poster."""
+    if RICH_AVAILABLE:
+        sources = []
+        if poster is not None:
+            sources.append(poster)
+        if thumbnail and thumbnail != poster:
+            sources.append(thumbnail)
+        for source in sources:
+            try:
+                result = await bot.send_rich_message(
+                    chat_id=chat_id,
+                    rich_message=_player_rich_message(
+                        song, 0, total, chat_id, _clone_player_photo(source)
+                    ),
+                    reply_markup=keyboard,
+                )
+                if result is None:
+                    return None  # Never retry an unconfirmed send and risk a duplicate card.
+                file_id = _player_photo_file_id(result)
+                if file_id:
+                    _player_media_file_ids[chat_id] = file_id
+                    _rich_player_chats.add(chat_id)
+                return result
+            except BadRequest:
+                continue
     sources = []
     if poster is not None:
         sources.append(poster)
@@ -47,7 +178,7 @@ async def _send_player_card(chat_id, message, caption, keyboard, *, poster=None,
     for source in sources:
         try:
             return await visual_call(
-                bot.send_photo, chat_id, photo=source, caption=caption,
+                bot.send_photo, chat_id, photo=_clone_player_photo(source), caption=caption,
                 reply_markup=keyboard,
             )
         except BadRequest:
@@ -96,10 +227,14 @@ def stop_progress(chat_id, reset=True):
     if reset:
         for state in (_paused, _pause_started, _np_msg, _np_song, _np_start, _np_total, _loop_mode):
             state.pop(chat_id, None)
+        _player_media_file_ids.pop(chat_id, None)
+        _rich_player_chats.discard(chat_id)
 
 
 def start_progress(chat_id, message, total, song):
     stop_progress(chat_id, reset=False)
+    _player_media_file_ids.pop(chat_id, None)
+    _rich_player_chats.discard(chat_id)
     _pause_started.pop(chat_id, None)
     _paused[chat_id] = False
     if message is not None:_np_msg[chat_id] = message
@@ -182,7 +317,16 @@ async def refresh_np_ui(chat_id:int):
     elapsed=min(current_position(chat_id),total) if total else current_position(chat_id)
     cap=_now_playing_caption(song,elapsed,total,chat_id=chat_id); kb=_now_playing_kb(chat_id)
     try:
-        if getattr(msg,"photo",None):
+        photo_file_id = _player_media_file_ids.get(chat_id)
+        if chat_id in _rich_player_chats and photo_file_id:
+            await visual_call(
+                bot.edit_message_text,
+                chat_id=chat_id,
+                message_id=msg.id,
+                rich_message=_player_rich_message(song, elapsed, total, chat_id, photo_file_id),
+                reply_markup=kb,
+            )
+        elif getattr(msg, "photo", None):
             await visual_call(bot.edit_message_caption,chat_id,msg.id,caption=cap,reply_markup=kb)
         else:
             await rich_edit(msg,cap,reply_markup=kb)
@@ -328,7 +472,8 @@ async def play_song(chat_id:int, message:Message, song:dict, *, advance=False, r
                 photo=io.BytesIO(poster)
                 photo.name='videl-now-playing.jpg'
             pmsg=await _send_player_card(
-                chat_id, message, caption, kb, poster=photo, thumbnail=thumb
+                chat_id, message, caption, kb, song=song, total=total,
+                poster=photo, thumbnail=thumb
             )
         except Exception as error:
             LOGGER.warning('Player card unconfirmed after playback ack (%s); no resend',type(error).__name__)
