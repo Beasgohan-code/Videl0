@@ -294,7 +294,8 @@ def _screen(chat_id, section="home", *, query="", category="all", page=0, connec
                            or action.startswith("cmd:")
                            or action.startswith("reset:")
                            or action.startswith("resetconfirm:")
-                           or action.startswith("warn_threshold:"))
+                           or action.startswith("warn_threshold:")
+                           or action == "antispam:edit")
                 if action.startswith(("music_requests_enabled:", "music_approval_required:",
                                       "music_shuffle_enabled:", "welcome_enabled:",
                                       "goodbye_enabled:", "gemini_guardian_enabled:", "raid:")):
@@ -473,7 +474,7 @@ async def settings_callback(client,query):
     if connected_dm:
         dm_safe_keys = {None, "music_requests_enabled", "music_approval_required", "music_shuffle_enabled",
                         "welcome_enabled", "goodbye_enabled", "gemini_guardian_enabled", "raid_mode",
-                        "__warn_threshold_editor__",
+                        "__warn_threshold_editor__", "__antispam_editor__",
                         "__command_toggle__", "__reset_preview__", "__reset_confirm__",
                         "__session_cancel__"}
         if key not in dm_safe_keys:
@@ -515,7 +516,8 @@ async def settings_callback(client,query):
         return await query.answer("Choose a threshold and review the preview before saving.")
     if key=="__antispam_editor__":
         try:
-            notice=await _start_antispam_editor(client,chat_id,int(actor.id),expected_revision)
+            notice=await _start_antispam_editor(client,chat_id,int(actor.id),expected_revision,
+                                                interaction_chat_id=int(message.chat.id))
         except RuntimeError as error:
             return await query.answer(str(error),show_alert=True)
         except Exception:
@@ -889,11 +891,13 @@ async def _send_antispam_prompt(client, session) -> None:
     await engine.bind_prompt(session.token, chat_id=session.chat_id, actor_id=session.actor_id, message_id=prompt.id)
 
 
-async def _start_antispam_editor(client, chat_id: int, actor_id: int, revision: int) -> str:
+async def _start_antispam_editor(client, chat_id: int, actor_id: int, revision: int,
+                                *, interaction_chat_id: int | None = None) -> str:
+    interaction_chat_id = int(interaction_chat_id if interaction_chat_id is not None else chat_id)
     can_delete = await _bot_can_delete_messages(client, chat_id)
     enabled_choices = ("on", "off") if can_delete else ("off",)
     session = await engine.begin(
-        chat_id=chat_id, actor_id=actor_id, target_chat_id=chat_id, workflow="antispam",
+        chat_id=interaction_chat_id, actor_id=actor_id, target_chat_id=chat_id, workflow="antispam",
         revision=revision,
         steps=(Step("enabled", "Enable anti-flood?", kind="selection", choices=enabled_choices),
                Step("limit", "Message burst limit", kind="number", minimum=3, maximum=30),
@@ -903,7 +907,7 @@ async def _start_antispam_editor(client, chat_id: int, actor_id: int, revision: 
     try:
         await _send_antispam_prompt(client, session)
     except Exception:
-        await engine.cancel(session.token, chat_id=chat_id, actor_id=actor_id)
+        await engine.cancel(session.token, chat_id=interaction_chat_id, actor_id=actor_id)
         raise RuntimeError("Could not send anti-flood settings prompts; nothing changed.") from None
     return "Reply to each prompt. Settings remain unchanged until the preview is confirmed."
 
@@ -919,29 +923,57 @@ def _antispam_preview_keyboard(token: str):
 @bot.on_message(filters.incoming, group=3)
 async def antispam_settings_message(client, message):
     user = getattr(message, "from_user", None)
-    if not user or base.chat_kind(message) not in {"group", "supergroup"}:
+    if not user:
         return
-    chat_id, actor_id = int(message.chat.id), int(user.id)
-    session = await engine.for_owner(chat_id=chat_id, actor_id=actor_id, target_chat_id=chat_id)
+    kind = base.chat_kind(message)
+    interaction_chat_id, actor_id = int(message.chat.id), int(user.id)
+    connected_dm = kind == "private" and interaction_chat_id == actor_id
+    if kind not in {"group", "supergroup"} and not connected_dm:
+        return
+    session = await engine.for_owner(chat_id=interaction_chat_id, actor_id=actor_id)
     if session is None or session.workflow != "antispam":
         return
+    target_chat_id = int(session.target_chat_id)
+    if not connected_dm and target_chat_id != interaction_chat_id:
+        await engine.cancel(session.token, chat_id=interaction_chat_id, actor_id=actor_id)
+        return
+    if connected_dm:
+        from videl.app.connections import connected_target
+        _, connection_error = await connected_target(client, actor_id, expected_chat_id=target_chat_id)
+        if connection_error:
+            await engine.cancel(session.token, chat_id=interaction_chat_id, actor_id=actor_id)
+            await client.send_message(interaction_chat_id, connection_error)
+            return
+    try:
+        member = await client.get_chat_member(target_chat_id, actor_id)
+        status = str(getattr(getattr(member, "status", None), "value",
+                             getattr(member, "status", None))).casefold()
+        if status not in {"owner", "administrator"}:
+            await engine.cancel(session.token, chat_id=interaction_chat_id, actor_id=actor_id)
+            await client.send_message(interaction_chat_id, "Current group-admin permission could not be verified. Nothing was saved.")
+            return
+    except Exception:
+        await engine.cancel(session.token, chat_id=interaction_chat_id, actor_id=actor_id)
+        await client.send_message(interaction_chat_id, "Could not verify current group-admin status. Nothing was saved.")
+        return
+
     text = str(getattr(message, "text", "") or "").strip()
     command = text.split(maxsplit=1)[0].split("@", 1)[0].casefold() if text else ""
     if command == "/cancel":
-        await engine.cancel(session.token, chat_id=chat_id, actor_id=actor_id)
-        await client.send_message(chat_id, "Anti-flood editing cancelled. Nothing was saved.")
+        await engine.cancel(session.token, chat_id=interaction_chat_id, actor_id=actor_id)
+        await client.send_message(interaction_chat_id, "Anti-flood editing cancelled. Nothing was saved.")
         return
     if getattr(getattr(message, "reply_to_message", None), "id", None) != session.expected_message_id:
         return
     step = session.current_step
     value = text.casefold() if step and step.kind == "selection" else text
-    result = await engine.capture(session.token, chat_id=chat_id, actor_id=actor_id,
-                                  target_chat_id=chat_id,
+    result = await engine.capture(session.token, chat_id=interaction_chat_id, actor_id=actor_id,
+                                  target_chat_id=target_chat_id,
                                   reply_to_message_id=getattr(getattr(message, "reply_to_message", None), "id", None),
                                   value=value)
     if result.status == "invalid":
         await _send_antispam_prompt(client, result.session)
-        await client.send_message(chat_id, result.error or "That value is invalid.")
+        await client.send_message(interaction_chat_id, result.error or "That value is invalid.")
         return
     if result.status in {"stale", "expired", "unauthorized"}:
         return
@@ -952,7 +984,7 @@ async def antispam_settings_message(client, message):
         return
     enabled = result.session.values["enabled"] == "on"
     preview = await client.send_message(
-        chat_id,
+        interaction_chat_id,
         heading("Anti-flood settings preview", 3)
         + table([("Status", "On" if enabled else "Off"),
                  ("Burst limit", f"{result.session.values['limit']} messages"),
@@ -960,28 +992,57 @@ async def antispam_settings_message(client, message):
         + body("No settings have changed yet. Confirm to save these values."),
         reply_markup=_antispam_preview_keyboard(result.session.token),
     )
-    await engine.bind_prompt(result.session.token, chat_id=chat_id, actor_id=actor_id, message_id=preview.id)
+    await engine.bind_prompt(result.session.token, chat_id=interaction_chat_id,
+                             actor_id=actor_id, message_id=preview.id)
 
 
 @bot.on_callback_query(filters.regex(r"^antispam_edit:[A-Za-z0-9_-]{1,24}:(?:edit|save|cancel)$"))
 async def antispam_settings_callback(client, query):
     message = getattr(query, "message", None)
     actor = getattr(query, "from_user", None)
-    if message is None or actor is None or base.chat_kind(message) not in {"group", "supergroup"}:
-        await query.answer("Open anti-flood settings in the group.", show_alert=True)
+    if message is None or actor is None:
+        await query.answer("This anti-flood edit is unavailable.", show_alert=True)
+        return
+    kind = base.chat_kind(message)
+    interaction_chat_id, actor_id = int(message.chat.id), int(actor.id)
+    connected_dm = kind == "private" and interaction_chat_id == actor_id
+    if kind not in {"group", "supergroup"} and not connected_dm:
+        await query.answer("Open anti-flood settings in the connected group or your private chat.", show_alert=True)
         return
     _, token, action = str(query.data).split(":")
-    chat_id, actor_id = int(message.chat.id), int(actor.id)
-    session = await engine.get(token, chat_id=chat_id, actor_id=actor_id, target_chat_id=chat_id)
+    session = await engine.get(token, chat_id=interaction_chat_id, actor_id=actor_id)
     if session is None or session.workflow != "antispam":
         await query.answer("This anti-flood edit expired or belongs to another admin.", show_alert=True)
         return
+    target_chat_id = int(session.target_chat_id)
+    if not connected_dm and target_chat_id != interaction_chat_id:
+        await query.answer("This editor no longer matches the group.", show_alert=True)
+        return
+    if connected_dm:
+        from videl.app.connections import connected_target
+        _, connection_error = await connected_target(client, actor_id, expected_chat_id=target_chat_id)
+        if connection_error:
+            await engine.cancel(token, chat_id=interaction_chat_id, actor_id=actor_id)
+            await query.answer(connection_error, show_alert=True)
+            return
+    try:
+        member = await client.get_chat_member(target_chat_id, actor_id)
+        status = str(getattr(getattr(member, "status", None), "value",
+                             getattr(member, "status", None))).casefold()
+        if status not in {"owner", "administrator"}:
+            await engine.cancel(token, chat_id=interaction_chat_id, actor_id=actor_id)
+            await query.answer("Current group-admin permission could not be verified. Nothing was saved.", show_alert=True)
+            return
+    except Exception:
+        await engine.cancel(token, chat_id=interaction_chat_id, actor_id=actor_id)
+        await query.answer("Could not verify current group-admin status. Nothing was saved.", show_alert=True)
+        return
     if action == "cancel":
-        await engine.cancel(token, chat_id=chat_id, actor_id=actor_id)
+        await engine.cancel(token, chat_id=interaction_chat_id, actor_id=actor_id)
         await query.answer("Cancelled; nothing was saved.")
         return await rich_edit(message, heading("Anti-flood edit cancelled", 3) + body("No settings changed."), reply_markup=None)
     if action == "edit":
-        edited = await engine.edit_again(token, chat_id=chat_id, actor_id=actor_id, message_id=int(message.id))
+        edited = await engine.edit_again(token, chat_id=interaction_chat_id, actor_id=actor_id, message_id=int(message.id))
         if edited is None:
             await query.answer("This preview is no longer active.", show_alert=True)
             return
@@ -989,21 +1050,31 @@ async def antispam_settings_callback(client, query):
         try:
             await _send_antispam_prompt(client, edited)
         except Exception:
-            await engine.cancel(token, chat_id=chat_id, actor_id=actor_id)
+            await engine.cancel(token, chat_id=interaction_chat_id, actor_id=actor_id)
             await query.answer("Could not restart the editor; nothing was saved.", show_alert=True)
             return
         await query.answer("Reply to the prompts to edit again.")
         return
 
     rights_denial = {"reason": None}
-    async def authorize(target_chat_id: int, user_id: int) -> bool:
+    async def authorize(target: int, user_id: int) -> bool:
+        if target != target_chat_id or user_id != actor_id:
+            rights_denial["reason"] = "admin"
+            return False
         try:
-            member = await client.get_chat_member(target_chat_id, user_id)
-            status = str(getattr(getattr(member, "status", None), "value", getattr(member, "status", None))).casefold()
-            if status not in {"owner", "administrator"}:
+            if connected_dm:
+                from videl.app.connections import connected_target
+                _, error = await connected_target(client, user_id, expected_chat_id=target)
+                if error:
+                    rights_denial["reason"] = "admin"
+                    return False
+            member_now = await client.get_chat_member(target, user_id)
+            current_status = str(getattr(getattr(member_now, "status", None), "value",
+                                         getattr(member_now, "status", None))).casefold()
+            if current_status not in {"owner", "administrator"}:
                 rights_denial["reason"] = "admin"
                 return False
-            if session.values["enabled"] == "on" and not await _bot_can_delete_messages(client, target_chat_id):
+            if session.values["enabled"] == "on" and not await _bot_can_delete_messages(client, target):
                 rights_denial["reason"] = "bot_rights"
                 return False
             return True
@@ -1023,15 +1094,15 @@ async def antispam_settings_callback(client, query):
         except Exception:
             return False
 
-    outcome, _ = await engine.commit(token, chat_id=chat_id, actor_id=actor_id,
-                                     target_chat_id=chat_id, message_id=int(message.id),
+    outcome, _ = await engine.commit(token, chat_id=interaction_chat_id, actor_id=actor_id,
+                                     target_chat_id=target_chat_id, message_id=int(message.id),
                                      authorize=authorize, save=save)
     if outcome == "saved":
         from videl.plugins.locks import invalidate_antispam_config
-        invalidate_antispam_config(chat_id)
+        invalidate_antispam_config(target_chat_id)
         try:
             from videl.utils.audit import record_bot
-            await asyncio.to_thread(record_bot, chat_id, "settings", action="antispam_interactive_saved",
+            await asyncio.to_thread(record_bot, target_chat_id, "settings", action="antispam_interactive_saved",
                                     detail=f"enabled={session.values['enabled']}; limit={session.values['limit']}; window={session.values['window']}", actor=actor_id)
         except Exception:
             LOGGER.debug("Anti-flood audit write failed", exc_info=True)
@@ -1039,21 +1110,20 @@ async def antispam_settings_callback(client, query):
         return await rich_edit(message, heading("Anti-flood settings saved", 3) + body("The selected values are now active."), reply_markup=None)
     if outcome == "permission_denied":
         if rights_denial["reason"] == "bot_rights":
-            await engine.cancel(token, chat_id=chat_id, actor_id=actor_id)
+            await engine.cancel(token, chat_id=interaction_chat_id, actor_id=actor_id)
             await query.answer("Bot lacks Delete Messages permission. Anti-flood was not enabled.", show_alert=True)
             return await rich_edit(message, heading("Anti-flood not saved", 3) + body("No settings changed. Grant the bot Delete Messages permission and start again."), reply_markup=None)
-        await engine.cancel(token, chat_id=chat_id, actor_id=actor_id)
+        await engine.cancel(token, chat_id=interaction_chat_id, actor_id=actor_id)
         await query.answer("Current group-admin permission could not be verified. Nothing was saved.", show_alert=True)
         return await rich_edit(message, heading("Anti-flood not saved", 3) + body("Current admin status could not be verified."), reply_markup=None)
     if outcome == "save_failed":
-        # Distinguish a stale revision from storage unavailability without writing.
         from videl.utils.settings_store import SettingsConflict, check
         try:
-            check(chat_id, session.revision)
+            check(target_chat_id, session.revision)
         except SettingsConflict:
-            await engine.cancel(token, chat_id=chat_id, actor_id=actor_id)
+            await engine.cancel(token, chat_id=interaction_chat_id, actor_id=actor_id)
             await query.answer("Settings changed elsewhere. No anti-flood values were saved.", show_alert=True)
-            fresh = _screen(chat_id, "safety")
+            fresh = _screen(target_chat_id, "safety", connected_dm=connected_dm)
             return await rich_edit(message, fresh.html, reply_markup=fresh.keyboard)
         await query.answer("Could not save anti-flood settings; nothing was reported as saved. Retry from this preview.", show_alert=True)
         return
