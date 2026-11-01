@@ -528,13 +528,28 @@ async def ytpick_callback(_, cq: CallbackQuery) -> None:
         return
 
     _, choice, key = parts
+    message = getattr(cq, "message", None)
+    actor = getattr(cq, "from_user", None)
+    chat = getattr(message, "chat", None) if message is not None else None
+    try:
+        origin_chat, expected_uid = (int(value) for value in key.split(":"))
+    except (TypeError, ValueError):
+        await cq.answer("This track picker is invalid", show_alert=True)
+        return
+    if chat is None or int(getattr(chat, "id", 0) or 0) != origin_chat:
+        await cq.answer("This track picker belongs to another chat", show_alert=True)
+        return
+    if actor is None or int(getattr(actor, "id", 0) or 0) != expected_uid:
+        await cq.answer("Only the requester can choose", show_alert=True)
+        return
+
     cache = _search_cache.get(key)
 
     if choice == "cancel":
         _search_cache.pop(key, None)
         await cq.answer("Cancelled")
         try:
-            await cq.message.delete()
+            await message.delete()
         except Exception:
             pass
         return
@@ -547,13 +562,6 @@ async def ytpick_callback(_, cq: CallbackQuery) -> None:
         except Exception:
             pass
         return
-
-    # Only the requester can pick
-    expected_uid = int(key.split(":")[-1]) if ":" in key else 0
-    if cq.from_user and expected_uid and cq.from_user.id != expected_uid:
-        if cq.from_user.id != config.OWNER_ID:
-            await cq.answer("Only the requester can choose", show_alert=True)
-            return
 
     try:
         idx = int(choice)
