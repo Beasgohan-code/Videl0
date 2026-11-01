@@ -140,6 +140,37 @@ class ManagerAccessTests(unittest.TestCase):
         self.assertTrue(first["admin"] and second["admin"])
         self.assertEqual(len(self.api.calls), calls, "a second read must hit the cache")
 
+    def test_atomic_group_snapshot_replaces_removed_admins_and_promotes_new_admins(self):
+        # Populate old per-user entries first; the newer group snapshot must be
+        # authoritative for every subsequent cache lookup.
+        chat_admins._store(self.db, CHAT, ADMIN, "administrator", {"can_delete_messages": True})
+        chat_admins._store(self.db, CHAT, MEMBER, "member", {})
+        snapshot = chat_admins.replace_group_snapshot(self.db, CHAT, [
+            member(MEMBER, "administrator", can_delete_messages=True, can_send_messages=True),
+            member(BOT, "administrator", can_delete_messages=True),
+        ], member(BOT, "administrator", can_delete_messages=True))
+        self.assertEqual(snapshot["kind"], "group_snapshot")
+        self.assertEqual(self.db["chat_admins"].count_documents({"kind": "group_snapshot", "chat": CHAT}), 1)
+        calls = []
+        def fail_if_called(method, payload):
+            calls.append((method, payload))
+            raise AssertionError("fresh snapshot should avoid another Telegram query")
+        removed = chat_admins.check(self.db, fail_if_called, CHAT, ADMIN)
+        promoted = chat_admins.check(self.db, fail_if_called, CHAT, MEMBER)
+        self.assertFalse(removed["admin"])
+        self.assertTrue(promoted["admin"])
+        self.assertTrue(promoted["rights"]["can_delete_messages"])
+        self.assertEqual(calls, [])
+
+    def test_atomic_snapshot_failure_does_not_replace_the_previous_cache(self):
+        original = chat_admins.replace_group_snapshot(self.db, CHAT, [member(ADMIN, "administrator")])
+        collection = self.db["chat_admins"]
+        with patch.object(collection, "update_one", side_effect=RuntimeError("database unavailable")):
+            with self.assertRaises(RuntimeError):
+                chat_admins.replace_group_snapshot(self.db, CHAT, [member(MEMBER, "administrator")])
+        current = collection.find_one({"_id": original["_id"]})
+        self.assertEqual(current["admins"][0]["user"], ADMIN)
+
     def test_my_groups_lists_only_groups_where_the_person_administers(self):
         groups = chat_admins.my_groups(self.db, self.api, ADMIN, refresh=True)
         self.assertEqual([group["id"] for group in groups], [CHAT])

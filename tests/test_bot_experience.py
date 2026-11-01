@@ -165,7 +165,8 @@ class OnboardingTests(unittest.IsolatedAsyncioTestCase):
         from videl.app.routes import router
         self.assertNotIn('setup', router.commands)
         self.assertIn('/tagall [message]',group)
-        self.assertIn('one mention every 5 seconds',group)
+        self.assertIn('Telegram-visible admins in safe batches',group)
+        self.assertIn('/reload',group)
         self.assertIn('videl-music-hero.png',general._welcome_art())
 
     async def test_private_setup_never_queries_group_membership(self):

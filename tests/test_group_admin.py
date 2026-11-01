@@ -176,6 +176,20 @@ class InternalRoutesTests(unittest.TestCase):
         self.assertEqual(self.client.get("/internal/chats").status_code, 403)
         self.assertEqual(self.client.get("/internal/chats", headers=self.headers("wrong")).status_code, 403)
 
+    def test_chat_list_uses_fresh_permission_snapshot_over_stale_profile_cache(self):
+        self.db["mgmt_chat_info"].insert_one({"_id": CID, "title": "Test group", "type": "supergroup",
+                                             "available": True, "bot_admin": False})
+        from videl.utils.chat_admins import replace_group_snapshot
+        replace_group_snapshot(self.db, CID, [],
+                               {"status": "administrator", "can_delete_messages": True,
+                                "can_restrict_members": False},
+                               {"can_send_messages": True})
+        response = self.client.get("/internal/chats", headers=self.headers())
+        self.assertEqual(response.status_code, 200)
+        row = response.get_json()["chats"][0]
+        self.assertTrue(row["bot_admin"])
+        self.assertTrue(row["bot_rights"]["can_delete_messages"])
+
     def test_chat_list_returns_typed_settings_and_counts(self):
         response = self.client.get("/internal/chats", headers=self.headers())
         self.assertEqual(response.status_code, 200)

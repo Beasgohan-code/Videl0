@@ -785,6 +785,9 @@ def _internal_chats():
                 continue
         documents = {int(doc["chat_id"]): doc for doc in db["mgmt_chat_settings"].find({"chat_id": {"$in": int_ids}})}
         cached = {int(doc["_id"]): doc for doc in db["mgmt_chat_info"].find({"_id": {"$in": int_ids}})}
+        from videl.utils.chat_admins import bot_statuses as fresh_bot_statuses
+        permission_statuses = fresh_bot_statuses(db, int_ids)
+        live_bot_statuses = {}
         warns_by_chat, notes_by_chat, blacklist_by_chat, approved_by_chat, pending_by_chat = {}, {}, {}, {}, {}
         reports_by_chat = {}
         for name, target, extra in (
@@ -852,6 +855,7 @@ def _internal_chats():
                     if member and member.get("ok"):
                         status = str((member.get("result") or {}).get("status") or "")
                         bot_admin = status in {"creator", "administrator"}
+                        live_bot_statuses[chat_id] = bot_admin
             updated = {
                 "_id": chat_id,
                 "title": result.get("title") or result.get("username") or row["title"],
@@ -885,6 +889,12 @@ def _internal_chats():
                 "bot_admin": (cached.get(chat_id) or {}).get("bot_admin"),
             }
             row = dict(row)
+            if chat_id in live_bot_statuses:
+                row["bot_admin"] = live_bot_statuses[chat_id]
+            elif chat_id in permission_statuses:
+                row["bot_admin"] = permission_statuses[chat_id]["admin"]
+                row["bot_rights"] = permission_statuses[chat_id]["rights"]
+                row["permissions_checked_at"] = permission_statuses[chat_id]["checked_at"].isoformat()
             row["settings"] = settings_for(chat_id)
             try:
                 # The token a panel sends back so it cannot overwrite a newer
