@@ -16,6 +16,12 @@ CATEGORIES={
 }
 LABELS={'music':'Music & playlists','manage':'Groups & protection','tools':'Telegram tools','owner':'Owner operations','all':'All commands'}
 OWNER_NAMES={'apiinfo','emojiinfo','setbotphoto','setbotname','setbotdescription','setbotshortdescription','restart','voicequality','voicehealth','watchdog','dbcleanup','sysinfo','active','addsudo','delsudo','rmsudo','sudolist','gblock','gunblock','ublock','uunblock','blocklist'}
+# Some public-policy routes deliberately constrain the handler to the sender's
+# own DM. Keep discovery context aligned with those real handler boundaries.
+CONTEXT_HINT_OVERRIDES={
+    'feedback':'private', 'inbox':'private', 'mydata':'private',
+    'preferences':'private', 'reminders':'private', 'sudohelp':'private',
+}
 
 
 def source_paths():
@@ -87,8 +93,12 @@ def commands():
             source = 'videl/app/' + module.rsplit('.', 1)[-1] + '.py'
         else:
             source = module.replace('.', '/') + '.py'
+        context = CONTEXT_HINT_OVERRIDES.get(
+            command.name,
+            'private' if command.policy=='owner' else 'group' if command.policy in {'group','admin'} else 'chat',
+        )
         entries.append({'name':command.name,'category':command.category,
-            'context':'private' if command.policy=='owner' else 'group' if command.policy in {'group','admin'} else 'chat',
+            'context':context,
             'owner':command.policy=='owner','source':source,
             'handler':command.handler.__name__,'summary':command.summary})
     unique={}

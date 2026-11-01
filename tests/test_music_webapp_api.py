@@ -8,6 +8,7 @@ from flask import Flask
 
 from videl.api import eldian_routes
 from videl.api.eldian_routes import register_eldian_routes
+from videl.utils import youtube
 
 
 class MusicWebAppApiTests(unittest.TestCase):
@@ -26,7 +27,7 @@ class MusicWebAppApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 403)
 
     def test_search_validates_input_before_touching_downloader(self):
-        with patch("videl.utils.youtube.search_yt_multi", new=AsyncMock()) as search:
+        with patch.object(youtube, "search_yt_multi", new=AsyncMock()) as search:
             response = self.client.get("/internal/music/search?q=%20", headers=self.headers)
         self.assertEqual(response.status_code, 400)
         search.assert_not_awaited()
@@ -41,7 +42,7 @@ class MusicWebAppApiTests(unittest.TestCase):
             "url": "https://www.youtube.com/watch?v=abcdefghijk",
             "unsafe_extra": "never returned",
         }]
-        with patch("videl.utils.youtube.search_yt_multi", new=AsyncMock(return_value=rows)) as search:
+        with patch.object(youtube, "search_yt_multi", new=AsyncMock(return_value=rows)) as search:
             response = self.client.get("/internal/music/search?q=artist&limit=999", headers=self.headers)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json["tracks"][0]["video_id"], "abcdefghijk")
@@ -49,9 +50,30 @@ class MusicWebAppApiTests(unittest.TestCase):
         search.assert_awaited_once_with("artist", 8)
 
     def test_track_rejects_invalid_ids_before_downloading(self):
-        with patch("videl.utils.youtube.download_song", new=AsyncMock()) as download:
+        with patch.object(youtube, "download_song", new=AsyncMock()) as download:
             response = self.client.get("/internal/music/track/not-an-id", headers=self.headers)
         self.assertEqual(response.status_code, 400)
+        download.assert_not_awaited()
+
+    def test_internal_track_preparation_rejects_when_shared_media_slots_are_full(self):
+        class BusySlots:
+            def __init__(self):
+                self.blocking = None
+
+            def acquire(self, blocking=False):
+                self.blocking = blocking
+                return False
+
+            def release(self):
+                raise AssertionError("A slot that was not acquired must not be released")
+
+        slots = BusySlots()
+        with patch.object(eldian_routes, "_SLOTS", slots), patch.object(youtube, "download_song", new=AsyncMock()) as download:
+            response = self.client.get("/internal/music/track/abcdefghijk", headers=self.headers)
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.headers.get("Retry-After"), "5")
+        self.assertEqual(response.json["ok"], False)
+        self.assertFalse(slots.blocking)
         download.assert_not_awaited()
 
     def test_status_requires_internal_auth_and_valid_task_id(self):
@@ -75,7 +97,7 @@ class MusicWebAppApiTests(unittest.TestCase):
 
     def test_status_reports_preparation_failure_without_provider_details(self):
         task_id = "0123456789abcdef0123456789abcdef"
-        with patch("videl.utils.youtube.download_song", new=AsyncMock(return_value=None)):
+        with patch.object(youtube, "download_song", new=AsyncMock(return_value=None)):
             failed = self.client.get(f"/internal/music/track/abcdefghijk?task_id={task_id}", headers=self.headers)
         status = self.client.get(f"/internal/music/status?task_id={task_id}", headers=self.headers)
         self.assertEqual(failed.status_code, 502)
@@ -88,7 +110,7 @@ class MusicWebAppApiTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             track = Path(directory) / "track.mp3"
             track.write_bytes(b"prepared audio")
-            with patch("videl.utils.youtube.download_song", new=AsyncMock(return_value=str(track))):
+            with patch.object(youtube, "download_song", new=AsyncMock(return_value=str(track))):
                 response = self.client.get(f"/internal/music/track/abcdefghijk?task_id={task_id}", headers=self.headers)
             status = self.client.get(f"/internal/music/status?task_id={task_id}", headers=self.headers)
             self.assertEqual(response.status_code, 200)
@@ -101,7 +123,7 @@ class MusicWebAppApiTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             track = Path(directory) / "track.mp3"
             track.write_bytes(b"fake mp3 bytes")
-            with patch("videl.utils.youtube.download_song", new=AsyncMock(return_value=str(track))):
+            with patch.object(youtube, "download_song", new=AsyncMock(return_value=str(track))):
                 response = self.client.get("/internal/music/track/abcdefghijk", headers=self.headers)
             self.assertEqual(response.status_code, 200)
             self.assertIn("inline", response.headers["Content-Disposition"])
@@ -112,7 +134,7 @@ class MusicWebAppApiTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             track = Path(directory) / "track.mp3"
             track.write_bytes(b"0123456789")
-            with patch("videl.utils.youtube.download_song", new=AsyncMock(return_value=str(track))):
+            with patch.object(youtube, "download_song", new=AsyncMock(return_value=str(track))):
                 response = self.client.get("/internal/music/track/abcdefghijk", headers={**self.headers, "Range": "bytes=2-5"})
             self.assertEqual(response.status_code, 206)
             self.assertEqual(response.headers.get("Content-Range"), "bytes 2-5/10")

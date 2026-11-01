@@ -16,7 +16,6 @@ _SECRET_FIELDS = (
     "ELDIAN_API_KEY",
     "INTERNAL_SECRET",
     "API_HASH",
-    "GEMINI_API_KEY",
     "ANALYTICS_SALT",
 )
 

@@ -192,7 +192,7 @@ Music playback/queue controls, group moderation and MongoDB-backed rules are ret
 
 Event Rooms are available in the Arcade for Telegram group administrators. A current admin can create and announce an event, guests sign in to RSVP, optional music notes and a group-bound Arcade table can be attached, and the bot schedules 24-hour, 1-hour and 15-minute group reminders where those times remain in the future. Event creation re-checks the creator's Telegram admin status; linked game rooms must belong to the same host and group. Delivery still depends on the bot being present and allowed to send messages in that group.
 
-No AI or additional database integration is enabled. Do not infer working delivery, scheduling durability or production playback from UI labels or module counts. Live Telegram checks require the configured bot and appropriate chat permissions.
+No additional database integration is enabled. Do not infer working delivery, scheduling durability or production playback from UI labels or module counts. Live Telegram checks require the configured bot and appropriate chat permissions.
 
 ## Lean command surface
 

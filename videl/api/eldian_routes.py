@@ -261,8 +261,13 @@ def register_eldian_routes(app: Flask) -> None:
         task_id = str(request.args.get("task_id", "")) or None
         if task_id and not re.fullmatch(r"[A-Za-z0-9_-]{16,64}", task_id):
             return jsonify({"ok": False, "error": "Invalid task ID"}), 400
-        _set_music_task(task_id, video_id, "preparing")
+        # Share the existing two-slot budget with the public media API. This
+        # route uses the shared download directory, so unbounded parallel work
+        # can duplicate provider calls and collide on non-atomic local files.
+        if not _SLOTS.acquire(blocking=False):
+            return jsonify({"ok": False, "error": "Music preparation is busy; retry shortly"}), 503, {"Retry-After": "5"}
         try:
+            _set_music_task(task_id, video_id, "preparing")
             from videl.utils.youtube import download_song
             path = asyncio.run(asyncio.wait_for(download_song(video_id), timeout=300))
             if not path or not Path(path).is_file():
@@ -287,6 +292,8 @@ def register_eldian_routes(app: Flask) -> None:
             _set_music_task(task_id, video_id, "failed", error="Track preparation failed; check downloader configuration and service availability.")
             logger.warning("Music track preparation failed (%s)", type(exc).__name__)
             return jsonify({"ok": False, "error": "Track could not be prepared; check the downloader status"}), 502
+        finally:
+            _SLOTS.release()
 
     @app.get("/api/music")
     def music_contract():

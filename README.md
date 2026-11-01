@@ -18,7 +18,7 @@ Telegram music and group management with a separate, privacy-first creative weba
 - `vendor/richgram/`: licensed Richgram UI fork with safe rejection fallbacks.
 - `tests/`, `webapp/tests/`: offline behavior, authorization, rendering and browser regression tests.
 
-MongoDB is the only application database. No AI, Dropbox or Supabase integration is enabled. Post drafts and editable design state use the visitor's own browser storage, not a shared server collection.
+MongoDB is the only application database. Dropbox and Supabase integrations are not enabled. Post drafts and editable design state use the visitor's own browser storage, not a shared server collection.
 
 ## Deployment
 

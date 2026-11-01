@@ -5,7 +5,7 @@ This documents navigation and source coverage, not verified live Telegram behavi
 Aliases are listed separately; permissions remain enforced by the referenced handler.
 Owner operations are hidden from public `/commands` results.
 
-214 distinct command names.
+209 distinct command names.
 
 ## Music & playlists
 
@@ -98,8 +98,6 @@ Owner operations are hidden from public `/commands` results.
 | `/dwarn` | group | `videl/plugins/moderation.py::warn` |
 | `/faddadmin` | group | `videl/modules/federation.py::fpromote_cmd` |
 | `/faq` | group | `videl/plugins/faq.py::faq` |
-| `/faqassist` | group | `videl/plugins/guardian.py::faq_assist` |
-| `/faqcancel` | group | `videl/plugins/guardian.py::faq_cancel` |
 | `/fban` | chat | `videl/modules/federation.py::fban_cmd` |
 | `/fdemote` | group | `videl/modules/federation.py::fdemote_cmd` |
 | `/fedbanlist` | chat | `videl/modules/federation.py::fedbanlist_cmd` |
@@ -116,9 +114,6 @@ Owner operations are hidden from public `/commands` results.
 | `/greetings` | group | `videl/plugins/welcome.py::greeting_status` |
 | `/group` | group | `videl/modules/group_manager.py::group_command` |
 | `/groupview` | group | `videl/app/group_view.py::recording` |
-| `/guardianai` | group | `videl/plugins/guardian.py::guardian_ai` |
-| `/guardianjoin` | group | `videl/plugins/guardian.py::join_review_guide` |
-| `/guardiansummary` | group | `videl/plugins/guardian.py::guardian_summary` |
 | `/handoff` | group | `videl/plugins/moderation.py::handoff` |
 | `/invite` | group | `videl/plugins/group.py::invite` |
 | `/joinfed` | group | `videl/modules/federation.py::joinfed_cmd` |
@@ -138,6 +133,7 @@ Owner operations are hidden from public `/commands` results.
 | `/purge` | group | `videl/plugins/group.py::purge` |
 | `/raidmode` | group | `videl/plugins/welcome.py::raidmode` |
 | `/reason` | group | `videl/plugins/moderation.py::reason_templates` |
+| `/reload` | group | `videl/plugins/group.py::reload_group_permissions` |
 | `/report` | group | `videl/plugins/reports.py::report` |
 | `/reports` | group | `videl/plugins/reports.py::reports` |
 | `/resolve` | group | `videl/plugins/reports.py::resolve` |
@@ -146,7 +142,6 @@ Owner operations are hidden from public `/commands` results.
 | `/rmblacklist` | group | `videl/modules/blocklist.py::delbl_cmd` |
 | `/rulefeedback` | group | `videl/plugins/moderation.py::rule_feedback` |
 | `/rules` | group | `videl/plugins/welcome.py::rules` |
-| `/safetycheck` | group | `videl/plugins/guardian.py::safety_check` |
 | `/safetystats` | group | `videl/plugins/moderation.py::safety_stats` |
 | `/save` | group | `videl/plugins/notes.py::save` |
 | `/setcaptcha` | group | `videl/plugins/welcome.py::toggle_captcha` |
@@ -188,26 +183,26 @@ Owner operations are hidden from public `/commands` results.
 | `/back` | chat | `videl/plugins/afk.py::back` |
 | `/commands` | chat | `videl/plugins/help.py::directory_command` |
 | `/copy` | chat | `videl/modules/api_tools.py::copy_command` |
-| `/feedback` | chat | `videl/plugins/privacy.py::feedback` |
+| `/feedback` | private | `videl/plugins/privacy.py::feedback` |
 | `/forget` | chat | `videl/plugins/reminder.py::forget` |
 | `/help` | chat | `videl/plugins/help.py::help_command` |
 | `/id` | chat | `videl/plugins/tools.py::identifiers` |
-| `/inbox` | chat | `videl/app/group_view.py::private_recording` |
+| `/inbox` | private | `videl/app/group_view.py::private_recording` |
 | `/kang` | chat | `videl/plugins/stickers.py::kang` |
-| `/mydata` | chat | `videl/plugins/privacy.py::my_data` |
+| `/mydata` | private | `videl/plugins/privacy.py::my_data` |
 | `/ping` | chat | `videl/plugins/tools.py::ping` |
 | `/poll` | chat | `videl/plugins/group.py::poll` |
 | `/pollstop` | chat | `videl/modules/api_tools.py::stop_poll_command` |
-| `/preferences` | chat | `videl/plugins/preferences.py::preferences` |
+| `/preferences` | private | `videl/plugins/preferences.py::preferences` |
 | `/quiz` | chat | `videl/plugins/group.py::poll` |
 | `/react` | chat | `videl/modules/api_tools.py::react_command` |
 | `/remind` | chat | `videl/plugins/reminder.py::remind` |
-| `/reminders` | chat | `videl/plugins/reminder.py::reminders` |
+| `/reminders` | private | `videl/plugins/reminder.py::reminders` |
 | `/repo` | chat | `videl/plugins/tools.py::source` |
 | `/start` | chat | `videl/plugins/start.py::start` |
 | `/stats` | chat | `videl/plugins/group.py::stats` |
 | `/stickerid` | chat | `videl/plugins/group.py::sticker_id` |
-| `/sudohelp` | chat | `videl/plugins/sudo.py::sudo_help` |
+| `/sudohelp` | private | `videl/plugins/sudo.py::sudo_help` |
 | `/whois` | chat | `videl/plugins/tools.py::whois` |
 
 ## Owner operations
@@ -245,9 +240,15 @@ Owner operations are hidden from public `/commands` results.
 
 Run `/connect` in a group as a current Telegram administrator. From private chat, only these registered commands are routed to that saved group:
 
-`/adminlist`, `/admins`, `/appealresolve`, `/appeals`, `/ban`, `/banlist`, `/clear`, `/clearrules`, `/clearwarns`, `/dban`, `/delnote`, `/demote`, `/dkick`, `/end`, `/filter`, `/filters`, `/get`, `/goodbye`, `/greetings`, `/kick`, `/lock`, `/locks`, `/loop`, `/mute`, `/notes`, `/pause`, `/promote`, `/q`, `/queue`, `/replay`, `/reports`, `/resetplayer`, `/resolve`, `/resume`, `/rules`, `/save`, `/setcaptcha`, `/setdescription`, `/setgoodbye`, `/setrules`, `/settitle`, `/setwarnlimit`, `/setwelcome`, `/shuffle`, `/skip`, `/slowmode`, `/stop`, `/stopfilter`, `/tban`, `/tmute`, `/unban`, `/unlock`, `/unmute`, `/unwarn`, `/warn`, `/warnings`, `/welcome`
+`/adminlist`, `/admins`, `/appealresolve`, `/appeals`, `/ban`, `/banlist`, `/clear`, `/clearrules`, `/clearwarns`, `/dban`, `/delnote`, `/demote`, `/dkick`, `/end`, `/filter`, `/filters`, `/get`, `/goodbye`, `/greetings`, `/kick`, `/lock`, `/locks`, `/loop`, `/mute`, `/notes`, `/pause`, `/promote`, `/q`, `/queue`, `/replay`, `/reports`, `/resetplayer`, `/resolve`, `/resume`, `/rules`, `/save`, `/setcaptcha`, `/setdescription`, `/setgoodbye`, `/setrules`, `/settings`, `/settitle`, `/setwarnlimit`, `/setwelcome`, `/shuffle`, `/skip`, `/slowmode`, `/stop`, `/stopfilter`, `/tban`, `/tmute`, `/unban`, `/unlock`, `/unmute`, `/unwarn`, `/warn`, `/warnings`, `/welcome`
 
 Every routed request uses the server-stored group ID, preserves the actual Telegram user, rechecks current group-admin status, and removes private reply targets. Use a username or numeric Telegram ID instead of replying to a private message.
+
+## Command-specific behavior notes
+
+`/afklist [page]` is group-only and paginates the bot-wide list of active away statuses. The list is across chats, not a verified roster of the current group; only the status owner can clear their own status with `/back`.
+
+`/reminders` lists the sender’s pending reminders across chats and is available only in that sender’s private chat with Videl. Its Clear all button and `/forget all` cancel only that user’s pending reminders; reminders already being delivered or already sent are not recalled.
 
 ## UI and transport exceptions
 

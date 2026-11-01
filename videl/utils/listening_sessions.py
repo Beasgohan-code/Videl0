@@ -29,19 +29,60 @@ def parse_schedule(text: str, *, now: datetime | None = None) -> tuple[datetime,
     return due, title
 
 
-def schedule(db, chat_id: int, actor_id: int, due: datetime, title: str) -> str | None:
+def schedule(db, chat_id: int, actor_id: int, due: datetime, title: str,
+             *, identifier: str | None = None) -> str | None:
+    """Create one scheduled item, optionally idempotently for a staged caller.
+
+    The normal group flow retains random identifiers. Connected staged flows may
+    supply their engine token so an ambiguous insert response can be resolved by
+    reading the same record rather than creating a second schedule on retry.
+    """
     if db is None or int(chat_id) >= 0 or not isinstance(due, datetime) or due.tzinfo is None:
         return None
+    if not isinstance(title, str) or not title.strip() or len(title.strip()) > MAX_TITLE:
+        return None
+    if identifier is not None and (not isinstance(identifier, str) or not identifier.isascii()
+                                   or not identifier.isalnum() or not 8 <= len(identifier) <= 32):
+        return None
+    due_utc = due.astimezone(timezone.utc)
+    due_utc = due_utc.replace(microsecond=(due_utc.microsecond // 1000) * 1000)
+    clean_title = title.strip()
+
+    def exact_record(record):
+        if not record:
+            return False
+        stored_due = record.get("due_at")
+        if isinstance(stored_due, datetime):
+            stored_due = stored_due.replace(tzinfo=timezone.utc) if stored_due.tzinfo is None else stored_due.astimezone(timezone.utc)
+        return (int(record.get("chat_id", 0)) == int(chat_id)
+                and int(record.get("actor_id", 0)) == int(actor_id)
+                and stored_due == due_utc and record.get("title") == clean_title
+                and record.get("status") in {"scheduled", "sending", "sent"})
     try:
         col = db["listening_sessions"]
+        if identifier is not None:
+            existing_doc = col.find_one({"_id": identifier})
+            if existing_doc:
+                return identifier if exact_record(existing_doc) else None
         existing = col.count_documents({"chat_id": int(chat_id), "status": {"$in": ["scheduled", "sending"]}})
         if existing >= 5:
             return None
-        identifier = token_urlsafe(9).replace("-", "a").replace("_", "b")
-        col.insert_one({"_id": identifier, "chat_id": int(chat_id), "actor_id": int(actor_id),
-                        "due_at": due.astimezone(timezone.utc), "title": title.strip()[:MAX_TITLE],
-                        "status": "scheduled", "attempts": 0, "created_at": datetime.now(timezone.utc)})
-        return identifier
+        record_id = identifier or token_urlsafe(9).replace("-", "a").replace("_", "b")
+        try:
+            col.insert_one({"_id": record_id, "chat_id": int(chat_id), "actor_id": int(actor_id),
+                            "due_at": due_utc, "title": clean_title,
+                            "status": "scheduled", "attempts": 0, "created_at": datetime.now(timezone.utc)})
+            return record_id
+        except Exception:
+            # A transport/database exception may arrive after the insert was
+            # committed. Resolve only an exact matching identifier and payload.
+            if identifier is None:
+                return None
+            try:
+                persisted = col.find_one({"_id": record_id})
+            except Exception:
+                return None
+            return record_id if exact_record(persisted) else None
     except Exception:
         return None
 

@@ -23,6 +23,7 @@ import {
 import "../music/music.css";
 import { VyronCover } from "../music/VyronCover";
 import { VyronSeek } from "../music/VyronSeek";
+import { isCurrentMediaSource, LatestRequestGate, settleLatest } from "@/lib/latest-request";
 import { useStudio } from "../StudioProvider";
 
 type Track = {
@@ -54,6 +55,11 @@ export default function Music() {
   const miniDockRef = useRef<HTMLElement>(null);
   const theatreProgressRef = useRef<{ initialValue: { progress?: number } } | null>(null);
   const audio = useRef<HTMLAudioElement>(null);
+  const searchController = useRef<AbortController | null>(null);
+  const searchRequests = useRef(new LatestRequestGate());
+  const playbackRequests = useRef(new LatestRequestGate());
+  const activePlaybackSource = useRef("");
+  const activeDownloadTaskId = useRef("");
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Track[]>([]);
   const [queue, setQueue] = useState<Track[]>([]);
@@ -91,6 +97,21 @@ export default function Music() {
     if (audio.current) audio.current.volume = volume;
   }, [volume]);
 
+  useEffect(() => () => {
+    searchRequests.current.invalidate();
+    searchController.current?.abort();
+    searchController.current = null;
+    playbackRequests.current.invalidate();
+    activePlaybackSource.current = "";
+    activeDownloadTaskId.current = "";
+    const player = audio.current;
+    if (player) {
+      player.pause();
+      player.removeAttribute("src");
+      player.load();
+    }
+  }, []);
+
   useEffect(() => {
     if (!downloadTaskId || !loading) return;
     let stopped = false;
@@ -106,7 +127,7 @@ export default function Music() {
         const payload = await response.json();
         if (!response.ok || payload.ok !== true || !payload.task) throw new Error("status unavailable");
         const task = payload.task as DownloadTask;
-        if (stopped) return;
+        if (stopped || activeDownloadTaskId.current !== downloadTaskId) return;
         setDownloadTask(task);
         if (task.status === "failed") {
           setError(task.error || "Videl could not prepare this track. Check downloader configuration and retry.");
@@ -114,10 +135,10 @@ export default function Music() {
         }
         if (task.status === "ready") return;
       } catch {
-        if (!stopped && attempts >= 4) setDownloadTask({ status: "unavailable" });
+        if (!stopped && activeDownloadTaskId.current === downloadTaskId && attempts >= 4) setDownloadTask({ status: "unavailable" });
       }
-      if (!stopped && attempts < 120) timer = setTimeout(() => void poll(), 2500);
-      else if (!stopped && attempts >= 120) setDownloadTask({ status: "unavailable", error: "Preparation status timed out; playback may still finish." });
+      if (!stopped && activeDownloadTaskId.current === downloadTaskId && attempts < 120) timer = setTimeout(() => void poll(), 2500);
+      else if (!stopped && activeDownloadTaskId.current === downloadTaskId && attempts >= 120) setDownloadTask({ status: "unavailable", error: "Preparation status timed out; playback may still finish." });
     };
     void poll();
     return () => {
@@ -138,8 +159,11 @@ export default function Music() {
       }) : null;
       session.playbackState = playing ? "playing" : "paused";
       if (duration > 0) session.setPositionState({ duration, position: Math.min(time, duration), playbackRate: audio.current?.playbackRate || 1 });
-      session.setActionHandler("play", () => { void audio.current?.play().catch(() => {}); });
-      session.setActionHandler("pause", () => audio.current?.pause());
+      session.setActionHandler("play", () => {
+        const player = audio.current;
+        if (player) startPlayback(player, playbackRequests.current.begin());
+      });
+      session.setActionHandler("pause", pausePlayback);
       session.setActionHandler("nexttrack", () => playNext());
       session.setActionHandler("previoustrack", () => {
         if (audio.current) audio.current.currentTime = 0;
@@ -169,8 +193,7 @@ export default function Music() {
       if (target instanceof HTMLElement && (target.isContentEditable || target.closest("input,textarea,select,button,[role=button]"))) return;
       if (event.key === " " && current) {
         event.preventDefault();
-        if (playing) audio.current?.pause();
-        else void audio.current?.play().catch(() => setError("Tap play again to start audio."));
+        togglePlayback();
       } else if ((event.key === "ArrowLeft" || event.key === "ArrowRight") && current && duration > 0) {
         event.preventDefault();
         const next = Math.max(0, Math.min(duration, time + (event.key === "ArrowRight" ? 10 : -10)));
@@ -186,31 +209,79 @@ export default function Music() {
     event?.preventDefault();
     const value = query.trim();
     if (!value || value.length > 120) {
+      searchRequests.current.invalidate();
+      searchController.current?.abort();
+      searchController.current = null;
+      setSearching(false);
       setError("Type a song, artist, or YouTube link (up to 120 characters). ");
       return;
     }
+    const requestId = searchRequests.current.begin();
+    searchController.current?.abort();
+    const controller = new AbortController();
+    searchController.current = controller;
+    const timeout = setTimeout(() => controller.abort(), 28000);
     setLibraryView("discover");
     setSearching(true);
     setError("");
     setResults([]);
     try {
-      const response = await fetch(`/api/music/search?q=${encodeURIComponent(value)}`, {
-        cache: "no-store",
-        signal: AbortSignal.timeout(28000),
+      await settleLatest(searchRequests.current, requestId, async () => {
+        const response = await fetch(`/api/music/search?q=${encodeURIComponent(value)}`, {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        const payload = await response.json();
+        if (!response.ok || payload.ok !== true) throw new Error(payload.error || "Search is unavailable right now.");
+        return Array.isArray(payload.tracks) ? payload.tracks as Track[] : [];
+      }, {
+        onSuccess: setResults,
+        onError: (cause) => setError(
+          cause instanceof Error && cause.name === "AbortError"
+            ? "Search timed out. Try again."
+            : cause instanceof Error ? cause.message : "Could not search for tracks.",
+        ),
+        onFinally: () => setSearching(false),
       });
-      const payload = await response.json();
-      if (!response.ok || payload.ok !== true) throw new Error(payload.error || "Search is unavailable right now.");
-      setResults(Array.isArray(payload.tracks) ? payload.tracks : []);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not search for tracks.");
     } finally {
-      setSearching(false);
+      clearTimeout(timeout);
+      if (searchController.current === controller) searchController.current = null;
     }
+  }
+
+  function startPlayback(player: HTMLAudioElement, requestId: number) {
+    void settleLatest(playbackRequests.current, requestId, () => player.play(), {
+      onSuccess: () => setPlaying(true),
+      onError: () => {
+        setPlaying(false);
+        setLoading(false);
+        setError("The track could not start. Check Videl’s downloader status and try another result.");
+      },
+    });
+  }
+
+  function pausePlayback() {
+    playbackRequests.current.invalidate();
+    audio.current?.pause();
+    setPlaying(false);
+  }
+
+  function togglePlayback() {
+    const player = audio.current;
+    if (!player) return;
+    if (!player.paused) {
+      pausePlayback();
+      return;
+    }
+    startPlayback(player, playbackRequests.current.begin());
   }
 
   function playTrack(track: Track) {
     const player = audio.current;
     if (!player) return;
+    playbackRequests.current.invalidate();
+    player.pause();
+    setPlaying(false);
     setCurrent(track);
     setLibraryView("discover");
     setHistory((previous) => {
@@ -225,16 +296,14 @@ export default function Music() {
     const taskId = globalThis.crypto?.randomUUID
       ? globalThis.crypto.randomUUID().replaceAll("-", "")
       : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    activeDownloadTaskId.current = taskId;
     setDownloadTaskId(taskId);
     setDownloadTask({ status: "preparing" });
-    player.pause();
-    player.src = `/api/music/track/${encodeURIComponent(track.video_id)}?task_id=${encodeURIComponent(taskId)}`;
+    const source = `/api/music/track/${encodeURIComponent(track.video_id)}?task_id=${encodeURIComponent(taskId)}`;
+    activePlaybackSource.current = source;
+    player.src = source;
     player.load();
-    void player.play().then(() => setPlaying(true)).catch(() => {
-      setPlaying(false);
-      setLoading(false);
-      setError("The track could not start. Check Videl’s downloader status and try another result.");
-    });
+    startPlayback(player, playbackRequests.current.begin());
   }
 
   function playNext() {
@@ -381,18 +450,34 @@ export default function Music() {
       preload="none"
       onTimeUpdate={(event) => {
         const player = event.currentTarget;
+        if (!isCurrentMediaSource(player.currentSrc, activePlaybackSource.current, document.baseURI)) return;
         const position = player.currentTime || 0;
         if (theatreProgressRef.current && player.duration > 0) {
           theatreProgressRef.current.initialValue = { progress: Math.min(1, position / player.duration) };
         }
         setTime(position);
       }}
-      onDurationChange={(event) => setDuration(event.currentTarget.duration || 0)}
-      onCanPlay={() => setLoading(false)}
-      onPlay={() => { setPlaying(true); setLoading(false); }}
-      onPause={() => setPlaying(false)}
-      onEnded={playNext}
-      onError={() => { setLoading(false); setPlaying(false); if (current && downloadTask?.status !== "failed") setError("The browser could not play the prepared audio. Try another track or browser."); }}
+      onDurationChange={(event) => {
+        if (isCurrentMediaSource(event.currentTarget.currentSrc, activePlaybackSource.current, document.baseURI)) setDuration(event.currentTarget.duration || 0);
+      }}
+      onCanPlay={(event) => {
+        if (isCurrentMediaSource(event.currentTarget.currentSrc, activePlaybackSource.current, document.baseURI)) setLoading(false);
+      }}
+      onPlay={(event) => {
+        if (isCurrentMediaSource(event.currentTarget.currentSrc, activePlaybackSource.current, document.baseURI)) { setPlaying(true); setLoading(false); }
+      }}
+      onPause={(event) => {
+        if (isCurrentMediaSource(event.currentTarget.currentSrc, activePlaybackSource.current, document.baseURI)) setPlaying(false);
+      }}
+      onEnded={(event) => {
+        if (isCurrentMediaSource(event.currentTarget.currentSrc, activePlaybackSource.current, document.baseURI)) playNext();
+      }}
+      onError={(event) => {
+        if (!isCurrentMediaSource(event.currentTarget.currentSrc, activePlaybackSource.current, document.baseURI)) return;
+        setLoading(false);
+        setPlaying(false);
+        setError("The browser could not play the prepared audio. Try another track or browser.");
+      }}
     />
   );
 
@@ -401,7 +486,7 @@ export default function Music() {
           <button type="button" onClick={() => open("music")} className="h-11 w-11 shrink-0 overflow-hidden rounded-xl" aria-label="Open music player"><VyronCover track={current} className="h-full w-full" rounded={12}/></button>
           <button type="button" onClick={() => open("music")} className="min-w-0 flex-1 text-left"><span className="block truncate text-xs font-semibold text-white/90">{current.title}</span><span className="mt-1 block truncate text-[10px] text-white/45">{current.channel || "Videl Music"} · {playing ? "Playing" : loading ? "Loading" : "Paused"}</span></button>
           <label className="hidden w-28 items-center sm:flex" aria-label="Mini player seek"><input aria-label="Seek track" type="range" min={0} max={duration || 1} step={0.1} value={duration ? Math.min(time, duration) : 0} disabled={!duration} onChange={(event) => { const value = Number(event.target.value); if (audio.current) audio.current.currentTime = value; setTime(value); }} className="music-range w-full"/></label>
-          <button type="button" onClick={() => { if (!audio.current) return; if (playing) audio.current.pause(); else void audio.current.play().catch(() => setError("Tap play again to start audio.")); }} aria-label={playing ? "Pause track" : "Resume track"} className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-emerald-200 text-[#06201b]">{loading ? <LoaderCircle size={16} className="animate-spin"/> : playing ? <Pause size={16} fill="currentColor"/> : <Play size={16} fill="currentColor"/>}</button>
+          <button type="button" onClick={togglePlayback} aria-label={playing ? "Pause track" : "Resume track"} className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-emerald-200 text-[#06201b]">{loading ? <LoaderCircle size={16} className="animate-spin"/> : playing ? <Pause size={16} fill="currentColor"/> : <Play size={16} fill="currentColor"/>}</button>
           <button type="button" onClick={playNext} aria-label="Skip to next track" className="grid h-9 w-9 shrink-0 place-items-center rounded-xl text-white/60 hover:bg-white/10"><SkipForward size={17}/></button>
         </aside>, document.body,
       ) : null;
@@ -523,7 +608,7 @@ export default function Music() {
           </div>
           <div className="mt-2 flex items-center justify-center gap-5">
             <button onClick={() => { if (audio.current) audio.current.currentTime = 0; }} aria-label="Restart track" className="rounded-full p-2 text-white/45 hover:text-white"><SkipBack size={18} fill="currentColor" /></button>
-            <button onClick={() => { if (!audio.current) return; if (playing) audio.current.pause(); else void audio.current.play().catch(() => setError("Tap play again to start audio.")); }} disabled={!current || loading} aria-label={playing ? "Pause" : "Play"} className="grid h-12 w-12 place-items-center rounded-full bg-emerald-200 text-[#06201b] shadow-[0_5px_24px_rgba(110,231,183,.22)] transition hover:scale-105 disabled:opacity-40">
+            <button onClick={togglePlayback} disabled={!current || loading} aria-label={playing ? "Pause" : "Play"} className="grid h-12 w-12 place-items-center rounded-full bg-emerald-200 text-[#06201b] shadow-[0_5px_24px_rgba(110,231,183,.22)] transition hover:scale-105 disabled:opacity-40">
               {loading ? <LoaderCircle size={18} className="animate-spin" /> : playing ? <Pause size={18} fill="currentColor" /> : <Play size={18} fill="currentColor" className="ml-0.5" />}
             </button>
             <button onClick={playNext} aria-label="Play next track" className="rounded-full p-2 text-white/45 hover:text-white"><SkipForward size={18} fill="currentColor" /></button>

@@ -385,7 +385,10 @@ class PresentationTests(unittest.IsolatedAsyncioTestCase):
                 if isinstance(node,ast.ImportFrom) and node.module=='videl.utils.rich_ui':
                     self.assertFalse({alias.name for alias in node.names}&{'rich_send','rich_reply','rich_edit'},str(path))
         afk=Path('videl/plugins/afk.py').read_text()
-        self.assertIn('from videl.utils.command_ui import rich_reply',afk)
+        command_imports = {alias.name for node in ast.walk(ast.parse(afk))
+                           if isinstance(node, ast.ImportFrom) and node.module == 'videl.utils.command_ui'
+                           for alias in node.names}
+        self.assertTrue({'rich_reply', 'rich_edit', 'usage'} <= command_imports)
 
     def test_raw_text_delivery_is_reserved_for_user_payloads(self):
         allowed={('notes','filter_watcher'),('notes','send_note'),('welcome','welcome_handler'),

@@ -157,19 +157,30 @@ async def cplay_handler(_, message: Message) -> None:
         from videl.utils.formatters import fmt_time, short
 
         reply = message.reply_to_message
-        media = (
-            reply.video or reply.audio or reply.voice
-            or reply.video_note or reply.document
-        )
-        if not media and reply.document:
-            ok, _ = _is_playable_document(reply.document)
-            if not ok:
+        document = getattr(reply, "document", None)
+        document_video = False
+        if document is not None:
+            playable, document_video = _is_playable_document(document)
+            if not playable:
                 await rich_send(bot, group_id, rich_heading(" Unsupported file", level=3))
                 return
+        media = (
+            getattr(reply, "video", None) or getattr(reply, "audio", None)
+            or getattr(reply, "voice", None) or getattr(reply, "video_note", None)
+            or document
+        )
         if not media:
-            # fall through to query
+            # fall through to text query
             pass
         else:
+            file_size = int(getattr(media, "file_size", 0) or 0)
+            if file_size > _MAX_FILE_MB * 1024 * 1024:
+                await rich_send(
+                    bot, group_id,
+                    rich_heading(" File too large", level=3)
+                    + rich_note(f"Channel playback accepts media up to {_MAX_FILE_MB} MB."),
+                )
+                return
             pm = await rich_send(bot, group_id, rich_heading(" Channel play — downloading...", level=3))
             try:
                 fresh = await bot.get_messages(reply.chat.id, reply.id)
@@ -190,7 +201,10 @@ async def cplay_handler(_, message: Message) -> None:
                 )
                 return
 
-            is_video = force_video or bool(reply.video or reply.video_note)
+            if not fp:
+                await rich_edit(pm, rich_heading(" Download failed", level=3))
+                return
+            is_video = force_video or bool(reply.video or reply.video_note) or document_video
             name = getattr(target, "file_name", None) or "Media"
             if str(fp).lower().endswith(tuple(_VIDEO_EXTS)):
                 is_video = True
