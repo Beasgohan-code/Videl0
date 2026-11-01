@@ -327,12 +327,14 @@ def _screen(chat_id, section="home", *, query="", category="all", page=0, connec
                            or action.startswith("reset:")
                            or action.startswith("resetconfirm:")
                            or action.startswith("warn_threshold:")
+                           or action.startswith("warn_escalation:")
                            or action == "preset:save"
                            or action.startswith("preset:apply:")
                            or action.startswith("preset:delete:")
                            or action.startswith("approved:")
                            or action.startswith("filters:add")
                            or action == "session:schedule"
+                           or action.startswith("session:cancel:")
                            or action.startswith("blocklist:")
                            or action in {"antispam:edit", "captcha:edit", "welcome_text:edit",
                                          "goodbye_text:edit", "rules_text:edit", "rules_text:clear",
@@ -679,7 +681,7 @@ async def _settings_screen(client, chat_id, section="home", *, query="", categor
                    connected_dm=connected_dm, bot_can_delete_messages=can_delete)
 
 
-_PATTERN=r"^settings:-?[0-9]{1,20}:(?:tab:(?:home|music|welcome|safety|moderation|retention|blocklist|presets|sessions|automations|commands|more)|commands:(?:all|manage|music|tools):[0-9]{1,3}|filters:(?:add|manage)|cmd:[a-z][a-z0-9_]{0,31}:(?:on|off)|(?:music_requests_enabled|music_approval_required|welcome_enabled|goodbye_enabled|captcha_enabled|antispam|gemini_guardian_enabled|lock_[a-z_]+):(?:on|off)|antispam:edit|captcha:edit|welcome_text:edit|goodbye_text:edit|rules_text:(?:edit|clear)|welcome_media:(?:edit|clear)|welcome_buttons:edit|raid:(?:on|off)|warn_threshold:(?:edit|2|3|5|10)|warn_escalation:edit|retention:[a-z_]+:(?:30|90|180|365|off)|blocklist:(?:add:(?:track|artist)|remove:[1-9][0-9]?)|preset:(?:save|apply:[1-9][0-9]?|delete:[1-9][0-9]?)|session:(?:schedule|cancel:[A-Za-z0-9]+)|approved:(?:list|add|page:[0-9]{1,6}|remove:[1-9][0-9]{0,18})|reset:(?:music|welcome|safety|moderation|blocklist|presets)|resetconfirm:(?:music|welcome|safety|moderation|blocklist|presets):[a-f0-9]{12}|refresh):v[0-9]{1,12}$"
+_PATTERN=r"^settings:-?[0-9]{1,20}:(?:tab:(?:home|music|welcome|safety|moderation|retention|blocklist|presets|sessions|automations|commands|more)|commands:(?:all|manage|music|tools):[0-9]{1,3}|filters:(?:add|manage)|cmd:[a-z][a-z0-9_]{0,31}:(?:on|off)|(?:music_requests_enabled|music_approval_required|music_shuffle_enabled|welcome_enabled|goodbye_enabled|captcha_enabled|antispam|gemini_guardian_enabled|lock_[a-z_]+):(?:on|off)|antispam:edit|captcha:edit|welcome_text:edit|goodbye_text:edit|rules_text:(?:edit|clear)|welcome_media:(?:edit|clear)|welcome_buttons:edit|raid:(?:on|off)|warn_threshold:(?:edit|2|3|5|10)|warn_escalation:edit|retention:[a-z_]+:(?:30|90|180|365|off)|blocklist:(?:add:(?:track|artist)|remove:[1-9][0-9]?)|preset:(?:save|apply:[1-9][0-9]?|delete:[1-9][0-9]?)|session:(?:schedule|cancel:[A-Za-z0-9]+)|approved:(?:list|add|page:[0-9]{1,6}|remove:[1-9][0-9]{0,18})|reset:(?:music|welcome|safety|moderation|blocklist|presets)|resetconfirm:(?:music|welcome|safety|moderation|blocklist|presets):[a-f0-9]{12}|refresh):v[0-9]{1,12}$"
 @bot.on_callback_query(filters.regex(_PATTERN))
 async def settings_callback(client,query):
     message=getattr(query,"message",None); actor=getattr(query,"from_user",None)

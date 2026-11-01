@@ -77,6 +77,34 @@ class ConnectedSettingsDashboardTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(saved["revision"], 0)
         self.client.get_chat_member.assert_not_awaited()
 
+    async def test_music_shuffle_toggle_callback_is_registered_and_saves(self):
+        self.query.data = f"settings:{self.CHAT}:music_shuffle_enabled:on:v0"
+        with patch("videl.utils.db._db", self.db), \
+             patch("videl.app.connections.connected_target", new=AsyncMock(return_value=(
+                 SimpleNamespace(id=self.CHAT), None))), \
+             patch("videl.plugins.settings.rich_edit", new=AsyncMock()):
+            await settings.settings_callback(self.client, self.query)
+        saved = self.db["mgmt_chat_settings"].find_one({"chat_id": self.CHAT})
+        self.assertTrue(saved["music_shuffle_enabled"])
+        self.assertEqual(saved["revision"], 1)
+        self.assertEqual(self.query.answer.call_args.args[0], "Setting saved.")
+
+    async def test_connected_session_cancel_button_cancels_only_target_session(self):
+        from datetime import datetime, timezone
+        self.db["listening_sessions"].insert_one({"_id": "session-one", "chat_id": self.CHAT,
+            "status": "scheduled", "due_at": datetime.now(timezone.utc), "title": "Test"})
+        self.db["listening_sessions"].insert_one({"_id": "other-session", "chat_id": -100999,
+            "status": "scheduled", "due_at": datetime.now(timezone.utc), "title": "Other"})
+        self.query.data = f"settings:{self.CHAT}:session:cancel:session-one:v0"
+        with patch("videl.utils.db._db", self.db), \
+             patch("videl.app.connections.connected_target", new=AsyncMock(return_value=(
+                 SimpleNamespace(id=self.CHAT), None))), \
+             patch("videl.plugins.settings.rich_edit", new=AsyncMock()):
+            await settings.settings_callback(self.client, self.query)
+        self.assertEqual(self.db["listening_sessions"].find_one({"_id": "session-one"})["status"], "cancelled")
+        self.assertEqual(self.db["listening_sessions"].find_one({"_id": "other-session"})["status"], "scheduled")
+        self.assertEqual(self.query.answer.call_args.args[0], "Settings refreshed.")
+
     async def test_lock_enable_requires_method_specific_bot_rights(self):
         self.query.data = f"settings:{self.CHAT}:lock_links:on:v0"
         with patch("videl.utils.db._db", self.db), \
@@ -169,11 +197,15 @@ class ConnectedSettingsDashboardTests(unittest.IsolatedAsyncioTestCase):
             if key == "music_session_presets":
                 return [{"name": "Test", "loop": "off", "shuffle": False}]
             return original_get_setting(chat_id, key, default)
-        with patch("videl.plugins.settings._revision", return_value=0), patch("videl.plugins.settings.base.get_setting", side_effect=get_setting):
-            screens = [settings._screen(self.CHAT, section, connected_dm=True)
-                       for section in ("home", "music", "welcome", "safety", "moderation",
-                                       "retention", "blocklist", "presets", "sessions",
-                                       "automations", "commands", "more")]
+        with patch("videl.plugins.settings._revision", return_value=0), \
+             patch("videl.plugins.settings.base.get_setting", side_effect=get_setting), \
+             patch("videl.utils.listening_sessions.pending", return_value=[{"_id": "abc", "due_at": None, "title": "Test session"}]):
+            sections = ("home", "music", "welcome", "safety", "moderation", "retention",
+                        "blocklist", "presets", "sessions", "automations", "commands", "more")
+            screens = [settings._screen(self.CHAT, section, connected_dm=True) for section in sections]
+            group_screens = [settings._screen(self.CHAT, section, connected_dm=False) for section in sections]
+        group_callbacks = [button.callback_data for screen in group_screens
+                           for row in screen.keyboard.inline_keyboard for button in row if button.callback_data]
         callbacks = [button.callback_data for screen in screens
                      for row in screen.keyboard.inline_keyboard for button in row
                      if button.callback_data]
@@ -181,7 +213,9 @@ class ConnectedSettingsDashboardTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any(":preset:save:" in callback for callback in callbacks))
         self.assertTrue(any(":preset:apply:" in callback for callback in callbacks))
         self.assertTrue(any(":preset:delete:" in callback for callback in callbacks))
+        self.assertTrue(any(":music_shuffle_enabled:on:" in callback for callback in callbacks))
         self.assertTrue(any(":session:schedule:" in callback for callback in callbacks))
+        self.assertTrue(any(":session:cancel:" in callback for callback in callbacks))
         self.assertFalse(any(fragment in callback for callback in callbacks for fragment in unsupported))
         self.assertTrue(any(":welcome_text:edit:" in callback for callback in callbacks))
         self.assertTrue(any(":goodbye_text:edit:" in callback for callback in callbacks))
@@ -194,6 +228,10 @@ class ConnectedSettingsDashboardTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(any(":filters:manage:" in callback for callback in callbacks))
         self.assertTrue(any(":antispam:edit:" in callback for callback in callbacks))
         self.assertTrue(any(":warn_threshold:edit:" in callback for callback in callbacks))
+        self.assertTrue(any(":warn_escalation:edit:" in callback for callback in callbacks))
+        import re
+        self.assertTrue(all(re.fullmatch(settings._PATTERN, callback) for callback in callbacks))
+        self.assertTrue(all(re.fullmatch(settings._PATTERN, callback) for callback in group_callbacks))
         self.assertFalse(any(":retention:" in callback and ":tab:retention:" not in callback
                              for callback in callbacks))
         self.assertTrue(all(callback.endswith(":v0") for callback in callbacks))
