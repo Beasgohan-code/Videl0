@@ -114,9 +114,13 @@ def _screen(chat_id, section="home", *, query="", category="all", page=0):
             from videl.plugins.welcome import DEFAULT_WELCOME
             from videl.utils.welcome_checklist import safe_stored
             current=base.get_setting(chat_id,"welcome_message",DEFAULT_WELCOME)
+            goodbye=base.get_setting(chat_id,"goodbye_message","Goodbye {name}.")
+            rules=base.get_setting(chat_id,"rules",None)
             media=base.get_setting(chat_id,"welcome_media",None)
             links=safe_stored(base.get_setting(chat_id,"welcome_checklist",[]))
             rows.append(("Welcome text",base.escape(str(current)[:180])))
+            rows.append(("Goodbye text",base.escape(str(goodbye)[:180])))
+            rows.append(("Group rules",base.escape(str(rules)[:180]) if rules else "Not set"))
             rows.append(("Welcome media",base.escape(media.get("type","Unavailable")) if isinstance(media,dict) else "Not set"))
             rows.append(("Welcome buttons",base.escape(" · ".join(item["label"] for item in links)) if links else "No checklist links"))
         if section=="safety":
@@ -129,6 +133,10 @@ def _screen(chat_id, section="home", *, query="", category="all", page=0):
         markup += [_switch(chat_id,key,label,default) for label,key,default in fields]
         if section=="welcome":
             markup.append([button("Edit welcome text…",callback_data=f"settings:{chat_id}:welcome_text:edit",style="primary")])
+            markup.append([button("Edit goodbye text…",callback_data=f"settings:{chat_id}:goodbye_text:edit")])
+            markup.append([button("Edit group rules…",callback_data=f"settings:{chat_id}:rules_text:edit")])
+            if base.get_setting(chat_id,"rules",None):
+                markup.append([button("Clear group rules…",callback_data=f"settings:{chat_id}:rules_text:clear",style="danger")])
             markup.append([button("Set or replace welcome media…",callback_data=f"settings:{chat_id}:welcome_media:edit")])
             markup.append([button("Edit checklist buttons…",callback_data=f"settings:{chat_id}:welcome_buttons:edit")])
             if isinstance(base.get_setting(chat_id,"welcome_media",None),dict):
@@ -236,7 +244,7 @@ async def settings(ctx):
         return _screen(chat_id,"commands",query=query)
     return _screen(chat_id)
 
-_PATTERN=r"^settings:-?[0-9]{1,20}:(?:tab:(?:home|music|welcome|safety|moderation|retention|blocklist|presets|sessions|commands)|commands:(?:all|manage|music|tools):[0-9]{1,3}|cmd:[a-z][a-z0-9_]{0,31}:(?:on|off)|(?:music_requests_enabled|music_approval_required|welcome_enabled|goodbye_enabled|captcha_enabled|antispam|gemini_guardian_enabled|lock_[a-z_]+):(?:on|off)|welcome_text:edit|welcome_media:(?:edit|clear)|welcome_buttons:edit|raid:(?:on|off)|warn_threshold:(?:2|3|5|10)|retention:[a-z_]+:(?:30|90|180|365|off)|blocklist:(?:add:(?:track|artist)|remove:[1-9][0-9]?)|preset:(?:save|apply:[1-9][0-9]?|delete:[1-9][0-9]?)|session:(?:schedule|cancel:[A-Za-z0-9]+)|reset:(?:music|welcome|safety|moderation|blocklist|presets)|resetconfirm:(?:music|welcome|safety|moderation|blocklist|presets):[a-f0-9]{12}|refresh):v[0-9]{1,12}$"
+_PATTERN=r"^settings:-?[0-9]{1,20}:(?:tab:(?:home|music|welcome|safety|moderation|retention|blocklist|presets|sessions|commands)|commands:(?:all|manage|music|tools):[0-9]{1,3}|cmd:[a-z][a-z0-9_]{0,31}:(?:on|off)|(?:music_requests_enabled|music_approval_required|welcome_enabled|goodbye_enabled|captcha_enabled|antispam|gemini_guardian_enabled|lock_[a-z_]+):(?:on|off)|welcome_text:edit|goodbye_text:edit|rules_text:(?:edit|clear)|welcome_media:(?:edit|clear)|welcome_buttons:edit|raid:(?:on|off)|warn_threshold:(?:2|3|5|10)|retention:[a-z_]+:(?:30|90|180|365|off)|blocklist:(?:add:(?:track|artist)|remove:[1-9][0-9]?)|preset:(?:save|apply:[1-9][0-9]?|delete:[1-9][0-9]?)|session:(?:schedule|cancel:[A-Za-z0-9]+)|reset:(?:music|welcome|safety|moderation|blocklist|presets)|resetconfirm:(?:music|welcome|safety|moderation|blocklist|presets):[a-f0-9]{12}|refresh):v[0-9]{1,12}$"
 @bot.on_callback_query(filters.regex(_PATTERN))
 async def settings_callback(client,query):
     message=getattr(query,"message",None); actor=getattr(query,"from_user",None)
@@ -254,8 +262,8 @@ async def settings_callback(client,query):
             section,category,page="commands",parts[3],min(int(parts[4]),999)
         elif len(parts)==5 and parts[2]=="cmd" and parts[4] in {"on","off"}:
             key,value,section="__command_toggle__",(parts[3],parts[4]=="on"),"commands"
-        elif len(parts)==4 and parts[2] in {"welcome_text","welcome_media","welcome_buttons"} and parts[3] in {"edit","clear"}:
-            workflow={"welcome_text":"welcome_text","welcome_media":"welcome_media","welcome_buttons":"welcome_buttons"}[parts[2]]
+        elif len(parts)==4 and parts[2] in {"welcome_text","goodbye_text","rules_text","welcome_media","welcome_buttons"} and parts[3] in {"edit","clear"}:
+            workflow={"welcome_text":"welcome_text","goodbye_text":"goodbye_text","rules_text":"rules_text","welcome_media":"welcome_media","welcome_buttons":"welcome_buttons"}[parts[2]]
             key,value,section="__welcome_flow_start__",workflow,"welcome"
         elif len(parts)==4 and parts[2] in ({k for values in _TOGGLES.values() for _,k,_ in values}|_LOCK_KEYS) and parts[3] in {"on","off"}:
             key,value=parts[2],parts[3]=="on"; section="safety" if key in {"antispam", "gemini_guardian_enabled"} or key in _LOCK_KEYS else ("music" if key.startswith("music_") else "welcome")

@@ -39,7 +39,8 @@ class InteractiveWelcomeTelegramTests(unittest.IsolatedAsyncioTestCase):
         screen = settings._screen(self.CHAT, "welcome")
         rows = screen.keyboard.inline_keyboard
         button_data = [button.callback_data for row in rows for button in row if button.callback_data]
-        action = {"welcome_text": "welcome_text:edit", "welcome_media": "welcome_media:edit",
+        action = {"welcome_text": "welcome_text:edit", "goodbye_text": "goodbye_text:edit",
+                  "rules_text": "rules_text:edit", "welcome_media": "welcome_media:edit",
                   "welcome_buttons": "welcome_buttons:edit"}[workflow]
         self.assertIn(f"settings:{self.CHAT}:{action}:v{revision}", button_data)
         self.assertIn("Welcome text", screen.html)
@@ -205,6 +206,67 @@ class InteractiveWelcomeTelegramTests(unittest.IsolatedAsyncioTestCase):
                                                                  actor_id=self.ADMIN, target_chat_id=-1007654321))
         self.assertIsNotNone(await welcome._interaction_engine.get(other_group.token, chat_id=-1007654321,
                                                                      actor_id=self.ADMIN, target_chat_id=-1007654321))
+
+    async def test_goodbye_editor_validates_placeholders_previews_and_saves(self):
+        session = await self.start_workflow("goodbye_text")
+        await self.submit_text(session, "See you, {name} in {title}!")
+        self.assertEqual(self.client.send_message.await_args.args[1], "See you, Alex in Test Group!")
+        preview_session = await welcome._interaction_engine.get(session.token, chat_id=self.CHAT,
+                                                                   actor_id=self.ADMIN, target_chat_id=self.CHAT)
+        query = self.callback_for_session(preview_session, "save")
+        with patch.object(welcome, "rich_edit", new=AsyncMock()):
+            await welcome.welcome_edit_callback(self.client, query)
+        stored = self.db["mgmt_chat_settings"].find_one({"chat_id": self.CHAT})
+        self.assertEqual(stored["goodbye_message"], "See you, {name} in {title}!")
+        self.assertEqual(stored["revision"], 1)
+
+    async def test_goodbye_invalid_placeholder_and_cancel_do_not_save(self):
+        session = await self.start_workflow("goodbye_text")
+        await self.submit_text(session, "Goodbye {username}")
+        active = await welcome._interaction_engine.for_owner(chat_id=self.CHAT, actor_id=self.ADMIN, target_chat_id=self.CHAT)
+        self.assertEqual(active.phase, "input")
+        self.assertIn("Unsupported placeholder", self.client.send_message.await_args.args[1])
+        query = self.callback_for_session(active, "cancel")
+        with patch.object(welcome, "rich_edit", new=AsyncMock()):
+            await welcome.welcome_edit_callback(self.client, query)
+        self.assertIsNone(self.db["mgmt_chat_settings"].find_one({"chat_id": self.CHAT}))
+
+    async def test_rules_editor_saves_and_clear_requires_preview_confirmation(self):
+        session = await self.start_workflow("rules_text")
+        rules = "Be kind." + chr(10) + "No spam or scams."
+        await self.submit_text(session, rules)
+        preview = self.client.send_message.await_args.args[1]
+        self.assertIn("Be kind.", preview)
+        self.assertIn("No spam or scams.", preview)
+        preview_session = await welcome._interaction_engine.get(session.token, chat_id=self.CHAT,
+                                                                   actor_id=self.ADMIN, target_chat_id=self.CHAT)
+        query = self.callback_for_session(preview_session, "save")
+        with patch.object(welcome, "rich_edit", new=AsyncMock()):
+            await welcome.welcome_edit_callback(self.client, query)
+        stored = self.db["mgmt_chat_settings"].find_one({"chat_id": self.CHAT})
+        self.assertEqual(stored["rules"], rules)
+        self.assertEqual(stored["revision"], 1)
+
+        screen = settings._screen(self.CHAT, "welcome")
+        panel_callbacks = [button.callback_data for row in screen.keyboard.inline_keyboard for button in row if button.callback_data]
+        self.assertIn(f"settings:{self.CHAT}:rules_text:clear:v1", panel_callbacks)
+        self.callback("rules_text:clear", revision=1)
+        with patch("videl.plugins.settings.rich_edit", new=AsyncMock()):
+            await settings.settings_callback(self.client, self.query)
+        clear_session = await welcome._interaction_engine.for_owner(chat_id=self.CHAT, actor_id=self.ADMIN, target_chat_id=self.CHAT)
+        await self.submit_text(clear_session, "/clear")
+        self.assertIn("Current rules will be removed only if you save", self.client.send_message.await_args.args[1])
+        clear_controls = self.client.send_message.await_args.kwargs["reply_markup"].inline_keyboard[-1]
+        self.assertEqual(clear_controls[1].text, "Confirm clear")
+        self.assertEqual(clear_controls[1].style.value, "danger")
+        preview_session = await welcome._interaction_engine.get(clear_session.token, chat_id=self.CHAT,
+                                                                   actor_id=self.ADMIN, target_chat_id=self.CHAT)
+        query = self.callback_for_session(preview_session, "save")
+        with patch.object(welcome, "rich_edit", new=AsyncMock()):
+            await welcome.welcome_edit_callback(self.client, query)
+        stored = self.db["mgmt_chat_settings"].find_one({"chat_id": self.CHAT})
+        self.assertIsNone(stored["rules"])
+        self.assertEqual(stored["revision"], 2)
 
     async def test_media_is_previewed_saved_and_can_be_cleared(self):
         photo = SimpleNamespace(file_id="telegram-photo-file-id")

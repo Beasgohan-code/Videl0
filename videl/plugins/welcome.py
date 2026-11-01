@@ -73,7 +73,7 @@ def preview_welcome_template(template: str, chat) -> str:
 from videl.utils.interactive_settings import Step, engine as _interaction_engine
 
 _WELCOME_MEDIA_TYPES = ("photo", "video", "animation", "document", "audio", "voice")
-_WELCOME_WORKFLOWS = {"welcome_text", "welcome_media", "welcome_buttons"}
+_WELCOME_WORKFLOWS = {"welcome_text", "goodbye_text", "rules_text", "welcome_media", "welcome_buttons"}
 
 
 def _welcome_markup(chat_id: int, links=None):
@@ -87,12 +87,14 @@ def _welcome_markup(chat_id: int, links=None):
     return InlineKeyboardMarkup(rows) if rows else None
 
 
-def _preview_markup(chat_id: int, token: str, links=None) -> InlineKeyboardMarkup:
-    existing = _welcome_markup(chat_id, links)
+def _preview_markup(chat_id: int, token: str, links=None, *, include_links: bool = True,
+                    destructive: bool = False) -> InlineKeyboardMarkup:
+    existing = _welcome_markup(chat_id, links) if include_links else None
     rows = [list(row) for row in existing.inline_keyboard] if existing else []
     rows.append([
         button("Edit Again", callback_data=f"welcome_edit:{token}:edit"),
-        button("Save", callback_data=f"welcome_edit:{token}:save", style="primary"),
+        button("Confirm clear" if destructive else "Save", callback_data=f"welcome_edit:{token}:save",
+               style="danger" if destructive else "primary"),
         button("Cancel", callback_data=f"welcome_edit:{token}:cancel", style="danger"),
     ])
     return InlineKeyboardMarkup(rows)
@@ -125,6 +127,16 @@ async def start_welcome_workflow(client, chat_id: int, actor_id: int, revision: 
             "<code>{name}</code>, <code>{id}</code>, <code>{title}</code>, <code>{mention}</code>. "
             "Send <code>/cancel</code> to stop."
         )
+    elif workflow == "goodbye_text":
+        step = Step("goodbye_message", "Send goodbye text", max_length=1000)
+        prompt_text = (
+            "Reply with the goodbye text (up to 1,000 characters). Supported placeholders: "
+            "<code>{name}</code>, <code>{id}</code>, <code>{title}</code>, <code>{mention}</code>. "
+            "Send <code>/cancel</code> to stop."
+        )
+    elif workflow == "rules_text":
+        step = Step("rules", "Send group rules", max_length=2000)
+        prompt_text = "Reply with the group rules (up to 2,000 characters). Send <code>/clear</code> to clear them after preview, or <code>/cancel</code> to stop."
     elif workflow == "welcome_media":
         step = Step("welcome_media", "Send supported media", kind="media", required=False)
         prompt_text = (
@@ -155,6 +167,8 @@ async def _send_welcome_prompt(client, session) -> None:
     workflow = session.workflow
     prompt_text = {
         "welcome_text": "Reply with welcome text using only {name}, {id}, {title}, or {mention}. Send /cancel to stop.",
+        "goodbye_text": "Reply with goodbye text using only {name}, {id}, {title}, or {mention}. Send /cancel to stop.",
+        "rules_text": "Reply with group rules (up to 2,000 characters); /clear clears rules after preview. Send /cancel to stop.",
         "welcome_media": "Reply with a photo, video, animation, document, audio, voice message, or /clear to remove media. Send /cancel to stop.",
         "welcome_buttons": "Reply with up to four HTTPS buttons as Label | https://example.com, one per line; /clear removes checklist links. Send /cancel to stop.",
     }.get(workflow)
@@ -181,13 +195,15 @@ async def welcome_edit_message(client, message) -> None:
     if getattr(getattr(message, "reply_to_message", None), "id", None) != session.expected_message_id:
         return
 
-    if session.workflow == "welcome_text":
+    if session.workflow in {"welcome_text", "goodbye_text"}:
         try:
             value = validate_welcome_template(text)
         except ValueError as error:
             await _send_welcome_prompt(client, session)
             await client.send_message(chat_id, str(error))
             return
+    elif session.workflow == "rules_text":
+        value = "/clear" if command == "/clear" else text
     elif session.workflow == "welcome_media":
         value = None if command == "/clear" else _media_from_message(message)
         if value is None and command != "/clear":
@@ -225,15 +241,32 @@ async def welcome_edit_message(client, message) -> None:
         from videl.utils.welcome_checklist import safe_stored, validate
         current_links = safe_stored(base.get_setting(chat_id, "welcome_checklist", []))
         template, media, links = current_template, current_media, current_links
+        include_links, destructive = True, False
         if result.session.workflow == "welcome_text":
             template = result.session.values["welcome_message"]
+        elif result.session.workflow == "goodbye_text":
+            template = result.session.values["goodbye_message"]
+            media, links, include_links = None, [], False
+        elif result.session.workflow == "rules_text":
+            raw_rules = result.session.values["rules"]
+            from videl.plugins.base import body, escape, heading
+            if raw_rules == "/clear":
+                destructive = True
+                old_rules = base.get_setting(chat_id, "rules", None)
+                rendered = heading("Clear group rules?", 3) + body("Current rules will be removed only if you save this preview." if old_rules else "No rules are currently saved.")
+            else:
+                rendered = heading("Group rules preview", 3) + body(escape(raw_rules))
+            media, links, include_links = None, [], False
         elif result.session.workflow == "welcome_media":
             media = result.session.values["welcome_media"]
-        else:
+            destructive = media is None
+        elif result.session.workflow == "welcome_buttons":
             raw_links = result.session.values["welcome_checklist"]
             links = [] if raw_links == "/clear" else validate(raw_links)
-        rendered = preview_welcome_template(template, message.chat)
-        markup = _preview_markup(chat_id, result.session.token, links)
+            destructive = raw_links == "/clear"
+        if result.session.workflow != "rules_text":
+            rendered = preview_welcome_template(template, message.chat)
+        markup = _preview_markup(chat_id, result.session.token, links, include_links=include_links, destructive=destructive)
         if media:
             method = getattr(client, f"send_{media['type']}", None)
             if method is None:
@@ -286,6 +319,8 @@ async def welcome_edit_callback(client, query: CallbackQuery) -> None:
 
     field_by_workflow = {
         "welcome_text": "welcome_message",
+        "goodbye_text": "goodbye_message",
+        "rules_text": "rules",
         "welcome_media": "welcome_media",
         "welcome_buttons": "welcome_checklist",
     }
@@ -304,6 +339,8 @@ async def welcome_edit_callback(client, query: CallbackQuery) -> None:
         if snapshot.workflow == "welcome_buttons":
             from videl.utils.welcome_checklist import validate
             value = [] if value == "/clear" else validate(value)
+        elif snapshot.workflow == "rules_text" and value == "/clear":
+            value = None
         try:
             await asyncio.to_thread(write, snapshot.target_chat_id,
                                     {field_by_workflow[snapshot.workflow]: value}, snapshot.revision)
@@ -318,9 +355,15 @@ async def welcome_edit_callback(client, query: CallbackQuery) -> None:
         token, chat_id=chat_id, actor_id=actor_id, target_chat_id=chat_id,
         message_id=int(message.id), authorize=authorize, save=save,
     )
-    labels = {"welcome_text": "Welcome text", "welcome_media": "Welcome media", "welcome_buttons": "Welcome checklist buttons"}
+    labels = {"welcome_text": "Welcome text", "goodbye_text": "Goodbye text", "rules_text": "Group rules", "welcome_media": "Welcome media", "welcome_buttons": "Welcome checklist buttons"}
     label = labels[session.workflow]
     if outcome == "saved":
+        try:
+            from videl.utils.audit import record_bot
+            await asyncio.to_thread(record_bot, chat_id, "settings", action=f"{session.workflow}_saved",
+                                    detail="interactive settings value updated", actor=actor_id)
+        except Exception:
+            LOGGER.debug("Interactive Welcome audit write failed", exc_info=True)
         await query.answer(f"{label} saved.")
         await rich_edit(message, heading(f"{label} saved", 3)
                         + body("The new configuration is stored. Delivery still follows the current welcome-enabled setting."),
