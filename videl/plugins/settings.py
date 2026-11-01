@@ -155,10 +155,10 @@ def _screen(chat_id, section="home", *, query="", category="all", page=0):
             raid=base.get_setting(chat_id,"raid_mode",{}); enabled=bool(raid.get("enabled")) if isinstance(raid,dict) else False
             markup.append([button("Raid mode"),button("On",callback_data=f"settings:{chat_id}:raid:on",style="success" if enabled else None),button("Off",callback_data=f"settings:{chat_id}:raid:off",style="danger" if not enabled else None)])
     elif section=="moderation":
-        try: threshold=int(base.get_setting(chat_id,"warn_threshold",3) or 3)
-        except (TypeError,ValueError): threshold=3
-        text=heading("Moderation",3)+body("Choose the active-warning threshold. The configured escalation action is unchanged.")+table([("Warning threshold",str(threshold))])
-        markup.append([button(f"{n} warnings",callback_data=f"settings:{chat_id}:warn_threshold:{n}",style="success" if n==threshold else None) for n in (2,3,5,10)])
+        threshold = _saved_warn_threshold(chat_id)
+        display = "Unavailable" if threshold is None else base.escape(str(threshold))
+        text=heading("Moderation",3)+body("Choose the active-warning threshold. The configured escalation action is unchanged.")+table([("Warning threshold",display)])
+        markup.append([button("Edit warning threshold…",callback_data=f"settings:{chat_id}:warn_threshold:edit",style="primary")])
     elif section=="retention":
         from videl.utils.retention import ALLOWED_DAYS,CATEGORIES,normalize
         policy=normalize(base.get_setting(chat_id,"data_retention",{})); rows=[]
@@ -251,7 +251,97 @@ async def settings(ctx):
         return _screen(chat_id,"commands",query=query)
     return _screen(chat_id)
 
-_PATTERN=r"^settings:-?[0-9]{1,20}:(?:tab:(?:home|music|welcome|safety|moderation|retention|blocklist|presets|sessions|commands)|commands:(?:all|manage|music|tools):[0-9]{1,3}|cmd:[a-z][a-z0-9_]{0,31}:(?:on|off)|(?:music_requests_enabled|music_approval_required|welcome_enabled|goodbye_enabled|captcha_enabled|antispam|gemini_guardian_enabled|lock_[a-z_]+):(?:on|off)|antispam:edit|captcha:edit|welcome_text:edit|goodbye_text:edit|rules_text:(?:edit|clear)|welcome_media:(?:edit|clear)|welcome_buttons:edit|raid:(?:on|off)|warn_threshold:(?:2|3|5|10)|retention:[a-z_]+:(?:30|90|180|365|off)|blocklist:(?:add:(?:track|artist)|remove:[1-9][0-9]?)|preset:(?:save|apply:[1-9][0-9]?|delete:[1-9][0-9]?)|session:(?:schedule|cancel:[A-Za-z0-9]+)|reset:(?:music|welcome|safety|moderation|blocklist|presets)|resetconfirm:(?:music|welcome|safety|moderation|blocklist|presets):[a-f0-9]{12}|refresh):v[0-9]{1,12}$"
+_WARN_THRESHOLD_VALUES = tuple(str(value) for value in range(1, 11))
+
+
+def _saved_warn_threshold(chat_id):
+    collection = base.collection(base.SETTINGS_COLLECTION)
+    if collection is None:
+        return None
+    try:
+        document = collection.find_one({"chat_id": int(chat_id)})
+    except Exception:
+        return None
+    if not document:
+        return 3
+    value = document.get("warn_threshold", 3)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return str(value)[:32]
+
+
+_WARN_CALLBACK = r"^warn_threshold_edit:[A-Za-z0-9_-]{1,24}:(?:pick:(?:[1-9]|10)|edit|save|cancel|back)$"
+
+
+def _warn_threshold_selection(session):
+    current = session.values.get("saved_value")
+    rows = []
+    values = _WARN_THRESHOLD_VALUES
+    for start in (0, 5):
+        rows.append([button(f"{value} warnings" + (" · current" if str(current) == value else ""),
+                            callback_data=f"warn_threshold_edit:{session.token}:pick:{value}",
+                            style="success" if str(current) == value else None)
+                     for value in values[start:start + 5]])
+    rows.append([button("Cancel", callback_data=f"warn_threshold_edit:{session.token}:cancel", style="danger"),
+                 button("Back", callback_data=f"warn_threshold_edit:{session.token}:back")])
+    return InlineKeyboardMarkup(rows)
+
+
+def _warn_threshold_preview(session):
+    value = int(session.values["warn_threshold"])
+    previous = session.values.get("saved_value", "Unknown")
+    previous_display = "Unavailable" if previous is None else base.escape(str(previous))
+    text = (heading("Warning threshold preview", 3)
+            + table([("Currently saved", previous_display), ("New threshold", f"{value} active warnings")])
+            + body("No settings have changed yet. Saving updates only the warning threshold; the existing escalation behavior is unchanged."))
+    keyboard = InlineKeyboardMarkup([
+        [button("Save", callback_data=f"warn_threshold_edit:{session.token}:save", style="primary"),
+         button("Edit Again", callback_data=f"warn_threshold_edit:{session.token}:edit")],
+        [button("Cancel", callback_data=f"warn_threshold_edit:{session.token}:cancel", style="danger"),
+         button("Back", callback_data=f"warn_threshold_edit:{session.token}:back")],
+    ])
+    return Screen(text, keyboard)
+
+
+def _warn_threshold_selection_screen(session):
+    saved = session.values.get("saved_value", "Unknown")
+    current = "Unavailable" if saved is None else base.escape(str(saved))
+    text = (heading("Warning threshold", 3)
+            + body(f"Currently saved: <b>{current}</b> active warnings.")
+            + body("Choose a value from 1 to 10. You will review a preview before anything is saved."))
+    return Screen(text, _warn_threshold_selection(session))
+
+
+async def _start_warn_threshold_editor(message, chat_id: int, actor_id: int, revision: int, initial=None):
+    current = _saved_warn_threshold(chat_id)
+    session = await engine.begin(
+        chat_id=chat_id, actor_id=actor_id, target_chat_id=chat_id,
+        workflow="warn_threshold", revision=revision,
+        steps=(Step("warn_threshold", "Warning threshold", kind="selection",
+                    choices=_WARN_THRESHOLD_VALUES),), timeout_seconds=600,
+    )
+    session.values["saved_value"] = current
+    try:
+        if initial is None:
+            screen = _warn_threshold_selection_screen(session)
+        else:
+            await engine.bind_prompt(session.token, chat_id=chat_id, actor_id=actor_id, message_id=int(message.id))
+            captured = await engine.capture(session.token, chat_id=chat_id, actor_id=actor_id,
+                                            target_chat_id=chat_id, reply_to_message_id=int(message.id),
+                                            value=str(initial))
+            if captured.status != "preview":
+                raise ValueError("Invalid warning threshold selection.")
+            screen = _warn_threshold_preview(captured.session)
+        await rich_edit(message, screen.html, reply_markup=screen.keyboard)
+        await engine.bind_prompt(session.token, chat_id=chat_id, actor_id=actor_id, message_id=int(message.id))
+    except Exception:
+        await engine.cancel(session.token, chat_id=chat_id, actor_id=actor_id)
+        raise RuntimeError("Could not display the warning threshold editor; nothing changed.") from None
+    return session
+
+
+_PATTERN=r"^settings:-?[0-9]{1,20}:(?:tab:(?:home|music|welcome|safety|moderation|retention|blocklist|presets|sessions|commands)|commands:(?:all|manage|music|tools):[0-9]{1,3}|cmd:[a-z][a-z0-9_]{0,31}:(?:on|off)|(?:music_requests_enabled|music_approval_required|welcome_enabled|goodbye_enabled|captcha_enabled|antispam|gemini_guardian_enabled|lock_[a-z_]+):(?:on|off)|antispam:edit|captcha:edit|welcome_text:edit|goodbye_text:edit|rules_text:(?:edit|clear)|welcome_media:(?:edit|clear)|welcome_buttons:edit|raid:(?:on|off)|warn_threshold:(?:edit|2|3|5|10)|retention:[a-z_]+:(?:30|90|180|365|off)|blocklist:(?:add:(?:track|artist)|remove:[1-9][0-9]?)|preset:(?:save|apply:[1-9][0-9]?|delete:[1-9][0-9]?)|session:(?:schedule|cancel:[A-Za-z0-9]+)|reset:(?:music|welcome|safety|moderation|blocklist|presets)|resetconfirm:(?:music|welcome|safety|moderation|blocklist|presets):[a-f0-9]{12}|refresh):v[0-9]{1,12}$"
 @bot.on_callback_query(filters.regex(_PATTERN))
 async def settings_callback(client,query):
     message=getattr(query,"message",None); actor=getattr(query,"from_user",None)
@@ -279,7 +369,8 @@ async def settings_callback(client,query):
         elif len(parts)==4 and parts[2]=="raid" and parts[3] in {"on","off"}:
             from videl.utils.raid import normalize
             value=normalize(base.get_setting(chat_id,"raid_mode",{})); value["enabled"]=parts[3]=="on"; key,section="raid_mode","safety"
-        elif len(parts)==4 and parts[2]=="warn_threshold" and parts[3] in {"2","3","5","10"}: key,value,section="warn_threshold",int(parts[3]),"moderation"
+        elif len(parts)==4 and parts[2]=="warn_threshold" and parts[3] in {"edit","2","3","5","10"}:
+            key,value,section="__warn_threshold_editor__",(None if parts[3]=="edit" else int(parts[3])),"moderation"
         elif len(parts)==5 and parts[2]=="retention":
             from videl.utils.retention import ALLOWED_DAYS,CATEGORIES
             cat=parts[3]; days=None if parts[4]=="off" else int(parts[4])
@@ -308,6 +399,14 @@ async def settings_callback(client,query):
         await query.answer("Settings changed since this panel was opened. Review the refreshed values.",show_alert=True)
         fresh=_screen(chat_id,section,category=category,page=page)
         return await rich_edit(message,fresh.html,reply_markup=fresh.keyboard)
+    if key=="__warn_threshold_editor__":
+        try:
+            await _start_warn_threshold_editor(message, chat_id, int(actor.id), expected_revision, value)
+        except RuntimeError as error:
+            return await query.answer(str(error), show_alert=True)
+        except Exception:
+            return await query.answer("Could not open the warning threshold editor; nothing changed.", show_alert=True)
+        return await query.answer("Choose a threshold and review the preview before saving.")
     if key=="__antispam_editor__":
         try:
             notice=await _start_antispam_editor(client,chat_id,int(actor.id),expected_revision)
@@ -459,6 +558,115 @@ async def settings_callback(client,query):
         except Exception: pass
     await query.answer("Settings refreshed." if key is None else "Setting saved.")
     screen=_screen(chat_id,section,category=category,page=page); await rich_edit(message,screen.html,reply_markup=screen.keyboard)
+
+@bot.on_callback_query(filters.regex(_WARN_CALLBACK))
+async def warn_threshold_editor_callback(client, query):
+    message = getattr(query, "message", None)
+    actor = getattr(query, "from_user", None)
+    if message is None or actor is None or base.chat_kind(message) not in {"group", "supergroup"}:
+        return await query.answer("Open the warning editor in the group.", show_alert=True)
+    chat_id, actor_id = int(message.chat.id), int(actor.id)
+    try:
+        _, token, action, *selected = str(query.data).split(":")
+    except ValueError:
+        return await query.answer("That warning editor action is invalid.", show_alert=True)
+    session = await engine.get(token, chat_id=chat_id, actor_id=actor_id, target_chat_id=chat_id)
+    if session is None or session.workflow != "warn_threshold":
+        return await query.answer("This warning threshold edit expired or belongs to another admin.", show_alert=True)
+
+    if action in {"cancel", "back"}:
+        await engine.cancel(token, chat_id=chat_id, actor_id=actor_id)
+        if action == "cancel":
+            await query.answer("Cancelled; nothing was saved.")
+            screen = _screen(chat_id, "moderation")
+        else:
+            await query.answer("Back to moderation settings.")
+            screen = _screen(chat_id, "moderation")
+        return await rich_edit(message, screen.html, reply_markup=screen.keyboard)
+
+    if action == "edit":
+        saved_value = session.values.get("saved_value", 3)
+        edited = await engine.edit_again(token, chat_id=chat_id, actor_id=actor_id, message_id=int(message.id))
+        if edited is None:
+            return await query.answer("This preview is no longer active.", show_alert=True)
+        edited.values["saved_value"] = saved_value
+        screen = _warn_threshold_selection_screen(edited)
+        await rich_edit(message, screen.html, reply_markup=screen.keyboard)
+        await engine.bind_prompt(token, chat_id=chat_id, actor_id=actor_id, message_id=int(message.id))
+        return await query.answer("Choose a value from 1 to 10.")
+
+    if action == "pick":
+        if len(selected) != 1 or selected[0] not in _WARN_THRESHOLD_VALUES:
+            return await query.answer("Choose a warning threshold from 1 to 10.", show_alert=True)
+        result = await engine.capture(token, chat_id=chat_id, actor_id=actor_id,
+                                      target_chat_id=chat_id, reply_to_message_id=int(message.id),
+                                      value=selected[0])
+        if result.status != "preview":
+            return await query.answer("This selection is no longer active. Reopen the editor.", show_alert=True)
+        screen = _warn_threshold_preview(result.session)
+        await rich_edit(message, screen.html, reply_markup=screen.keyboard)
+        await engine.bind_prompt(token, chat_id=chat_id, actor_id=actor_id, message_id=int(message.id))
+        return await query.answer("Review the preview; nothing has been saved.")
+
+    if action != "save":
+        return await query.answer("That warning editor action is invalid.", show_alert=True)
+
+    async def authorize(target_chat_id: int, user_id: int) -> bool:
+        try:
+            member = await client.get_chat_member(target_chat_id, user_id)
+            status = str(getattr(getattr(member, "status", None), "value",
+                                 getattr(member, "status", None))).casefold()
+            return status in {"owner", "administrator"}
+        except Exception:
+            return False
+
+    save_error = {"conflict": False}
+
+    async def save(snapshot) -> bool:
+        from videl.utils.settings_store import SettingsConflict, write
+        try:
+            await asyncio.to_thread(write, snapshot.target_chat_id,
+                                    {"warn_threshold": int(snapshot.values["warn_threshold"])},
+                                    expected=snapshot.revision)
+            return True
+        except SettingsConflict:
+            save_error["conflict"] = True
+            return False
+        except Exception:
+            return False
+
+    outcome, _ = await engine.commit(token, chat_id=chat_id, actor_id=actor_id,
+                                     target_chat_id=chat_id, message_id=int(message.id),
+                                     authorize=authorize, save=save)
+    if outcome == "saved":
+        try:
+            from videl.utils.audit import record_bot
+            value = int(session.values["warn_threshold"])
+            await asyncio.to_thread(record_bot, chat_id, "settings",
+                                    action="warn_threshold_interactive_saved",
+                                    detail=f"warn_threshold={value}", actor=actor_id)
+        except Exception:
+            LOGGER.debug("Warning threshold audit write failed", exc_info=True)
+        await query.answer("Warning threshold saved.")
+        screen = _screen(chat_id, "moderation")
+        return await rich_edit(message, screen.html, reply_markup=screen.keyboard)
+    if outcome == "permission_denied":
+        await engine.cancel(token, chat_id=chat_id, actor_id=actor_id)
+        await query.answer("Current group-admin permission could not be verified. Nothing was saved.", show_alert=True)
+        screen = _screen(chat_id, "moderation")
+        return await rich_edit(message, screen.html, reply_markup=screen.keyboard)
+    if outcome == "save_failed" and save_error["conflict"]:
+        await engine.cancel(token, chat_id=chat_id, actor_id=actor_id)
+        await query.answer("Settings changed elsewhere. No warning threshold was saved; review the latest value.", show_alert=True)
+        screen = _screen(chat_id, "moderation")
+        return await rich_edit(message, screen.html, reply_markup=screen.keyboard)
+    if outcome == "save_failed":
+        await query.answer("Could not save the warning threshold. Nothing was reported as saved; retry from this preview.", show_alert=True)
+        return
+    if outcome == "expired":
+        return await query.answer("This warning threshold edit expired. Nothing was saved.", show_alert=True)
+    return await query.answer("This warning threshold preview is no longer active.", show_alert=True)
+
 
 # Run after the declarative command router (group 0). A broad text listener in
 # the same Pyrogram group would consume every group message before /start/help.
