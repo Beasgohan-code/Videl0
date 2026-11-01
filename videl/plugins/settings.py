@@ -585,7 +585,7 @@ async def settings_callback(client,query):
         try:
             await _start_connected_blocklist(client, int(message.chat.id), int(actor.id), chat_id,
                                             expected_revision, "add" if key == "__prompt__" else "remove",
-                                            value, message)
+                                            value)
         except RuntimeError as error:
             return await query.answer(str(error), show_alert=True)
         except Exception:
@@ -877,10 +877,8 @@ async def blocklist_prompt_reply(client,message):
     await message.reply_text("Added to the group music blocklist. Open /settings → Music blocklist to review it.")
 
 async def _start_connected_blocklist(client, interaction_chat_id: int, actor_id: int, target_chat_id: int,
-                                    revision: int, operation: str, value, source_message) -> None:
+                                    revision: int, operation: str, value) -> None:
     from videl.utils.interactive_settings import Step, engine as interaction_engine
-    from pyrogram.types import InlineKeyboardMarkup
-    from videl.utils.bot_ui import button
     workflow = "music_blocklist_add" if operation == "add" else "music_blocklist_remove"
     steps = (Step("value", "Blocklist entry", max_length=100),) if operation == "add" else (Step("index", "Entry number", kind="number", minimum=1, maximum=50),)
     if operation == "remove":
@@ -1011,7 +1009,6 @@ async def connected_blocklist_callback(client, query):
         return status in {"owner", "administrator"}
 
     async def save(snapshot):
-        from videl.utils import settings_store
         return bool(base.set_setting(target_chat_id, "music_track_blocklist", snapshot.values["updated"],
                                      expected_revision=snapshot.revision))
 
