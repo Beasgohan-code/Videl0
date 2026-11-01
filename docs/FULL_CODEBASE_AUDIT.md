@@ -64,33 +64,29 @@ The backend suite `tests/test_music_webapp_api.py` covers internal auth, input v
 
 **Disposition:** do not silently replace the page with a fake local representation of voice playback. Keep browser preview explicitly labeled, or design a separate real Telegram control surface backed by authenticated group/queue operations and current server state. Test with mocks first; any live claim requires a real Telegram group/voice-call check.
 
-### F-02 — Stale play promises can overwrite a newer track's state (confirmed UI race; untested in browser)
+### F-02 — Stale play promises could overwrite a newer track's state (source-confirmed; guarded; browser unverified)
 
-**Evidence:** `Music.tsx:211-238` immediately switches `current`, task ID, source, and audio element; the promise from `player.play()` unconditionally sets `playing`, `loading`, and `error` in both continuations. There is no generation/current-track check before those asynchronous state writes.
+**Evidence/root cause:** before the Stage D change, `Music.tsx` called `player.play().then(...).catch(...)` without associating either completion with the selected track. Replacing Track A's source with B can reject A's still-pending play promise after B starts; that stale catch could then change `playing`, `loading`, and `error`. The state writes were not generation-checked.
 
-**Root cause / impact:** when a user rapidly selects A then B, the source replacement can reject A's pending `play()` promise after B has begun loading/playing. The old catch then marks the newer player paused/not-loading and displays an error. This is a code-evident race, but its user-visible timing has not yet been reproduced in a browser.
+**Deterministic reproduction:** `webapp/tests/latest-request.test.ts` uses deferred promises: start A, start B, resolve B, then reject A. Assertions require B to remain current/playing with no stale error and loading false. This uses no timing sleeps. It exercises the shared gate used by the component; an actual browser/media timing reproduction is still outstanding.
 
-**Reproduction to add:** delay/reject the first `play()` promise, select a second track, resolve the second promise, then reject the first; assert B remains current/playing and no stale error is displayed. Also exercise a rapid seek/source reset and unmount.
+**Fix:** `Music.tsx:252-306` now routes play results through `LatestRequestGate`/`settleLatest`; explicit pause invalidates pending play completions. Media event state writes check the active `currentSrc` against the currently selected stream URL, and task status responses are scoped to the active task ID.
 
-**Recommended fix:** use a monotonically increasing playback generation or track/task token in every `play()` resolution/rejection and relevant media event. Ignore stale callbacks; pause/reset and clear source/error state deliberately on track changes. Add a focused failing test before modifying implementation.
+### F-03 — Overlapping searches could commit stale result and status state (source-confirmed; fixed; browser unverified)
 
-### F-03 — Search results and busy/error state can be stale after overlapping searches (confirmed UI race; untested)
+**Evidence/root cause:** the original `searchTracks` allowed every fetch completion/finally block to update results, error, and searching state. An earlier slow search could replace newer results or clear its busy state early.
 
-**Evidence:** `Music.tsx:190-209` starts a fetch for every search, then each completion writes `results`, `error`, and `searching`; there is no abort controller/request sequence guard.
+**Deterministic reproduction:** controlled deferred A/B successes resolve B first and A last; tests assert B results remain. Another test resolves stale A while latest B is pending, then rejects B and asserts only B's error/completion is committed.
 
-**Root cause / impact:** if a slower earlier query resolves after a newer query, its results can replace the newer result set, and the earlier `finally` can clear the busy indicator while the later request is still pending.
+**Fix:** `Music.tsx:208-250` now assigns request generations, aborts a prior request when a new/invalid search starts, guards success/error/finally commits, and cancels active search on unmount. Actual browser fetch/console behavior remains unverified.
 
-**Reproduction to add:** issue two searches with controlled deferred responses and resolve them out of order; assert only the latest request updates results, errors, and busy state.
+### F-04 — Internal track preparation previously bypassed existing admission control (mitigated; residual risks documented)
 
-**Recommended fix:** cancel the previous request or apply a request-generation guard, including cleanup on unmount. Add deterministic component/helper tests.
+**Evidence/root cause:** before Stage D, `/internal/music/track/<video_id>` started `download_song` without acquiring the existing two-slot `_SLOTS` budget used by the public media-serving route. The internal route and the public route share the same process and download directory.
 
-### F-04 — Internal track preparation has no visible admission/concurrency bound (confirmed by route comparison; operational risk)
+**Fix/test:** `videl/api/eldian_routes.py:256-300` now nonblockingly acquires `_SLOTS` before task preparation and releases it in `finally`. When both slots are occupied it returns 503 with `Retry-After: 5` and does not invoke the downloader. `tests/test_music_webapp_api.py::test_internal_track_preparation_rejects_when_shared_media_slots_are_full` covers this path.
 
-**Evidence:** `videl/api/eldian_routes.py:255-289` validates the owner-proxied route and bounds each download to 300 seconds and `MAX_BYTES`, but directly starts `download_song` for every request. `_MUSIC_TASKS` bounds status metadata; it does not bound active workers. The user-facing Next route is owner-only (`webapp/src/app/api/music/track/[videoId]/route.ts`). The separate existing media-serving path's semaphore was not shown applied to this internal preparation route.
-
-**Root cause / impact:** rapid/repeated requests can create overlapping provider/download work and consume backend CPU, memory, file descriptors, network, and disk. The owner-only gate limits who can initiate requests, but is not an admission-control policy. This has not been load-tested and is not evidence that production is currently overloaded.
-
-**Recommended fix:** inspect downloader caching/locking first, then add a shared bounded semaphore/queue, same-track deduplication where safe, and an explicit busy response/status; consider cancellation/cleanup without breaking range seeks. Test maximum concurrent downloader calls, duplicate track requests, timeout/error cleanup, and process restart. Avoid arbitrary rate limits until observed behavior and intended owner usage are understood.
+**Residual risk:** this is not a global cap for bot code calling `download_song` directly or across multiple backend processes. There is still no same-video single-flight lock, and using a shared slot budget can transiently reject an owner request. See the explicit cache/concurrency review below; no broader worker redesign was made.
 
 ### F-05 — Existing Control Room is app telemetry, not Render monitoring (confirmed capability gap)
 
@@ -100,19 +96,18 @@ The backend suite `tests/test_music_webapp_api.py` covers internal auth, input v
 
 **Recommended implementation if requested:** a new server-only Render adapter with a secret credential (never `NEXT_PUBLIC_*` or browser payload), fixed/allowlisted service identifiers, owner authorization, strict schemas, bounded pagination, timeout, cache/rate controls, secret/identifier redaction, and distinct configured/unavailable/error/stale states. Preserve current app-level telemetry under its accurate name. Add mocked contract/security tests, then validate against Render only when credentials and a real service are configured. No Render credential was available or sought in this audit.
 
-### F-06 — Current tests do not cover the browser streaming experience end-to-end (confirmed coverage gap)
+### F-06 — Browser E2E coverage remains unavailable (partial mocked coverage added)
 
-**Evidence:** backend route tests cover internal auth, validation, and range responses; `music-center.test.ts` is narrow owner/status coverage. No inspected test drives the player through overlapping track/search requests, media events, browser range proxying, refresh/remount, or the Telegram-vs-browser boundary.
+**Evidence:** `webapp/tests/latest-request.test.ts` now covers controlled stale/current playback and search completions plus media-source matching. `webapp/tests/music-center.test.ts` covers expired owner auth and mocked BFF 206/range pass-through. `tests/test_music_webapp_api.py` covers backend auth, validation, status, audio, ranges, and busy admission.
 
-**Impact:** a green backend route suite cannot clear the UI races in F-02/F-03 or certify proxy behavior in a deployed browser. Existing tests are useful and should be retained; no current playback root cause should be inferred from them.
-
-**Recommended verification:** add the deterministic UI race tests first; then test browser media event/state behavior and the Next BFF range headers/body using mocks. Run existing focused Python/web tests and typecheck/build. Keep production/Vercel, provider, Telegram, and device results separately labeled as not run unless actually run.
+**Remaining limitation:** these tests do not instantiate the Music React component or a real browser decoder/network stack, and do not establish autoplay, refresh/remount behavior, or deployed proxy streaming. `npm run test:browser` cannot launch because the Playwright Chromium executable is absent. No browser console/network issue was observed because the browser test could not run; no actual playback failure root cause is claimed.
 
 ## Security, reliability, and UX observations
 
 - **Auth boundary:** browser-facing music routes use owner authorization; internal backend routes require a constant-time comparison against `WEBAPP_SECRET`. IDs and status task IDs are validated; error responses avoid exposing backend HTML/diagnostics; audio responses are private/no-store. Keep tests for missing/wrong secrets and owner rejection.
-- **Range and seeking:** both backend `send_file(..., conditional=True)` and the Next proxy preserve range-related headers/status behavior. Existing backend tests cover ranges; add proxy-level tests before changing response streaming.
+- **Range and seeking:** both backend `send_file(..., conditional=True)` and the Next proxy preserve range-related headers/status behavior. Backend tests cover ranges; the Stage D proxy test now verifies a mocked 206 response, `Content-Type`, `Content-Range`, `Accept-Ranges`, body bytes, and forwarding of `Range`/`If-Range` without exposing the internal secret.
 - **Status semantics:** download preparation status is not playback status, and an audio file's `ready` state is not a Telegram voice call. Persistence is MongoDB-backed when possible; process-only/unavailable durability is explicitly represented.
+- **Downloader cache/concurrency review (Stage D):** `download_song` calls `_find_file` before trying providers; external/Eldian provider transfers use `.part` files and `os.replace`, and yt-dlp uses a shared per-video output template. There is no per-video single-flight lock, so simultaneous same-track requests can duplicate upstream work and contend on shared temp/output paths. `_file_cache` is used by `resolve_stream`, not directly by `download_song`; `download_song` instead scans supported files in the top-level `DOWNLOAD_DIR` (the local fallback's `downloads/eldian` subdirectory is not included in that scan). The internal browser-track route now shares the existing two-slot `_SLOTS` semaphore with the public media API and returns 503/`Retry-After: 5` before starting a third preparation. **Trade-off:** this reuses the repository's existing two-worker ceiling and avoids unbounded internal-route preparation, but can reject a legitimate owner request while both slots are occupied. It does not globally cap bot callers that invoke `download_song` outside those routes, does not deduplicate identical video IDs, and is not a distributed limit across multiple backend processes. Do not claim it solves all downloader concurrency.
 - **Navigation lifetime:** visited Studio screens remain mounted and hidden, which supports same-session browser playback persistence. Refresh, remount, session expiry, and media suspension remain unverified. Do not store credentials or assume cross-device playback state in localStorage.
 - **Owner metrics freshness:** operations data is bounded and polls periodically. Data sources differ (process snapshot, Mongo records, queue/voice aggregate, sanitized events); label each source and its timestamp/state rather than combining into a fictional platform health score.
 - **No speculative redesign:** no evidence in this audit supports introducing another Music page, replacing the current player with a fake Telegram player, changing downloader/provider policy, or adding a Render token without configuration and tests.
@@ -120,23 +115,29 @@ The backend suite `tests/test_music_webapp_api.py` covers internal auth, input v
 ## Test and verification inventory relevant to this work
 
 - `tests/test_music_webapp_api.py` — internal music route auth/input/status/audio/range behavior (offline tests; inspect its current result before changes).
-- `webapp/tests/music-center.test.ts` — owner auth and malformed status ID.
+- `webapp/tests/music-center.test.ts` — owner auth/malformed status, expired stream-session rejection, and mocked range-proxy response.
 - `tests/test_music_lifecycle.py`, `tests/test_queue*.py`, and `docs/STAGE_C_BATCH_2_AUDIT.md` — Telegram playback/queue related source/test coverage; Stage C Batch 2 remains incomplete.
 - `webapp/tests/*` — broader route, auth, owner operations, and Studio tests. Existing `todo.md` records a previously successful web typecheck/test run; rerun relevant checks against the actual worktree before relying on it.
 - `render.yaml` — Render service definition, not proof of current production deployment state or Vercel configuration.
 
 No test command was run for this document-only audit. No live-service result is claimed.
 
-## Ordered next steps
+## Stage D implementation and verification update (2026-11-01)
 
-1. Keep this audit as the evidence baseline and update `todo.md` without disturbing its historical backlog.
-2. Add TDD coverage for F-02 and F-03 and fix only the demonstrated stale-state races; re-test audio range proxy behavior and component lifetime.
-3. Finish the Stage C Batch 2 review of all 45 music/playback/queue/playlist commands, including permission/callback and queue-boundary review; document any verified issues before changing them.
-4. Audit all streaming-adjacent components and API routes from the surface list above, and keep browser voice, Telegram voice, media preview, and request-only UI clearly distinguished.
-5. Decide whether Render control-plane monitoring is in scope and whether a server-side credential/service ID can be provisioned. Until then, retain honest unavailable/configuration states and do not call app telemetry Render data.
-6. Continue webapp UX/security/performance work only for verified gaps; run focused and broader feasible offline tests. Record browser, production, Telegram, Render, and device checks separately.
-7. Commit changes in reviewable logical batches to `arena/042d6599-videl0`; do not merge/close PR #5. Preserve unrelated worktree changes.
+- **Playback race (F-02):** added a request-generation gate around every `play()` promise result and rejection. Media events now apply only when `currentSrc` matches the active stream URL. Explicit pause invalidates pending play completions. Changing tracks replaces/reloads the single audio source; unmount invalidates playback work, pauses audio, clears `src`, and reloads the element. Download-status polling also checks the current task ID so a late old task cannot change current status/error state.
+- **Search race (F-03):** added request-generation guarded result/error/loading commits and aborts the prior fetch on a new or invalid search. The request is aborted on unmount; a 28-second timeout remains. Old completions cannot clear the latest search's loading state or replace its results.
+- **Deterministic async/source tests:** `webapp/tests/latest-request.test.ts` controls deferred completions/rejections (no timer assumptions) for late Track A rejection after Track B, out-of-order A/B search success, latest-search error/loading ownership, and current-vs-stale media source matching. These exercise the same gate/source-matching helpers used by the component. The initial red run could not resolve the not-yet-implemented helper module; after implementation the controlled-async tests passed, and the final complete web suite passed.
+- **Pipeline regression coverage:** `webapp/tests/music-center.test.ts` now checks that an expired owner session is rejected before any backend request, and checks the owner track BFF's mocked 206 response, MIME/range headers, body, `Range`/`If-Range` forwarding, and absence of secret leakage. Existing Flask range tests still check 206 and exact bytes. The task ID itself is status metadata, not an expiring bearer URL. A subsequent browser media error is surfaced as an in-page playback error. Actual browser console/network testing could not run because the Playwright Chromium executable is absent.
+- **Cleanup:** old browser fetches are cancelled on a new search/unmount; old status polls are stopped and task-ID guarded; changing an audio source via `load()` cancels/replaces the browser media request, and component unmount clears the source. Studio tab navigation intentionally keeps the visited Music screen mounted, so it does not stop same-session playback.
+- **Downloader capacity decision:** source review found cached-file lookup but no per-video lock/single-flight around `download_song`; shared `.part`/output names permit duplicate concurrent same-track preparation. The internal track route now nonblockingly shares the already-existing two-slot `_SLOTS` limit with the public media API, returns 503 with `Retry-After: 5` when both slots are busy, and releases the slot in `finally`. This is bounded admission for these HTTP surfaces only, not a global cap for bot callers or multi-process deployments; no per-track deduplication or disk-cache eviction was introduced.
+- **Offline tests/checks:** `npm test` — 229 passed; `npm run typecheck` — passed; `npm run build` — passed; `.venv/bin/python -m unittest tests.test_music_webapp_api` — 11 passed; `.venv/bin/python -m py_compile videl/api/eldian_routes.py` — passed; `git diff --check` — passed. No lint script is defined in `webapp/package.json`. `npm run test:browser` was attempted but could not launch: Playwright's Chromium executable is not installed. No browser console/network, live provider, Telegram, Render, Vercel, production, or device validation is claimed.
 
-## Audit status
+## Remaining work and status
 
-The audit establishes the current architecture and the findings above, but it is not the final completion report for the requested overhaul. Root causes F-02/F-03 have not been browser-reproduced; no implementation fixes are included in this audit. F-04 is a source-evident resource-control gap requiring downloader-cache inspection and a test before implementation. Render control-plane monitoring is absent and cannot be truthfully tested without server-side configuration. The overall task remains in progress.
+1. Continue the Stage C Batch 2 audit of all 45 Telegram music/playback/queue/playlist commands; it is distinct from this browser-player fix.
+2. Consider per-video single-flight and cache cleanup only after separate tests/design for provider atomicity, file lifetime, bot callers, and multi-process behavior. Current admission is intentionally route-local and can return a transient busy response.
+3. Browser UI behavior, autoplay, actual provider responses, owner-session expiry during a range seek, and browser console/network errors remain unverified because Chromium is unavailable. Tests use controlled promises and mocked upstream responses.
+4. Telegram group playback remains entirely separate and was not changed or live-verified. Render control-plane integration remains absent; no Render token or live Render data was used.
+5. Keep PR #5 open/unmerged and preserve unrelated edits in `tests/test_command_ui.py` and `tests/test_replacement_domains.py`.
+
+F-02/F-03 now have deterministic controlled-async regression coverage and request-generation guards; this does not substitute for browser reproduction. F-04's HTTP route admission risk is mitigated using the established two-slot policy, with limitations above. Overall Stage D remains in progress until browser and remaining downloader/cross-command validation become feasible.
