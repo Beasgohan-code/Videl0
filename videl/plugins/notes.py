@@ -33,6 +33,7 @@ NOTES = "mgmt_notes"
 FILTERS = "mgmt_filters"
 _FILTER_ACTIONS: OrderedDict[str, tuple[str, int, dict, int, float]] = OrderedDict()
 _FILTER_ACTION_TTL = 900
+_CONNECTED_FILTER_ACTIONS: OrderedDict[str, tuple] = OrderedDict()
 HASHTAG = re.compile(r"^#([A-Za-z0-9_]{1,32})")
 
 
@@ -291,10 +292,9 @@ async def _live_group_admin(client, chat_id: int, user_id: int) -> bool:
         member = await client.get_chat_member(chat_id, user_id)
     except Exception:
         return False
-    return getattr(member, "status", None) in {
-        ChatMemberStatus.OWNER,
-        ChatMemberStatus.ADMINISTRATOR,
-    }
+    status = getattr(member, "status", None)
+    status = str(getattr(status, "value", status)).casefold()
+    return status in {"owner", "administrator"}
 
 
 def _filter_page_text(total: int, documents, page: int, can_manage: bool) -> str:
@@ -385,6 +385,160 @@ async def start_filter_editor(client, panel, chat_id: int, actor_id: int, *, mod
         await engine.cancel(session.token, chat_id=interaction_chat_id, actor_id=int(actor_id))
         raise filter_store.FilterStoreError("Could not start the filter editor; nothing changed.") from None
     return session
+
+
+def _remember_connected_action(action, actor_id, private_chat_id, target_chat_id, item, page, message_id):
+    now = time.monotonic()
+    for key, value in list(_CONNECTED_FILTER_ACTIONS.items()):
+        if now - value[-1] > _FILTER_ACTION_TTL:
+            _CONNECTED_FILTER_ACTIONS.pop(key, None)
+    token = secrets.token_urlsafe(8)
+    snapshot = None if item is None else {key: item.get(key) for key in ("_id", "keyword", "reply")}
+    _CONNECTED_FILTER_ACTIONS[token] = (action, int(actor_id), int(private_chat_id),
+                                       int(target_chat_id), snapshot, int(page),
+                                       int(message_id), now)
+    _CONNECTED_FILTER_ACTIONS.move_to_end(token)
+    while len(_CONNECTED_FILTER_ACTIONS) > 2048:
+        _CONNECTED_FILTER_ACTIONS.popitem(last=False)
+    return token
+
+
+async def connected_filter_screen(client, *, actor_id: int, private_chat_id: int,
+                                  target_chat_id: int, page: int, message_id: int) -> Screen:
+    from videl.app.connections import connected_target
+    group, error = await connected_target(client, actor_id, expected_chat_id=target_chat_id)
+    if (group is None or error or int(getattr(group, "id", 0)) != int(target_chat_id)
+            or not await _live_group_admin(client, target_chat_id, actor_id)):
+        raise PermissionError("Connection or current group-admin access could not be verified.")
+    store = _filters()
+    if store is None:
+        raise filter_store.FilterStoreError("Filter storage is unavailable.")
+    total, safe_page, documents = await _filter_page(store, int(target_chat_id), int(page))
+    pages = max(1, (total + FILTER_PAGE_SIZE - 1) // FILTER_PAGE_SIZE)
+    text = heading("Connected group filters", 3)
+    if not total:
+        text += body("No automatic filters are saved for this group yet.")
+    else:
+        text += body(f"Showing page {safe_page + 1} of {pages} · {total} filters.")
+        text += table([(f"<code>{escape(str(row.get('keyword', '')))}</code>",
+                        escape(str(row.get('reply', ''))[:100])) for row in documents])
+    rows = []
+    for row in documents:
+        label = re.sub(r"\s+", " ", str(row.get("keyword", ""))).strip()[:20] or "unnamed"
+        edit = _remember_connected_action("edit", actor_id, private_chat_id, target_chat_id, row, safe_page, message_id)
+        delete = _remember_connected_action("delete", actor_id, private_chat_id, target_chat_id, row, safe_page, message_id)
+        rows.append([button(f"Edit · {label}", callback_data=f"connected_filter:edit:{edit}"),
+                     button(f"Delete · {label}", callback_data=f"connected_filter:delete:{delete}", style="danger")])
+    add_data = f"settings:{target_chat_id}:filters:add:v{_settings_revision(target_chat_id)}"
+    rows.append([button("＋ Add filter", callback_data=add_data, style="primary")])
+    if pages > 1:
+        nav = []
+        if safe_page > 0:
+            token = _remember_connected_action("page", actor_id, private_chat_id, target_chat_id, None, safe_page - 1, message_id)
+            nav.append(button("‹ Previous", callback_data=f"connected_filter:page:{token}"))
+        nav.append(button(f"{safe_page + 1}/{pages}"))
+        if safe_page + 1 < pages:
+            token = _remember_connected_action("page", actor_id, private_chat_id, target_chat_id, None, safe_page + 1, message_id)
+            nav.append(button("Next ›", callback_data=f"connected_filter:page:{token}"))
+        rows.append(nav)
+    rows.append([button("← Automations", callback_data=f"settings:{target_chat_id}:tab:automations:v{_settings_revision(target_chat_id)}")])
+    return Screen(text, InlineKeyboardMarkup(rows))
+
+
+def _settings_revision(chat_id):
+    from videl.utils.settings_store import revision
+    return revision(chat_id)
+
+
+@bot.on_callback_query(filters.regex(r"^connected_filter:(?:page|edit|delete|confirm|cancel):[A-Za-z0-9_-]{8,24}$"))
+async def connected_filter_callback(client, query):
+    message, actor = getattr(query, "message", None), getattr(query, "from_user", None)
+    if message is None or actor is None or base.chat_kind(message) != "private" or int(message.chat.id) != int(actor.id):
+        return await query.answer("This private filter action is unavailable.", show_alert=True)
+    try:
+        _, action, token = str(query.data).split(":")
+        if action in {"confirm", "cancel"}:
+            session = await engine.get(token, chat_id=int(message.chat.id), actor_id=int(actor.id))
+            if session is None or session.workflow != "filter_delete" or int(message.id) != session.expected_message_id:
+                return await query.answer("This deletion preview expired or is stale.", show_alert=True)
+            target, private_chat = int(session.target_chat_id), int(session.chat_id)
+            if action == "cancel":
+                await engine.cancel(token, chat_id=private_chat, actor_id=int(actor.id))
+                screen = await connected_filter_screen(client, actor_id=int(actor.id), private_chat_id=private_chat,
+                    target_chat_id=target, page=int(session.values.get("page", 0)), message_id=int(message.id))
+                await query.answer("Deletion cancelled; nothing changed.")
+                return await rich_edit(message, screen.html, reply_markup=screen.keyboard)
+            async def authorize(target_id, actor_id):
+                from videl.app.connections import connected_target
+                group, error = await connected_target(client, actor_id, expected_chat_id=target_id)
+                return (group is not None and error is None
+                        and int(getattr(group, "id", 0)) == int(target_id)
+                        and await _live_group_admin(client, target_id, actor_id))
+            async def delete(snapshot):
+                try:
+                    await asyncio.to_thread(filter_store.delete_filter_by_id, base.db(), snapshot.target_chat_id,
+                                            snapshot.values["original"])
+                    return True
+                except (filter_store.FilterStoreConflict, filter_store.FilterStoreError):
+                    return False
+            outcome, _ = await engine.commit(token, chat_id=private_chat, actor_id=int(actor.id),
+                target_chat_id=target, message_id=int(message.id), authorize=authorize, save=delete)
+            if outcome == "saved":
+                await asyncio.to_thread(record_bot, target, "filter", action="filter_delete",
+                    detail="text filter removed", actor=int(actor.id))
+                screen = await connected_filter_screen(client, actor_id=int(actor.id), private_chat_id=private_chat,
+                    target_chat_id=target, page=int(session.values.get("page", 0)), message_id=int(message.id))
+                await query.answer("Filter deleted.")
+                return await rich_edit(message, screen.html, reply_markup=screen.keyboard)
+            return await query.answer("Deletion was not completed. Refresh the list and verify the filter.", show_alert=True)
+        entry = _CONNECTED_FILTER_ACTIONS.pop(token, None)
+        if entry is None or time.monotonic() - entry[-1] > _FILTER_ACTION_TTL:
+            raise ValueError
+        bound_action, bound_actor, private_chat, target, original, page, message_id, _ = entry
+        if (action != bound_action or int(actor.id) != bound_actor or int(message.chat.id) != private_chat
+                or int(message.id) != message_id):
+            raise ValueError
+    except (ValueError, TypeError):
+        return await query.answer("This filter action expired or is not valid for this message.", show_alert=True)
+    except Exception:
+        LOGGER.debug("Connected filter confirmation failed", exc_info=True)
+        return await query.answer("Could not verify the filter operation. Refresh the list before retrying.", show_alert=True)
+    try:
+        from videl.app.connections import connected_target
+        group, error = await connected_target(client, bound_actor, expected_chat_id=target)
+        if (group is None or error or int(getattr(group, "id", 0)) != int(target)
+                or not await _live_group_admin(client, target, bound_actor)):
+            raise PermissionError
+        if action == "page":
+            screen = await connected_filter_screen(client, actor_id=bound_actor, private_chat_id=private_chat,
+                                                   target_chat_id=target, page=page, message_id=message_id)
+            await query.answer()
+            return await rich_edit(message, screen.html, reply_markup=screen.keyboard)
+        current = await asyncio.to_thread(_filters().find_one, {"_id": original["_id"], "chat_id": target})
+        if current is None or any(current.get(k) != original.get(k) for k in ("keyword", "reply")):
+            raise filter_store.FilterStoreConflict("This filter changed; refresh the list before continuing.")
+        if action == "edit":
+            session = await start_filter_editor(client, message, target, bound_actor, mode="edit", original=original,
+                                      interaction_chat_id=private_chat)
+            session.values["connected_filter_management"] = True
+            session.values["connected_filter_page"] = page
+            return await query.answer("Reply to the private prompts; review the preview before saving.")
+        session = await engine.begin_preview(chat_id=private_chat, actor_id=bound_actor, target_chat_id=target,
+                                            workflow="filter_delete", values={"original": original, "page": page})
+        preview = (heading("Delete filter preview", 3)
+                   + table([("Keyword", f"<code>{escape(str(original.get('keyword') or ''))}</code>"),
+                            ("Response", f"<pre>{escape(str(original.get('reply') or ''))}</pre>")])
+                   + body("Confirm deletion of exactly this filter? Nothing changes until confirmation."))
+        keyboard = InlineKeyboardMarkup([[button("Confirm delete", callback_data=f"connected_filter:confirm:{session.token}", style="danger"),
+                                          button("Cancel", callback_data=f"connected_filter:cancel:{session.token}")]])
+        await rich_edit(message, preview, reply_markup=keyboard)
+        await engine.bind_prompt(session.token, chat_id=private_chat, actor_id=bound_actor, message_id=message_id)
+        await query.answer("Review the deletion preview.")
+    except (PermissionError, filter_store.FilterStoreError, filter_store.FilterStoreConflict):
+        return await query.answer("Could not verify this filter or its authorization. No change was made; reopen the list.", show_alert=True)
+    except Exception:
+        LOGGER.debug("Connected filter action failed", exc_info=True)
+        return await query.answer("Filter action failed safely. Reopen the list and try again.", show_alert=True)
 
 
 async def list_filters(ctx) -> Screen:
@@ -513,7 +667,8 @@ async def _filter_session_authorized(client, session) -> bool:
         return False
     from videl.app.connections import connected_target
     group, error = await connected_target(client, actor_id, expected_chat_id=target_chat_id)
-    return group is not None and error is None
+    return (group is not None and error is None
+            and int(getattr(group, "id", 0)) == target_chat_id)
 
 
 @bot.on_message((filters.group | filters.private) & filters.incoming & (filters.text | filters.media), group=3)
@@ -611,7 +766,10 @@ async def filter_editor_callback(client, query: CallbackQuery) -> None:
         return await query.answer(denial, show_alert=True)
 
     async def show_list():
-        if connected_dm:
+        if connected_dm and session.values.get("connected_filter_management"):
+            screen = await connected_filter_screen(client, actor_id=actor_id, private_chat_id=interaction_chat_id,
+                target_chat_id=chat_id, page=int(session.values.get("connected_filter_page", 0)), message_id=int(message.id))
+        elif connected_dm:
             from videl.plugins.settings import _screen
             screen = _screen(chat_id, "automations", connected_dm=True)
         else:

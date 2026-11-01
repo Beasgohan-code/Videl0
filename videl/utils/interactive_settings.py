@@ -268,7 +268,8 @@ class InteractionEngine:
         async with self._lock:
             self._expire(self._clock())
             session = self._sessions.get(token)
-            if session is None or session.chat_id != int(chat_id) or session.actor_id != int(actor_id):
+            if (session is None or session.chat_id != int(chat_id) or session.actor_id != int(actor_id)
+                    or session.phase == "committing"):
                 return False
             self._remove(session)
             return True
@@ -281,7 +282,7 @@ class InteractionEngine:
             if len(keys) != 1:
                 return False
             session = self._sessions.get(self._owners[keys[0]])
-            if session is None:
+            if session is None or session.phase == "committing":
                 return False
             self._remove(session)
             return True

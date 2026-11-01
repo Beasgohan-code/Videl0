@@ -110,6 +110,26 @@ class InteractionEngineTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(outcome, "saved")
         self.assertIsNone(retained)
 
+    async def test_cancel_cannot_remove_a_session_while_commit_is_in_flight(self):
+        session = await self.begin()
+        await self.engine.bind_prompt(session.token, chat_id=-100, actor_id=7, message_id=1)
+        await self.engine.capture(session.token, chat_id=-100, actor_id=7, target_chat_id=-100,
+                                  reply_to_message_id=1, value="new")
+        await self.engine.bind_prompt(session.token, chat_id=-100, actor_id=7, message_id=2)
+        entered, release = asyncio.Event(), asyncio.Event()
+        async def authorize(chat, actor):
+            entered.set()
+            await release.wait()
+            return True
+        async def save(snapshot): return True
+        pending = asyncio.create_task(self.engine.commit(session.token, chat_id=-100, actor_id=7,
+            target_chat_id=-100, message_id=2, authorize=authorize, save=save))
+        await entered.wait()
+        self.assertFalse(await self.engine.cancel(session.token, chat_id=-100, actor_id=7))
+        self.assertFalse(await self.engine.cancel_owner(chat_id=-100, actor_id=7, target_chat_id=-100))
+        release.set()
+        self.assertEqual((await pending)[0], "saved")
+
     async def test_timeout_and_restart_semantics(self):
         session = await self.begin(timeout_seconds=3)
         self.now += 3

@@ -258,8 +258,9 @@ def _screen(chat_id, section="home", *, query="", category="all", page=0, connec
                 + table([("Automatic filters", count_label)])
                 + body("Create or edit text-only filters. No regex or media-response behavior is added."))
         if connected_dm:
-            text += body("Add is available here. Review or remove existing filters from the group with <code>/filters</code>.")
-            markup.append([button("＋ Add Filter", callback_data=f"settings:{chat_id}:filters:add", style="primary")])
+            text += body("Manage this group’s text-only filters privately. Lists are paginated; each edit or deletion is previewed before saving.")
+            markup.append([button("＋ Add Filter", callback_data=f"settings:{chat_id}:filters:add", style="primary"),
+                           button("Manage Filters", callback_data=f"settings:{chat_id}:filters:manage")])
         else:
             markup.append([button("＋ Add Filter", callback_data=f"settings:{chat_id}:filters:add", style="primary"),
                            button("Manage Filters", callback_data=f"settings:{chat_id}:filters:manage")])
@@ -333,6 +334,7 @@ def _screen(chat_id, section="home", *, query="", category="all", page=0, connec
                            or action.startswith("preset:delete:")
                            or action.startswith("approved:")
                            or action.startswith("filters:add")
+                           or action.startswith("filters:manage")
                            or action == "session:schedule"
                            or action.startswith("session:cancel:")
                            or action.startswith("blocklist:")
@@ -759,7 +761,7 @@ async def settings_callback(client,query):
                 or key == "__welcome_flow_start__" and value in {"welcome_text", "goodbye_text", "rules_text", "welcome_media", "welcome_buttons"}
                 or key in {"__prompt__", "__remove__"} and section == "blocklist"
                 or key in {"__approved_list__", "__approved_add__", "__approved_remove__"} and section == "safety"
-                or key == "__filters_add__" and section == "automations"):
+                or key in {"__filters_add__", "__filters_manage__"} and section == "automations"):
             return await query.answer("That editor is not available in connected DM yet. No change was made.", show_alert=True)
     try:
         member=await client.get_chat_member(chat_id,int(actor.id)); status=str(getattr(member.status,"value",member.status)).casefold()
@@ -777,11 +779,17 @@ async def settings_callback(client,query):
         from videl.plugins import notes
         try:
             if key == "__filters_add__":
-                await notes.start_filter_editor(client, message, chat_id, int(actor.id), mode="add",
+                session = await notes.start_filter_editor(client, message, chat_id, int(actor.id), mode="add",
                     interaction_chat_id=int(message.chat.id))
+                if connected_dm:
+                    session.values["connected_filter_management"] = True
                 return await query.answer("Reply privately to the keyword and response prompts; nothing is saved until confirmation.")
             if connected_dm:
-                return await query.answer("Existing filters can be managed from /filters in the group; no changes were made.", show_alert=True)
+                screen = await notes.connected_filter_screen(client, actor_id=int(actor.id),
+                    private_chat_id=int(message.chat.id), target_chat_id=chat_id, page=0,
+                    message_id=int(message.id))
+                await query.answer("Filters loaded privately.")
+                return await rich_edit(message, screen.html, reply_markup=screen.keyboard)
             from types import SimpleNamespace
             screen = await notes.list_filters(SimpleNamespace(message=message, user=actor, client=client))
             await query.answer("Filter list opened.")

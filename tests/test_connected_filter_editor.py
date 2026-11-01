@@ -78,7 +78,7 @@ class ConnectedFilterEditorTests(unittest.IsolatedAsyncioTestCase):
         screen = settings._screen(self.CHAT, "automations", connected_dm=True)
         callbacks = [b.callback_data for row in screen.keyboard.inline_keyboard for b in row if b.callback_data]
         self.assertIn(f"settings:{self.CHAT}:filters:add:v0", callbacks)
-        self.assertFalse(any("filters:manage" in value for value in callbacks))
+        self.assertTrue(any("filters:manage" in value for value in callbacks))
         session, _ = await self.start()
         self.assertEqual(self.client.send_message.await_args.args[0], self.USER)
         session = await self.preview(session)
