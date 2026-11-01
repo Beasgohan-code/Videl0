@@ -30,14 +30,14 @@ class NavigationTests(unittest.IsolatedAsyncioTestCase):
         return edited.call_args.args[1]
 
     async def test_section_shortcuts_open_their_section(self):
-        for data, marker in (("v2:section:music", "Mᴜsɪᴄ"), ("v2:section:tools", "Tᴇʟᴇɢʀᴀᴍ ᴛᴏᴏʟs"),
-                             ("v2:section:protect", "Gʀᴏᴜᴘ ᴍᴀɴᴀɢᴇᴍᴇɴᴛ")):
+        for data, marker in (("v2:section:music", "Music"), ("v2:section:tools", "Telegram tools"),
+                             ("v2:section:protect", "Group management")):
             text = await self.run_callback(data)
             self.assertIn(marker, text, data)
 
     async def test_unknown_section_falls_back_to_help_home(self):
         text = await self.run_callback("v2:section:nowhere")
-        self.assertIn("Hᴇʟᴘ ᴄᴇɴᴛᴇʀ", text)
+        self.assertIn("Videl · Help center", text)
 
     async def test_help_start_renders_the_start_card(self):
         text = await self.run_callback("help:start")

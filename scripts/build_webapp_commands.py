@@ -79,6 +79,7 @@ USAGE = {
     "lock": "/lock <type>",
     "unlock": "/unlock <type>",
     "afk": "/afk [reason]",
+    "afklist": "/afklist [page] (group; bot-wide away list)",
     "remind": "/remind 10m <text>",
     "reminders": "/reminders (private chat; lists reminders across chats)",
     "invite": "/invite [title]",
@@ -105,6 +106,7 @@ USAGE = {
 # the category, context and owner flag still come from the registered source.
 SUMMARY_OVERRIDES = {
     "active": "Show whether the bot is online",
+    "afklist": "Browse members currently away across Videl chats",
     "adminlist": "List group administrators (Rose-compatible alias for /admins)",
     "addsudo": "Grant limited bot-blocklist operator access to a trusted user",
     "delsudo": "Revoke a bot sudo operator",
@@ -182,7 +184,7 @@ SUMMARY_OVERRIDES = {
     "playlists": "List your saved playlists",
     "pollstop": "Stop a poll the bot posted and show the result",
     "react": "React to the replied message with an emoji",
-    "reminders": "List pending reminders privately; clear them from your own chat",
+    "reminders": "List your pending reminders privately; clear them in your private chat",
     "report": "Report a message to the group admins",
     "rmblacklist": "Remove a user from the blocklist",
     "saveplaylist": "Save the current queue as a playlist",

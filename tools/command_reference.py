@@ -23,6 +23,7 @@ def reference():
               '', ', '.join(f'`/{name}`' for name in remote), '',
               'Every routed request uses the server-stored group ID, preserves the actual Telegram user, rechecks current group-admin status, and removes private reply targets. Use a username or numeric Telegram ID instead of replying to a private message.', '']
     lines += ['## Command-specific behavior notes','',
+              '`/afklist [page]` is group-only and paginates the bot-wide list of active away statuses. The list is across chats, not a verified roster of the current group; only the status owner can clear their own status with `/back`.','',
               '`/reminders` lists the sender’s pending reminders across chats and is available only in that sender’s private chat with Videl. Its Clear all button and `/forget all` cancel only that user’s pending reminders; reminders already being delivered or already sent are not recalled.','',
               '## UI and transport exceptions','',
               'Authored command feedback uses the vendored Badmunda05 Richgram helpers and native Kurigram keyboards.',

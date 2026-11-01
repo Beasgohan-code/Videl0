@@ -9,6 +9,7 @@ from datetime import timedelta
 from pathlib import Path
 
 import psutil
+from pyrogram.errors import UserNotParticipant
 from pyrogram.types import InlineKeyboardMarkup
 
 import config
@@ -184,8 +185,10 @@ async def whois(ctx) -> Screen:
         try:
             member = await ctx.client.get_chat_member(ctx.message.chat.id, user.id)
             rows.append(("Membership", escape(str(getattr(member.status, "value", member.status)))))
-        except Exception:
+        except UserNotParticipant:
             rows.append(("Membership", "not a member"))
+        except Exception:
+            rows.append(("Membership", "could not be verified"))
     return Screen(heading("Member profile", 3) + table(rows))
 
 

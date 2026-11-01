@@ -1,7 +1,9 @@
 """Reminder commands keep personal reminder text private and button actions real."""
 from __future__ import annotations
 
+import asyncio
 import unittest
+import threading
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -154,3 +156,119 @@ class ReminderCommandTests(unittest.IsolatedAsyncioTestCase):
             await reminder.reminders_callback(client, query)
         self.assertEqual(store.delete_calls, [])
         query.answer.assert_awaited_once()
+
+
+class ReminderWriter:
+    def __init__(self, *, pending=0, count_error=None, insert_error=None, delete_error=None):
+        self.pending = pending
+        self.count_error = count_error
+        self.insert_error = insert_error
+        self.delete_error = delete_error
+        self.inserted = []
+
+    def count_documents(self, selector):
+        if self.count_error:
+            raise self.count_error
+        self.count_selector = selector
+        return self.pending
+
+    def insert_one(self, document):
+        if self.insert_error:
+            raise self.insert_error
+        self.inserted.append(document)
+        return SimpleNamespace(inserted_id="reminder-1")
+
+    def delete_many(self, selector):
+        if self.delete_error:
+            raise self.delete_error
+        self.delete_selector = selector
+        return SimpleNamespace(deleted_count=0)
+
+
+class ReminderWriteTests(unittest.IsolatedAsyncioTestCase):
+    def context(self, arguments):
+        actor = SimpleNamespace(id=42, first_name="Ari")
+        message = SimpleNamespace(
+            from_user=actor,
+            chat=SimpleNamespace(id=42, type=ChatType.PRIVATE),
+            message_thread_id=None,
+        )
+        return SimpleNamespace(
+            message=message, user=actor,
+            command=SimpleNamespace(arguments=arguments),
+        )
+
+    async def test_invalid_duration_is_rejected_before_database_access(self):
+        store = ReminderWriter()
+        with patch.object(reminder, "_store", return_value=store):
+            screen = await reminder.remind(self.context("5s too soon"))
+        self.assertIn("10 seconds", screen.html)
+        self.assertFalse(hasattr(store, "count_selector"))
+        self.assertEqual(store.inserted, [])
+
+    async def test_limit_boundary_does_not_insert_an_extra_reminder(self):
+        store = ReminderWriter(pending=reminder.MAX_PENDING)
+        with patch.object(reminder, "_store", return_value=store):
+            screen = await reminder.remind(self.context("10m call"))
+        self.assertIn("20 pending reminders", screen.html)
+        self.assertEqual(store.count_selector, {"user_id": 42, "status": "pending"})
+        self.assertEqual(store.inserted, [])
+
+    async def test_count_database_error_has_safe_recovery_and_does_not_insert(self):
+        store = ReminderWriter(count_error=RuntimeError("database unavailable"))
+        with patch.object(reminder, "_store", return_value=store):
+            with self.assertRaisesRegex(CommandError, "could not check"):
+                await reminder.remind(self.context("10m call"))
+        self.assertEqual(store.inserted, [])
+
+    async def test_ambiguous_insert_failure_tells_user_to_check_before_retrying(self):
+        store = ReminderWriter(insert_error=RuntimeError("write timeout"))
+        with patch.object(reminder, "_store", return_value=store):
+            with self.assertRaisesRegex(CommandError, "Check /reminders before retrying"):
+                await reminder.remind(self.context("10m call"))
+        self.assertEqual(store.inserted, [])
+
+    async def test_reminder_list_read_error_is_actionable_not_a_raw_exception(self):
+        class BrokenRead:
+            def find(self, _selector):
+                raise RuntimeError("database unavailable")
+
+        with patch.object(reminder, "_store", return_value=BrokenRead()):
+            with self.assertRaisesRegex(CommandError, "could not load"):
+                await reminder.reminders(self.context(""))
+
+    async def test_forget_write_error_does_not_claim_success_and_suggests_verification(self):
+        store = ReminderWriter(delete_error=RuntimeError("write timeout"))
+        with patch.object(reminder, "_store", return_value=store):
+            with self.assertRaisesRegex(CommandError, "Check /reminders before retrying"):
+                await reminder.forget(self.context("all"))
+
+
+class ConcurrentReminderWriter:
+    def __init__(self, pending):
+        self.pending = pending
+        self.lock = threading.Lock()
+        self.inserted = []
+
+    def count_documents(self, _selector):
+        with self.lock:
+            return self.pending
+
+    def insert_one(self, document):
+        with self.lock:
+            self.pending += 1
+            self.inserted.append(dict(document))
+            return SimpleNamespace(inserted_id=f"reminder-{self.pending}")
+
+
+class ReminderAdmissionConcurrencyTests(unittest.IsolatedAsyncioTestCase):
+    async def test_parallel_admissions_cannot_overshoot_limit_in_one_bot_process(self):
+        store = ConcurrentReminderWriter(reminder.MAX_PENDING - 1)
+        contexts = [ReminderWriteTests().context("10m call") for _ in range(2)]
+        with patch.object(reminder, "_store", return_value=store), \
+             patch.object(reminder, "_schedule"):
+            screens = await asyncio.gather(*(reminder.remind(ctx) for ctx in contexts))
+        self.assertEqual(len(store.inserted), 1)
+        self.assertEqual(store.pending, reminder.MAX_PENDING)
+        self.assertEqual(sum("I will message this chat when the time is up." in screen.html for screen in screens), 1)
+        self.assertEqual(sum(f"{reminder.MAX_PENDING} pending reminders" in screen.html for screen in screens), 1)

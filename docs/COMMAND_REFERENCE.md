@@ -183,26 +183,26 @@ Owner operations are hidden from public `/commands` results.
 | `/back` | chat | `videl/plugins/afk.py::back` |
 | `/commands` | chat | `videl/plugins/help.py::directory_command` |
 | `/copy` | chat | `videl/modules/api_tools.py::copy_command` |
-| `/feedback` | chat | `videl/plugins/privacy.py::feedback` |
+| `/feedback` | private | `videl/plugins/privacy.py::feedback` |
 | `/forget` | chat | `videl/plugins/reminder.py::forget` |
 | `/help` | chat | `videl/plugins/help.py::help_command` |
 | `/id` | chat | `videl/plugins/tools.py::identifiers` |
-| `/inbox` | chat | `videl/app/group_view.py::private_recording` |
+| `/inbox` | private | `videl/app/group_view.py::private_recording` |
 | `/kang` | chat | `videl/plugins/stickers.py::kang` |
-| `/mydata` | chat | `videl/plugins/privacy.py::my_data` |
+| `/mydata` | private | `videl/plugins/privacy.py::my_data` |
 | `/ping` | chat | `videl/plugins/tools.py::ping` |
 | `/poll` | chat | `videl/plugins/group.py::poll` |
 | `/pollstop` | chat | `videl/modules/api_tools.py::stop_poll_command` |
-| `/preferences` | chat | `videl/plugins/preferences.py::preferences` |
+| `/preferences` | private | `videl/plugins/preferences.py::preferences` |
 | `/quiz` | chat | `videl/plugins/group.py::poll` |
 | `/react` | chat | `videl/modules/api_tools.py::react_command` |
 | `/remind` | chat | `videl/plugins/reminder.py::remind` |
-| `/reminders` | chat | `videl/plugins/reminder.py::reminders` |
+| `/reminders` | private | `videl/plugins/reminder.py::reminders` |
 | `/repo` | chat | `videl/plugins/tools.py::source` |
 | `/start` | chat | `videl/plugins/start.py::start` |
 | `/stats` | chat | `videl/plugins/group.py::stats` |
 | `/stickerid` | chat | `videl/plugins/group.py::sticker_id` |
-| `/sudohelp` | chat | `videl/plugins/sudo.py::sudo_help` |
+| `/sudohelp` | private | `videl/plugins/sudo.py::sudo_help` |
 | `/whois` | chat | `videl/plugins/tools.py::whois` |
 
 ## Owner operations
@@ -245,6 +245,8 @@ Run `/connect` in a group as a current Telegram administrator. From private chat
 Every routed request uses the server-stored group ID, preserves the actual Telegram user, rechecks current group-admin status, and removes private reply targets. Use a username or numeric Telegram ID instead of replying to a private message.
 
 ## Command-specific behavior notes
+
+`/afklist [page]` is group-only and paginates the bot-wide list of active away statuses. The list is across chats, not a verified roster of the current group; only the status owner can clear their own status with `/back`.
 
 `/reminders` lists the sender’s pending reminders across chats and is available only in that sender’s private chat with Videl. Its Clear all button and `/forget all` cancel only that user’s pending reminders; reminders already being delivered or already sent are not recalled.
 

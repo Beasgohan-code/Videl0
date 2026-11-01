@@ -54,6 +54,15 @@ class CommandRegistryAuditTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(command=name):
                 self.assertEqual(contexts[name], "group_private")
 
+    def test_private_only_tool_handlers_are_not_advertised_as_any_chat(self):
+        contexts = {entry["name"]: entry["context"] for entry in commands()}
+        from scripts.build_webapp_commands import command_rows
+        web_contexts = {entry["name"]: entry["context"] for entry in command_rows()}
+        for name in ("feedback", "inbox", "mydata", "preferences", "reminders", "sudohelp"):
+            with self.subTest(command=name):
+                self.assertEqual(contexts[name], "private")
+                self.assertEqual(web_contexts[name], "private")
+
     def test_webapp_guide_is_generated_with_dual_context_labels(self):
         from scripts.build_webapp_commands import command_rows, render
 

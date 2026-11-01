@@ -1486,8 +1486,8 @@ export const BOT_COMMANDS: BotCommand[] = [
   },
   {
     "name": "afklist",
-    "usage": "/afklist",
-    "summary": "List members currently away",
+    "usage": "/afklist [page] (group; bot-wide away list)",
+    "summary": "Browse members currently away across Videl chats",
     "category": "tools",
     "context": "group",
     "owner": false
@@ -1521,7 +1521,7 @@ export const BOT_COMMANDS: BotCommand[] = [
     "usage": "/feedback your suggestion (private chat)",
     "summary": "Send anonymous private feedback",
     "category": "tools",
-    "context": "chat",
+    "context": "private",
     "owner": false
   },
   {
@@ -1553,7 +1553,7 @@ export const BOT_COMMANDS: BotCommand[] = [
     "usage": "/inbox",
     "summary": "Check or stop recording of your own bot DM",
     "category": "tools",
-    "context": "chat",
+    "context": "private",
     "owner": false
   },
   {
@@ -1569,7 +1569,7 @@ export const BOT_COMMANDS: BotCommand[] = [
     "usage": "/mydata (private chat)",
     "summary": "Download a private export of your stored Videl data",
     "category": "tools",
-    "context": "chat",
+    "context": "private",
     "owner": false
   },
   {
@@ -1601,7 +1601,7 @@ export const BOT_COMMANDS: BotCommand[] = [
     "usage": "/preferences notifications on|off · /preferences quiet 22:00-07:00 UTC+05:30",
     "summary": "Manage opt-in private updates and reminder quiet hours",
     "category": "tools",
-    "context": "chat",
+    "context": "private",
     "owner": false
   },
   {
@@ -1631,9 +1631,9 @@ export const BOT_COMMANDS: BotCommand[] = [
   {
     "name": "reminders",
     "usage": "/reminders (private chat; lists reminders across chats)",
-    "summary": "List pending reminders privately; clear them from your own chat",
+    "summary": "List your pending reminders privately; clear them in your private chat",
     "category": "tools",
-    "context": "chat",
+    "context": "private",
     "owner": false
   },
   {
@@ -1673,7 +1673,7 @@ export const BOT_COMMANDS: BotCommand[] = [
     "usage": "/sudohelp",
     "summary": "Show the limited bot sudo command scope",
     "category": "tools",
-    "context": "chat",
+    "context": "private",
     "owner": false
   },
   {

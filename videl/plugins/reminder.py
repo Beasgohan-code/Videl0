@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import weakref
 from datetime import datetime, timedelta, timezone
 
 from pyrogram import filters
@@ -25,12 +26,23 @@ COLLECTION = "plugin_reminders"
 MAX_PENDING = 20
 MAX_SECONDS = 7 * 86400
 _TASKS: dict[str, asyncio.Task] = {}
+# Serialize count+insert for one sender within this bot process without keeping
+# an unbounded permanent lock entry for every user who ever creates a reminder.
+_ADMISSION_LOCKS: weakref.WeakValueDictionary[int, asyncio.Lock] = weakref.WeakValueDictionary()
 _ARGUMENT = re.compile(r"(?:in\s+)?(\d{1,6})\s*([smhdw])\s+(.{1,300})", re.I | re.S)
 UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
 
 
 def _store():
     return base.collection(COLLECTION)
+
+
+def _admission_lock(user_id: int) -> asyncio.Lock:
+    lock = _ADMISSION_LOCKS.get(int(user_id))
+    if lock is None:
+        lock = asyncio.Lock()
+        _ADMISSION_LOCKS[int(user_id)] = lock
+    return lock
 
 
 def parse(text: str):
@@ -135,19 +147,30 @@ async def remind(ctx) -> Screen:
     if parsed is None:
         return Screen(usage("/remind 10m take a break", "Accepts s, m, h, d and w from 10 seconds to 7 days."))
     seconds, text = parsed
-    pending = await asyncio.to_thread(store.count_documents, {"user_id": actor.id, "status": "pending"})
-    if pending >= MAX_PENDING:
-        return Screen(heading("Reminder limit", 3) + body(f"You already have {MAX_PENDING} pending reminders."))
-    reminder = {
-        "user_id": actor.id,
-        "chat_id": ctx.message.chat.id,
-        "message_thread_id": getattr(ctx.message, "message_thread_id", None),
-        "text": text,
-        "due_at": datetime.now(timezone.utc) + timedelta(seconds=seconds),
-        "status": "pending",
-    }
-    inserted = await asyncio.to_thread(store.insert_one, reminder)
-    reminder["_id"] = inserted.inserted_id
+    async with _admission_lock(int(actor.id)):
+        try:
+            pending = await asyncio.to_thread(
+                store.count_documents, {"user_id": actor.id, "status": "pending"}
+            )
+        except Exception as error:
+            LOGGER.warning("Reminder limit check failed (%s)", type(error).__name__)
+            raise CommandError("I could not check your pending-reminder limit; no new reminder was saved. Try again shortly.") from None
+        if pending >= MAX_PENDING:
+            return Screen(heading("Reminder limit", 3) + body(f"You already have {MAX_PENDING} pending reminders."))
+        reminder = {
+            "user_id": actor.id,
+            "chat_id": ctx.message.chat.id,
+            "message_thread_id": getattr(ctx.message, "message_thread_id", None),
+            "text": text,
+            "due_at": datetime.now(timezone.utc) + timedelta(seconds=seconds),
+            "status": "pending",
+        }
+        try:
+            inserted = await asyncio.to_thread(store.insert_one, reminder)
+        except Exception as error:
+            LOGGER.warning("Reminder save unconfirmed (%s); no automatic retry", type(error).__name__)
+            raise CommandError("I could not confirm whether the reminder was saved. Check /reminders before retrying.") from None
+        reminder["_id"] = inserted.inserted_id
     _schedule(store, reminder)
     return Screen(
         heading("Reminder saved", 3)
@@ -166,9 +189,13 @@ async def reminders(ctx) -> Screen:
         raise CommandError("For privacy, list your reminders in your own private chat with Videl.")
     if store is None:
         return Screen(heading("Reminders", 3) + body("Reminders are unavailable right now."))
-    documents = await asyncio.to_thread(
-        lambda: list(store.find({"user_id": actor.id, "status": "pending"}).sort("due_at", 1).limit(MAX_PENDING))
-    )
+    try:
+        documents = await asyncio.to_thread(
+            lambda: list(store.find({"user_id": actor.id, "status": "pending"}).sort("due_at", 1).limit(MAX_PENDING))
+        )
+    except Exception as error:
+        LOGGER.warning("Reminder list unavailable (%s)", type(error).__name__)
+        raise CommandError("I could not load your reminders. Try again shortly.") from None
     if not documents:
         return Screen(heading("No reminders", 3) + body("Create one with <code>/remind 15m stretch</code>."))
     rows = []
@@ -227,12 +254,16 @@ async def forget(ctx) -> Screen:
     argument = (ctx.command.arguments or "").strip().casefold()
     if argument not in {"all"}:
         return Screen(usage("/forget all", "Cancels every pending reminder you created."))
-    result = await asyncio.to_thread(store.delete_many, {"user_id": actor.id, "status": "pending"})
+    try:
+        result = await asyncio.to_thread(store.delete_many, {"user_id": actor.id, "status": "pending"})
+    except Exception as error:
+        LOGGER.warning("Reminder cancellation unconfirmed (%s); no automatic retry", type(error).__name__)
+        raise CommandError("I could not confirm whether reminders were cleared. Check /reminders before retrying.") from None
     return Screen(heading("Reminders cleared", 3) + body(f"Cancelled {escape(result.deleted_count)} pending reminders."))
 
 
 COMMANDS = (
     Command("remind", remind, "Schedule a reminder such as 10m or 2h", category="tools"),
-    Command("reminders", reminders, "List your pending reminders", category="tools"),
+    Command("reminders", reminders, "List your pending reminders privately; clear them in your private chat", category="tools"),
     Command("forget", forget, "Cancel every pending reminder you created", category="tools"),
 )
