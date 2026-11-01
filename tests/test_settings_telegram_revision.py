@@ -26,7 +26,7 @@ class TelegramSettingsRevisionTests(unittest.IsolatedAsyncioTestCase):
     async def test_compact_navigation_has_more_hub_and_back_links(self):
         home = settings._screen(self.CHAT)
         home_labels = [button.text for row in home.keyboard.inline_keyboard for button in row]
-        self.assertIn("⚙ More settings", home_labels)
+        self.assertIn("More settings", home_labels)
         self.assertLessEqual(len(home_labels), 8)
 
         more = settings._screen(self.CHAT, "more")

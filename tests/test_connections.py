@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 from pyrogram.enums import ChatMemberStatus
 
 from videl.app.router import Command, Context, Parsed, Router, Screen, CommandError
-from videl.app.connections import CONNECTED_COMMANDS
+from videl.app.connections import CONNECTED_COMMANDS, connected_target
 from videl.app.routes import router as command_router
 from videl.plugins.connections import connect, disconnect
 
@@ -92,6 +92,34 @@ class ConnectedRoutingTests(IsolatedAsyncioTestCase):
 
     async def test_remote_allowlist_only_contains_registered_commands(self):
         self.assertLessEqual(CONNECTED_COMMANDS, command_router.commands.keys())
+
+    async def test_settings_command_is_allowlisted_for_connected_group_context(self):
+        self.assertIn("settings", CONNECTED_COMMANDS)
+
+    async def test_connected_target_rejects_changed_link_and_current_member(self):
+        group = SimpleNamespace(id=-100123, type="supergroup")
+        client = SimpleNamespace(
+            get_chat=AsyncMock(return_value=group),
+            get_chat_member=AsyncMock(return_value=SimpleNamespace(status=ChatMemberStatus.ADMINISTRATOR)),
+        )
+        with patch("videl.utils.db.get_connected_chat", return_value=-100123):
+            chat, error = await connected_target(client, 42, expected_chat_id=-100123)
+            self.assertIs(chat, group)
+            self.assertIsNone(error)
+            chat, error = await connected_target(client, 42, expected_chat_id=-100999)
+        self.assertIsNone(chat)
+        self.assertIn("connection has changed", error)
+
+    async def test_connected_target_rechecks_revoked_admin_status(self):
+        group = SimpleNamespace(id=-100123, type="supergroup")
+        client = SimpleNamespace(
+            get_chat=AsyncMock(return_value=group),
+            get_chat_member=AsyncMock(return_value=SimpleNamespace(status=ChatMemberStatus.MEMBER)),
+        )
+        with patch("videl.utils.db.get_connected_chat", return_value=-100123):
+            chat, error = await connected_target(client, 42, expected_chat_id=-100123)
+        self.assertIsNone(chat)
+        self.assertIn("no longer a current administrator", error)
 
     async def test_connect_requires_current_group_admin_and_persists_user_link(self):
         client = SimpleNamespace(
