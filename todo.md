@@ -364,3 +364,6 @@ These are concrete hardening and maintenance tasks for the existing repository, 
 220. Visual regression and interaction coverage — test primary admin journeys, empty/error/loading states and destructive-action previews at desktop and mobile sizes.
 221. Webapp accessibility and privacy review — audit labels, focus, motion, analytics and telemetry for sensitive data before release.
 222. Admin dashboard release checklist — verify deployment compatibility, migrations, feature flags, health checks, rollback and preview-before-production workflow.
+
+## Completed in this branch
+- Connected-DM Queue preset Apply/Delete lifecycle: staged private prompt, reviewable previews with saved-settings revision, actor/target binding, Edit/Confirm/Cancel, fresh connection/admin authorization, preset/settings revision checks, and single-flight confirmation. Apply validates queue/settings snapshots and retains the active track while shuffling only upcoming tracks; Delete removes only the saved preset. Group-context actions and legacy commands remain unchanged. Focused tests use mocks and do not validate live Telegram or production storage.

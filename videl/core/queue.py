@@ -183,6 +183,11 @@ def get_queue(chat_id: int) -> list:
     return chat_queues.get(chat_id, [])
 
 
+def mutation_revision(chat_id: int) -> int:
+    """Return the in-process revision advanced by supported queue mutations."""
+    return _revisions.get(int(chat_id), 0)
+
+
 def add_to_queue(chat_id: int, song: dict) -> int:
     queue = chat_queues.setdefault(chat_id, [])
     queue.append(song)

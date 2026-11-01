@@ -117,8 +117,13 @@ class ConnectedSettingsDashboardTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("no longer a current administrator", error)
 
     def test_connected_dm_hides_prompt_based_controls_across_sections(self):
-        unsupported = (":filters:", ":preset:delete:")
-        with patch("videl.plugins.settings._revision", return_value=0):
+        unsupported = (":filters:",)
+        original_get_setting = settings.base.get_setting
+        def get_setting(chat_id, key, default=None):
+            if key == "music_session_presets":
+                return [{"name": "Test", "loop": "off", "shuffle": False}]
+            return original_get_setting(chat_id, key, default)
+        with patch("videl.plugins.settings._revision", return_value=0), patch("videl.plugins.settings.base.get_setting", side_effect=get_setting):
             screens = [settings._screen(self.CHAT, section, connected_dm=True)
                        for section in ("home", "music", "welcome", "safety", "moderation",
                                        "retention", "blocklist", "presets", "sessions",
@@ -128,6 +133,8 @@ class ConnectedSettingsDashboardTests(unittest.IsolatedAsyncioTestCase):
                      if button.callback_data]
         self.assertTrue(any(":tab:home:" in callback for callback in callbacks))
         self.assertTrue(any(":preset:save:" in callback for callback in callbacks))
+        self.assertTrue(any(":preset:apply:" in callback for callback in callbacks))
+        self.assertTrue(any(":preset:delete:" in callback for callback in callbacks))
         self.assertTrue(any(":session:schedule:" in callback for callback in callbacks))
         self.assertFalse(any(fragment in callback for callback in callbacks for fragment in unsupported))
         self.assertTrue(any(":welcome_text:edit:" in callback for callback in callbacks))
