@@ -132,6 +132,8 @@ async def unapprove_cmd(_, m):
 
 @bot.on_message(filters.command('approved', prefixes=config.COMMAND_PREFIX_LIST) & filters.group & group_allowed & user_allowed)
 async def approved_list(_, m):
+    if not await is_user_authorized(m):
+        return
     body, markup = _approved_list_view(m.chat.id)
     await rich_send(bot, m.chat.id, body, reply_markup=markup)
 
@@ -222,11 +224,80 @@ async def approve_cbs(_, q):
             pass
         await q.answer()
     if data == "approve:clear":
-        arr = list_approved(chat_id)
-        for uid in arr:
-            disapprove_user(chat_id, uid)
-        await q.answer("Approved-member list cleared.")
+        from videl.utils.interactive_settings import engine
+        from videl.utils.rich_ui import rich_note
+        users = sorted({int(uid) for uid in list_approved(chat_id)
+                        if isinstance(uid, int) and not isinstance(uid, bool) and 0 < uid <= 9_223_372_036_854_775_807})
+        if len(users) < 2:
+            return await q.answer("There are not enough approved members to clear.", show_alert=True)
         try:
-            await rich_edit(q.message, rich_heading("✅ Approved-member list cleared", level=3) + rich_note("No members are currently approved in this group."))
+            session = await engine.begin_preview(
+                chat_id=chat_id, actor_id=int(q.from_user.id), target_chat_id=chat_id,
+                workflow="approved_clear", values={"users": users}, timeout_seconds=600)
+        except RuntimeError:
+            return await q.answer("Another settings confirmation is active for this group. Finish or cancel it first.", show_alert=True)
+        body = (rich_heading("Review approved-member removal", level=3)
+                + rich_note(f"This will remove all {len(users)} currently approved members from this group's exemptions. No other group or setting will change."))
+        markup = InlineKeyboardMarkup([[InlineKeyboardButton("Clear approved list", callback_data=f"approve:clear:confirm:{session.token}", style="danger", icon="ios_trash"),
+                                        InlineKeyboardButton("Cancel", callback_data=f"approve:clear:cancel:{session.token}", icon="cross")]])
+        try:
+            await rich_edit(q.message, body, reply_markup=markup)
+            await engine.bind_prompt(session.token, chat_id=chat_id, actor_id=int(q.from_user.id), message_id=int(q.message.id))
         except Exception:
-            pass
+            await engine.cancel(session.token, chat_id=chat_id, actor_id=int(q.from_user.id))
+            return await q.answer("Could not show the confirmation. No changes were made.", show_alert=True)
+        return await q.answer("Review the affected count and confirm to continue.")
+    if data.startswith("approve:clear:cancel:"):
+        from videl.utils.interactive_settings import engine
+        token = data.rsplit(":", 1)[-1]
+        cancelled = await engine.cancel(token, chat_id=chat_id, actor_id=int(q.from_user.id))
+        await q.answer("Cancelled." if cancelled else "This confirmation expired.")
+        if cancelled:
+            body, markup = _approved_list_view(chat_id)
+            try: await rich_edit(q.message, body, reply_markup=markup)
+            except Exception: pass
+        return
+    if data.startswith("approve:clear:confirm:"):
+        from videl.utils.interactive_settings import engine
+        token = data.rsplit(":", 1)[-1]
+        session = await engine.get(token, chat_id=chat_id, actor_id=int(q.from_user.id), target_chat_id=chat_id)
+        if session is None or session.workflow != "approved_clear":
+            return await q.answer("This confirmation expired or belongs to another admin.", show_alert=True)
+
+        async def authorize(target_chat_id, actor_id):
+            return target_chat_id == chat_id and actor_id == int(q.from_user.id) and await is_user_authorized(q)
+
+        async def save(snapshot):
+            expected = sorted(snapshot.values.get("users", []))
+            current = sorted({int(uid) for uid in list_approved(chat_id)
+                              if isinstance(uid, int) and not isinstance(uid, bool) and 0 < uid <= 9_223_372_036_854_775_807})
+            if current != expected:
+                return False
+            from videl.utils.db import get_db
+            database = get_db()
+            if database is None:
+                return False
+            try:
+                database["approved"].delete_many({"chat": chat_id, "user": {"$in": expected}})
+            except Exception:
+                # A write may have reached Mongo before a transport error. Verify
+                # the exact reviewed IDs before deciding whether retry is safe.
+                pass
+            try:
+                remaining = database["approved"].count_documents({"chat": chat_id, "user": {"$in": expected}})
+                return remaining == 0
+            except Exception:
+                return False
+
+        outcome, _ = await engine.commit(token, chat_id=chat_id, actor_id=int(q.from_user.id),
+            target_chat_id=chat_id, message_id=int(q.message.id), authorize=authorize, save=save)
+        if outcome == "saved":
+            await q.answer("Approved-member list cleared.")
+            try: await rich_edit(q.message, rich_heading("✅ Approved-member list cleared", level=3) + rich_note("No members are currently approved in this group."))
+            except Exception: pass
+        elif outcome == "permission_denied":
+            await q.answer("Current group-admin permission could not be verified. Nothing was changed.", show_alert=True)
+        elif outcome == "save_failed":
+            await q.answer("The list changed or storage did not confirm the removal. Refresh and review before retrying.", show_alert=True)
+        else:
+            await q.answer("This confirmation is stale or already being processed.", show_alert=True)

@@ -177,6 +177,29 @@ class InteractionEngine:
             self._owners[owner_key] = token
             return session
 
+    async def begin_preview(self, *, chat_id: int, actor_id: int, target_chat_id: int,
+                            workflow: str, values: Mapping[str, Any], revision: int | None = None,
+                            timeout_seconds: int = 600) -> Session:
+        """Create a volatile, actor/scope-bound preview for a no-input confirmation.
+
+        The caller binds the rendered preview message with ``bind_prompt``; the
+        normal ``commit`` path then enforces exact-message confirmation,
+        single-flight execution, fresh authorization and retryable failure.
+        """
+        session = await self.begin(
+            chat_id=chat_id, actor_id=actor_id, target_chat_id=target_chat_id,
+            workflow=workflow,
+            steps=(Step("confirmation", "Confirm this reviewed change?", kind="selection", choices=("confirm",)),),
+            revision=revision, timeout_seconds=timeout_seconds,
+        )
+        async with self._lock:
+            current = self._sessions.get(session.token)
+            if current is not session:
+                raise RuntimeError("The confirmation session expired before preview.")
+            session.values = dict(values)
+            session.phase = "preview"
+        return session
+
     async def get(self, token: str, *, chat_id: int, actor_id: int, target_chat_id: int | None = None) -> Session | None:
         async with self._lock:
             self._expire(self._clock())

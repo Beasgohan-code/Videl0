@@ -86,6 +86,78 @@ class ApprovedUserGroupCallbackTests(unittest.IsolatedAsyncioTestCase):
             remove.assert_not_called()
             self.assertTrue(query.answer.await_args.kwargs.get("show_alert"))
 
+    async def test_clear_opens_scoped_preview_without_mutating(self):
+        from videl.utils.interactive_settings import engine
+        query = self._query("approve:clear")
+        query.message.id = 700
+        users = [101, 202, 303]
+        with patch.object(approve, "is_user_authorized", new=AsyncMock(return_value=True)), \
+             patch.object(approve, "list_approved", return_value=users), \
+             patch.object(approve, "rich_edit", new=AsyncMock()) as edit, \
+             patch("videl.utils.db.get_db") as get_db:
+            await approve.approve_cbs(None, query)
+            callback = edit.await_args.kwargs["reply_markup"].inline_keyboard[0][0].callback_data
+            token = callback.rsplit(":", 1)[-1]
+            session = await engine.get(token, chat_id=-10011, actor_id=111, target_chat_id=-10011)
+            self.assertEqual(session.workflow, "approved_clear")
+            self.assertEqual(session.values["users"], users)
+            self.assertEqual(session.expected_message_id, 700)
+            self.assertIn("3 currently approved", edit.await_args.args[1])
+            get_db.assert_not_called()
+        await engine.cancel(token, chat_id=-10011, actor_id=111)
+
+    async def test_clear_confirmation_refuses_revoked_admin(self):
+        from videl.utils.interactive_settings import engine
+        session = await engine.begin_preview(chat_id=-10011, actor_id=111, target_chat_id=-10011,
+            workflow="approved_clear", values={"users": [101, 202]})
+        await engine.bind_prompt(session.token, chat_id=-10011, actor_id=111, message_id=700)
+        query = self._query(f"approve:clear:confirm:{session.token}")
+        query.message.id = 700
+        with patch.object(approve, "is_user_authorized", new=AsyncMock(side_effect=[True, False])), \
+             patch("videl.utils.db.get_db") as get_db:
+            await approve.approve_cbs(None, query)
+        get_db.assert_not_called()
+        self.assertIn("permission could not be verified", query.answer.call_args.args[0].lower())
+        await engine.cancel(session.token, chat_id=-10011, actor_id=111)
+
+    async def test_clear_confirmation_refuses_a_changed_list_without_mutating(self):
+        from videl.utils.interactive_settings import engine
+        session = await engine.begin_preview(chat_id=-10011, actor_id=111, target_chat_id=-10011,
+            workflow="approved_clear", values={"users": [101, 202]})
+        await engine.bind_prompt(session.token, chat_id=-10011, actor_id=111, message_id=700)
+        query = self._query(f"approve:clear:confirm:{session.token}")
+        query.message.id = 700
+        with patch.object(approve, "is_user_authorized", new=AsyncMock(return_value=True)), \
+             patch.object(approve, "list_approved", return_value=[101, 202, 303]), \
+             patch("videl.utils.db.get_db") as get_db:
+            await approve.approve_cbs(None, query)
+        get_db.assert_not_called()
+        self.assertIn("changed or storage", query.answer.call_args.args[0].lower())
+        await engine.cancel(session.token, chat_id=-10011, actor_id=111)
+
+    async def test_clear_confirmation_deletes_only_reviewed_ids_and_is_single_use(self):
+        from videl.utils.interactive_settings import engine
+        from unittest.mock import MagicMock
+        session = await engine.begin_preview(chat_id=-10011, actor_id=111, target_chat_id=-10011,
+            workflow="approved_clear", values={"users": [101, 202]})
+        await engine.bind_prompt(session.token, chat_id=-10011, actor_id=111, message_id=700)
+        collection = MagicMock()
+        collection.count_documents.return_value = 0
+        database = {"approved": collection}
+        query = self._query(f"approve:clear:confirm:{session.token}")
+        query.message.id = 700
+        with patch.object(approve, "is_user_authorized", new=AsyncMock(return_value=True)), \
+             patch.object(approve, "list_approved", return_value=[101, 202]), \
+             patch("videl.utils.db.get_db", return_value=database):
+            await approve.approve_cbs(None, query)
+            self.assertEqual(collection.delete_many.call_args.args[0],
+                             {"chat": -10011, "user": {"$in": [101, 202]}})
+            self.assertIn("cleared", query.answer.call_args.args[0].lower())
+            retry = self._query(f"approve:clear:confirm:{session.token}")
+            retry.message.id = 700
+            await approve.approve_cbs(None, retry)
+            self.assertEqual(collection.delete_many.call_count, 1)
+
 
 if __name__ == "__main__":
     unittest.main()
