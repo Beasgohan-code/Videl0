@@ -15,6 +15,11 @@ DB_CLEANUP_DAYS = 30
 _vc_idle_since = {}
 _task = None
 _state = {"last_tick": None, "checks": {}}
+_BOT_RESTART_AFTER_FAILURES = 2
+_BOT_RESTART_COOLDOWN = 300
+_bot_disconnected_checks = 0
+_bot_last_restart = 0.0
+_bot_restart_lock = None
 
 
 def watchdog_status():
@@ -59,11 +64,13 @@ async def _cleanup_downloads():
 
 
 async def _cleanup_database():
-    from videl.utils.db import cleanup_old_data
+    from videl.utils.db import cleanup_old_data, get_db
+    from videl.utils.retention import cleanup_group_history
     result = await asyncio.to_thread(cleanup_old_data, DB_CLEANUP_DAYS, apply=True)
-    if not result.get("ok"):
+    history = await asyncio.to_thread(cleanup_group_history, get_db(), apply=True)
+    if not result.get("ok") or not history.get("ok"):
         raise RuntimeError("Database retention unavailable")
-    return result
+    return {"activity": result, "group_history": history}
 
 
 async def _auto_leave_idle_vcs():
@@ -109,10 +116,47 @@ async def _dispatch_scheduled():
     await asyncio.to_thread(dispatch_one)
 
 
+async def _dispatch_listening_session():
+    from videl.utils.db import get_db
+    from videl.utils.listening_sessions import claim_due, finish
+    session = await asyncio.to_thread(claim_due, get_db())
+    if not session:
+        return
+    chat_id = int(session["chat_id"])
+    try:
+        from videl.plugins import base
+        if not base.set_setting(chat_id, "music_requests_enabled", True):
+            raise RuntimeError("Could not open group music requests")
+        title = str(session.get("title", "Listening session"))
+        due = session.get("due_at")
+        when = due.strftime("%Y-%m-%d %H:%M UTC") if hasattr(due, "strftime") else "now"
+        await bot.send_message(chat_id, f"🎧 Listening session: {title} · starts {when}. Music requests are now open!")
+        await asyncio.to_thread(finish, get_db(), str(session["_id"]), sent=True)
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        await asyncio.to_thread(finish, get_db(), str(session["_id"]), sent=False)
+        raise
+
+
 async def _sweep_arcade():
     """Abandon rooms nobody came back to. Deadlines themselves settle lazily."""
     from videl.games import store
     await asyncio.to_thread(store.sweep)
+
+
+async def _dispatch_event_reminder():
+    from videl.games.community_events import dispatch_reminder
+    await asyncio.to_thread(dispatch_reminder)
+
+
+async def _dispatch_admin_digest():
+    from videl.utils.admin_digest import dispatch_one
+    from videl.utils.bot_api import call_bot_api
+    from videl.utils.db import get_db
+    result = await asyncio.to_thread(dispatch_one, get_db(), call_bot_api)
+    if not result.get("ok"):
+        raise RuntimeError(result.get("reason", "admin digest worker failed"))
 
 
 async def _sync_chat_admins():
@@ -124,8 +168,46 @@ async def _sync_chat_admins():
 
 
 async def _check_bot():
-    if not getattr(bot, "is_connected", False):
-        raise RuntimeError("Telegram transport disconnected")
+    """Recover the Telegram client after sustained transport loss.
+
+    Render already restarts the whole process when it exits unexpectedly. For a
+    bot-only disconnect, restart the Pyrogram client in place after two failed
+    health ticks, with a five-minute cooldown to avoid a restart loop.
+    """
+    global _bot_disconnected_checks, _bot_last_restart, _bot_restart_lock
+    if getattr(bot, "is_connected", False):
+        _bot_disconnected_checks = 0
+        return
+
+    _bot_disconnected_checks += 1
+    if _bot_disconnected_checks < _BOT_RESTART_AFTER_FAILURES:
+        raise RuntimeError("Telegram transport disconnected; waiting for a second failed health check")
+
+    now = time.monotonic()
+    if _bot_last_restart and now - _bot_last_restart < _BOT_RESTART_COOLDOWN:
+        raise RuntimeError("Telegram transport remains disconnected; automatic restart cooldown is active")
+
+    if _bot_restart_lock is None:
+        _bot_restart_lock = asyncio.Lock()
+    async with _bot_restart_lock:
+        if getattr(bot, "is_connected", False):
+            _bot_disconnected_checks = 0
+            return
+        restart = getattr(bot, "restart", None)
+        if not callable(restart):
+            raise RuntimeError("Telegram client does not expose restart recovery")
+        _bot_last_restart = time.monotonic()
+        LOGGER.warning("[watchdog] Telegram disconnected after %s checks; restarting the client", _bot_disconnected_checks)
+        try:
+            await asyncio.wait_for(restart(), timeout=40)
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            raise RuntimeError(f"Telegram client restart failed ({type(error).__name__})") from error
+        if not getattr(bot, "is_connected", False):
+            raise RuntimeError("Telegram client restart returned but transport is still disconnected")
+        _bot_disconnected_checks = 0
+        LOGGER.info("[watchdog] Telegram client recovered after automatic restart")
 
 
 async def _check_captcha():
@@ -167,7 +249,8 @@ async def watchdog():
         await asyncio.gather(*(_run_check(name, job) for name, job in (
             ("database", _check_database), ("telegram", _check_bot),
             ("captcha", _check_captcha), ("idle_calls", _auto_leave_idle_vcs),
-            ("scheduled_posts", _dispatch_scheduled), ("arcade", _sweep_arcade),
+            ("scheduled_posts", _dispatch_scheduled), ("listening_sessions", _dispatch_listening_session), ("arcade", _sweep_arcade),
+            ("event_reminders", _dispatch_event_reminder), ("admin_digests", _dispatch_admin_digest),
             ("chat_admins", _sync_chat_admins), ("protection_windows", _apply_protection_windows))))
         if time.monotonic()-last_cleanup >= CLEANUP_INTERVAL or not last_cleanup:
             await _run_check("downloads", _cleanup_downloads)

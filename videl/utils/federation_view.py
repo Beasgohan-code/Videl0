@@ -121,9 +121,24 @@ def detail(db, fed_id: str) -> dict:
     }
 
 
-def unban(db, fed_id: str, user_id: int) -> dict:
-    """Lift one federation ban. The bot re-applies bans from this table, so this is the real source."""
+def unban(db, fed_id: str, user_id: int, bot_api=None) -> dict:
+    """Lift the shared record and attempt to release existing Telegram bans in every member chat."""
     if db is None:
         raise LookupError("MongoDB is not connected")
+    if not db["feds"].find_one({"_id": fed_id}):
+        raise LookupError("This federation no longer exists")
     result = db["fed_bans"].delete_one({"fed": fed_id, "user": int(user_id)})
-    return {"ok": True, "removed": bool(result.deleted_count), "user": int(user_id)}
+    removed = bool(result.deleted_count)
+    outcomes = []
+    if removed and bot_api:
+        try:
+            chat_ids = [int(row["chat"]) for row in db["fed_chats"].find({"fed": fed_id, "chat": {"$ne": -1}})]
+        except Exception:
+            chat_ids = []
+        for chat_id in chat_ids:
+            try:
+                _, response = bot_api("unbanChatMember", {"chat_id": chat_id, "user_id": int(user_id), "only_if_banned": True})
+                outcomes.append({"chat": chat_id, "ok": bool(response and response.get("ok"))})
+            except Exception:
+                outcomes.append({"chat": chat_id, "ok": False})
+    return {"ok": True, "removed": removed, "user": int(user_id), "unbans": outcomes}

@@ -81,7 +81,7 @@ This pass removed 37 command names (185 → 148 registered names, including alia
 - Raw `/logs` and `/log` delivery; server logging and error persistence stay.
 - Redundant aliases for lyrics, channel setup, vote-skip settings, playlists,
   downloads, approvals and blacklist controls; canonical handlers stay.
-- `/sys` alias; private owner `/sysinfo` stays. Common `/q` and `/setup` stay.
+- `/sys` alias; private owner `/sysinfo` stays. Common `/q` stays; group setup checks remain available from the Start keyboard, not as a slash command.
 
 See `tests/test_command_cleanup.py` for the explicit retired-name set and
 `docs/COMMAND_REFERENCE.md` for the complete remaining set. Menu entries and

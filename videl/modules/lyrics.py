@@ -1,3 +1,4 @@
+import config
 # --------------------------------------------------------------------------------
 #  Videl © 2026 | Developed by Beasgohan-code
 #  Lyrics — /lyrics + Now Playing button (LRCLIB)
@@ -16,6 +17,7 @@ from videl.core.queue import peek_current
 from videl.modules.block import group_allowed, user_allowed
 from videl.utils.formatters import sc, short
 from videl.utils.rich_ui import rich_esc, rich_heading, rich_kv_table, rich_note
+from videl.utils.premium_emojis import pe
 from videl.utils.command_ui import rich_send, rich_edit
 
 LRCLIB_API = "https://lrclib.net/api/search"
@@ -69,7 +71,7 @@ def _format_lyrics(data: dict, max_chars: int = 3500) -> str:
     if len(body) > max_chars:
         body = body[: max_chars - 20] + "\n\n… " + sc("(truncated)")
     return (
-        rich_heading(f"📝 {sc('lyrics')}", level=3)
+        rich_heading(f"{pe('ios_memo', '📝')} {sc('lyrics')}", level=3)
         + rich_kv_table([
             (sc("title"), rich_esc(short(data["title"], 40))),
             (sc("artist"), rich_esc(short(data["artist"], 30))),
@@ -79,7 +81,7 @@ def _format_lyrics(data: dict, max_chars: int = 3500) -> str:
 
 
 @bot.on_message(
-    filters.command('lyrics')
+    filters.command('lyrics', prefixes=config.COMMAND_PREFIX_LIST)
     & group_allowed
     & user_allowed
 )
@@ -109,7 +111,7 @@ async def lyrics_cmd(_, message: Message) -> None:
 
     status = await rich_send(
         bot, chat_id,
-        rich_heading(f" {sc('searching lyrics')}…", level=3)
+        rich_heading(f"{pe('ios_search', '🔎')} {sc('searching lyrics')}…", level=3)
         + rich_note(rich_esc(short(query, 50))),
     )
 
@@ -117,7 +119,7 @@ async def lyrics_cmd(_, message: Message) -> None:
     if not data:
         await rich_edit(
             status,
-            rich_heading(f" {sc('no lyrics found')}", level=3)
+            rich_heading(f"{pe('ios_memo', '📝')} {sc('no lyrics found')}", level=3)
             + rich_note(rich_esc(short(query, 50))),
         )
         return
@@ -138,7 +140,7 @@ async def lyrics_callback(_, cq: CallbackQuery) -> None:
     if not data:
         await rich_send(
             bot, chat_id,
-            rich_heading(f" {sc('no lyrics found')}", level=3)
+            rich_heading(f"{pe('ios_memo', '📝')} {sc('no lyrics found')}", level=3)
             + rich_note(rich_esc(short(current.get("title", "?"), 50))),
         )
         return

@@ -16,6 +16,7 @@ export const sections = [
   "settings",
   "auth",
   "arcade",
+  "music",
 ] as const;
 export type Section = (typeof sections)[number];
 const legacy: Record<string, Section> = {

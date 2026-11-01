@@ -29,9 +29,11 @@ TARGET = ROOT / "webapp" / "src" / "lib" / "commands.ts"
 # listed here simply show ``/<name>`` in the guide.
 USAGE = {
     "start": "/start · /start music",
+    "tagall": "/tagall [message] · /tagall stop (group admin; paced at 5 seconds per member)",
     "help": "/help · /help music",
     "commands": "/commands [query]",
     "whois": "/whois (reply or @user)",
+    "kang": "/kang (reply to a sticker)",
     "warn": "/warn [reason] (reply)",
     "dwarn": "/dwarn [reason] (reply)",
     "tban": "/tban <duration> [reason]",
@@ -43,6 +45,9 @@ USAGE = {
     "cleanup": "/cleanup <count>",
     "slowmode": "/slowmode <seconds|off>",
     "poll": "/poll question | option | option",
+    "appeal": "/appeal <group ID> <reason> (private chat; currently banned or muted members)",
+    "appeals": "/appeals (connected group admin)",
+    "appealresolve": "/appealresolve <appeal ID> accept|deny (connected group admin)",
     "quiz": "/quiz question | answer | option",
     "save": "/save <name> <content>",
     "get": "/get <name>",
@@ -52,12 +57,51 @@ USAGE = {
     "setwelcome": "/setwelcome <text>",
     "setgoodbye": "/setgoodbye <text>",
     "setrules": "/setrules <text>",
+    "guardianai": "/guardianai on|off (group admin; opt-in, disclosure required)",
+    "faqassist": "/faqassist <question> (group FAQ/rules/notes; Gemini must be enabled)",
+    "safetycheck": "/safetycheck (reply to a message; group admin; advisory only)",
+    "guardianjoin": "/guardianjoin (group admin; rules-only human-review guide)",
+    "guardiansummary": "/guardiansummary (group admin; seven-day aggregate counts)",
     "setwarnlimit": "/setwarnlimit <count>",
+    "setreason": "/setreason <action> <template>",
+    "reason": "/reason (group admin)",
+    "commandpreset": "/commandpreset [community|music|moderation] (group admin)",
+    "reviewer": "/reviewer [add|remove USER_ID] (group admin)",
+    "modqueue": "/modqueue (group admin or read-only reviewer)",
+    "adminsummary": "/adminsummary HH:MM|status|off (UTC, group admin)",
+    "maintenance": "/maintenance status|on protection,onboarding|off (group admin)",
+    "forgetmember": "/forgetmember USER_ID confirm (group admin)",
+    "mydata": "/mydata (private chat)",
+    "feedback": "/feedback your suggestion (private chat)",
+    "feedbacklist": "/feedbacklist (owner, private chat)",
+    "preferences": "/preferences notifications on|off · /preferences quiet 22:00-07:00 UTC+05:30",
+    "setchecklist": "/setchecklist Label | https://example.com/start (group admin; up to four HTTPS links)",
+    "retention": "/retention status|preview|notes|reports|requests|appeals|escalations 30|90|180|365|off (group admin)",
+    "raidmode": "/raidmode on [window] [joins] [messages] [minutes] | off",
+    "antispam": "/antispam status | on [limit 3–30] [seconds 3–60] | off (group admin)",
+    "handoff": "/handoff [note text] (group admin)",
+    "rulefeedback": "/rulefeedback <rule> <confirmed|false_positive>",
     "lock": "/lock <type>",
     "unlock": "/unlock <type>",
     "afk": "/afk [reason]",
     "remind": "/remind 10m <text>",
     "invite": "/invite [title]",
+    "playnext": "/playnext <song name or link>",
+    "remove": "/remove <upcoming position> (group admin)",
+    "move": "/move <from position> <to position> (group admin)",
+    "jump": "/jump <upcoming position> (group admin)",
+    "clearqueue": "/clearqueue (group admin; preserves current playback)",
+    "addsudo": "/addsudo <@user|user_id> [duration] (owner, private chat)",
+    "sudolist": "/sudolist (owner, private chat) — shows grant expiry",
+    "setbotphoto": "/setbotphoto (owner, private chat) — use the bundled image, a replied photo, or a direct HTTPS image URL",
+    "setbotname": "/setbotname <name> (owner, private chat; maximum 64 characters)",
+    "setbotdescription": "/setbotdescription <text> (owner, private chat; maximum 512 characters)",
+    "setbotshortdescription": "/setbotshortdescription <text> (owner, private chat; maximum 120 characters)",
+    "voicequality": "/voicequality [studio|high|medium|low] (owner or bot sudo, private chat; global, saved preset)",
+    "voicehealth": "/voicehealth (owner or bot sudo, private chat)",
+    "restart": "/restart (owner, private chat; disconnects active voice chats)",
+    "delsudo": "/delsudo <@user|user_id> (owner, private chat)",
+    "rmsudo": "/rmsudo <@user|user_id> (owner, private chat)",
 }
 
 # The legacy modules document themselves with terse docstrings ("Addbl").
@@ -65,9 +109,22 @@ USAGE = {
 # the category, context and owner flag still come from the registered source.
 SUMMARY_OVERRIDES = {
     "active": "Show whether the bot is online",
+    "adminlist": "List group administrators (Rose-compatible alias for /admins)",
+    "addsudo": "Grant limited bot-blocklist operator access to a trusted user",
+    "delsudo": "Revoke a bot sudo operator",
+    "rmsudo": "Revoke a bot sudo operator",
+    "sudolist": "List bot sudo operators and remove access inline",
+    "sudohelp": "Show the limited bot sudo command scope",
+    "tagall": "Mention every accessible human member one-by-one at a 5-second pace; /tagall stop cancels (admin only)",
     "addblacklist": "Add a user to the anti-spam blocklist",
     "addblsticker": "Block a sticker pack from being sent",
     "apiinfo": "Show Telegram API and library versions",
+    "setbotname": "Change the bot display name",
+    "setbotdescription": "Change the bot About description",
+    "setbotshortdescription": "Change the bot short description",
+    "voicequality": "Change global voice-chat audio quality",
+    "voicehealth": "Check assistant, PyTgCalls, FFmpeg and downloader readiness",
+    "restart": "Restart the bot process (owner only)",
     "approval": "Show the invite-approval queue",
     "approve": "Approve a pending join request",
     "approved": "List members allowed through approval",
@@ -106,13 +163,25 @@ SUMMARY_OVERRIDES = {
     "gblock": "Block the bot from a group",
     "gcast": "Broadcast to groups only",
     "group": "Open the group management panel",
+    "commandpreset": "Preview and apply a group-specific command profile",
+    "reviewer": "Grant or revoke read-only moderation queue access",
+    "modqueue": "Send a read-only queue summary to your private chat",
+    "adminsummary": "Schedule a daily private admin digest in UTC",
+    "maintenance": "Pause selected protections or onboarding during an incident",
+    "forgetmember": "Remove selected member records from this group",
+    "mydata": "Download a private export of your stored Videl data",
+    "feedback": "Send anonymous private feedback",
+    "feedbacklist": "Read anonymous feedback (owner only)",
+    "preferences": "Manage opt-in private updates and reminder quiet hours",
+    "setchecklist": "Add HTTPS links to the new-member welcome checklist",
+    "retention": "Review or configure how long resolved group history is kept",
     "gunblock": "Allow a blocked group again",
     "joinfed": "Join a federation",
     "leavefed": "Leave a federation",
     "lyrics": "Find lyrics for the current track",
-    "modernhelp": "Open the help center",
     "permissions": "Show or edit a member's permissions",
     "play": "Play a track, album or playlist from a link or search",
+    "playnext": "Play a track right after the currently playing track",
     "playlist": "Load a saved playlist into the queue",
     "playlists": "List your saved playlists",
     "pollstop": "Stop a poll the bot posted and show the result",
@@ -122,15 +191,10 @@ SUMMARY_OVERRIDES = {
     "saveplaylist": "Save the current queue as a playlist",
     "seek": "Jump forward in the current track",
     "seekback": "Jump backward in the current track",
-    "setup": "Open the group setup panel",
     "song": "Download an audio track",
     "speed": "Change playback speed",
     "speedreset": "Reset playback speed to normal",
     "sysinfo": "Show host and runtime information",
-    "topicclose": "Close a forum topic",
-    "topicnew": "Create a forum topic",
-    "topicopen": "Reopen a forum topic",
-    "topicrename": "Rename a forum topic",
     "ublock": "Block a user from using the bot",
     "unapprove": "Remove a member from the approved list",
     "unfban": "Lift a federation ban",
@@ -157,11 +221,21 @@ CATEGORY_LABELS = {
     "owner": "Owner operations",
 }
 
+# Aliases retained by the bot for compatibility but intentionally retired from
+# the public guide.
+HIDDEN_FROM_PUBLIC_GUIDE = {"setup", "modernhelp"}
+
 CONTEXT_COPY = {
     "group": "Groups",
+    "group_private": "Groups & private chats",
     "chat": "Any chat",
     "private": "DM only",
 }
+
+
+def _sentence_case(value: str) -> str:
+    """Uppercase only the first character without lowercasing acronyms."""
+    return value[:1].upper() + value[1:] if value else value
 
 
 def command_rows() -> list[dict[str, object]]:
@@ -171,6 +245,8 @@ def command_rows() -> list[dict[str, object]]:
     seen: set[str] = set()
     for command in commands():
         name = command["name"].lstrip("/")
+        if name in HIDDEN_FROM_PUBLIC_GUIDE:
+            continue
         if name in seen:
             continue
         seen.add(name)
@@ -178,7 +254,7 @@ def command_rows() -> list[dict[str, object]]:
             {
                 "name": name,
                 "usage": USAGE.get(name, f"/{name}"),
-                "summary": SUMMARY_OVERRIDES.get(name, command["summary"]).strip().capitalize(),
+                "summary": _sentence_case(SUMMARY_OVERRIDES.get(name, command["summary"]).strip()),
                 "category": command["category"],
                 "context": command["context"],
                 "owner": bool(command["owner"]),
@@ -196,7 +272,7 @@ def render(rows: list[dict[str, object]]) -> str:
     return f'''// Generated by scripts/build_webapp_commands.py — do not edit by hand.
 // Source: videl/utils/command_catalog.py (the commands the bot really registers).
 export type CommandCategory = "music" | "manage" | "tools" | "owner";
-export type CommandContext = "group" | "chat" | "private";
+export type CommandContext = "group" | "group_private" | "chat" | "private";
 export type BotCommand = {{
   name: string;
   usage: string;

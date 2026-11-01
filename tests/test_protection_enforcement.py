@@ -51,6 +51,7 @@ class ProtectionTests(unittest.TestCase):
         for item in self.patches:
             item.start()
         locks._FLOOD_WINDOWS.clear()
+        locks._ANTISPAM_CACHE.clear()
 
     def tearDown(self):
         for item in self.patches:

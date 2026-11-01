@@ -6,6 +6,8 @@
 import asyncio
 
 from pyrogram import filters
+
+import config
 from pyrogram.enums import ParseMode
 from pyrogram.types import Message
 
@@ -28,7 +30,7 @@ from videl.utils.command_ui import rich_edit, rich_send
 
 @bot.on_message(
     filters.group
-    & filters.regex(r"^/autoplay(?:@\w+)?(?:\s+(?P<q>.+))?$")
+    & filters.regex(rf"^{config.COMMAND_PREFIX_PATTERN}autoplay(?:@\w+)?(?:\s+(?P<q>.+))?$")
     & group_allowed
     & user_allowed
 )
@@ -40,8 +42,8 @@ async def autoplay_cmd(_, message: Message) -> None:
     if not await is_user_authorized(message):
         await rich_send(
             bot, chat_id,
-            rich_heading("⛔ admin only", level=3)
-            + rich_note("only group admins can use /autoplay"),
+            rich_heading("⛔ Admin access required", level=3)
+            + rich_note("Only group admins can configure AutoPlay."),
         )
         return
 
@@ -62,7 +64,7 @@ async def autoplay_cmd(_, message: Message) -> None:
                 bot, chat_id,
                 rich_heading("🔁 autoplay usage", level=3)
                 + rich_kv_table([("usage", "<code>/autoplay sidhu moose wala</code>")])
-                + rich_note("this will continuously play songs automatically"),
+                + rich_note("Search for a seed track or artist. AutoPlay adds more results as the queue runs low; use <code>/end</code> to stop it."),
             )
         return
 
@@ -96,7 +98,7 @@ async def autoplay_cmd(_, message: Message) -> None:
             ("query", f"<code>{rich_esc(query)}</code>"),
             ("added", f"{count} songs to queue"),
         ])
-        + rich_note("use /end to stop autoplay"),
+        + rich_note("More matches are added automatically as the queue runs low. Use <code>/end</code> to stop AutoPlay."),
     )
 
     if not was_playing and first:

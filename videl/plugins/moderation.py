@@ -94,6 +94,99 @@ def _reason(tokens, fallback="No reason supplied") -> str:
     return " ".join(tokens)[:400] or fallback
 
 
+def _action_reason(chat_id: int, action: str, tokens, member: str) -> str:
+    from videl.utils.reason_templates import normalize, select_reason
+    templates = normalize(base.get_setting(chat_id, "moderation_reason_templates", {}))
+    return select_reason(tokens, action, templates, member, "No reason supplied")
+
+
+async def handoff(ctx) -> Screen:
+    chat_id, _ = _names(ctx.message)
+    db = base.db()
+    if db is None:
+        raise CommandError("MongoDB is not connected, so the handoff summary is unavailable.")
+    try:
+        reports = db["mgmt_reports"].count_documents({"chat_id": chat_id, "status": "open"})
+        requests = db["mgmt_join_requests"].count_documents({"chat_id": chat_id, "status": "pending"})
+        reviews = db["mgmt_escalations"].count_documents({"chat_id": chat_id, "status": "open"})
+    except Exception as exc:
+        raise CommandError("The unresolved moderation queues could not be read.") from exc
+    note = ctx.command.arguments.strip()
+    if note:
+        if len(note) > 500:
+            raise CommandError("A handoff note is limited to 500 characters.")
+        actor = getattr(getattr(ctx.message, "from_user", None), "id", None)
+        from datetime import datetime, timezone
+        db["mgmt_handoff_notes"].insert_one({"chat_id": chat_id, "text": note,
+            "actor": actor if isinstance(actor, int) else None,
+            "ts": datetime.now(timezone.utc)})
+        await asyncio.to_thread(record_bot, chat_id, "moderation", action="handoff_note",
+                                detail="Moderator shift handoff note saved", actor=actor)
+    latest = db["mgmt_handoff_notes"].find_one({"chat_id": chat_id}, sort=[("ts", -1)])
+    rows = [("Open reports", str(reports)), ("Pending join requests", str(requests)),
+            ("Pending action reviews", str(reviews))]
+    try:
+        for report in db["mgmt_reports"].find({"chat_id": chat_id, "status": "open"}).sort("ts", -1).limit(5):
+            rid = str(report.get("_id", ""))[-8:]
+            reason = str(report.get("reason") or "No reason supplied")[:100]
+            rows.append((f"Report …{rid}", escape(reason)))
+        for review in db["mgmt_escalations"].find({"chat_id": chat_id, "status": "open"}).sort("created_at", -1).limit(5):
+            rows.append(("Action review", f"{escape(review.get('action', 'action'))} · member {escape(review.get('user_id', 'unknown'))}"))
+    except Exception:
+        pass
+    if latest:
+        rows.append(("Latest handoff", escape(latest.get("text", ""))))
+    return Screen(heading("Moderator handoff", 3) + table(rows)
+                  + body("Add a note for the next shift with <code>/handoff note text</code>. This is visible to group admins only."))
+
+
+async def safety_stats(ctx) -> Screen:
+    from videl.utils.rule_effectiveness import summary
+    rows = summary(base.db(), ctx.message.chat.id)
+    return Screen(heading("Per-rule effectiveness", 3)
+                  + table([(row["rule"], f"{row['hits']} signals · {row['confirmed']} confirmed · {row['false_positives']} false positives") for row in rows])
+                  + body("Counts are aggregate and exclude member IDs and message text. Use <code>/rulefeedback RULE confirmed</code> or <code>false_positive</code> after reviewing a signal."))
+
+
+async def rule_feedback(ctx) -> Screen:
+    from videl.utils.rule_effectiveness import OUTCOMES, RULES, record
+    parts = ctx.command.arguments.strip().split()
+    if len(parts) != 2 or parts[0] not in RULES or parts[1] not in OUTCOMES:
+        return Screen(usage("/rulefeedback content_lock false_positive", "Choose an available rule and confirmed or false_positive."))
+    if not record(base.db(), ctx.message.chat.id, parts[0], parts[1]):
+        raise CommandError("The aggregate feedback counter is unavailable; nothing was changed.")
+    return Screen(heading("✅ Rule feedback recorded", 3)
+                  + body(f"Recorded <code>{escape(parts[1])}</code> feedback for <code>{escape(parts[0])}</code>."))
+
+
+async def set_reason_template(ctx) -> Screen:
+    from videl.utils.reason_templates import ACTIONS, MAX_LENGTH, normalize
+    chat_id, _ = _names(ctx.message)
+    parts = ctx.command.arguments.strip().split(maxsplit=1)
+    if len(parts) != 2 or parts[0].casefold() not in ACTIONS:
+        return Screen(usage("/setreason warn Please follow the group rules.",
+                            "Set a template for warn, ban, tban, kick, mute or tmute. Use {member} for the member's name."))
+    action, text = parts[0].casefold(), parts[1].strip()
+    if not text or len(text) > MAX_LENGTH:
+        raise CommandError(f"A template must contain 1–{MAX_LENGTH} characters.")
+    templates = normalize(base.get_setting(chat_id, "moderation_reason_templates", {}))
+    templates[action] = text
+    if not base.set_setting(chat_id, "moderation_reason_templates", templates):
+        raise CommandError("MongoDB is not connected, so nothing changed.")
+    return Screen(heading("✅ Action reason template saved", 3)
+                  + table([("Action", action), ("Template", escape(text))])
+                  + body("Use <code>template</code> as the reason argument to apply it. Templates are plain text; {member} is substituted."))
+
+
+async def reason_templates(ctx) -> Screen:
+    from videl.utils.reason_templates import normalize
+    chat_id, _ = _names(ctx.message)
+    templates = normalize(base.get_setting(chat_id, "moderation_reason_templates", {}))
+    return Screen(heading("Action reason templates", 3)
+                  + table([(name, escape(text)) for name, text in templates.items()])
+                  + body("Apply one with <code>/warn @member template</code>, <code>/ban @member template</code>, and so on."))
+
+
 def _audit(chat_id: int, user_id: int, reason: str, remove: bool = False) -> bool:
     store = _bans()
     if store is None:
@@ -145,7 +238,7 @@ async def warn(ctx) -> Screen:
     if store is None:
         raise CommandError("MongoDB is not connected, so the warning was not saved.")
     await _protect(ctx, user)
-    reason = _reason(tokens)
+    reason = _action_reason(chat_id, "warn", tokens, getattr(user, "first_name", "member"))
     escalation = _escalation(chat_id)
     document = await asyncio.to_thread(store.find_one, {"chat_id": chat_id, "user_id": user.id})
     limit = warn_limit(chat_id)
@@ -164,42 +257,58 @@ async def warn(ctx) -> Screen:
         },
         upsert=True,
     )
+    notes: list[str] = []
     if ctx.command.name == "dwarn":
         reply = getattr(ctx.message, "reply_to_message", None)
         if reply is not None:
             try:
                 await reply.delete()
             except Exception:
-                LOGGER.debug("dwarn could not delete the replied message", exc_info=True)
+                LOGGER.exception("Could not delete replied message after dwarn in chat %s", chat_id)
+                notes.append("The warning was saved, but the replied message could not be deleted.")
     await asyncio.to_thread(
         record_bot, chat_id, "warn", action="warn",
         detail=f"member {user.id}: {reason}"[:240],
         actor=getattr(getattr(ctx.message, "from_user", None), "id", None),
     )
-    notes = ""
     if plan["reached"]:
         action = warnings.ladder_action(escalation, stage) if escalation.get("enabled") else "none"
         if action == "none":
-            notes = f"Reached the limit of {limit}; escalation is switched off for this group."
+            notes.append(f"The limit of {limit} warnings was reached, but escalation is turned off for this group.")
+        elif action in {"kick", "ban"} and escalation.get("review_severe"):
+            try:
+                from videl.utils.escalations import queue_review
+                identifier = await asyncio.to_thread(
+                    queue_review, base.db(), chat_id, user.id, action, count, reason,
+                    getattr(ctx.user, "id", None), "bot",
+                )
+                notes.append(f"The warning limit was reached; {action} is pending admin review (case <code>{identifier}</code>). No severe action has been applied yet.")
+            except Exception:
+                LOGGER.exception("Could not queue warning escalation review for user %s in chat %s", user.id, chat_id)
+                notes.append("The warning was saved, but the severe action could not be queued for review and was not applied. Ask an admin to review the member’s Cases timeline.")
         else:
             try:
                 await _require(ctx, ("can_restrict_members",))
                 note = await _apply_action(ctx, chat_id, user.id, action, escalation)
                 await asyncio.to_thread(_audit, chat_id, user.id, f"{limit} warnings")
-                notes = f"Reached the limit of {limit}; {note}."
-            except Exception as exc:
-                notes = f"Reached the limit of {limit}, but the {action} was not confirmed ({type(exc).__name__})."
+                notes.append(f"The warning limit was reached; {note}.")
+            except Exception:
+                LOGGER.exception("Warning escalation %s was not confirmed for user %s in chat %s", action, user.id, chat_id)
+                notes.append(
+                    f"The warning is saved and the limit ({limit}) was reached, but I couldn’t confirm the configured {action}. "
+                    "Check my permissions and the group’s escalation settings."
+                )
     return Screen(
-        heading("Warning added", 3)
+        heading("⚠️ Warning issued", 3)
         + table([
             ("Member", target_link(user)),
             ("Reason", escape(reason)),
-            ("Warnings", f"{count}/{limit}"),
+            ("Active warnings", f"{count} of {limit}"),
         ])
-        + body(notes or "The warning is saved. Admins can review it with /warnings.")
+        + body(" ".join(notes) or "The warning is saved. Admins can review the member’s history with /warnings.")
         + (body(f"{plan['decayed']} older warning{'s' if plan['decayed'] != 1 else ''} no longer count towards this limit.")
            if plan["decayed"] else body("")),
-        InlineKeyboardMarkup([[button("All warnings", callback_data="help:manage")]]),
+        InlineKeyboardMarkup([[button("View member warnings", callback_data=f"warns:{user.id}")]]),
     )
 
 
@@ -211,7 +320,7 @@ async def unwarn(ctx) -> Screen:
         raise CommandError("MongoDB is not connected.")
     document = await asyncio.to_thread(store.find_one, {"chat_id": chat_id, "user_id": user.id})
     if not document or int(document.get("count", 0)) <= 0:
-        return Screen(heading("No warnings", 3) + body(f"{target_link(user)} has no warnings to remove."))
+        return Screen(heading("✅ Clean warning record", 3) + body(f"{target_link(user)} has no warnings to remove."))
     reasons = list(document.get("reasons") or [])
     if reasons:
         reasons.pop()
@@ -223,7 +332,16 @@ async def unwarn(ctx) -> Screen:
         {"$set": {"count": count, "reasons": reasons, "stages": stage,
                   "updated": datetime.now(timezone.utc)}},
     )
-    return Screen(heading("Warning removed", 3) + table([("Member", target_link(user)), ("Warnings", f"{count}/{warn_limit(chat_id)}")]))
+    await asyncio.to_thread(
+        record_bot, chat_id, "warn_reset", action="unwarn",
+        detail=f"member {user.id}: one warning removed",
+        actor=getattr(getattr(ctx.message, "from_user", None), "id", None),
+    )
+    return Screen(
+        heading("✅ Warning removed", 3)
+        + table([("Member", target_link(user)), ("Active warnings", f"{count} of {warn_limit(chat_id)}")])
+        + body("The member’s warning count has been reduced by one.")
+    )
 
 
 async def warnings(ctx) -> Screen:
@@ -241,7 +359,7 @@ async def warnings(ctx) -> Screen:
     limit = warn_limit(chat_id)
     state = warnings.active_warnings(document, _escalation(chat_id).get("decay_days", 0))
     if not state["total"]:
-        return Screen(heading("Clean record", 3) + body(f"{target_link(user)} has no warnings."))
+        return Screen(heading("✅ Clean warning record", 3) + body(f"{target_link(user)} has no active warnings."))
     decay_days = int(_escalation(chat_id).get("decay_days", 0) or 0)
     cutoff = (datetime.now(timezone.utc) - timedelta(days=decay_days)) if decay_days else None
     rows = []
@@ -256,8 +374,8 @@ async def warnings(ctx) -> Screen:
     if state["expires_at"]:
         notes += f" The next one lapses on {state['expires_at'].strftime('%d %b %Y')}."
     return Screen(
-        heading("Warning history", 3)
-        + table([("Member", target_link(user)), ("Active", f"{state['count']}/{limit}")])
+        heading("⚠️ Warning history", 3)
+        + table([("Member", target_link(user)), ("Active warnings", f"{state['count']} of {limit}")])
         + table(rows)
         + body(notes)
     )
@@ -275,8 +393,10 @@ async def clear_warnings(ctx) -> Screen:
         detail=f"member {user.id}: warnings cleared",
         actor=getattr(getattr(ctx.message, "from_user", None), "id", None),
     )
-    return Screen(heading("Warnings cleared", 3)
-                  + body(f"{target_link(user)} now has a clean record, and the ladder starts again."))
+    return Screen(
+        heading("✅ Warning history cleared", 3)
+        + body(f"{target_link(user)} has a clean record. Future warnings start again from zero.")
+    )
 
 
 async def set_warn_limit(ctx) -> Screen:
@@ -287,7 +407,11 @@ async def set_warn_limit(ctx) -> Screen:
     limit = int(argument)
     if not base.set_setting(chat_id, "warn_threshold", limit):
         raise CommandError("MongoDB is not connected, so nothing changed.")
-    return Screen(heading("Warning limit", 3) + body(f"Members are banned after <b>{limit}</b> warnings."))
+    return Screen(
+        heading("⚙️ Warning limit updated", 3)
+        + body(f"The group’s warning threshold is now <b>{limit}</b> active warnings.")
+        + body("The group’s escalation settings determine what happens when a member reaches this threshold.")
+    )
 
 
 async def ban_list(ctx) -> Screen:
@@ -297,9 +421,13 @@ async def ban_list(ctx) -> Screen:
         raise CommandError("MongoDB is not connected.")
     documents = await asyncio.to_thread(lambda: list(store.find({"chat_id": chat_id}).limit(30)))
     if not documents:
-        return Screen(heading("Ban records", 3) + body("No bans recorded for this group."))
+        return Screen(heading("🚫 Ban records", 3) + body("There are no saved ban records for this group."))
     rows = [(f"<code>{escape(item.get('user_id'))}</code>", escape((item.get("reason") or "—")[:40])) for item in documents]
-    return Screen(heading("Ban records", 3) + table(rows))
+    return Screen(
+        heading(f"🚫 Ban records · {len(documents)}", 3)
+        + table(rows)
+        + body("Showing up to 30 recent records; each row shows the user ID and recorded reason.")
+    )
 
 
 # ── Bans, kicks and mutes ────────────────────────────────────────────────────
@@ -316,7 +444,7 @@ async def moderate(ctx) -> Screen:
             return Screen(usage(f"/{name} @user 10m reason", "Temporary actions need a duration."))
         seconds = duration(tokens.pop(0))
         until_date = datetime.now(timezone.utc) + timedelta(seconds=seconds)
-    reason = _reason(tokens)
+    reason = _action_reason(chat_id, name, tokens, getattr(user, "first_name", "member"))
     notes: list[str] = []
 
     if name in {"ban", "tban", "dban", "kick", "dkick"}:
@@ -345,9 +473,10 @@ async def moderate(ctx) -> Screen:
             raise CommandError("Telegram did not confirm the unban.")
         title = "Member unbanned"
         try:
-            await asyncio.to_thread(_audit, chat_id, user.id, reason, True)
+            if not await asyncio.to_thread(_audit, chat_id, user.id, reason, True):
+                notes.append("Telegram confirmed the unban; the local ban record could not be updated.")
         except Exception:
-            notes.append("Telegram confirmed the unban; the local record could not be updated.")
+            notes.append("Telegram confirmed the unban; the local ban record could not be updated.")
     elif name in {"mute", "tmute", "unmute"}:
         await _require(ctx, ("can_restrict_members",))
         if name == "unmute":
@@ -374,21 +503,37 @@ async def moderate(ctx) -> Screen:
 
     # The action is already confirmed by Telegram; the trail records who did it
     # and why, so the panel can answer "who removed this member?" later.
-    await asyncio.to_thread(
-        record_bot, chat_id, "moderation",
-        action=name,
-        detail=f"member {user.id}: {reason}"[:240]
-               + (f" until {until_date.strftime('%d %b %Y %H:%M')} UTC" if until_date else ""),
-        actor=getattr(getattr(ctx.message, "from_user", None), "id", None),
-    )
+    try:
+        recorded = await asyncio.to_thread(
+            record_bot, chat_id, "moderation",
+            action=name,
+            detail=f"member {user.id}: {reason}"[:240]
+                   + (f" until {until_date.strftime('%d %b %Y %H:%M')} UTC" if until_date else ""),
+            actor=getattr(getattr(ctx.message, "from_user", None), "id", None),
+        )
+        if not recorded:
+            notes.append("Telegram confirmed the action, but the Studio audit event could not be written.")
+    except Exception:
+        LOGGER.exception("Moderation action %s was confirmed but its audit event failed", name)
+        notes.append("Telegram confirmed the action, but the Studio audit event could not be written.")
     rows = [("Member", target_link(user)), ("User ID", f"<code>{user.id}</code>"), ("Reason", escape(reason))]
     if until_date is not None:
         rows.append(("Until (UTC)", until_date.strftime("%d %b %Y %H:%M")))
+    if title == "Removal partly confirmed":
+        status_icon = "⚠️"
+    elif name in {"ban", "tban", "dban"}:
+        status_icon = "🚫"
+    elif name == "unban":
+        status_icon = "🔓"
+    elif name in {"mute", "tmute"}:
+        status_icon = "🔇"
+    else:
+        status_icon = "✅"
     return Screen(
-        heading(title, 3)
+        heading(f"{status_icon} {title}", 3)
         + table(rows)
         + body(" ".join(notes) or "Telegram acknowledged the action."),
-        InlineKeyboardMarkup([[button("Warnings", callback_data="help:manage")]]),
+        InlineKeyboardMarkup([[button("View member warnings", callback_data=f"warns:{user.id}")]]),
     )
 
 
@@ -411,7 +556,7 @@ async def promote(ctx) -> Screen:
         await ctx.client.promote_chat_member(chat_id, user.id, privileges=rights)
     except Exception as exc:
         raise CommandError(f"Telegram rejected the promotion ({type(exc).__name__}).") from None
-    return Screen(heading("Promoted", 3) + body(f"{target_link(user)} can now moderate this group."))
+    return Screen(heading("✅ Administrator promoted", 3) + body(f"{target_link(user)} now has the configured moderation rights in this group."))
 
 
 async def demote(ctx) -> Screen:
@@ -423,7 +568,7 @@ async def demote(ctx) -> Screen:
         await ctx.client.promote_chat_member(chat_id, user.id, privileges=ChatAdministratorRights())
     except Exception as exc:
         raise CommandError(f"Telegram rejected the demotion ({type(exc).__name__}).") from None
-    return Screen(heading("Demoted", 3) + body(f"{target_link(user)} is a regular member again."))
+    return Screen(heading("✅ Administrator demoted", 3) + body(f"{target_link(user)} is a regular member again."))
 
 
 async def admins(ctx) -> Screen:
@@ -443,7 +588,10 @@ async def admins(ctx) -> Screen:
         )
         for member in members
     ]
-    return Screen(heading("Administrators", 3) + (table(rows) if rows else body("No administrators found.")))
+    return Screen(
+        heading("🛡 Group administrators", 3)
+        + (table(rows) if rows else body("No administrators were returned."))
+    )
 
 
 COMMANDS = (
@@ -454,6 +602,11 @@ COMMANDS = (
     Command("warnings", warnings, "Show a member's warning history", category="manage"),
     Command("clearwarns", clear_warnings, "Clear every warning for a member", category="manage", policy="admin"),
     Command("setwarnlimit", set_warn_limit, "Set how many warnings trigger a ban", category="manage", policy="admin"),
+    Command("setreason", set_reason_template, "Set a moderation action reason template", category="manage", policy="admin"),
+    Command("safetystats", safety_stats, "Review aggregate per-rule effectiveness", category="manage", policy="admin"),
+    Command("handoff", handoff, "Review open moderation queues and save a shift handoff note", category="manage", policy="admin"),
+    Command("rulefeedback", rule_feedback, "Record moderator feedback about a rule signal", category="manage", policy="admin"),
+    Command("reason", reason_templates, "Show moderation action reason templates", category="manage", policy="admin"),
     Command("banlist", ban_list, "Show recorded bans", category="manage", policy="admin"),
     Command("ban", moderate, "Ban a member", category="manage", policy="admin", rights=("can_restrict_members",)),
     Command("tban", moderate, "Temporarily ban a member", category="manage", policy="admin", rights=("can_restrict_members",)),
@@ -469,5 +622,6 @@ COMMANDS = (
     Command("promote", promote, "Promote a member with moderation rights", category="manage", policy="admin",
             rights=("can_promote_members",)),
     Command("demote", demote, "Remove administrator rights", category="manage", policy="admin", rights=("can_promote_members",)),
-    Command("admins", admins, "List group administrators", category="manage"),
+    Command("admins", admins, "List group administrators", category="manage", policy="group"),
+    Command("adminlist", admins, "List group administrators (Rose-style /admins alias)", category="manage", policy="group"),
 )

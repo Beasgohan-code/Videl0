@@ -8,6 +8,7 @@ import asyncio
 import unittest
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock, Mock, patch
+from types import SimpleNamespace
 from urllib.parse import quote
 
 import mongomock
@@ -59,6 +60,9 @@ class AutomationWindowTests(unittest.TestCase):
         self.assertIs(config["enabled"], True)
         self.assertEqual(config["action"], "ban")
         self.assertEqual(config["mute_hours"], 6)
+        self.assertIs(config["review_severe"], False)
+        self.assertIs(automation.normalize_escalation({"review_severe": True})["review_severe"], True)
+        self.assertIs(automation.normalize_escalation({"review_severe": "yes"})["review_severe"], False)
         bad = automation.normalize_escalation({"action": "explode", "mute_hours": 9999})
         self.assertEqual(bad["action"], "ban")
         self.assertEqual(bad["mute_hours"], 168)
@@ -776,7 +780,9 @@ class InternalRouteTests(unittest.TestCase):
     def test_federation_unban_removes_the_ban(self):
         response = self.client.post("/internal/federation/fed1", headers=self.headers(),
                                     json={"action": "unban", "user_id": 9})
-        self.assertTrue(response.get_json()["removed"])
+        outcome = response.get_json()
+        self.assertTrue(outcome["removed"])
+        self.assertEqual(outcome["unbans"], [{"chat": CID, "ok": True}])
         self.assertIsNone(self.db["fed_bans"].find_one({"fed": "fed1", "user": 9}))
         bad = self.client.post("/internal/federation/fed1", headers=self.headers(), json={"action": "ban_all"})
         self.assertEqual(bad.status_code, 400)
@@ -787,6 +793,15 @@ class InternalRouteTests(unittest.TestCase):
         self.assertEqual(payload["status"], "ok")
         self.assertGreaterEqual(payload["api"]["samples"], 1)
         self.assertGreaterEqual(payload["api"]["p95_ms"], 0.0)
+        self.assertIn("running", payload["keepalive"])
+        self.assertEqual(payload["keepalive"]["consecutive_failures"], 0)
+        self.assertIn("running", payload["watchdog"])
+        self.assertIn("checks", payload["watchdog"])
+        providers = payload["media_downloaders"]
+        self.assertEqual(providers["primary"], "shruti")
+        self.assertIn(providers["shruti"]["state"], {"configured", "needs_api_key", "invalid_url"})
+        self.assertEqual(providers["fallbacks"], ["eldian", "local_yt_dlp"])
+        self.assertNotIn("YT_API_KEY", repr(providers))
 
     def test_health_times_the_database_separately(self):
         # One number cannot say whether the API or Mongo is slow.
@@ -875,13 +890,16 @@ class InternalRouteTests(unittest.TestCase):
             backend._BOT_ERROR = ""
             backend._BOT_ONLINE_AT = 1792500000
             payload = self.client.get("/health").get_json()
-            # The test process runs no watchdog, so that reason stays; the bot
-            # reason and the stale start error must be gone.
+            # Simulate both the service watchdog and Telegram transport as
+            # healthy; an HTTP process alone must not mask a lost connection.
             self.assertNotIn("Telegram bot is failed", payload["degraded_reasons"])
             self.assertIsNone(payload["bot_error"])
             self.assertEqual(payload["bot_online_at"], 1792500000)
-            with patch("videl.core.watcher.watchdog_status",
-                       return_value={"running": True, "healthy": True, "last_tick": 1792500000}):
+            with (
+                patch.object(backend, "bot", SimpleNamespace(is_connected=True)),
+                patch("videl.core.watcher.watchdog_status",
+                      return_value={"running": True, "healthy": True, "last_tick": 1792500000}),
+            ):
                 healthy = self.client.get("/health").get_json()
             self.assertIs(healthy["degraded"], False)
             self.assertEqual(healthy["degraded_reasons"], [])

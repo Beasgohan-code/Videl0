@@ -9,11 +9,13 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from pymongo import MongoClient
-from pymongo.errors import ConnectionFailure, ServerSelectionTimeoutError
+from pymongo.errors import ConnectionFailure, DuplicateKeyError, ServerSelectionTimeoutError
 
 import config
+from videl.utils.redaction import RedactingFilter
 
 logger = logging.getLogger(__name__)
+logger.addFilter(RedactingFilter())
 
 # ── Client ─────────────────────────────────────────────────────────────────────
 _client: Optional[MongoClient] = None
@@ -73,16 +75,24 @@ def start_mongo() -> bool:
 
 INDEX_SPECS = {
     "mgmt_chat_settings": [([("chat_id", 1)], {})],
+    "mgmt_custom_commands": [([("chat_id", 1), ("name", 1)], {"unique": True})],
+    "onboarding_daily": [([("day", 1)], {"expireAfterSeconds": 90 * 86400})],
     "mgmt_warnings": [([("chat_id", 1), ("user_id", 1)], {})],
     "mgmt_join_requests": [([("chat_id", 1), ("status", 1)], {})],
     "mgmt_reports": [([("chat_id", 1), ("status", 1)], {})],
-    "mgmt_notes": [([("chat_id", 1)], {})],
+    "mgmt_case_notes": [([("chat_id", 1), ("user_id", 1), ("ts", -1)], {})],
+    "mgmt_escalations": [([("chat_id", 1), ("status", 1), ("created_at", -1)], {}),
+                         ([("chat_id", 1), ("user_id", 1)], {"unique": True, "partialFilterExpression": {"status": "open"}})],
+    "mgmt_appeals": [([("chat_id", 1), ("status", 1), ("ts", -1)], {}), ([ ("user_id", 1), ("ts", -1)], {})],
+    "mgmt_notes": [([("chat_id", 1)], {}), ([("chat_id", 1), ("type", 1), ("name", 1)], {})],
     "mgmt_filters": [([("chat_id", 1)], {})],
     "blacklist": [([("chat", 1), ("trigger", 1)], {})],
     "approved": [([("chat", 1), ("user", 1)], {})],
     "disabled_cmds": [([("chat", 1), ("cmd", 1)], {})],
     "backups": [([("chat", 1), ("time", -1)], {})],
     "scheduled_posts": [([("owner_id", 1), ("status", 1), ("due_at", 1)], {})],
+    "music_queue_recovery": [([("updated_at", 1)], {"expireAfterSeconds": 90 * 86400})],
+    "listening_sessions": [([("status", 1), ("due_at", 1)], {}), ([ ("chat_id", 1), ("status", 1), ("due_at", 1)], {})],
     "studio_library": [([("owner_id", 1), ("key", 1)], {"unique": True})],
     # Arcade: one document per room, one per event. The manager reads admins by
     # user, and players by rating.
@@ -92,6 +102,8 @@ INDEX_SPECS = {
                     ([("expires_at", 1)], {"expireAfterSeconds": 0})],
     "players": [([("stats.connect4.rating", -1)], {})],
     "chat_admins": [([("user", 1)], {}), ([("chat", 1)], {})],
+    "community_events": [([("status", 1), ("starts_at", 1)], {}),
+                         ([("creator_id", 1), ("starts_at", 1)], {})],
 }
 
 
@@ -112,6 +124,36 @@ def ensure_indexes(db=None) -> dict:
 
 def get_db():
     return _db
+
+
+def get_bot_setting(key: str, default=None):
+    """Read one global bot setting without exposing storage errors to callers."""
+    col = _col("bot_settings")
+    if col is None:
+        return default
+    try:
+        doc = col.find_one({"_id": str(key)}, {"value": 1})
+        return doc.get("value", default) if doc else default
+    except Exception as error:
+        logger.warning("Could not read bot setting %s (%s)", key, type(error).__name__)
+        return default
+
+
+def set_bot_setting(key: str, value) -> bool:
+    """Persist one global bot setting; returns False when storage is unavailable."""
+    col = _col("bot_settings")
+    if col is None:
+        return False
+    try:
+        col.update_one(
+            {"_id": str(key)},
+            {"$set": {"value": value, "updated_at": datetime.now(timezone.utc)}},
+            upsert=True,
+        )
+        return True
+    except Exception as error:
+        logger.warning("Could not save bot setting %s (%s)", key, type(error).__name__)
+        return False
 
 
 def is_connected() -> bool:
@@ -463,6 +505,86 @@ def get_blocked_users() -> list:
         return [doc["_id"] for doc in col.find({}, {"_id": 1})]
     except Exception:
         return []
+
+
+# ── Bot-level sudo operators ─────────────────────────────────────────────────
+
+def is_sudo_user(user_id: int) -> bool:
+    """Fail-closed membership check for the narrowly-scoped bot sudo role."""
+    col = _col("bot_sudo_users")
+    if col is None:
+        return False
+    try:
+        user_id = int(user_id)
+        if _db["blocked_users"].find_one({"_id": user_id}) is not None:
+            return False
+        document = col.find_one({"_id": user_id})
+        if document is None:
+            return False
+        expires_at = document.get("expires_at")
+        if expires_at is None:
+            return True
+        if not isinstance(expires_at, datetime):
+            return False
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at <= datetime.now(timezone.utc):
+            col.delete_one({"_id": user_id, "expires_at": document["expires_at"]})
+            return False
+        return True
+    except Exception:
+        logger.warning("Sudo membership lookup failed; denying elevated bot command")
+        return False
+
+
+def add_sudo_user(user_id: int, actor_id: int, expires_at: datetime | None = None) -> str | None:
+    """Return added/exists, or None when storage cannot confirm the change."""
+    col = _col("bot_sudo_users")
+    if col is None:
+        return None
+    user_id, actor_id = int(user_id), int(actor_id)
+    try:
+        document = {
+            "_id": user_id,
+            "added_by": actor_id,
+            "added_at": datetime.now(timezone.utc),
+        }
+        if expires_at is not None:
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            document["expires_at"] = expires_at.astimezone(timezone.utc)
+        col.insert_one(document)
+        return "added"
+    except DuplicateKeyError:
+        return "exists"
+    except Exception:
+        logger.exception("Could not add bot sudo user %s", user_id)
+        return None
+
+
+def remove_sudo_user(user_id: int) -> bool | None:
+    """Return True if removed, False if absent, and None on storage failure."""
+    col = _col("bot_sudo_users")
+    if col is None:
+        return None
+    try:
+        return bool(col.delete_one({"_id": int(user_id)}).deleted_count)
+    except Exception:
+        logger.exception("Could not remove bot sudo user %s", user_id)
+        return None
+
+
+def get_sudo_users() -> list | None:
+    """Return an active, stable sudo roster, or None when storage is unavailable."""
+    col = _col("bot_sudo_users")
+    if col is None:
+        return None
+    try:
+        col.delete_many({"expires_at": {"$lte": datetime.now(timezone.utc)}})
+        return list(col.find({}, {"_id": 1, "added_by": 1, "added_at": 1, "expires_at": 1}).sort("_id", 1))
+    except Exception:
+        logger.exception("Could not read bot sudo roster")
+        return None
 
 
 # ── Chat Effects (speed / bass / effects_on) ───────────────────────────────────
@@ -1078,13 +1200,23 @@ def cleanup_old_data(days: int = 30, *, apply: bool = False) -> dict:
 # ── Federations (Rose-style fed bans across groups) ───────────────────────────
 
 def create_fed(fed_id: str, name: str, owner_id: int) -> bool:
+    """Create a federation without ever overwriting an existing federation ID."""
     col = _col("feds")
-    if col is None: return False
+    chats = _col("fed_chats")
+    if col is None or chats is None:
+        return False
     try:
-        col.update_one({"_id": fed_id}, {"$set": {"_id": fed_id, "name": name, "owner": owner_id, "created": __import__("time").time()}}, upsert=True)
-        col2 = _col("fed_chats"); col2.update_one({"fed": fed_id, "chat": -1}, {"$set": {"fed": fed_id, "chat": -1}}, upsert=True)
-        return True
-    except Exception as e: logger.error(f"[fed] create: {e}"); return False
+        col.insert_one({"_id": fed_id, "name": name, "owner": owner_id, "created": __import__("time").time()})
+    except Exception as e:
+        logger.error(f"[fed] create: {e}")
+        return False
+    # Legacy marker is not required for membership reads; failure to write it
+    # must not report a failed creation after the federation has already saved.
+    try:
+        chats.update_one({"fed": fed_id, "chat": -1}, {"$set": {"fed": fed_id, "chat": -1}}, upsert=True)
+    except Exception as e:
+        logger.warning(f"[fed] created {fed_id}, but legacy marker could not be written: {e}")
+    return True
 
 def delete_fed(fed_id: str) -> bool:
     col = _col("feds")
@@ -1163,17 +1295,27 @@ def is_fbanned_any(user_id: int) -> dict | None:
     try: return col.find_one({"user": user_id})
     except: return None
 
-def fed_add_admin(fed_id: str, user_id: int) -> None:
+def fed_add_admin(fed_id: str, user_id: int) -> bool:
     col = _col("fed_admins")
-    if col is None: return
-    try: col.update_one({"fed": fed_id, "user": user_id}, {"$set": {"fed": fed_id, "user": user_id}}, upsert=True)
-    except: pass
+    if col is None:
+        return False
+    try:
+        col.update_one({"fed": fed_id, "user": user_id}, {"$set": {"fed": fed_id, "user": user_id}}, upsert=True)
+        return True
+    except Exception as e:
+        logger.error(f"[fed] add admin: {e}")
+        return False
 
-def fed_remove_admin(fed_id: str, user_id: int) -> None:
+def fed_remove_admin(fed_id: str, user_id: int) -> bool:
     col = _col("fed_admins")
-    if col is None: return
-    try: col.delete_one({"fed": fed_id, "user": user_id})
-    except: pass
+    if col is None:
+        return False
+    try:
+        result = col.delete_one({"fed": fed_id, "user": user_id})
+        return bool(result.deleted_count)
+    except Exception as e:
+        logger.error(f"[fed] remove admin: {e}")
+        return False
 
 def fed_list_admins(fed_id: str) -> list:
     col = _col("fed_admins")
@@ -1349,17 +1491,25 @@ def list_disabled(chat_id: int) -> list:
 
 # ── Connections (admin controls group via PM) ─────────────────────────────────
 
-def connect_user(user_id: int, chat_id: int) -> None:
+def connect_user(user_id: int, chat_id: int) -> bool:
+    """Persist the user's personal group link; false means no durable save."""
     col = _col("connections")
-    if col is None: return
-    try: col.update_one({"user": user_id}, {"$set": {"user": user_id, "chat": chat_id}}, upsert=True)
-    except: pass
+    if col is None: return False
+    try:
+        result = col.update_one({"user": int(user_id)}, {"$set": {"user": int(user_id), "chat": int(chat_id)}}, upsert=True)
+        return bool(getattr(result, "acknowledged", True))
+    except Exception:
+        return False
 
-def disconnect_user(user_id: int) -> None:
+def disconnect_user(user_id: int) -> bool:
+    """Remove only this user's personal group link."""
     col = _col("connections")
-    if col is None: return
-    try: col.delete_one({"user": user_id})
-    except: pass
+    if col is None: return False
+    try:
+        result = col.delete_one({"user": int(user_id)})
+        return bool(getattr(result, "acknowledged", True))
+    except Exception:
+        return False
 
 def get_connected_chat(user_id: int) -> int | None:
     col = _col("connections")
@@ -1510,14 +1660,30 @@ def get_quiet_hours(chat_id: int) -> dict:
     return get_automation(chat_id)["quiet_hours"]
 
 
-def save_backup(chat_id: int, data: dict) -> str:
+def save_backup(chat_id: int, data: dict, label: str | None = None) -> str:
     col = _col("backups")
     if col is None: return ""
     try:
         bid=__import__("uuid").uuid4().hex[:8]
-        col.update_one({"_id": bid}, {"$set": {"_id": bid, "chat": chat_id, "data": data, "time": __import__("time").time()}}, upsert=True)
+        col.update_one({"_id": bid}, {"$set": {
+            "_id": bid, "chat": chat_id, "data": data,
+            "time": __import__("time").time(),
+            "label": str(label or "Before last import")[:60],
+            "kind": "named" if label else "automatic",
+        }}, upsert=True)
+        # Keep a small, useful history per group, including automatic rollback points.
+        old=list(col.find({"chat": chat_id}, {"_id": 1}).sort("time", -1).skip(12))
+        if old:
+            col.delete_many({"_id": {"$in": [item["_id"] for item in old]}})
         return bid
     except: return ""
+
+def list_backups(chat_id: int, limit: int = 12) -> list[dict]:
+    col = _col("backups")
+    if col is None: return []
+    try:
+        return list(col.find({"chat": int(chat_id)}, {"data": 0}).sort("time", -1).limit(max(1, min(int(limit), 12))))
+    except: return []
 
 def get_backup(bid: str) -> dict | None:
     col = _col("backups")

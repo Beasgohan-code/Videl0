@@ -4,6 +4,7 @@ REQUIRED_RIGHTS = {
     "can_delete_messages": "Delete messages — locks, filters and cleanup",
     "can_restrict_members": "Restrict members — bans, mutes and join verification",
     "can_invite_users": "Invite users — invite links and join requests",
+    "can_change_info": "Change group info — title, description and group photo",
     "can_pin_messages": "Pin messages — pin/unpin commands",
     "can_manage_video_chats": "Manage video chats — voice-chat creation/control",
 }

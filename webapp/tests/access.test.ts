@@ -5,20 +5,21 @@ import { campaignLink, textInsights } from "../src/lib/creator-tools";
 test("public, loading and non-owner sessions never unlock private sections", () => {
   assert.equal(OWNER_ID, "6265999542");
   for (const owner of [false, null]) {
-    for (const section of ["home", "post", "tools", "guide", "auth"])
+    for (const section of ["home", "post", "tools", "guide", "groups", "auth"])
       assert.equal(canOpenSection(section, owner), true);
     for (const section of [
       "chat",
-      "groups",
       "federations",
       "automation",
       "analytics",
       "broadcast",
       "settings",
+      "music",
     ])
       assert.equal(canOpenSection(section, owner), false);
   }
   assert.equal(canOpenSection("settings", true), true);
+  assert.equal(canOpenSection("music", true), true);
 });
 test("creator tools count Telegram UTF16 units and unique Unicode hashtags", () => {
   assert.deepEqual(textInsights("Hi 😀 #Hello #HELLO #കേരളം"), {

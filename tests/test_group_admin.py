@@ -122,6 +122,20 @@ class GroupAdminTests(unittest.TestCase):
                             ("approved", {"chat": CID}), ("mgmt_warnings", {"chat_id": CID})):
             self.assertEqual(self.db[name].count_documents(query), 0, name)
 
+    def test_filter_writers_use_duplicate_safe_store_and_content_free_audit(self):
+        self.act(action="filter_create", keyword="  Welcome ", reply="Private response text")
+        audit = self.db["mgmt_audit"].find_one({"chat_id": CID, "action": "filter_create"})
+        self.assertEqual(audit["detail"], "text filter created or updated")
+        self.assertNotIn("Private response", audit["detail"])
+        self.db["mgmt_filters"].insert_one({"chat_id": CID, "keyword": "WELCOME", "reply": "legacy duplicate"})
+        with self.assertRaises(view.ViewError) as conflict:
+            self.act(action="filter_create", keyword="welcome", reply="do not replace")
+        self.assertEqual(conflict.exception.status, 409)
+        with self.assertRaises(view.ViewError) as conflict:
+            self.act(action="filter_delete", keyword="welcome")
+        self.assertEqual(conflict.exception.status, 409)
+        self.assertEqual(self.db["mgmt_filters"].count_documents({"chat_id": CID}), 2)
+
     def test_settings_are_rechecked_against_telegram_permissions(self):
         self.owner = {"status": "member"}
         with self.assertRaises(view.ViewError) as error:
@@ -175,6 +189,20 @@ class InternalRoutesTests(unittest.TestCase):
     def test_chat_list_requires_the_shared_secret(self):
         self.assertEqual(self.client.get("/internal/chats").status_code, 403)
         self.assertEqual(self.client.get("/internal/chats", headers=self.headers("wrong")).status_code, 403)
+
+    def test_chat_list_uses_fresh_permission_snapshot_over_stale_profile_cache(self):
+        self.db["mgmt_chat_info"].insert_one({"_id": CID, "title": "Test group", "type": "supergroup",
+                                             "available": True, "bot_admin": False})
+        from videl.utils.chat_admins import replace_group_snapshot
+        replace_group_snapshot(self.db, CID, [],
+                               {"status": "administrator", "can_delete_messages": True,
+                                "can_restrict_members": False},
+                               {"can_send_messages": True})
+        response = self.client.get("/internal/chats", headers=self.headers())
+        self.assertEqual(response.status_code, 200)
+        row = response.get_json()["chats"][0]
+        self.assertTrue(row["bot_admin"])
+        self.assertTrue(row["bot_rights"]["can_delete_messages"])
 
     def test_chat_list_returns_typed_settings_and_counts(self):
         response = self.client.get("/internal/chats", headers=self.headers())

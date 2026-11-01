@@ -6,6 +6,8 @@
 import time
 
 from pyrogram import filters
+
+import config
 from pyrogram.enums import ParseMode
 from pyrogram.types import InlineKeyboardMarkup, Message
 from videl.utils.bot_ui import button as InlineKeyboardButton
@@ -38,7 +40,8 @@ def clear_seek_state(chat_id: int) -> None:
 # ── Internal seek ──────────────────────────────────────────────────────────────
 
 async def _seek_to(chat_id: int, target_sec: int, message: Message) -> None:
-    from pytgcalls.types import AudioQuality, MediaStream
+    from pytgcalls.types import MediaStream
+    from videl.core.audio_quality import audio_quality
 
     song = peek_current(chat_id)
     if not song:
@@ -56,11 +59,12 @@ async def _seek_to(chat_id: int, target_sec: int, message: Message) -> None:
 
     try:
         media_path = await resolve_stream(song["url"])
-    except Exception as e:
+    except Exception:
+        LOGGER.exception("Could not resolve current playback stream for seek in chat %s", chat_id)
         await rich_edit(
             pm,
-            rich_heading("❍ seek failed — could not resolve stream", level=3)
-            + rich_note(f"<code>{rich_esc(e)}</code>"),
+            rich_heading("⚠️ Couldn’t seek this track", level=3)
+            + rich_note("The current stream is unavailable. Try again shortly or restart with <code>/play</code>."),
         )
         return
 
@@ -69,7 +73,7 @@ async def _seek_to(chat_id: int, target_sec: int, message: Message) -> None:
             chat_id,
             MediaStream(
                 media_path,
-                audio_parameters=AudioQuality.HIGH,
+                audio_parameters=audio_quality(),
                 video_flags=MediaStream.Flags.IGNORE,
                 ffmpeg_parameters=f"-ss {target_sec}",
             ),
@@ -80,7 +84,7 @@ async def _seek_to(chat_id: int, target_sec: int, message: Message) -> None:
                 chat_id,
                 MediaStream(
                     media_path,
-                    audio_parameters=AudioQuality.HIGH,
+                    audio_parameters=audio_quality(),
                     video_flags=MediaStream.Flags.IGNORE,
                     ffmpeg_parameters=f"-ss {target_sec}",
                 ),
@@ -133,7 +137,7 @@ async def _seek_to(chat_id: int, target_sec: int, message: Message) -> None:
 
 @bot.on_message(
     filters.group
-    & filters.regex(r"^/seek(?:@\w+)?\s+(?P<sec>\d+)$")
+    & filters.regex(rf"^{config.COMMAND_PREFIX_PATTERN}seek(?:@\w+)?\s+(?P<sec>\d+)$")
     & group_allowed
     & user_allowed
 )
@@ -185,7 +189,7 @@ async def seek_cmd(_, message: Message) -> None:
 
 @bot.on_message(
     filters.group
-    & filters.regex(r"^/seekback(?:@\w+)?\s+(?P<sec>\d+)$")
+    & filters.regex(rf"^{config.COMMAND_PREFIX_PATTERN}seekback(?:@\w+)?\s+(?P<sec>\d+)$")
     & group_allowed
     & user_allowed
 )
@@ -220,7 +224,7 @@ async def seekback_cmd(_, message: Message) -> None:
 
 @bot.on_message(
     filters.group
-    & filters.regex(r"^/seek(?:@\w+)?$")
+    & filters.regex(rf"^{config.COMMAND_PREFIX_PATTERN}seek(?:@\w+)?$")
     & group_allowed
     & user_allowed
 )

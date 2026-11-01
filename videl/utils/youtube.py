@@ -8,6 +8,7 @@ import logging
 import os
 import re
 from typing import Union
+from urllib.parse import urlsplit
 
 import aiofiles
 import aiohttp
@@ -17,18 +18,27 @@ from pyrogram.enums import MessageEntityType
 from pyrogram.types import Message
 
 from videl.utils.formatters import sec_to_iso
+from videl.utils.downloader_status import downloader_status
 
 logger = logging.getLogger(__name__)
+
+
+class MediaDownloadError(RuntimeError):
+    """Expected, user-safe failure when every configured media provider fails."""
+
 
 # Eldian Network's authenticated API is hosted by this Render service by default.
 # Configure ELDIAN_API_URL to use a separate trusted Eldian deployment.
 ELDIAN_API_URL = (os.environ.get("ELDIAN_API_URL") or f"http://127.0.0.1:{os.environ.get('PORT', '10000')}").strip().rstrip("/")
 ELDIAN_API_KEY = (os.environ.get("ELDIAN_API_KEY") or os.environ.get("WEBAPP_SECRET") or "").strip()
-DOWNLOAD_DIR = "downloads"
+# Optional external downloader (Shruti API contract); when
+# configured it is attempted before the built-in/local providers.
+YT_API_URL = (os.environ.get("YT_API_URL") or "https://api.shrutibots.in").strip().rstrip("/")
+YT_API_KEY = (os.environ.get("YT_API_KEY") or "").strip()
+YT_API_KEY_FALLBACK = (os.environ.get("YT_API_KEY_FALLBACK") or "").strip()
+DOWNLOAD_DIR = os.environ.get("DOWNLOAD_DIR", "downloads").strip() or "downloads"
 
-# Cookies — YTDLP_COOKIES path or YTDLP_COOKIES_URL (auto-downloaded & saved)
-_COOKIES_FILE = os.environ.get("YTDLP_COOKIES") or os.environ.get("COOKIES_PATH") or ""
-_COOKIES_URL  = (os.environ.get("YTDLP_COOKIES_URL") or "").strip()
+# Cookie jars are optional deployment secrets; never fetch or discover them implicitly.
 
 # Optional proxy configuration for yt-dlp fallback.
 _PROXY_URL  = (os.environ.get("PROXY_URL") or os.environ.get("YOUTUBE_PROXY") or "").strip()
@@ -61,61 +71,10 @@ def _cleanup(path: str) -> None:
         pass
 
 
-def _cookies_save_path() -> str:
-    os.makedirs(DOWNLOAD_DIR, exist_ok=True)
-    env = os.environ.get("YTDLP_COOKIES") or os.environ.get("COOKIES_PATH")
-    if env:
-        parent = os.path.dirname(env) or "."
-        os.makedirs(parent, exist_ok=True)
-        return env
-    return os.path.join(DOWNLOAD_DIR, "cookies.txt")
-
-
-def _is_real_cookies(raw: str) -> bool:
-    markers = ("SID", "HSID", "SSID", "LOGIN_INFO", "__Secure-", "SAPISID", "APISID")
-    return any(x in raw for x in markers)
-
-
-def _save_cookies_bytes(data: bytes, dest: str | None = None) -> str | None:
-    global _COOKIES_FILE
-    if not data or len(data) < 80:
-        return None
-    dest = dest or _cookies_save_path()
-    try:
-        os.makedirs(os.path.dirname(dest) or ".", exist_ok=True)
-        with open(dest, "wb") as f:
-            f.write(data)
-        if _is_real_cookies(data.decode("utf-8", errors="ignore")):
-            _COOKIES_FILE = dest
-            logger.info(f"[cookies] saved {len(data)} bytes → {dest}")
-            return dest
-    except Exception as e:
-        logger.warning(f"[cookies] save failed: {e}")
-    return None
-
-
 def _cookies_path() -> str | None:
-    global _COOKIES_FILE
-    candidates = [_COOKIES_FILE, "cookies.txt", "/app/cookies.txt", os.path.join(DOWNLOAD_DIR, "cookies.txt"), _cookies_save_path()]
-    for path in candidates:
-        if path and os.path.isfile(path):
-            try:
-                with open(path, encoding="utf-8", errors="ignore") as f:
-                    raw = f.read()
-                if _is_real_cookies(raw):
-                    _COOKIES_FILE = path
-                    return path
-            except Exception:
-                pass
-    if _COOKIES_URL:
-        try:
-            import urllib.request
-            request = urllib.request.Request(_COOKIES_URL, headers={"User-Agent": "Mozilla/5.0 VidelBot"})
-            with urllib.request.urlopen(request, timeout=20) as response:
-                return _save_cookies_bytes(response.read())
-        except Exception as e:
-            logger.warning(f"[cookies] URL fetch failed: {e}")
-    return None
+    """Resolve only a validated, explicitly configured external cookie path."""
+    from videl.utils.cookie_security import configured_cookie_path
+    return configured_cookie_path()
 
 
 def _load_proxy_list() -> list:
@@ -178,8 +137,12 @@ def _sync_ytdlp(url: str, video: bool = False) -> str | None:
     found=_find_file(video_id,video=video)
     if found:return found
     watch=_yt_url(url); cookiefile=_cookies_path(); outtmpl=os.path.join(DOWNLOAD_DIR,f"{video_id}.%(ext)s")
-    fmt="best[height<=720]/best" if video else "bestaudio[ext=m4a]/bestaudio/best"
-    base={"format":fmt,"outtmpl":outtmpl,"noplaylist":True,"quiet":True,"no_warnings":True,"noprogress":True,"geo_bypass":True,"nocheckcertificate":True,"retries":2,"fragment_retries":2,"socket_timeout":20,"extractor_args":{"youtube":{"player_client":["android","ios","web"]}}}
+    if cookiefile:
+        logger.info("[yt-dlp] validated YouTube cookies are available")
+    else:
+        logger.warning("[yt-dlp] no valid YouTube auth cookie file found; downloads may hit YouTube's sign-in challenge")
+    fmt="best[height<=720]/best" if video else "bestaudio/best"
+    base={"format":fmt,"outtmpl":outtmpl,"noplaylist":True,"quiet":True,"no_warnings":True,"noprogress":True,"geo_bypass":True,"nocheckcertificate":True,"retries":2,"fragment_retries":2,"socket_timeout":20}
     if cookiefile:base["cookiefile"]=cookiefile
     proxies=_load_proxy_list()[:3]
     last_error=None
@@ -198,20 +161,24 @@ def _sync_ytdlp(url: str, video: bool = False) -> str | None:
             found=_find_file(video_id,video=video)
             if found:return found
         except Exception as exc:
-            last_error=exc; logger.warning("[yt-dlp] %s",exc)
+            last_error=exc
+            logger.warning("[yt-dlp] extraction failed (%s)", type(exc).__name__)
             if proxy and any(word in str(exc).lower() for word in ("proxy","tunnel","timed out","connection","refused")):
                 _mark_proxy_bad(proxy)
-    if last_error:logger.error("[yt-dlp] final error: %s",last_error)
+    if last_error:
+        logger.error("[yt-dlp] final extraction failure (%s)", type(last_error).__name__)
     return None
 
 
 async def download_song(link: str) -> str | None:
-    """Download audio through Eldian first, then the local yt-dlp fallback."""
+    """Try Shruti first for music playback, then retain the existing providers as fallbacks."""
     video_id=_extract_video_id(link)
     if not re.fullmatch(r"[A-Za-z0-9_-]{11}",video_id or ""):return None
     os.makedirs(DOWNLOAD_DIR,exist_ok=True)
     cached=_find_file(video_id,video=False)
     if cached:return cached
+    path=await _download_via_external_api(video_id,video=False)
+    if path:return path
     path=await _download_via_eldian(video_id,video=False)
     if path:return path
     try:
@@ -226,15 +193,116 @@ async def download_song(link: str) -> str | None:
 
 
 async def download_video(link: str) -> str | None:
-    """Download video through Eldian's built-in endpoint, then yt-dlp."""
+    """Try Shruti first for video downloads, then retain the existing providers as fallbacks."""
     video_id=_extract_video_id(link)
     if not re.fullmatch(r"[A-Za-z0-9_-]{11}",video_id or ""):return None
     os.makedirs(DOWNLOAD_DIR,exist_ok=True)
     cached=_find_file(video_id,video=True)
     if cached:return cached
+    path=await _download_via_external_api(video_id,video=True)
+    if path:return path
     path=await _download_via_eldian(video_id,video=True)
     if path:return path
     return await asyncio.get_running_loop().run_in_executor(None,lambda:_sync_ytdlp(link,video=True))
+
+
+def _shruti_quota_exhausted(status: int, body: str) -> bool:
+    """Recognize common quota/rate-limit responses without logging response text."""
+    if status == 429:
+        return True
+    text = str(body or "").casefold()
+    quota_terms = ("quota", "rate limit", "too many requests", "daily limit", "limit exceeded", "limit reached")
+    return status in {200, 400, 403} and any(term in text for term in quota_terms)
+
+
+async def _download_via_external_api(video_id: str, video: bool = False) -> str | None:
+    """Download a direct media response from the configured external API.
+
+    Contract: GET {YT_API_URL}/download?url=VIDEO_ID&type=audio|video&api_key=KEY.
+    The API must be explicitly configured; credentials are never sent to HTTP or
+    redirected hosts. Failures are non-fatal so the existing providers still run.
+    """
+    keys = list(dict.fromkeys(key for key in (YT_API_KEY, YT_API_KEY_FALLBACK) if key))
+    if not YT_API_URL or not keys or not re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id or ""):
+        return None
+    try:
+        parsed = urlsplit(YT_API_URL)
+        if parsed.scheme != "https" or not parsed.netloc or parsed.username or parsed.password or parsed.query or parsed.fragment:
+            logger.warning("[external-downloader] URL must be a clean HTTPS base URL")
+            return None
+    except ValueError:
+        logger.warning("[external-downloader] invalid configured URL")
+        return None
+
+    os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+    ext = ".mp4" if video else ".mp3"
+    target = os.path.join(DOWNLOAD_DIR, f"{video_id}.external{ext}")
+    partial = target + ".part"
+    timeout = aiohttp.ClientTimeout(total=300, connect=20)
+    params = {"url": video_id, "type": "video" if video else "audio"}
+    try:
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            for key_index, key in enumerate(keys):
+                request_params = {**params, "api_key": key}
+                try:
+                    async with session.get(
+                        f"{YT_API_URL}/download", params=request_params, allow_redirects=False
+                    ) as response:
+                        content_type = (response.headers.get("Content-Type") or "").lower()
+                        if response.status != 200:
+                            error_text = (await response.text())[:2000]
+                            if _shruti_quota_exhausted(response.status, error_text) and key_index + 1 < len(keys):
+                                logger.info("[external-downloader] key quota exhausted; trying configured fallback key")
+                                _cleanup(partial)
+                                continue
+                            if response.status == 404:
+                                logger.warning(
+                                    "[external-downloader] Shruti returned HTTP 404; check that YT_API_URL is the base URL "
+                                    "https://api.shrutibots.in (without /download) and that the provider route is available"
+                                )
+                            elif response.status in (401, 403):
+                                logger.warning(
+                                    "[external-downloader] Shruti rejected the request (HTTP %s); check that the primary API key is active",
+                                    response.status,
+                                )
+                            else:
+                                logger.warning("[external-downloader] HTTP %s", response.status)
+                            return None
+                        if "json" in content_type or "text/" in content_type:
+                            error_text = (await response.text())[:2000]
+                            if _shruti_quota_exhausted(response.status, error_text) and key_index + 1 < len(keys):
+                                logger.info("[external-downloader] API quota exhausted; trying configured fallback key")
+                                _cleanup(partial)
+                                continue
+                            logger.warning("[external-downloader] API returned non-media content (%s)", content_type)
+                            return None
+                        declared = response.content_length
+                        max_bytes = 300 * 1024 * 1024
+                        if declared is not None and declared > max_bytes:
+                            logger.warning("[external-downloader] response exceeds size limit")
+                            return None
+                        size = 0
+                        async with aiofiles.open(partial, "wb") as output:
+                            async for chunk in response.content.iter_chunked(131072):
+                                size += len(chunk)
+                                if size > max_bytes:
+                                    raise ValueError("response exceeds size limit")
+                                await output.write(chunk)
+                    if size <= 1024:
+                        _cleanup(partial)
+                        return None
+                    os.replace(partial, target)
+                    logger.info("[external-downloader] downloaded %s KB", size // 1024)
+                    return target
+                except Exception as exc:
+                    _cleanup(partial)
+                    logger.warning("[external-downloader] request failed (%s)", type(exc).__name__)
+                    return None
+        return None
+    except Exception as exc:
+        logger.warning("[external-downloader] request failed (%s)", type(exc).__name__)
+        _cleanup(partial)
+        return None
 
 
 async def _download_via_eldian(video_id: str, video: bool = False) -> str | None:
@@ -288,7 +356,7 @@ async def _save_eldian_response(response, partial: str, target: str, *, video: b
 
 
 async def resolve_stream(url: str, video: bool = False) -> str:
-    """Resolve audio/video via Eldian first, with local yt-dlp fallback."""
+    """Resolve through Shruti first, with Eldian and local yt-dlp fallbacks."""
     if url and os.path.isfile(url):return url
     if url in _file_cache and os.path.isfile(_file_cache[url]):return _file_cache[url]
     video_id=_extract_video_id(url)
@@ -298,7 +366,16 @@ async def resolve_stream(url: str, video: bool = False) -> str:
     path=await (download_video(url) if video else download_song(url))
     if path and os.path.isfile(path):
         _file_cache[url]=path;return path
-    raise RuntimeError("Eldian API and yt-dlp could not resolve this media item")
+    status = downloader_status()
+    if status["shruti"]["state"] == "needs_api_key":
+        raise MediaDownloadError(
+            "Shruti needs an API key, and the backup download methods could not retrieve this track. "
+            "Ask the bot owner to configure YT_API_KEY or try another track."
+        )
+    raise MediaDownloadError(
+        "Shruti and the backup download methods could not retrieve this track. "
+        "Try again later or choose another track."
+    )
 
 
 # ═════════════════════════════════════════════════════════════════════════════

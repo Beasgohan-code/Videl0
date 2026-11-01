@@ -14,19 +14,19 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ffmpeg curl build-essential python3-dev ca-certificates && \
+      ffmpeg curl build-essential python3-dev ca-certificates fonts-dejavu-core fonts-noto-core && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY requirements.txt scripts/check_voice_dependencies.py ./
 RUN pip install --upgrade pip setuptools wheel && \
     pip install --no-cache-dir -r requirements.txt && \
-    python -c "import pyrogram, flask, pymongo; print('Videl backend dependencies OK')" && \
+    python -c "import pyrogram, flask, waitress, pymongo; print('Videl backend dependencies OK')" && \
     python check_voice_dependencies.py
 
 COPY vendor ./vendor
 COPY videl ./videl
-COPY config.py main.py start cookies.txt sample.env .env.example ./
+COPY config.py main.py start sample.env .env.example ./
 RUN chmod +x start && mkdir -p downloads logs data && \
     python -m compileall -q videl config.py main.py
 

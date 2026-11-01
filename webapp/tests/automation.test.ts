@@ -330,6 +330,8 @@ test("a reachable API with a broken bot is reported as degraded, not online", ()
   assert.deepEqual(healthProblems({ ok: true, bot_status: "failed" }), ["Telegram bot is failed"]);
   assert.deepEqual(healthProblems({ ok: true, bot_status: "online", database: "disconnected" }),
     ["MongoDB is disconnected"]);
+  assert.deepEqual(healthProblems({ ok: true, assistant: { configured: true, ready: false, state: "failed" } }),
+    ["Telegram voice assistant is failed"]);
   assert.equal(healthProblems({ ok: false }).length, 0, "an unreachable backend has no part-diagnosis");
   assert.equal(backendTone({ ok: true, bot_status: "failed" }), "warn");
   assert.equal(backendTone({ ok: true, bot_status: "online", database: "connected" }), "good");
@@ -340,6 +342,7 @@ test("the backend caption never claims a bot is up before it is", () => {
   const caption = healthCaption({ ok: true, bot_status: "failed", database: "connected", uptime: 3670 });
   assert.match(caption, /bot failed/);
   assert.match(caption, /uptime 1h 1m/);
+  assert.match(healthCaption({ ok: true, assistant: { configured: true, ready: true } }), /voice assistant connected/i);
   assert.match(healthCaption(null), /unavailable/i);
 });
 

@@ -4,6 +4,8 @@ Owner routes keep their own gate. Nothing here can reach a backup import, a
 recording toggle, or another group: the scope is enforced in
 ``videl/utils/group_view.py`` and the actor is proved by a signed assertion.
 """
+from datetime import datetime
+
 from flask import jsonify, request
 
 from videl.api.actor import ActorError, require_actor
@@ -68,8 +70,17 @@ def register_manager_routes(app, authorized, api, secret):
             before = request.args.get("before") or None
             limit = min(80, max(5, int(request.args.get("limit", "40"))))
             kind = request.args.get("kind") or None
+            query = request.args.get("q", "")[:60]
+            raw_actor = request.args.get("actor")
+            actor_filter = int(raw_actor) if raw_actor and raw_actor.isdigit() and len(raw_actor) <= 20 else None
+            raw_from = request.args.get("from")
+            raw_through = request.args.get("through")
+            date_from = datetime.fromisoformat(raw_from.replace("Z", "+00:00")) if raw_from else None
+            date_through = datetime.fromisoformat(raw_through.replace("Z", "+00:00")) if raw_through else None
             return jsonify(manager.history(get_db(), api, chat_id, user,
-                                           limit=limit, before=before, kind=kind))
+                                           limit=limit, before=before, kind=kind,
+                                           query=query, actor_filter=actor_filter,
+                                           date_from=date_from, date_through=date_through))
         except (ViewError, ActorError) as error:
             return _answer(error)
         except (TypeError, ValueError):

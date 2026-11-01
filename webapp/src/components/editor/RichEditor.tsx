@@ -370,7 +370,7 @@ export function RichEditor({
 
       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-white/5 px-4 py-3 text-[10px] text-stone-500">
         <span className="flex items-center gap-1.5">
-          <CornerDownLeft size={11} /> Select text to format · markdown shortcuts work · Ctrl+Enter previews and sends
+          <CornerDownLeft size={11} /> Select text to format · markdown shortcuts work · preview before publishing
         </span>
         <span className={`font-mono ${over ? "font-bold text-rose-300" : ""}`}>
           {length.toLocaleString()}/{limit.toLocaleString()}

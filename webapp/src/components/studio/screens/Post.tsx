@@ -5,6 +5,7 @@ import {
   ArrowUpRight,
   Check,
   Clipboard,
+  Copy,
   Eye,
   RefreshCw,
   Send,
@@ -14,10 +15,12 @@ import {ScheduledPosts} from "@/components/studio/ScheduledPosts";
 import { ImageComposer } from "@/components/studio/ImageComposer";
 import { PostAssetLibrary } from "@/components/studio/PostAssetLibrary";
 import {postChecks,VERSION_KEY} from "@/lib/studio-drafts";
-import { visibleLength, plainPostText } from "@/lib/telegram-format";
+import { visibleLength, plainPostText, previewHtml } from "@/lib/telegram-format";
 import { RichEditor } from "@/components/editor/RichEditor";
 import { ButtonBuilder, BtnRow } from "@/components/editor/ButtonBuilder";
 import { ChannelPreview } from "@/components/channel/Preview";
+import { PostFlow, type Stage } from "@/components/studio/PostFlow";
+import { useScreenMotion } from "@/components/studio/useScreenMotion";
 
 import {
   PostDraft as Draft,
@@ -27,6 +30,7 @@ import {
   importDraftDocument,
   parseDrafts,
   parseDraft,
+  copyDraft,
 } from "@/lib/post-drafts";
 type Result = { ok: boolean; message: string };
 const templates = [
@@ -45,8 +49,24 @@ const templates = [
     tag: "Community",
     text: "<b>Welcome to the community!</b>\n\nIntroduce yourself, explore the pinned messages and make yourself at home.\n\nPlease keep things respectful. We’re glad you’re here!",
   },
+  {
+    title: "Weekly roundup",
+    tag: "Digest",
+    text: "<b>✨ This week, in a nutshell</b>\n\nHere are the highlights:\n• <b>Big win:</b> add a moment worth celebrating\n• <b>Coming up:</b> share what’s next\n• <b>From the community:</b> add a member shout-out\n\n<blockquote>Thanks for making this community what it is.</blockquote>",
+  },
+  {
+    title: "Product announcement",
+    tag: "Launch",
+    text: "<b>It’s here: introduce your new thing</b>\n\n<i>One clear sentence about why it matters.</i>\n\n<b>What’s new</b>\n• A useful improvement\n• A detail people will notice\n\n<blockquote>Made with your feedback in mind.</blockquote>\n\n<a href=\"https://example.com\">Explore the update</a>",
+  },
+  {
+    title: "Service notice",
+    tag: "Notice",
+    text: "<b>Service notice</b>\n\n<blockquote><b>What:</b> describe the change\n<b>When:</b> include the date, time and timezone\n<b>Impact:</b> say what members should expect</blockquote>\n\nWe’ll share another update when everything is back to normal.",
+  },
 ];
 export default function ChannelStudio() {
+  const pageRef = useRef<HTMLElement>(null);
   const { authenticated } = useTelegram();
   const isOwner = authenticated === true;
   const [showAssets, setShowAssets] = useState(false);
@@ -61,6 +81,22 @@ export default function ChannelStudio() {
   const lastSent = useRef("");
   const sending = useRef(false);
   const [reviewed, setReviewed] = useState(false);
+  /**
+   * Undo is a stack, not an apology. Every action that throws work away — a
+   * new post, opening a draft, importing a file — pushes the outgoing state
+   * here first, so the notice can walk back one step at a time instead of
+   * stopping the writer with a confirm dialog.
+   */
+  type Snapshot = {
+    reason: string;
+    text: string;
+    mediaUrl: string;
+    localImage: File | null;
+    buttons: BtnRow[];
+    chatId: string;
+    at: number;
+  };
+  const [undo, setUndo] = useState<Snapshot[]>([]);
   const [showTemplates, setShowTemplates] = useState(false);
 
   const [chatId, setChatId] = useState("");
@@ -69,16 +105,35 @@ export default function ChannelStudio() {
   const [mediaUrl, setMediaUrl] = useState("");
   const [buttons, setButtons] = useState<BtnRow[]>([]);
   const [drafts, setDrafts] = useState<Draft[]>([]);
+  const [draftQuery, setDraftQuery] = useState("");
   const [versions,setVersions]=useState<Draft[]>([]);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
   const [lightPreview, setLightPreview] = useState(false);
+  const [postStage, setPostStage] = useState<Stage>("write");
+  useScreenMotion(pageRef, postStage);
+  const [published, setPublished] = useState(false);
   useEffect(() => {
     setReviewed(false);
+    setPublished(false);
   }, [chatId, text, mediaUrl, parseMode, buttons]);
   const [recovery, setRecovery] = useState<Draft | null>(null);
   const [storageReady, setStorageReady] = useState(false);
   const [autoStatus, setAutoStatus] = useState("");
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [savedAt, setSavedAt] = useState(0);
+  const filteredDrafts = drafts.filter((draft) => {
+    const query = draftQuery.trim().toLowerCase();
+    return !query || [draft.folder, ...(draft.tags || []), draft.chatId, plainPostText(draft.text)]
+      .some((value) => String(value || "").toLowerCase().includes(query));
+  });
+  // A "saved 8s ago" that never moves is a lie the moment it is read.
+  const [, setClock] = useState(0);
+  useEffect(() => {
+    if (!savedAt) return;
+    const timer = window.setInterval(() => setClock((value) => value + 1), 5000);
+    return () => window.clearInterval(timer);
+  }, [savedAt]);
   useEffect(() => {
     try {
       setDrafts(parseDrafts(localStorage.getItem(DRAFT_KEY) || "[]"));
@@ -112,6 +167,8 @@ export default function ChannelStudio() {
               ? "Text autosaved · attached image is session-only"
               : "Text and links autosaved on this device",
           );
+          setSaveState("saved");
+          setSavedAt(Date.now());
         } else {
           localStorage.removeItem(RECOVERY_KEY);
           setAutoStatus("");
@@ -153,6 +210,57 @@ export default function ChannelStudio() {
       return false;
     }
   }
+  function pushUndo(reason: string) {
+    if (!text.trim() && !localImage && !mediaUrl) return;
+    const snapshot: Snapshot = {
+      reason,
+      text,
+      mediaUrl,
+      localImage,
+      buttons,
+      chatId,
+      at: Date.now(),
+    };
+    setUndo((stack) => [...stack, snapshot].slice(-5));
+  }
+  function undoLast() {
+    const snapshot = undo[undo.length - 1];
+    if (!snapshot) return;
+    setRecovery(null);
+    setText(snapshot.text);
+    setMediaUrl(snapshot.mediaUrl);
+    setLocalImage(snapshot.localImage);
+    setButtons(snapshot.buttons);
+    setChatId(snapshot.chatId);
+    setUndo((stack) => stack.slice(0, -1));
+    setResult({ ok: true, message: "Put back the previous post." });
+  }
+
+  /* ── keyboard ─────────────────────────────────────────────────────────────
+     Two shortcuts, both borrowed from the editors people already use:
+     ⌘/Ctrl+S keeps a draft, ⌘/Ctrl+Enter publishes. Esc dismisses the undo
+     notice without restoring anything. Typing inside a field is never
+     intercepted except for those two combinations, so undo/redo keep working
+     in the rich editor. */
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const command = event.metaKey || event.ctrlKey;
+      if (command && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        saveDraft();
+        return;
+      }
+      if (command && event.key === "Enter") {
+        event.preventDefault();
+        if (isOwner && reviewed && !busy) void sendPost();
+        return;
+      }
+      if (event.key === "Escape") setUndo((stack) => (stack.length ? [] : stack));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
   function saveDraft() {
     if (localImage) {
       setResult({
@@ -181,6 +289,47 @@ export default function ChannelStudio() {
     if (persistDrafts([draft, ...drafts].slice(0, 20)))
       setResult({ ok: true, message: "Draft saved in this browser only." });
   }
+  /** Keep the post exactly as it is and start a second, separate copy of it. */
+  function duplicatePost() {
+    if (localImage) {
+      setResult({
+        ok: false,
+        message:
+          "Download the attached image first: a copy can carry text, links and buttons, not a local file.",
+      });
+      return;
+    }
+    if (!text.trim() && !mediaUrl.trim() && !buttons.length) {
+      setResult({ ok: false, message: "Write something before duplicating it." });
+      return;
+    }
+    const draft: Draft = {
+      id: crypto.randomUUID(),
+      chatId: isOwner ? chatId.trim() : "",
+      text,
+      parseMode,
+      mediaUrl: mediaUrl.trim(),
+      buttons: JSON.parse(JSON.stringify(buttons)),
+      savedAt: new Date().toISOString(),
+    };
+    if (persistDrafts([draft, ...drafts].slice(0, 20))) {
+      setResult({
+        ok: true,
+        message: "A copy is in your drafts. Edit this one freely; the copy stays as it was.",
+      });
+    }
+  }
+
+  function updateDraftMetadata(id: string, patch: Pick<Draft, "folder" | "tags">) {
+    persistDrafts(drafts.map((draft) => draft.id === id ? { ...draft, ...patch } : draft));
+  }
+
+  function copySavedDraft(draft: Draft) {
+    if (persistDrafts([copyDraft(draft), ...drafts].slice(0, 20))) {
+      setResult({ ok: true, message: "Draft copied. It has its own name and date now." });
+    }
+  }
+
   function saveVersion(){
     if(!text.trim()&&!mediaUrl&&!buttons.length)return;
     const version:Draft={id:crypto.randomUUID(),chatId:isOwner?chatId:"",text,parseMode:"HTML",mediaUrl:localImage?"":mediaUrl,buttons:JSON.parse(JSON.stringify(buttons)),savedAt:new Date().toISOString()};
@@ -188,13 +337,7 @@ export default function ChannelStudio() {
     try{localStorage.setItem(VERSION_KEY,JSON.stringify(next));setVersions(next);setResult({ok:true,message:"Version saved locally. Local image files are not included."})}catch{setResult({ok:false,message:"Version not saved: browser storage unavailable."})}
   }
   function restoreDraft(draft: Draft) {
-    if (
-      (text.trim() || localImage || mediaUrl) &&
-      !window.confirm(
-        "Replace the current post with this draft? Download any attached image first.",
-      )
-    )
-      return;
+    pushUndo("Opened a saved draft");
     setRecovery(null);
     setLocalImage(null);
     setChatId(draft.chatId);
@@ -281,6 +424,7 @@ export default function ChannelStudio() {
       if (!response.ok || !data.ok)
         throw new Error(data.error || "Telegram rejected the post");
       lastSent.current = fingerprint;
+      setPublished(true);
       setResult({
         ok: true,
         message: `Telegram accepted the post · message ${data.message_id} · chat ${data.chat_id}`,
@@ -306,9 +450,17 @@ export default function ChannelStudio() {
   const limit = hasImage ? 1024 : 4096;
   const remaining = limit - visibleLength(text);
   const previewTheme = lightPreview ? "light" : "dark";
+  const stageContent: Record<Stage, { title: string; description: string }> = {
+    write: { title: "Write your post", description: "Start with the message. Your draft saves in this browser as you work." },
+    design: { title: "Add a little design", description: "Attach an image, build buttons, or keep it beautifully simple." },
+    preview: { title: "Review before it goes", description: "Check the destination, formatting, media and buttons as a reader will see them." },
+    queue: isOwner
+      ? { title: "Publish or schedule", description: "Run the checklist, then send now or choose a scheduled time." }
+      : { title: "Save and export", description: "Review the checklist, save a local draft, or export your finished post." },
+  };
   return (
-    <main className="post-workspace mx-auto max-w-7xl py-5 sm:py-8">
-      <header className="ios-page-header items-center">
+    <main ref={pageRef} className="post-workspace mx-auto max-w-7xl py-5 sm:py-8" data-post-step={postStage}>
+      <header data-screen-intro className="post-page-topbar ios-page-header items-center">
         <div>
           <p className="ios-caption2">VIDEL · PUBLISHING</p>
           <h1 className="mt-2 ios-title">Post Studio</h1>
@@ -322,13 +474,10 @@ export default function ChannelStudio() {
           <button
             disabled={busy}
             onClick={() => {
-              if (
-                (text.trim() || localImage || mediaUrl) &&
-                !window.confirm(
-                  "Start a new post? Download any attached image and save a named draft first.",
-                )
-              )
-                return;
+              // Nothing is lost: the outgoing post is kept in memory for a
+              // moment, and the notice under the header puts it back. A modal
+              // asking "are you sure" is a wall, not a safety net.
+              pushUndo("Started a new post");
               setRecovery(null);
               setChatId("");
               setText("");
@@ -340,6 +489,14 @@ export default function ChannelStudio() {
             className="ios-btn ios-btn-glass text-sm"
           >
             <RefreshCw size={15} aria-hidden /> New post
+          </button>
+          <button
+            disabled={busy}
+            onClick={duplicatePost}
+            className="ios-btn ios-btn-glass text-sm"
+            title="Keep this post and start a second copy"
+          >
+            <Copy size={15} aria-hidden /> Duplicate
           </button>
           <button disabled={busy} className="ios-btn ios-btn-glass text-sm" onClick={() => {
             const draft:Draft={id:crypto.randomUUID(),chatId:isOwner?chatId:"",text,parseMode:"HTML",mediaUrl:localImage?"":mediaUrl,buttons,savedAt:new Date().toISOString()};
@@ -358,6 +515,58 @@ export default function ChannelStudio() {
           </button>
         </div>
       </header>
+      <div data-screen-intro className="post-page-heading" aria-live="polite">
+        <span className="ios-caps">STEP {(["write", "design", "preview", "queue"] as Stage[]).indexOf(postStage) + 1} OF 4</span>
+        <div>
+          <h2>{stageContent[postStage].title}</h2>
+          <p>{stageContent[postStage].description}</p>
+        </div>
+      </div>
+      <PostFlow
+        characters={visibleLength(text)}
+        limit={limit}
+        hasImage={hasImage}
+        buttons={buttons.reduce((total, row) => total + row.length, 0)}
+        canPublish={Boolean(text.trim() || mediaUrl || localImage)}
+        words={plainPostText(text).trim().split(/\s+/).filter(Boolean).length}
+        save={{
+          state: saveState,
+          note:
+            saveState === "error"
+              ? "autosave unavailable"
+              : saveState === "saved" && savedAt
+                ? `saved ${Math.max(0, Math.round((Date.now() - savedAt) / 1000))}s ago`
+                : isOwner
+                  ? "⌘S draft · ⌘⏎ publish"
+                  : "autosave on this device",
+        }}
+        schedule={{ ready: isOwner, note: isOwner ? "⌘S draft · ⌘⏎ publish" : "sign in to schedule" }}
+        previewed={reviewed}
+        published={published}
+        activeStage={postStage}
+        onStageChange={setPostStage}
+      />
+
+      {undo.length ? (
+        <section role="status" className="post-undo">
+          <span>
+            {undo[undo.length - 1].reason}. The previous post is still here
+            {undo.length > 1 ? ` (${undo.length} steps back)` : ""}.
+          </span>
+          <button type="button" className="ios-btn ios-btn-glass text-xs" onClick={undoLast}>
+            Undo
+          </button>
+          <button
+            type="button"
+            className="post-undo-dismiss"
+            onClick={() => setUndo([])}
+            aria-label="Dismiss"
+          >
+            ×
+          </button>
+        </section>
+      ) : null}
+
       {recovery && (
         <section
           role="status"
@@ -395,10 +604,11 @@ export default function ChannelStudio() {
           {autoStatus}
         </p>
       )}
-      <div className="mt-5 flex flex-wrap gap-2" role="group" aria-label="Post workspace mode">
+      <div data-screen-stagger className="post-mode-switch mt-5 flex flex-wrap gap-2" role="group" aria-label="Post workspace mode">
         <button
           aria-pressed={!showTemplates && !showAssets && !showCovers}
           onClick={() => {
+            setPostStage("write");
             setShowTemplates(false);
             setShowAssets(false);
             setShowCovers(false);
@@ -410,6 +620,7 @@ export default function ChannelStudio() {
         <button
           aria-pressed={showTemplates}
           onClick={() => {
+            setPostStage("write");
             setShowTemplates(true);
             setShowAssets(false);
             setShowCovers(false);
@@ -421,6 +632,7 @@ export default function ChannelStudio() {
         <button
           aria-pressed={showCovers}
           onClick={() => {
+            setPostStage("design");
             setShowCovers(true);
             setShowTemplates(false);
             setShowAssets(false);
@@ -432,6 +644,7 @@ export default function ChannelStudio() {
         <button
           aria-pressed={showAssets}
           onClick={() => {
+            setPostStage("design");
             setShowAssets(true);
             setShowTemplates(false);
             setShowCovers(false);
@@ -442,7 +655,8 @@ export default function ChannelStudio() {
         </button>
       </div>
       {!showTemplates && !showAssets && !showCovers && (
-        <section className="post-editorial-banner mt-5 flex items-center justify-between gap-5 overflow-hidden rounded-2xl border border-white/10 p-5 sm:p-7">
+        <section data-screen-stagger data-post-page="write" className="post-editorial-banner mt-5 flex items-center justify-between gap-5 overflow-hidden rounded-2xl border border-white/10 p-5 sm:p-7">
+          <img className="post-editorial-art" src="/studio/flow.jpg" alt="" aria-hidden decoding="async" />
           <div className="max-w-md">
             <p className="post-eyebrow">THE PUBLISHING DESK</p>
             <h2 className="post-serif mt-3 text-3xl leading-tight">
@@ -455,7 +669,7 @@ export default function ChannelStudio() {
               before publishing.
             </p>
             <button
-              onClick={() => setShowAssets(true)}
+              onClick={() => { setPostStage("design"); setShowAssets(true); }}
               className="mt-4 inline-flex min-h-9 items-center text-xs text-[#cbd8ba] underline underline-offset-4"
             >
               Open the image composer
@@ -470,7 +684,7 @@ export default function ChannelStudio() {
           />
         </section>
       )}
-      <div hidden={!showAssets}>
+      <div hidden={!showAssets} data-post-page="design">
         <ImageComposer
           disabled={busy}
           onAttach={(file) => {
@@ -485,6 +699,7 @@ export default function ChannelStudio() {
         />
       </div>
       {showCovers && (
+        <section data-post-page="design">
         <PostAssetLibrary
           selected={mediaUrl}
           disabled={busy}
@@ -518,9 +733,10 @@ export default function ChannelStudio() {
             }
           }}
         />
+        </section>
       )}
       {showTemplates && (
-        <section className="mt-4 grid gap-3 sm:grid-cols-3">
+        <section data-post-page="write" className="mt-4 grid gap-3 sm:grid-cols-3">
           {templates.map((template) => (
             <button
               key={template.title}
@@ -541,12 +757,13 @@ export default function ChannelStudio() {
             >
               <span className="ios-pill ios-pill-blue">{template.tag}</span>
               <h2 className="mt-4 text-sm font-semibold">{template.title}</h2>
-              <p className="mt-2 text-xs leading-5 text-stone-400">
-                An editable starting point. Customize every detail before
-                sending.
-              </p>
+              <div
+                aria-label={`Rich text preview of ${template.title}`}
+                className="post-template-preview telegram-rich mt-3 rounded-xl border border-white/10 bg-black/20 p-3 text-left text-xs leading-5 text-stone-200"
+                dangerouslySetInnerHTML={{ __html: previewHtml(template.text) }}
+              />
               <span className="mt-4 block text-xs text-[#c5d6b3]">
-                Use template ↗
+                Use this template <ArrowUpRight size={12} className="inline" aria-hidden />
               </span>
             </button>
           ))}
@@ -556,9 +773,9 @@ export default function ChannelStudio() {
         disabled={busy}
         className="mt-6 grid min-w-0 gap-4 lg:grid-cols-[1.15fr_0.85fr]"
       >
-        <section className="space-y-4">
+        <section id="post-write" tabIndex={-1} className="space-y-4">
           {isOwner && (
-            <div className="ios-card p-4 sm:p-5">
+            <div data-post-page="write" className="ios-card p-4 sm:p-5">
               <div className="flex flex-wrap items-end gap-3">
                 <label className="min-w-[220px] flex-1 text-sm font-medium">
                   Channel or chat ID
@@ -583,7 +800,7 @@ export default function ChannelStudio() {
               </p>
             </div>
           )}
-          <div>
+          <div data-post-page="write">
             <div className="mb-2 flex items-center justify-between">
               <h2 className="ios-caption2">Post text</h2>
               <span
@@ -601,7 +818,7 @@ export default function ChannelStudio() {
               placeholder="Write a Telegram announcement…"
             />
           </div>
-          <div className="ios-card space-y-3 p-4 sm:p-5">
+          <div data-post-page="design" className="ios-card space-y-3 p-4 sm:p-5">
             <div>
               <h2 className="ios-caption2">Post image</h2>
               <p className="mt-1 ios-caption">
@@ -612,6 +829,7 @@ export default function ChannelStudio() {
             <div className="flex flex-wrap gap-2">
               <button
                 onClick={() => {
+                  setPostStage("design");
                   setShowAssets(true);
                   setShowTemplates(false);
                   window.scrollTo({ top: 0, behavior: "smooth" });
@@ -622,6 +840,7 @@ export default function ChannelStudio() {
               </button>
               <button
                 onClick={() => {
+                  setPostStage("design");
                   setShowCovers(true);
                   setShowAssets(false);
                   setShowTemplates(false);
@@ -668,7 +887,7 @@ export default function ChannelStudio() {
               />
             )}
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div data-post-page="write" className="flex flex-wrap gap-2">
             <button
               className="ios-btn ios-btn-glass text-sm"
               disabled={!text.trim()}
@@ -714,7 +933,9 @@ export default function ChannelStudio() {
               Share post
             </button>
           </div>
-          <ButtonBuilder value={buttons} onChange={setButtons} />
+          <div id="post-design" data-post-page="design" tabIndex={-1} className="scroll-mt-24">
+            <ButtonBuilder value={buttons} onChange={setButtons} />
+          </div>
           {result && (
             <div
               role={result.ok ? "status" : "alert"}
@@ -735,36 +956,31 @@ export default function ChannelStudio() {
           )}
           {isOwner && (
             <>
-              <label className="flex items-start gap-3 rounded-xl border border-[#b5c4a5]/15 bg-[#b5c4a5]/5 p-4 text-xs leading-5 text-stone-400">
-                <input
-                  type="checkbox"
-                  checked={reviewed}
-                  disabled={busy}
-                  onChange={(e) => setReviewed(e.target.checked)}
-                  className="mt-1"
-                />
-                I reviewed the destination and preview. Publish this post to{" "}
-                {chatId.trim() || "the selected destination"}.
-              </label>
+              {!reviewed ? (
+                <p data-post-page="queue" className="rounded-xl border border-amber-300/15 bg-amber-300/[0.04] p-3 text-xs text-amber-100/75">Go back to Preview and confirm the destination before publishing.</p>
+              ) : !chatId.trim() ? (
+                <p data-post-page="queue" className="rounded-xl border border-amber-300/15 bg-amber-300/[0.04] p-3 text-xs text-amber-100/75">Add the channel or chat ID on the Write page to enable publishing.</p>
+              ) : null}
               <button
-                onClick={() => void sendPost()}
-                disabled={
-                  busy ||
-                  remaining < 0 ||
-                  !reviewed ||
-                  !chatId.trim() ||
-                  (!text.trim() && !hasImage)
-                }
-                className="ios-btn ios-btn-primary w-full disabled:opacity-50"
-              >
-                {busy ? "Sending to Telegram…" : "Publish post"}
-                <Send size={16} aria-hidden />
+              data-post-page="queue"
+              onClick={() => void sendPost()}
+              disabled={
+                busy ||
+                remaining < 0 ||
+                !reviewed ||
+                !chatId.trim() ||
+                (!text.trim() && !hasImage)
+              }
+              className="ios-btn ios-btn-primary w-full disabled:opacity-50"
+            >
+              {busy ? "Sending to Telegram…" : published ? "Post published ✓" : "Publish post"}
+              <Send size={16} aria-hidden />
               </button>
             </>
           )}
         </section>
         <aside className="space-y-4 lg:sticky lg:top-20 lg:self-start">
-          <section className="ios-card-elevated p-4">
+          <section id="post-preview" data-post-page="preview" tabIndex={-1} className="ios-card-elevated scroll-mt-24 p-4">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <h2 className="font-semibold">Preview</h2>
@@ -790,6 +1006,14 @@ export default function ChannelStudio() {
                 theme={previewTheme}
               />
             </div>
+            {isOwner ? (
+              <label className="mt-4 flex items-start gap-3 rounded-xl border border-[#b5c4a5]/20 bg-[#b5c4a5]/5 p-3 text-xs leading-5 text-stone-300">
+                <input type="checkbox" checked={reviewed} disabled={busy} onChange={(event) => setReviewed(event.target.checked)} className="mt-1" />
+                I reviewed the destination and preview. I’m ready to publish to {chatId.trim() || "the selected destination"}.
+              </label>
+            ) : (
+              <p className="mt-3 text-xs text-stone-400">Sign in as the bot owner to publish or schedule. You can still create and export posts here.</p>
+            )}
             <div className="mt-3 flex gap-2">
               <button
                 onClick={async () => {
@@ -809,7 +1033,7 @@ export default function ChannelStudio() {
                 <Clipboard size={14} /> Copy text
               </button>
               <a
-                href="https://t.me/Videl0Bot"
+                href="https://t.me/videlapp"
                 target="_blank"
                 rel="noreferrer"
                 className="ios-btn ios-btn-glass text-xs"
@@ -818,10 +1042,11 @@ export default function ChannelStudio() {
               </a>
             </div>
           </section>
-          {isOwner&&<ScheduledPosts chatId={chatId} text={text} mediaUrl={mediaUrl} buttons={buttons} hasLocalImage={!!localImage} reviewed={reviewed} disabled={busy||remaining<0}/>}
-          <section className="ios-card space-y-3 p-4"><h2 className="font-semibold">Publishing checklist</h2><p className="ios-caption">Advisory checks, not a guarantee of delivery.</p>{postChecks(text,!!mediaUrl||!!localImage,buttons).map(check=><div key={check.label} className="rounded-xl bg-white/[0.035] p-3"><div className="text-sm">{check.state==="pass"?"✓":check.state==="error"?"Fix":"Review"} · {check.label}</div><p className="ios-caption mt-1">{check.detail}</p></div>)}</section>
-          <section className="ios-card space-y-3 p-4"><h2 className="font-semibold">Version history</h2><p className="ios-caption">Up to 20 manual checkpoints in this browser. Image files are excluded.</p><button className="ios-btn ios-btn-glass text-xs" disabled={busy} onClick={saveVersion}>Save version</button>{versions.map((version,i)=><div className="rounded-xl bg-white/[0.035] p-3" key={version.id}><p className="text-xs">{new Date(version.savedAt).toLocaleString()} · {visibleLength(version.text)} characters</p><p className="ios-caption truncate">{plainPostText(version.text).slice(0,100)||"Image/button post"}</p><button className="ios-pill mt-2" disabled={busy} onClick={()=>restoreDraft({...version,chatId:isOwner?version.chatId:""})}>Restore version {versions.length-i}</button></div>)}</section>
-          <section className="ios-card p-4">
+          <div id="post-queue" data-post-page="queue" tabIndex={-1} className="scroll-mt-24" />
+          {isOwner&&<div data-post-page="queue"><ScheduledPosts chatId={chatId} text={text} mediaUrl={mediaUrl} buttons={buttons} hasLocalImage={!!localImage} reviewed={reviewed} disabled={busy||remaining<0}/></div>}
+          <section data-post-page="queue" className="ios-card space-y-3 p-4"><h2 className="font-semibold">Publishing checklist</h2><p className="ios-caption">Advisory checks, not a guarantee of delivery.</p>{postChecks(text,!!mediaUrl||!!localImage,buttons).map(check=><div key={check.label} className="rounded-xl bg-white/[0.035] p-3"><div className="text-sm">{check.state==="pass"?"✓":check.state==="error"?"Fix":"Review"} · {check.label}</div><p className="ios-caption mt-1">{check.detail}</p></div>)}</section>
+          <section data-post-page="queue" className="ios-card space-y-3 p-4"><h2 className="font-semibold">Version history</h2><p className="ios-caption">Up to 20 manual checkpoints in this browser. Image files are excluded.</p><button className="ios-btn ios-btn-glass text-xs" disabled={busy} onClick={saveVersion}>Save version</button>{versions.map((version,i)=><div className="rounded-xl bg-white/[0.035] p-3" key={version.id}><p className="text-xs">{new Date(version.savedAt).toLocaleString()} · {visibleLength(version.text)} characters</p><p className="ios-caption truncate">{plainPostText(version.text).slice(0,100)||"Image/button post"}</p><button className="ios-pill mt-2" disabled={busy} onClick={()=>restoreDraft({...version,chatId:isOwner?version.chatId:""})}>Restore version {versions.length-i}</button></div>)}</section>
+          <section data-post-page="queue" className="ios-card p-4">
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="font-semibold">Local drafts</h2>
@@ -829,11 +1054,12 @@ export default function ChannelStudio() {
                   Stored in this browser only · not synced
                 </p>
               </div>
-              <span className="ios-pill">{drafts.length}</span>
+              <span className="ios-pill">{filteredDrafts.length} / {drafts.length}</span>
             </div>
+            <input aria-label="Search local drafts" className="ios-input mt-3 text-xs" placeholder="Search text, folder, tag or destination" value={draftQuery} onChange={(event) => setDraftQuery(event.target.value.slice(0, 80))} />
             <div className="mt-3 space-y-2">
-              {drafts.length ? (
-                drafts.map((draft) => (
+              {filteredDrafts.length ? (
+                filteredDrafts.map((draft) => (
                   <div
                     key={draft.id}
                     className="flex items-center gap-2 rounded-xl bg-white/[0.035] p-3"
@@ -852,6 +1078,18 @@ export default function ChannelStudio() {
                         {new Date(draft.savedAt).toLocaleString()}
                       </span>
                     </button>
+                    <div className="grid w-40 gap-1">
+                      <input aria-label={`Folder for draft ${draft.id}`} className="ios-input !min-h-8 !py-1 text-[10px]" maxLength={40} value={draft.folder || "Unfiled"} onChange={(event) => updateDraftMetadata(draft.id, { folder: event.target.value.slice(0, 40) })} />
+                      <input aria-label={`Tags for draft ${draft.id}`} className="ios-input !min-h-8 !py-1 text-[10px]" maxLength={200} placeholder="Tags, comma separated" value={(draft.tags || []).join(", ")} onChange={(event) => updateDraftMetadata(draft.id, { tags: [...new Set(event.target.value.split(",").map((tag) => tag.trim().slice(0, 24)).filter(Boolean))].slice(0, 8) })} />
+                    </div>
+                    <button
+                      aria-label="Make a copy of this draft"
+                      title="Make a copy"
+                      onClick={() => copySavedDraft(draft)}
+                      className="rounded-lg p-2 text-white/55 hover:bg-white/10 hover:text-white"
+                    >
+                      <Copy size={15} />
+                    </button>
                     <button
                       aria-label="Delete draft"
                       onClick={() =>
@@ -865,7 +1103,7 @@ export default function ChannelStudio() {
                 ))
               ) : (
                 <p className="rounded-xl bg-white/[0.03] p-3 text-sm text-[var(--ios-label-secondary)]">
-                  No local drafts saved.
+                  {drafts.length ? "No drafts match this search." : "No local drafts saved."}
                 </p>
               )}
             </div>

@@ -29,11 +29,22 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt -r requirements-dev.txt pytest
+          pip install -r requirements.txt -r requirements-dev.txt pytest pip-audit cyclonedx-bom
+      - name: Audit Python dependency advisories
+        run: pip-audit -r requirements.txt
+      - name: Generate Python dependency SBOM
+        run: cyclonedx-py environment --output-file python-sbom.cdx.json
       - name: Compile every module
         run: python -m compileall -q videl
       - name: Run offline contract tests
         run: python -m pytest tests -q
+      - name: Upload Python dependency SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-dependency-sbom
+          path: python-sbom.cdx.json
+          if-no-files-found: error
+          retention-days: 30
 
   webapp:
     name: Web panel
@@ -51,9 +62,30 @@ jobs:
           cache-dependency-path: webapp/package-lock.json
       - name: Install dependencies
         run: npm ci
+      - name: Audit webapp dependency advisories
+        run: npm audit
       - name: Typecheck
         run: npx tsc --noEmit
       - name: Unit tests
         run: npm test
-      - name: Production build
-        run: npm run build
+      - name: Production build and public-bundle secret scan
+        env:
+          WEBAPP_SECRET: ci-webapp-secret-sentinel-7f7f7f7f
+          BOT_TOKEN: 654321:ci-bot-token-sentinel-abcdefghijklmnopqrstuvwxyz
+          MONGO_DB_URL: mongodb+srv://ci-user:ci-password@cluster.invalid/test
+          INTERNAL_SECRET: ci-internal-secret-sentinel-12345678
+          STRING_SESSION: ci-assistant-session-sentinel-abcdefghijklmnopqrstuvwxyz012345
+          API_HASH: ci-api-hash-sentinel-12345678
+          ELDIAN_API_KEY: ci-provider-key-sentinel-12345678
+        run: |
+          npm run build
+          npm run check:public-bundle
+      - name: Generate webapp dependency SBOM
+        run: npm sbom --sbom-format=cyclonedx > webapp-sbom.cdx.json
+      - name: Upload webapp dependency SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: webapp-dependency-sbom
+          path: webapp/webapp-sbom.cdx.json
+          if-no-files-found: error
+          retention-days: 30

@@ -106,22 +106,22 @@ def get_settings(chat_id: int) -> dict:
     return dict(document or {})
 
 
-def set_settings(chat_id: int, values: dict) -> bool:
+def set_settings(chat_id: int, values: dict, *, expected_revision=None) -> bool:
     try:
         if collection(SETTINGS_COLLECTION) is None:
             return False
-        # Write through the shared store so a change made from Telegram also
-        # advances the revision an open web panel is holding.
+        # Telegram and the web panel share one CAS revision so an old keyboard
+        # cannot silently overwrite a newer group configuration.
         from videl.utils import settings_store
 
-        settings_store.write(chat_id, values)
+        settings_store.write(chat_id, values, expected=expected_revision)
         return True
     except Exception:
         return False
 
 
-def set_setting(chat_id: int, key: str, value) -> bool:
-    return set_settings(chat_id, {key: value})
+def set_setting(chat_id: int, key: str, value, *, expected_revision=None) -> bool:
+    return set_settings(chat_id, {key: value}, expected_revision=expected_revision)
 
 
 # ── Chats and roles ──────────────────────────────────────────────────────────

@@ -16,6 +16,7 @@ import {
   matchesQuery,
   memberLabel,
   protectionSummary,
+  presetDiff,
   nextRevision,
   toggleSelected,
   visibleGroups,
@@ -50,6 +51,17 @@ test("missing settings fall back to the bot's own defaults", () => {
   assert.equal(flag({}, "lock_links"), false);
   assert.equal(flag({ welcome_enabled: "false" }, "welcome_enabled"), false);
   assert.equal(flag({ antispam: 1 }, "antispam"), true);
+});
+
+test("preset diff lists only real changes and respects string/number setting values", () => {
+  assert.deepEqual(
+    presetDiff({ lock_links: "false", antispam: 1 }, { lock_links: true, antispam: false, lock_photos: true }),
+    [
+      { key: "lock_links", before: false, after: true },
+      { key: "lock_photos", before: false, after: true },
+      { key: "antispam", before: true, after: false },
+    ],
+  );
 });
 
 test("protection summary counts what the owner saved, not the defaults", () => {

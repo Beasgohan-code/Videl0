@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseDraft, parseDrafts } from "../src/lib/post-drafts";
-const draft = {
+import { parseDraft, parseDrafts, copyDraft, type PostDraft } from "../src/lib/post-drafts";
+const draft: PostDraft = {
   id: "one",
   chatId: "@community",
   text: "<b>Update</b>",
@@ -9,6 +9,8 @@ const draft = {
   mediaUrl: "https://example.com/post.jpg",
   buttons: [[{ text: "Visit", url: "https://example.com" }]],
   savedAt: "2026-10-20T07:00:00Z",
+  folder: "Announcements",
+  tags: ["release", "community"],
 };
 test("draft recovery preserves editable formatted text and valid links", () =>
   assert.deepEqual(parseDraft(draft), draft));
@@ -41,4 +43,25 @@ test("draft lists are bounded and malformed entries are ignored", () => {
     ]),
   );
   assert.equal(parsed.length, 20);
+});
+
+test("a duplicate is a new draft that starts out saying the same thing", () => {
+  const now = new Date("2026-10-21T06:00:00Z");
+  const copy = copyDraft(draft, now);
+  assert.notEqual(copy.id, draft.id, "a copy is its own draft, not an alias");
+  assert.equal(copy.savedAt, now.toISOString());
+  assert.equal(copy.text, draft.text);
+  assert.equal(copy.chatId, draft.chatId);
+  assert.equal(copy.folder, draft.folder);
+  assert.deepEqual(copy.tags, draft.tags);
+  assert.deepEqual(copy.buttons, draft.buttons);
+  // Draft copies retain organization, but not object aliases or scheduled
+  // execution metadata; each copy still needs its own review and schedule.
+  copy.buttons[0][0].text = "Changed";
+  copy.tags?.push("local-only");
+  assert.equal(draft.buttons[0][0].text, "Visit");
+  assert.deepEqual(draft.tags, ["release", "community"]);
+  const sourceWithSchedule = { ...draft, schedule_at: "2026-10-22T08:00:00Z" } as PostDraft;
+  const unscheduledCopy = copyDraft(sourceWithSchedule, now) as PostDraft & { schedule_at?: string };
+  assert.equal("schedule_at" in unscheduledCopy, false);
 });

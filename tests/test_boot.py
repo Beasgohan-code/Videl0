@@ -26,6 +26,13 @@ class ClassifyTests(unittest.TestCase):
         self.assertEqual(boot.classify("Unauthorized"), "fatal")
         self.assertEqual(boot.classify("API_ID_INVALID"), "fatal")
 
+    def test_telegram_flood_wait_is_a_rate_limit_not_a_network_blip(self):
+        error = 'Telegram says: [420 FLOOD_WAIT_X] - Please wait 619 seconds before repeating the action.'
+        self.assertEqual(boot.classify(error), "rate_limit")
+        self.assertEqual(boot.retry_after(error), 619)
+        self.assertEqual(boot.retry_delay_for_error(1, error), 624)
+        self.assertEqual(boot.retry_after("FLOOD_WAIT_123"), 123)
+
     def test_a_conflict_wins_over_the_generic_marker(self):
         # Both codes can appear in one message; the specific one decides.
         self.assertEqual(boot.classify("Unauthorized: AUTH_KEY_DUPLICATED"), "conflict")
@@ -42,7 +49,7 @@ class DelayTests(unittest.TestCase):
         self.assertEqual(delays[5:], [900, 900], "the slow cadence never gives up")
 
     def test_delays_never_shrink(self):
-        for kind in ("transient", "conflict", "fatal"):
+        for kind in ("transient", "conflict", "rate_limit", "fatal"):
             with self.subTest(kind=kind):
                 delays = [boot.retry_delay(attempt, kind) for attempt in range(1, 12)]
                 self.assertEqual(delays, sorted(delays))
@@ -67,7 +74,7 @@ class AlertTests(unittest.TestCase):
                         "a different failure is news even on a later attempt")
 
     def test_every_kind_explains_itself_in_words(self):
-        for kind in ("transient", "conflict", "fatal"):
+        for kind in ("transient", "conflict", "rate_limit", "fatal"):
             with self.subTest(kind=kind):
                 text = boot.describe(kind)
                 self.assertTrue(text)

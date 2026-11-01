@@ -238,7 +238,7 @@ hidden until the session is verified. On phones the bottom bar keeps four
 primary tabs plus a **More** sheet instead of a ten-item scroller, and a skip
 link moves keyboard users straight to the panel.
 
-`Ctrl/⌘ K` searches panels **and** the 155 registered bot commands. Choosing a
+`Ctrl/⌘ K` searches panels **and** registered bot commands. Choosing a
 command opens `/?tab=guide&cmd=<name>`, highlights that row and copies the exact
 command; every guide row also offers a shareable deep link. Creator Tools gained
 a Markdown → Telegram HTML converter with a sanitized preview, and the image

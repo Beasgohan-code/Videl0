@@ -90,11 +90,19 @@ _ANY_TAG_RE = re.compile(r"<[^>]+>")
 _RICH_TAGS_RE = re.compile(
     r"</?(?:h[1-6]|table|thead|tbody|tr|th|td|details|summary|mark|sub|sup|ul|ol|li|hr|aside|footer"
     r"|tg-button-row|tg-button|tg-math-block|tg-collage|tg-slideshow|tg-map|tg-document|tg-thinking"
-    r"|button|img)(?=[\s/>])",
+    r"|button|img|tg-emoji|emoji)(?=[\s/>])",
     re.I,
 )
 _BUTTON_RE = re.compile(r"<tg-button\b([^>]*)>(.*?)</tg-button>", re.I | re.S)
 _ATTR_RE = re.compile(r'([\w-]+)\s*=\s*"([^"]*)"')
+def _is_button_style_rejection(error) -> bool:
+    message = str(error).casefold()
+    return any(marker in message for marker in (
+        "button_style", "style_invalid", "style is not allowed", "unsupported button style",
+    ))
+
+
+
 
 _html_hooks = []
 
@@ -439,6 +447,12 @@ def _only_set(**values) -> dict:
     return {k: v for k, v in values.items() if v is not None}
 
 
+async def _visual_call(function, **kwargs):
+    """Use Videl's shared, definite-only retry policy for native Telegram calls."""
+    from videl.utils.bot_ui import visual_call
+    return await visual_call(function, **kwargs)
+
+
 async def rich_send(
     client,
     chat_id,
@@ -525,14 +539,16 @@ async def rich_send(
 
     try:
         if markdown:
-            return await client.send_message(
+            return await _visual_call(
+                client.send_message,
                 chat_id=chat_id,
                 text=html_text,
                 parse_mode=ParseMode.MARKDOWN,
                 link_preview_options=None,
                 **shared,
             )
-        return await client.send_message(
+        return await _visual_call(
+            client.send_message,
             chat_id=chat_id,
             text=_plain_fallback(html_text),
             parse_mode=ParseMode.HTML,
@@ -540,29 +556,6 @@ async def rich_send(
             **shared,
         )
     except Exception as e:
-        # Only retry a definite Telegram rejection, never an ambiguous network failure.
-        if isinstance(e, BadRequest) and not markdown and ("<tg-emoji" in html_text or any(getattr(btn, "icon_custom_emoji_id", None) or getattr(getattr(btn, "style", None), "value", "default") != "default" for row in getattr(reply_markup, "inline_keyboard", []) for btn in row)):
-            import copy
-            from pyrogram.types import InlineKeyboardMarkup
-            plain = _EMOJI_TAG_RE.sub(r"\1", _plain_fallback(html_text))
-            safe_shared = dict(shared)
-            if reply_markup is not None:
-                rows=[]
-                for row in getattr(reply_markup, "inline_keyboard", []):
-                    clean=[]
-                    for button in row:
-                        clone=copy.copy(button)
-                        clone.icon_custom_emoji_id=None
-                        from pyrogram.enums import ButtonStyle
-                        clone.style=ButtonStyle.DEFAULT
-                        clean.append(clone)
-                    rows.append(clean)
-                if rows: safe_shared["reply_markup"]=InlineKeyboardMarkup(rows)
-            try:
-                return await client.send_message(chat_id=chat_id, text=plain, parse_mode=ParseMode.HTML, link_preview_options=None, **safe_shared)
-            except Exception as fallback_error:
-                logger.warning("[rich_send] fallback delivery unconfirmed (%s)", type(fallback_error).__name__)
-                return None
         logger.warning("[rich_send] delivery unconfirmed (%s)", type(e).__name__)
         return None
 
@@ -830,8 +823,9 @@ async def rich_edit(
                 app, chat_id, message_id, html_text, reply_markup, **options
             )
         try:
-            return await target.edit_message_text(
-                _plain_fallback(html_text), parse_mode=ParseMode.HTML, reply_markup=reply_markup
+            return await _visual_call(
+                target.edit_message_text,
+                text=_plain_fallback(html_text), parse_mode=ParseMode.HTML, reply_markup=reply_markup
             )
         except Exception as e:
             logger.debug(f"[rich_edit] cq plain edit failed: {e}")
@@ -846,8 +840,9 @@ async def rich_edit(
                 app, chat_id, message_id, html_text, reply_markup, **options
             )
         try:
-            return await target.edit_text(
-                _plain_fallback(html_text),
+            return await _visual_call(
+                target.edit_text,
+                text=_plain_fallback(html_text),
                 parse_mode=ParseMode.HTML,
                 reply_markup=reply_markup,
                 link_preview_options=None,
@@ -906,7 +901,8 @@ async def _rich_edit_via_client(
 
     try:
         if markdown:
-            return await app.edit_message_text(
+            return await _visual_call(
+                app.edit_message_text,
                 chat_id=chat_id,
                 message_id=message_id,
                 text=html_text,
@@ -915,7 +911,8 @@ async def _rich_edit_via_client(
                 link_preview_options=None,
                 **extra,
             )
-        return await app.edit_message_text(
+        return await _visual_call(
+            app.edit_message_text,
             chat_id=chat_id,
             message_id=message_id,
             text=_plain_fallback(html_text),
@@ -927,17 +924,6 @@ async def _rich_edit_via_client(
     except MessageNotModified:
         return None
     except Exception as e:
-        if isinstance(e, BadRequest) and not markdown:
-            from videl.utils.bot_ui import plain_keyboard
-            try:
-                return await app.edit_message_text(chat_id=chat_id, message_id=message_id,
-                    text=_EMOJI_TAG_RE.sub(r"\1", _plain_fallback(html_text)), parse_mode=ParseMode.HTML,
-                    reply_markup=plain_keyboard(reply_markup), link_preview_options=None, **extra)
-            except MessageNotModified:
-                return None
-            except Exception as fallback_error:
-                logger.warning("[rich_edit] fallback failed (%s)", type(fallback_error).__name__)
-                return None
         logger.warning("[rich_edit] edit unconfirmed (%s)", type(e).__name__)
         return None
 
@@ -978,7 +964,8 @@ async def rich_edit_inline(
             logger.debug(f"[rich_edit_inline] rich edit failed, falling back: {e}")
 
     try:
-        return await client.edit_inline_text(
+        return await _visual_call(
+            client.edit_inline_text,
             inline_message_id=inline_message_id,
             text=_plain_fallback(html_text),
             parse_mode=ParseMode.HTML,

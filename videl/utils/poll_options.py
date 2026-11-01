@@ -38,7 +38,7 @@ def build_poll(text: str, quiz: bool = False) -> dict:
             raise ValueError("Poll timers allow 5–600 seconds.")
         open_period = int(value)
     if any(flag not in known and flag not in timer_flags for flag in flags):
-        raise ValueError("Unknown poll flag. Use /modernhelp for supported options.")
+        raise ValueError("Unknown poll flag. Use /help tools or /commands for supported options.")
     if not question or len(question.encode("utf-16-le")) // 2 > 300:
         raise ValueError("Questions must contain 1–300 characters.")
     answers, correct = [], []

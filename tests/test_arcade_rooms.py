@@ -4,6 +4,7 @@ The store is the only writer. These tests pin the two things that make it safe:
 a move belongs to exactly one seat and exactly one version, and a room that
 nobody is watching still resolves.
 """
+import json
 import unittest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import Mock, patch
@@ -25,8 +26,11 @@ class ArcadeRoomTests(unittest.TestCase):
         self.addCleanup(self.patch.stop)
         self.db["served_chats"].insert_one({"_id": -1001})
         store._LAST_CHAT.clear()
+        store._LAST_SIGNAL.clear()
         players.upsert({"id": 1, "name": "Ada"})
         players.upsert({"id": 2, "name": "Grace"})
+        players.upsert({"id": 3, "name": "Linus"})
+        players.upsert({"id": 4, "name": "Margaret"})
 
     def joined(self, game="connect4", seats=None, second=2, visibility="private"):
         room = store.create(1, "Ada", game, seat_count=seats, visibility=visibility)
@@ -86,7 +90,7 @@ class ArcadeRoomTests(unittest.TestCase):
 
     def test_an_unknown_game_is_refused(self):
         with self.assertRaises(GameError):
-            store.create(1, "Ada", "chess")
+            store.create(1, "Ada", "poker")
 
     # ── turns ────────────────────────────────────────────────────────────────
     def test_a_move_belongs_to_the_player_whose_turn_it_is(self):
@@ -224,6 +228,221 @@ class ArcadeRoomTests(unittest.TestCase):
         room = store.create(1, "Ada", "connect4", chat_id=-1001)
         self.assertEqual(room["chat_id"], -1001)
 
+    # ── voice ────────────────────────────────────────────────────────────────
+    def test_a_voice_signal_reaches_only_the_seat_it_names(self):
+        code = self.joined()
+        store.start(code, 1)
+        result = store.act(code, 1, {"action": "rtc", "kind": "offer", "to": 2,
+                                     "data": {"sdp": "v=0", "type": "offer"}})
+        self.assertTrue(result["ok"])
+        row = self.db["game_events"].find_one({"room": code, "kind": "rtc"})
+        payload = json.loads(row["text"])
+        self.assertEqual(payload["to"], 2)
+        self.assertEqual(payload["kind"], "offer")
+        self.assertEqual(payload["data"]["sdp"], "v=0")
+
+        feed = store.timeline(code, 2, 0)
+        kinds = {event["kind"] for event in feed["events"]}
+        self.assertIn("rtc", kinds, "voice arrives on the stream the room already polls")
+
+    def test_voice_refuses_a_signal_to_a_stranger_or_a_made_up_kind(self):
+        code = self.joined()
+        store.start(code, 1)
+        with self.assertRaises(GameError) as caught:
+            store.act(code, 1, {"action": "rtc", "kind": "offer", "to": 99, "data": {}})
+        self.assertEqual(caught.exception.status, 403)
+        with self.assertRaises(GameError):
+            store.act(code, 1, {"action": "rtc", "kind": "sing", "to": 2, "data": {}})
+        with self.assertRaises(GameError):
+            store.act(code, 1, {"action": "rtc", "kind": "offer", "to": 2, "data": []})
+        with self.assertRaises(GameError):
+            store.act(code, 1, {"action": "rtc", "kind": "offer", "to": 1, "data": {}})
+
+    def test_voice_needs_a_seat_and_cannot_carry_a_huge_payload(self):
+        code = self.joined()
+        store.start(code, 1)
+        with self.assertRaises(GameError) as caught:
+            store.act(code, 3, {"action": "rtc", "kind": "ice", "to": 1, "data": {}})
+        self.assertIn(caught.exception.status, (403, 400))
+        with self.assertRaises(GameError) as huge:
+            store.act(code, 1, {"action": "rtc", "kind": "ice", "to": 2,
+                                "data": {"candidate": "x" * 4000}})
+        self.assertEqual(huge.exception.status, 413)
+
+    # ── ending on purpose ────────────────────────────────────────────────────
+    def test_resigning_hands_the_game_to_the_other_seat(self):
+        code = self.joined("chess")
+        done = store.act(code, 2, {"action": "resign"})
+        self.assertEqual(done["status"], "done")
+        self.assertEqual(done["winner"], 0)
+        self.assertEqual(done["end_reason"], "resign")
+        self.assertIsNone(done["deadline_at"], "a finished game has no clock")
+        events = store.timeline(code, 1)["events"]
+        self.assertTrue(any("resigned" in (event.get("text") or "") for event in events))
+
+    def test_a_resigned_room_refuses_further_moves(self):
+        code = self.joined("chess")
+        store.act(code, 1, {"action": "resign"})
+        with self.assertRaises(GameError) as caught:
+            store.act(code, 2, {"action": "resign"})
+        self.assertEqual(caught.exception.status, 409)
+
+    def test_only_a_seated_player_can_resign(self):
+        code = self.joined("chess")
+        with self.assertRaises(GameError):
+            store.act(code, 9, {"action": "resign"})
+
+    def test_a_draw_needs_both_seats(self):
+        code = self.joined("chess")
+        offered = store.act(code, 1, {"action": "draw"})
+        self.assertEqual(offered["status"], "playing", "an offer is not an ending")
+        self.assertEqual(offered["draw_offer"], 0)
+        with self.assertRaises(GameError):
+            # One seat cannot stack offers on itself.
+            store.act(code, 1, {"action": "draw"})
+        drawn = store.act(code, 2, {"action": "draw", "accept": True})
+        self.assertEqual(drawn["status"], "done")
+        self.assertEqual(drawn["winner"], "draw")
+        self.assertEqual(drawn["end_reason"], "agreement")
+        self.assertIsNone(drawn["draw_offer"])
+
+    def test_declining_a_draw_clears_the_table(self):
+        code = self.joined("chess")
+        store.act(code, 1, {"action": "draw"})
+        answer = store.act(code, 2, {"action": "draw", "accept": False})
+        self.assertEqual(answer["status"], "playing")
+        self.assertIsNone(answer["draw_offer"])
+        events = store.timeline(code, 1)["events"]
+        self.assertTrue(any("declined" in (event.get("text") or "") for event in events))
+
+    def test_accepting_when_nothing_is_offered_is_refused(self):
+        code = self.joined("chess")
+        with self.assertRaises(GameError):
+            store.act(code, 2, {"action": "draw", "accept": True})
+
+    def test_a_four_seat_table_cannot_resign_or_draw(self):
+        room = store.create(1, "Ada", "ludo", seat_count=4)
+        store.join(room["code"], 2, "Grace")
+        store.start(room["code"], 1)
+        for payload in ({"action": "resign"}, {"action": "draw"}):
+            with self.assertRaises(GameError) as caught:
+                store.act(room["code"], 1, payload)
+            self.assertEqual(caught.exception.status, 409)
+
+    # ── voice presence ───────────────────────────────────────────────────────
+    def test_voice_presence_is_a_heartbeat_not_a_flag(self):
+        code = self.joined("chess")
+        self.assertEqual(store.view(self.row(code), 1)["voice"], [])
+        store.act(code, 1, {"action": "voice", "on": True})
+        store.act(code, 2, {"action": "voice", "on": True})
+        # The second seat sees the first one without polling anything new.
+        self.assertEqual(sorted(store.view(self.row(code), 2)["voice"]), [1, 2])
+        store.act(code, 2, {"action": "voice", "on": False})
+        self.assertEqual(store.view(self.row(code), 1)["voice"], [1])
+
+    def test_a_stale_heartbeat_leaves_the_call_on_its_own(self):
+        code = self.joined("chess")
+        store.act(code, 1, {"action": "voice", "on": True})
+        stale = datetime.now(UTC) - timedelta(seconds=store.VOICE_WINDOW + 5)
+        self.db["game_rooms"].update_one({"_id": code},
+                                         {"$set": {"voice": {"0": stale}}})
+        self.assertEqual(store.view(self.row(code), 1)["voice"], [],
+                         "a sleeping phone must not haunt the call")
+
+    def test_voice_presence_never_bumps_the_move_version(self):
+        code = self.joined("chess")
+        before = self.row(code)["version"]
+        store.act(code, 1, {"action": "voice", "on": True})
+        store.act(code, 1, {"action": "voice", "on": True})
+        self.assertEqual(self.row(code)["version"], before,
+                         "a heartbeat is not a move and must not invalidate one")
+
+    def test_only_a_seated_player_can_join_the_call(self):
+        code = self.joined("chess")
+        with self.assertRaises(GameError):
+            store.act(code, 99, {"action": "voice", "on": True})
+
+    # ── voice notes ──────────────────────────────────────────────────────────
+    @staticmethod
+    def clip_payload(seconds=6.0, size=4096, mime="audio/webm"):
+        import base64
+        return {"action": "clip", "mime": mime, "seconds": seconds,
+                "data": base64.b64encode(b"x" * size).decode()}
+
+    def test_a_voice_note_lands_in_the_feed_as_a_player_not_a_link(self):
+        code = self.joined("chess")
+        answer = store.act(code, 1, self.clip_payload())
+        self.assertTrue(answer["ok"])
+        events = store.timeline(code, 2)["events"]
+        note = [event for event in events if event["kind"] == "voice"]
+        self.assertEqual(len(note), 1)
+        payload = json.loads(note[0]["text"])
+        self.assertEqual(payload["seconds"], 6.0)
+        self.assertEqual(len(payload["id"]), 16, "the id is a handle, not the audio")
+        self.assertNotIn("data", payload)
+
+    def test_a_voice_note_is_only_playable_by_the_table(self):
+        code = self.joined("chess")
+        clip_id = store.act(code, 1, self.clip_payload())["clip"]["id"]
+        played = store.clip(clip_id, 2)
+        self.assertEqual(played["mime"], "audio/webm")
+        self.assertTrue(played["data"])
+        with self.assertRaises(GameError) as caught:
+            store.clip(clip_id, 99)
+        self.assertEqual(caught.exception.status, 403)
+
+    def test_a_voice_note_has_a_floor_a_ceiling_and_a_format(self):
+        code = self.joined("chess")
+        with self.assertRaises(GameError):
+            store.act(code, 1, self.clip_payload(seconds=0.2))
+        with self.assertRaises(GameError):
+            store.act(code, 1, self.clip_payload(seconds=45))
+        with self.assertRaises(GameError):
+            store.act(code, 1, self.clip_payload(mime="application/zip"))
+        with self.assertRaises(GameError) as huge:
+            store.act(code, 1, self.clip_payload(size=store.MAX_CLIP))
+        self.assertEqual(huge.exception.status, 413)
+
+    def test_a_voice_note_cannot_come_from_a_stranger(self):
+        code = self.joined("chess")
+        with self.assertRaises(GameError):
+            store.act(code, 99, self.clip_payload())
+
+    def test_a_finished_room_takes_no_new_voice_notes(self):
+        code = self.joined("chess")
+        store.act(code, 1, {"action": "resign"})
+        with self.assertRaises(GameError) as caught:
+            store.act(code, 1, self.clip_payload())
+        self.assertEqual(caught.exception.status, 409)
+
+    def test_the_table_has_reactions_and_nudges_with_rate_limits(self):
+        code = self.joined("chess")
+        with self.assertRaises(GameError):
+            store.act(code, 1, {"action": "nudge"})
+        nudged = store.act(code, 2, {"action": "nudge"})
+        self.assertTrue(nudged["ok"])
+        with self.assertRaises(GameError) as cooldown:
+            store.act(code, 2, {"action": "nudge"})
+        self.assertEqual(cooldown.exception.status, 429)
+        self.assertTrue(store.act(code, 1, {"action": "react", "emoji": "🔥"})["ok"])
+        with self.assertRaises(GameError):
+            store.act(code, 1, {"action": "react", "emoji": "💣"})
+        self.assertIn("🔥", [event["text"] for event in store.timeline(code, 1)["events"]])
+
+    def test_a_four_chair_game_starts_when_all_seats_are_taken(self):
+        room = store.create(1, "Ada", "chinese", seat_count=4)
+        store.join(room["code"], 2, "Grace")
+        store.join(room["code"], 3, "Linus")
+        last = store.join(room["code"], 4, "Margaret")
+        self.assertEqual(last["status"], "playing")
+        self.assertEqual([seat["seat"] for seat in last["seats"]], [0, 1, 2, 3])
+
+    def test_multiplayer_results_record_each_seat_without_duel_rating(self):
+        players.record_table("chinese", 1, [2, 3, 4])
+        self.assertEqual(players.public(players.get(1))["stats"]["chinese"]["wins"], 1)
+        self.assertEqual(players.public(players.get(2))["stats"]["chinese"]["losses"], 1)
+        self.assertEqual(players.public(players.get(3))["stats"]["chinese"]["games"], 1)
+        self.assertEqual(players.public(players.get(1))["stats"]["chinese"]["rating"], 1200)
 
 if __name__ == "__main__":
     unittest.main()

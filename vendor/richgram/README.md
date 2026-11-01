@@ -235,10 +235,6 @@ The unit tests use fake clients and messages, so they need no Telegram
 connection. `tests/integrations` sends a real message when `API_ID`,
 `API_HASH`, `BOT_TOKEN` and `CHAT_ID` are set.
 
-## Used by
-
-- [ShizuMusic](https://github.com/Badmunda05/ShizuMusic) Telegram music bot
-
 ## Requirements
 
 - Python 3.10+

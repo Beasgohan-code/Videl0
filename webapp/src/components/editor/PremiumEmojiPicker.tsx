@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Search, Sparkles, Wand2, X } from "lucide-react";
 import { PREMIUM_EMOJI, PREMIUM_GROUPS, isEmojiId, type PremiumEmoji } from "@/lib/premium-emoji";
 
@@ -21,6 +21,7 @@ export function PremiumEmojiPicker({
   const [customId, setCustomId] = useState("");
   const [customChar, setCustomChar] = useState("✨");
   const [error, setError] = useState("");
+  const [visibleCount, setVisibleCount] = useState(64);
 
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -30,6 +31,8 @@ export function PremiumEmojiPicker({
         (!needle || `${item.label} ${item.char} ${item.id}`.toLowerCase().includes(needle)),
     );
   }, [group, query]);
+
+  useEffect(() => setVisibleCount(64), [group, query]);
 
   function addCustom() {
     if (!isEmojiId(customId)) {
@@ -85,8 +88,9 @@ export function PremiumEmojiPicker({
         ))}
       </div>
 
-      <div className={`mt-2 grid gap-1.5 overflow-y-auto pr-1 ${compact ? "max-h-36 grid-cols-7" : "max-h-48 grid-cols-8"}`}>
-        {visible.map((item) => (
+      <p className="mt-2 text-[9px] text-white/35" aria-live="polite">Showing {Math.min(visibleCount, visible.length)} of {visible.length} emoji{visible.length === 1 ? "" : "s"}</p>
+      <div className={`mt-1 grid gap-1.5 overflow-y-auto pr-1 ${compact ? "max-h-36 grid-cols-7" : "max-h-48 grid-cols-8"}`}>
+        {visible.slice(0, visibleCount).map((item) => (
           <button
             key={`${item.id}-${item.label}`}
             type="button"
@@ -103,6 +107,11 @@ export function PremiumEmojiPicker({
         ))}
         {!visible.length && <p className="col-span-full py-4 text-center text-[11px] text-white/40">No emoji match that search.</p>}
       </div>
+      {visibleCount < visible.length && (
+        <button type="button" onClick={() => setVisibleCount((count) => count + 64)} className="mt-2 w-full rounded-lg bg-white/[0.05] py-2 text-[10px] font-medium text-violet-100/80 hover:bg-violet-500/15">
+          Load {Math.min(64, visible.length - visibleCount)} more
+        </button>
+      )}
 
       <div className="mt-2 rounded-lg bg-black/25 p-2 ring-1 ring-white/10">
         <p className="text-[9px] font-semibold uppercase tracking-[.16em] text-white/40">Any emoji ID</p>

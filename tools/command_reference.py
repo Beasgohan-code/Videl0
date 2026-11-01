@@ -5,7 +5,7 @@ from videl.utils.command_catalog import commands,LABELS
 def reference():
     entries=commands()
     lines=['# Registered command reference','',
-           'Generated from registered command and regex handlers plus the two enabled plugins.',
+           "Generated from the bot's registered command manifest and installed handlers.",
            'This documents navigation and source coverage, not verified live Telegram behavior.',
            'Aliases are listed separately; permissions remain enforced by the referenced handler.',
            'Owner operations are hidden from public `/commands` results.','',
@@ -16,6 +16,12 @@ def reference():
             if entry['category']==category:
                 lines.append(f"| `/{entry['name']}` | {entry['context']} | `{entry['source']}::{entry['handler']}` |")
         lines.append('')
+    from videl.app.connections import CONNECTED_COMMANDS
+    remote = [entry['name'] for entry in entries if entry['name'] in CONNECTED_COMMANDS]
+    lines += ['## Private-chat connected group commands', '',
+              'Run `/connect` in a group as a current Telegram administrator. From private chat, only these registered commands are routed to that saved group:',
+              '', ', '.join(f'`/{name}`' for name in remote), '',
+              'Every routed request uses the server-stored group ID, preserves the actual Telegram user, rechecks current group-admin status, and removes private reply targets. Use a username or numeric Telegram ID instead of replying to a private message.', '']
     lines += ['## UI and transport exceptions','',
               'Authored command feedback uses the vendored Badmunda05 Richgram helpers and native Kurigram keyboards.',
               'Telegram polls, media/file delivery, forwards/copies, user-authored saved notes, filters and welcome templates',

@@ -40,6 +40,15 @@ class ModerationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('could not be saved',html)
         self.assertIn('&lt;Target&gt;',html)
 
+    async def test_unban_reports_local_record_failure_without_claiming_nothing_happened(self):
+        ctx=context('unban')
+        with patch.object(moderation,'_audit',Mock(return_value=False)), patch.object(moderation,'record_bot',Mock(return_value=True)):
+            screen=await moderation.moderate(ctx)
+        ctx.client.unban_chat_member.assert_awaited_once_with(-123, 99)
+        html=plain_caps(screen.html)
+        self.assertIn('Member unbanned',html)
+        self.assertIn('local ban record could not be updated',html)
+
     async def test_temporary_action_requires_duration_before_any_telegram_mutation(self):
         ctx=context('tban','not-a-duration')
         with self.assertRaises(CommandError):await moderation.moderate(ctx)
@@ -152,6 +161,19 @@ class MusicTests(unittest.IsolatedAsyncioTestCase):
         screen=await music.view_queue(context('queue',''))
         self.assertLess(len(screen.html),4000);self.assertNotIn('<script>',screen.html)
         self.assertIn('99 upcoming',screen.html)
+        from vendor.richgram.richgram import rich_ui as transport
+        _,markup=transport._native_buttons(screen.html)
+        callbacks={button.callback_data for row in markup.inline_keyboard for button in row}
+        self.assertEqual(callbacks,{'pause','skip','cycle_loop','shuffle','clear'})
+
+    async def test_empty_queue_offers_contextual_rich_buttons(self):
+        chat_queues[-123]=[]
+        screen=await music.view_queue(context('queue',''))
+        self.assertIn('<tg-button-row>',screen.html)
+        from vendor.richgram.richgram import rich_ui as transport
+        _,markup=transport._native_buttons(screen.html)
+        callbacks={button.callback_data for row in markup.inline_keyboard for button in row}
+        self.assertEqual(callbacks,{'help:music','cmds:all:0'})
 
     async def test_invalid_loop_does_not_change_repeat_state(self):
         music.player.set_loop(-123,'off')

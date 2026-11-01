@@ -16,9 +16,20 @@ export async function GET(req: Request, context: { params: Promise<{ id: string 
     return Response.json({ ok: false, error: "A group chat ID is required" }, { status: 400 });
   const audit = new URL(req.url).searchParams.get("audit");
   if (audit === "1") {
-    const before = new URL(req.url).searchParams.get("before");
+    const params = new URL(req.url).searchParams;
     const query = new URLSearchParams({ limit: "40" });
-    if (before) query.set("before", before);
+    const before = params.get("before");
+    if (before && Number.isFinite(Date.parse(before))) query.set("before", new Date(before).toISOString());
+    const kind = params.get("kind");
+    if (kind && /^[a-z_]{1,24}$/.test(kind)) query.set("kind", kind);
+    const search = params.get("q")?.trim().slice(0, 60);
+    if (search) query.set("q", search);
+    const actor = params.get("actor");
+    if (actor && /^[1-9][0-9]{0,19}$/.test(actor)) query.set("actor", actor);
+    for (const field of ["from", "through"]) {
+      const raw = params.get(field);
+      if (raw && Number.isFinite(Date.parse(raw))) query.set(field, new Date(raw).toISOString());
+    }
     return forward(`/internal/manager/chat/${id}/audit?${query}`, {
       headers: actorHeaders(checked.player.id),
     });

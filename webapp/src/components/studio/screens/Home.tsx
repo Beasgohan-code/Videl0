@@ -8,11 +8,16 @@ import {
   BookOpen,
   Images,
   Gamepad2,
+  Music2,
+  Check,
+  Sparkles,
 } from "lucide-react";
 import { useTelegram } from "@/components/TelegramProvider";
 import { GAME_ART } from "@/lib/arcade";
 import { POST_ASSETS } from "@/lib/post-assets";
 import { useStudio } from "../StudioProvider";
+import { useRef } from "react";
+import { useScreenMotion } from "../useScreenMotion";
 const OwnerHome = dynamic(() => import("./OwnerHome"));
 
 // A stable, curated slice of the generated library. Falls back to the first
@@ -30,32 +35,52 @@ const coverCount = POST_ASSETS.filter((asset) => asset.aspect === "16:9").length
 export default function Home() {
   const { authenticated } = useTelegram();
   const { open } = useStudio();
+  const rootRef = useRef<HTMLElement>(null);
+  useScreenMotion(rootRef, "guest-home");
   if (authenticated === true) return <OwnerHome />;
   return (
-    <main className="ios-page">
-      <p className="ios-caps text-[12px] text-indigo-200/45">Your creative space</p>
-      <h1 className="mt-4 max-w-2xl text-4xl font-semibold tracking-tight sm:text-6xl">
-        Make something worth sharing.
-      </h1>
-      <p className="mt-5 max-w-xl text-base leading-7 text-indigo-100/55">
-        Write polished Telegram posts, build custom visuals and keep your ideas
-        together. Free to create. No sign-in needed.
-      </p>
-      <div className="mt-7 flex flex-wrap items-center gap-3">
-        <button onClick={() => open("post")} className="ios-btn ios-btn-primary">
-          Open Post Studio <ArrowUpRight size={18} aria-hidden />
-        </button>
-        <button onClick={() => open("guide")} className="ios-btn ios-btn-glass">
-          <BookOpen size={16} aria-hidden /> Browse the command guide
-        </button>
-        <button onClick={() => open("arcade")} className="ios-btn ios-btn-glass">
-          <Gamepad2 size={16} aria-hidden /> Play in the arcade
-        </button>
-      </div>
+    <main ref={rootRef} className="ios-page home-page">
+      <section className="home-hero" aria-labelledby="home-title">
+        <span className="home-hero-orb home-hero-orb-one" aria-hidden="true" />
+        <span className="home-hero-orb home-hero-orb-two" aria-hidden="true" />
+        <div className="home-hero-copy">
+          <p data-screen-intro className="home-eyebrow"><span aria-hidden="true" /> YOUR CREATIVE SPACE <span className="home-eyebrow-divider" /> FREE TO START</p>
+          <h1 id="home-title" data-screen-intro className="home-title">
+            Make something <span>worth sharing.</span>
+          </h1>
+          <p data-screen-intro className="home-description">
+            Write polished Telegram posts, build custom visuals and keep your ideas together.
+            <span> Free to create. No sign-in needed.</span>
+          </p>
+          <div data-screen-intro className="home-actions">
+            <button onClick={() => open("post")} className="ios-btn ios-btn-primary home-primary-action">
+              <Palette size={17} aria-hidden /> Open Post Studio <ArrowUpRight size={17} aria-hidden />
+            </button>
+            <button onClick={() => open("guide")} className="ios-btn ios-btn-glass">
+              <BookOpen size={16} aria-hidden /> Browse the command guide
+            </button>
+          </div>
+          <div data-screen-intro className="home-trust-row" aria-label="Studio features">
+            <span><Check size={13} aria-hidden /> Private by design</span>
+            <span><Sparkles size={13} aria-hidden /> Ready-to-use templates</span>
+            <button onClick={() => open("arcade")}><Gamepad2 size={13} aria-hidden /> Play the arcade <ArrowUpRight size={12} aria-hidden /></button>
+            <button onClick={() => open("auth")}><Music2 size={13} aria-hidden /> Videl Music <ArrowUpRight size={12} aria-hidden /></button>
+          </div>
+        </div>
+        <div className="home-hero-art" aria-hidden="true">
+          <div className="home-orbit home-orbit-one" />
+          <div className="home-orbit home-orbit-two" />
+          <div className="home-art-disc"><span>V</span><i /><b /></div>
+          <div className="home-art-caption"><span>VIDEL STUDIO</span><small>CREATE · SHARE · PLAY</small></div>
+          <div className="home-art-chip home-art-chip-top"><Sparkles size={13} /> Your next idea</div>
+          <div className="home-art-chip home-art-chip-bottom"><span /> All systems creative</div>
+        </div>
+      </section>
 
       <button
         onClick={() => open("arcade")}
         className="arcade-home-card mt-6"
+        data-screen-stagger
         aria-label="Open the arcade"
       >
         <span className="arcade-home-dice" aria-hidden>
@@ -65,13 +90,19 @@ export default function Home() {
         <span className="min-w-0 flex-1">
           <span className="arcade-home-title">The arcade is open</span>
           <span className="arcade-home-copy">
-            Five boards, real chairs: Ludo for two to four, Checkers, Connect
-            Four, Reversi and Tic-tac-toe. Make a room, send the six-character
-            code or the invite link, and the server keeps the board.
+            Ten boards, up to six chairs and live voice: Chinese Checkers, Dots & Boxes,
+            Yacht, Ludo, Chess, Checkers, and the quick classics.
+            Send the six-character code or the invite link; the server keeps the
+            board.
           </span>
           <span className="arcade-home-games" aria-hidden>
-            <i>◈ Ludo</i>
+            <i>✦ Chinese Checkers</i>
+            <i>⠿ Dots &amp; Boxes</i>
+            <i>🎲 Yacht</i>
+            <i>♞ Chess</i>
             <i>♛ Checkers</i>
+            <i>◈ Ludo</i>
+            <i>⬤ Five in a Row</i>
             <i>◍ Connect Four</i>
             <i>◐ Reversi</i>
             <i>✕ Tic-tac-toe</i>
@@ -98,6 +129,7 @@ export default function Home() {
               key={asset.id}
               onClick={() => open("post")}
               className="ios-card-interactive group overflow-hidden rounded-2xl border border-white/10"
+              data-screen-stagger
               aria-label={`Open Post Studio to use “${asset.title}”`}
             >
               <span className="block overflow-hidden">
@@ -151,6 +183,7 @@ export default function Home() {
             key={item.tab}
             onClick={() => open(item.tab)}
             className="ios-card ios-card-interactive p-6"
+            data-screen-stagger
           >
             <item.icon className="text-indigo-300" size={27} aria-hidden />
             <h2 className="mt-5 text-lg font-semibold">{item.title}</h2>

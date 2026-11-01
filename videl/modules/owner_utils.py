@@ -1,4 +1,5 @@
 """Read-only owner operations. No chat-triggered shell, eval, git pull or process exit."""
+import config
 import asyncio
 import time
 import psutil
@@ -11,7 +12,7 @@ from videl.utils.command_ui import rich_reply
 OWNER = filters.user(6265999542) & filters.private
 
 
-@bot.on_message(filters.command('sysinfo') & OWNER)
+@bot.on_message(filters.command('sysinfo', prefixes=config.COMMAND_PREFIX_LIST) & OWNER)
 async def system_info(_, message):
     disk = await asyncio.to_thread(psutil.disk_usage, "/")
     rows = [("Uptime", f"{int(time.time() - bot_start_time)} seconds"),
@@ -22,7 +23,7 @@ async def system_info(_, message):
 
 
 
-@bot.on_message(filters.command("active") & OWNER)
+@bot.on_message(filters.command("active", prefixes=config.COMMAND_PREFIX_LIST) & OWNER)
 async def active(_, message):
     rows = [(str(cid), f"{len(queue)} tracks · {rich_esc(str(queue[0].get('title', 'Untitled'))[:60])}") for cid, queue in list(chat_queues.items()) if queue]
     await rich_reply(message, rich_heading("Active music queues", level=2) + (rich_kv_table(rows[:20]) if rows else rich_note("No non-empty queues.")))

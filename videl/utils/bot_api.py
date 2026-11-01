@@ -10,22 +10,19 @@ import requests
 import config
 
 log = logging.getLogger(__name__)
-_EMOJI = re.compile(r"<tg-emoji\b[^>]*>(.*?)</tg-emoji>", re.I | re.S)
-
 
 def without_visual_extras(payload: dict) -> dict:
     """Preserve destinations, callback actions, URLs, and delivery/privacy options."""
     result = copy.deepcopy(payload)
-    for field in ("text", "caption"):
-        if isinstance(result.get(field), str):
-            result[field] = _EMOJI.sub(r"\1", result[field])
+    # Keep Premium Emoji HTML entities in message text. This fallback removes
+    # only optional keyboard decoration; flattening the text hid failed emoji
+    # rendering behind ordinary Unicode glyphs.
     for row in (
         result.get("reply_markup", {}).get("inline_keyboard", [])
         if isinstance(result.get("reply_markup"), dict)
         else []
     ):
         for button in row:
-            button.pop("icon_custom_emoji_id", None)
             button.pop("style", None)
     return result
 
@@ -62,11 +59,15 @@ def call_bot_api(method: str, payload: dict, files=None):
                     "ok": False,
                     "description": "Telegram returned an invalid response",
                 }
-            if response.status_code == 400 and not result.get("ok") and attempt == 0:
+            description = str(result.get("description", "")).casefold()
+            visual_rejection = any(marker in description for marker in (
+                "button_style", "style_invalid", "style is not allowed", "unsupported button style",
+            ))
+            if response.status_code == 400 and not result.get("ok") and attempt == 0 and visual_rejection:
                 basic = without_visual_extras(original)
                 if basic != original:
                     payload = basic
-                    continue  # Telegram explicitly rejected this request; it was not delivered.
+                    continue  # Definite visual rejection; preserve text entities and actions.
             return response.status_code, result
         except requests.RequestException as exc:
             # requests exceptions can contain the complete URL, including BOT_TOKEN.
@@ -82,5 +83,6 @@ def call_bot_api(method: str, payload: dict, files=None):
     return None, {"ok": False, "description": "Telegram did not confirm delivery"}
 
 
-async def bot_api(method: str, payload: dict):
-    return await asyncio.to_thread(call_bot_api, method, payload)
+async def bot_api(method: str, payload: dict, files=None):
+    """Run a Bot API request off-loop, optionally with multipart uploads."""
+    return await asyncio.to_thread(call_bot_api, method, payload, files=files)

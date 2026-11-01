@@ -3,6 +3,7 @@
 #  Fork & improve freely under MIT. Keep credits.
 # --------------------------------------------------------------------------------
 
+import logging
 import random
 
 from pyrogram import filters
@@ -22,6 +23,8 @@ from videl.utils.db import (
 from videl.utils.rich_ui import rich_esc, rich_heading, rich_img, rich_kv_table, rich_note
 from videl.utils.command_ui import rich_send
 
+LOGGER = logging.getLogger(__name__)
+
 LEFT_PHOTOS = [
     "https://telegra.ph/file/1949480f01355b4e87d26.jpg",
     "https://telegra.ph/file/3ef2cc0ad2bc548bafb30.jpg",
@@ -29,6 +32,33 @@ LEFT_PHOTOS = [
     "https://telegra.ph/file/6f19dc23847f5b005e922.jpg",
     "https://telegra.ph/file/2973150dd62fd27a3a6ba.jpg",
 ]
+
+
+def _admin_setup_panel() -> tuple[str, InlineKeyboardMarkup]:
+    """Clear, honest onboarding: Telegram requires a human admin to promote bots."""
+    content = (
+        rich_heading("✨ Thanks for adding Videl!", level=2)
+        + rich_note("I’m ready to help. To enable moderation and voice-chat features, a current group admin can promote me with these permissions:")
+        + rich_kv_table([
+            ("🗑 Delete messages", "Moderation tools"),
+            ("🎥 Manage video chats", "Voice-chat features"),
+            ("👥 Invite users", "Invite and join features"),
+        ])
+        + rich_note("Open <b>Group info → Administrators → Add administrator</b>, select Videl, then enable the permissions above. Telegram doesn’t let me grant myself admin rights.")
+        + rich_note("You can still use features that don’t require these permissions. An admin can update my rights later in the same menu.")
+    )
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton("ℹ️ Permission checklist", callback_data="bot_setup:permissions", style="primary"),
+    ]])
+    return content, keyboard
+
+
+@bot.on_callback_query(filters.regex(r"^bot_setup:permissions$"))
+async def bot_setup_permissions(_, query) -> None:
+    await query.answer(
+        "Group info → Administrators → Add administrator → choose Videl. Enable Delete messages, Manage video chats, and Invite users. A current admin must do this; Videl cannot promote itself.",
+        show_alert=True,
+    )
 
 
 # ── Bot added to group ─────────────────────────────────────────────────────────
@@ -50,19 +80,7 @@ async def bot_added_watcher(_, message: Message) -> None:
             added_by         = message.from_user
             added_by_mention = added_by.mention if added_by else "unknown"
 
-            admin_request_text = (
-                rich_heading("❍ thanks for adding me! 🥀", level=3)
-                + rich_note(
-                    "<p>❍ please make me an admin with these permissions:</p>"
-                    "<p>❍ delete messages<br>"
-                    "❍ manage video chats<br>"
-                    "❍ invite users</p>"
-                )
-                + rich_note("without admin perms some features won't work! ")
-            )
-            admin_kb = InlineKeyboardMarkup([[
-                InlineKeyboardButton("⚡ make me admin ⚡", url=f"tg://user?id={me.id}")
-            ]])
+            admin_request_text, admin_kb = _admin_setup_panel()
             try:
                 await rich_send(bot, chat_id, admin_request_text, reply_markup=admin_kb)
             except Exception:

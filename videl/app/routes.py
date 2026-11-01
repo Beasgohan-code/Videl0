@@ -5,7 +5,7 @@ adds the voice-chat music controls that live outside the plugin layer.
 """
 from .router import Command,Router
 from . import music,group_view
-from videl.plugins import start,help as help_plugin,tools,moderation,locks,notes,welcome,group,afk,reminder
+from videl.plugins import start,help as help_plugin,tools,moderation,locks,notes,welcome,group,afk,reminder,stickers,connections,reports,appeals,sudo,privacy,preferences,retention,faq,guardian,settings,business_profile
 
 COMMANDS=(
     *start.COMMANDS,
@@ -18,11 +18,30 @@ COMMANDS=(
     *welcome.COMMANDS,
     *afk.COMMANDS,
     *reminder.COMMANDS,
+    *stickers.COMMANDS,
+    *connections.COMMANDS,
+    *reports.COMMANDS,
+    *appeals.COMMANDS,
+    *sudo.COMMANDS,
+    *privacy.COMMANDS,
+    *preferences.COMMANDS,
+    *retention.COMMANDS,
+    *faq.COMMANDS,
+    *guardian.COMMANDS,
+    *settings.COMMANDS,
+    *business_profile.COMMANDS,
 )
 COMMANDS += tuple(Command(name,music.control,'Control live playback: '+name,category='music',policy='admin',block_policy='chat')
                   for name in ('pause','resume','loop','shuffle','clear','skip','stop','end','resetplayer','replay'))
 COMMANDS += tuple(Command(name,music.view_queue,'Show the current track and upcoming queue',category='music',policy='group',block_policy='chat')
                   for name in ('queue','q'))
+COMMANDS += (Command('history',music.view_history,'Show recent acknowledged playback in this session',category='music',policy='group',block_policy='chat'),)
+COMMANDS += tuple(Command(name,music.control,'Adjust voice-chat playback volume',category='music',policy='admin',block_policy='chat')
+                  for name in ('volumeup','volumedown'))
+COMMANDS += tuple(Command(name,music.manage_queue,summary,category='music',policy='admin',block_policy='chat')
+                  for name,summary in (('remove','Remove an upcoming queue track'),('move','Reorder upcoming queue tracks'),('jump','Play a selected upcoming track')))
+COMMANDS += (Command('clearqueue',music.control,'Clear upcoming tracks while preserving current playback',category='music',policy='admin',block_policy='chat'),)
+COMMANDS += (Command('restorequeue',music.restore_queue,'Restore saved upcoming tracks after fresh playback starts',category='music',policy='admin',block_policy='chat'),)
 COMMANDS += (Command('groupview',group_view.recording,'Check or stop bot-visible group recording',category='manage',policy='admin'),)
 COMMANDS += (Command('inbox',group_view.private_recording,'Check or stop recording of your own bot DM',),)
 router=Router(COMMANDS)

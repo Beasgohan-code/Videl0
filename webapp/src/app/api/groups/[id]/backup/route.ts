@@ -46,6 +46,7 @@ export async function POST(req: Request, context: { params: Promise<{ id: string
   } else if (incoming.document && typeof incoming.document === "object") {
     payload.document = incoming.document;
     payload.dry_run = incoming.dry_run !== false;
+    if (Array.isArray(incoming.sections)) payload.sections = incoming.sections;
   } else {
     return Response.json({ ok: false, error: "Attach a backup document to import" }, { status: 400 });
   }
