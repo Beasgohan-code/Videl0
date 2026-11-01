@@ -447,7 +447,7 @@ async def _settings_screen(client, chat_id, section="home", *, query="", categor
                    connected_dm=connected_dm, bot_can_delete_messages=can_delete)
 
 
-_PATTERN=r"^settings:-?[0-9]{1,20}:(?:tab:(?:home|music|welcome|safety|moderation|retention|blocklist|presets|sessions|automations|commands|more)|commands:(?:all|manage|music|tools):[0-9]{1,3}|filters:(?:add|manage)|cmd:[a-z][a-z0-9_]{0,31}:(?:on|off)|(?:music_requests_enabled|music_approval_required|welcome_enabled|goodbye_enabled|captcha_enabled|antispam|gemini_guardian_enabled|lock_[a-z_]+):(?:on|off)|antispam:edit|captcha:edit|welcome_text:edit|goodbye_text:edit|rules_text:(?:edit|clear)|welcome_media:(?:edit|clear)|welcome_buttons:edit|raid:(?:on|off)|warn_threshold:(?:edit|2|3|5|10)|retention:[a-z_]+:(?:30|90|180|365|off)|blocklist:(?:add:(?:track|artist)|remove:[1-9][0-9]?)|preset:(?:save|apply:[1-9][0-9]?|delete:[1-9][0-9]?)|session:(?:schedule|cancel:[A-Za-z0-9]+)|approved:(?:list|add|remove:[1-9][0-9]{0,18})|reset:(?:music|welcome|safety|moderation|blocklist|presets)|resetconfirm:(?:music|welcome|safety|moderation|blocklist|presets):[a-f0-9]{12}|refresh):v[0-9]{1,12}$"
+_PATTERN=r"^settings:-?[0-9]{1,20}:(?:tab:(?:home|music|welcome|safety|moderation|retention|blocklist|presets|sessions|automations|commands|more)|commands:(?:all|manage|music|tools):[0-9]{1,3}|filters:(?:add|manage)|cmd:[a-z][a-z0-9_]{0,31}:(?:on|off)|(?:music_requests_enabled|music_approval_required|welcome_enabled|goodbye_enabled|captcha_enabled|antispam|gemini_guardian_enabled|lock_[a-z_]+):(?:on|off)|antispam:edit|captcha:edit|welcome_text:edit|goodbye_text:edit|rules_text:(?:edit|clear)|welcome_media:(?:edit|clear)|welcome_buttons:edit|raid:(?:on|off)|warn_threshold:(?:edit|2|3|5|10)|retention:[a-z_]+:(?:30|90|180|365|off)|blocklist:(?:add:(?:track|artist)|remove:[1-9][0-9]?)|preset:(?:save|apply:[1-9][0-9]?|delete:[1-9][0-9]?)|session:(?:schedule|cancel:[A-Za-z0-9]+)|approved:(?:list|add|page:[0-9]{1,6}|remove:[1-9][0-9]{0,18})|reset:(?:music|welcome|safety|moderation|blocklist|presets)|resetconfirm:(?:music|welcome|safety|moderation|blocklist|presets):[a-f0-9]{12}|refresh):v[0-9]{1,12}$"
 @bot.on_callback_query(filters.regex(_PATTERN))
 async def settings_callback(client,query):
     message=getattr(query,"message",None); actor=getattr(query,"from_user",None)
@@ -499,6 +499,8 @@ async def settings_callback(client,query):
         elif len(parts)==5 and parts[2]=="blocklist" and parts[3]=="remove" and parts[4].isdecimal(): key,value,section="__remove__",int(parts[4]),"blocklist"
         elif len(parts)==4 and parts[2]=="approved" and parts[3] in {"list", "add"}:
             key,value,section=("__approved_list__" if parts[3] == "list" else "__approved_add__"),None,"safety"
+        elif len(parts)==5 and parts[2]=="approved" and parts[3]=="page" and parts[4].isdecimal():
+            key,value,section="__approved_list__",int(parts[4]),"safety"
         elif len(parts)==5 and parts[2]=="approved" and parts[3]=="remove" and parts[4].isdecimal():
             key,value,section="__approved_remove__",int(parts[4]),"safety"
         elif len(parts)==4 and parts[2]=="session" and parts[3]=="schedule": key,value,section="__session_schedule__","session","sessions"
@@ -558,21 +560,38 @@ async def settings_callback(client,query):
             try:
                 db = get_db()
                 if db is None: raise RuntimeError("database unavailable")
-                approved_ids = sorted({int(row["user"]) for row in db["approved"].find({"chat": chat_id}, {"user": 1})
-                                       if isinstance(row.get("user"), int) and row["user"] > 0})
+                collection = db["approved"]
+                total = collection.count_documents({"chat": chat_id})
+                page_size = 10
+                last_page = max(0, (total - 1) // page_size)
+                list_page = min(max(int(value or 0), 0), last_page)
+                cursor = collection.find({"chat": chat_id}, {"user": 1}).sort("user", 1).skip(list_page * page_size).limit(page_size)
+                approved_ids = [int(row["user"]) for row in cursor
+                                if isinstance(row.get("user"), int) and not isinstance(row.get("user"), bool)
+                                and 0 < row["user"] <= 9_223_372_036_854_775_807]
             except Exception:
                 return await query.answer("Approved-member list is unavailable; no changes were made.", show_alert=True)
             from pyrogram.types import InlineKeyboardMarkup
             rows = [[button(f"Remove {uid}", callback_data=f"settings:{chat_id}:approved:remove:{uid}", style="danger")]
-                    for uid in approved_ids[:25]]
+                    for uid in approved_ids]
+            if total > page_size:
+                nav = []
+                if list_page > 0:
+                    nav.append(button("← Previous", callback_data=f"settings:{chat_id}:approved:page:{list_page - 1}"))
+                nav.append(button(f"{list_page + 1}/{last_page + 1}", callback_data=f"settings:{chat_id}:approved:page:{list_page}"))
+                if list_page < last_page:
+                    nav.append(button("Next →", callback_data=f"settings:{chat_id}:approved:page:{list_page + 1}"))
+                rows.append(nav)
             rows += [[button("＋ Approve member", callback_data=f"settings:{chat_id}:approved:add", style="primary")],
                      [button("← Protection", callback_data=f"settings:{chat_id}:tab:safety")]]
+            first_item = list_page * page_size + 1 if total else 0
+            last_item = min((list_page + 1) * page_size, total)
             text = (heading("Approved members", 3)
                     + body("Approved users bypass this group's content locks, blacklist, anti-flood, and join verification. "
                            "This list is not a directory of all group members.")
-                    + table([(str(uid), "Approved") for uid in approved_ids[:25]] or [("Members", "None approved")]))
-            if len(approved_ids) > 25:
-                text += body(f"Showing 25 of {len(approved_ids)} approved users. Use the existing /unapprove command for IDs beyond this page.")
+                    + body(f"Showing {first_item}–{last_item} of {total} approved users; page {list_page + 1} of {last_page + 1}.")
+                    + table([(str(uid), "Approved · select Remove to revoke") for uid in approved_ids]
+                            or [("Members", "None approved")]))
             await query.answer("Approved members loaded.")
             return await rich_edit(message, text, reply_markup=_tag_keyboard(InlineKeyboardMarkup(rows), chat_id))
         try:
@@ -1135,8 +1154,7 @@ async def _start_connected_approved_action(client, interaction_chat_id: int, act
     if operation == "remove":
         session.values["user_id"] = int(user_id)
     try:
-        prompt_text = ("Reply with the numeric Telegram user ID to approve. This grants an exemption from this group's "
-                       "content locks, blacklist, anti-flood, and join verification. Reply /cancel to stop." if operation == "add" else
+        prompt_text = ("Reply with a numeric Telegram user ID or @username to approve. Usernames are resolved by Telegram, then only the numeric ID is stored. This grants an exemption from this group's content locks, blacklist, anti-flood, and join verification. Reply /cancel to stop." if operation == "add" else
                        f"Selected user <code>{int(user_id)}</code> for approval removal in group <code>{target_chat_id}</code>. "
                        "Reply <code>PREVIEW</code> to review the exact change, or /cancel to stop.")
         prompt = await client.send_message(interaction_chat_id, prompt_text,
@@ -1192,11 +1210,26 @@ async def connected_approved_action_reply(client, message):
         return await client.send_message(interaction_chat_id, "Approved-member change cancelled; nothing changed.")
     reply = getattr(message, "reply_to_message", None)
     if getattr(reply, "id", None) != session.expected_message_id: return
+    capture_value = text.casefold() if session.workflow.endswith("remove") else text
+    if session.workflow == "approved_member_add" and text.startswith("@"):
+        import re
+        if not re.fullmatch(r"@[A-Za-z][A-Za-z0-9_]{4,31}", text):
+            return await client.send_message(interaction_chat_id,
+                "That username is malformed. Send a numeric Telegram user ID or a valid @username.")
+        try:
+            resolved = await asyncio.wait_for(client.get_users(text), timeout=8)
+            uid = int(getattr(resolved, "id", 0))
+            if not 0 < uid <= 9_223_372_036_854_775_807:
+                raise ValueError("invalid Telegram user")
+            capture_value = str(uid)
+        except Exception:
+            return await client.send_message(interaction_chat_id,
+                "Telegram could not resolve that user. Check the @username and try again; nothing changed.")
     captured = await interaction_engine.capture(session.token, chat_id=interaction_chat_id,
         actor_id=actor_id, target_chat_id=session.target_chat_id,
-        reply_to_message_id=getattr(reply, "id", None), value=text.casefold() if session.workflow.endswith("remove") else text)
+        reply_to_message_id=getattr(reply, "id", None), value=capture_value)
     if captured.status == "invalid":
-        prompt = "Reply PREVIEW or /cancel." if session.workflow.endswith("remove") else "Send a positive numeric Telegram user ID, or /cancel."
+        prompt = "Reply PREVIEW or /cancel." if session.workflow.endswith("remove") else "Send a positive numeric Telegram user ID or resolvable @username, or /cancel."
         return await client.send_message(interaction_chat_id, prompt)
     if captured.status != "preview": return
     try:

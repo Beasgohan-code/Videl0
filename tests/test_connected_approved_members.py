@@ -77,6 +77,85 @@ class ConnectedApprovedMemberTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(f"settings:{self.CHAT}:approved:remove:101:v0", callbacks)
         self.assertIn(f"settings:{self.CHAT}:approved:add:v0", callbacks)
 
+    async def test_list_has_explicit_empty_and_database_failure_states(self):
+        self.db["approved"].delete_many({"chat": self.CHAT})
+        query = self._query("list")
+        with patch("videl.utils.db._db", self.db), \
+             patch("videl.app.connections.connected_target", new=AsyncMock(return_value=(
+                 SimpleNamespace(id=self.CHAT), None))), \
+             patch("videl.plugins.settings.rich_edit", new=AsyncMock()) as edit:
+            await settings.settings_callback(self.client, query)
+        self.assertIn("None approved", edit.await_args.args[1])
+        self.assertIn("Showing 0–0 of 0", edit.await_args.args[1])
+
+        query = self._query("list")
+        with patch("videl.utils.db.get_db", return_value=None), \
+             patch("videl.app.connections.connected_target", new=AsyncMock(return_value=(
+                 SimpleNamespace(id=self.CHAT), None))), \
+             patch("videl.plugins.settings.rich_edit", new=AsyncMock()) as edit:
+            await settings.settings_callback(self.client, query)
+        self.assertIn("list is unavailable", query.answer.call_args.args[0])
+        edit.assert_not_awaited()
+
+    async def test_list_paginates_without_cross_group_rows_and_uses_group_scoped_controls(self):
+        for uid in range(300, 323):
+            self.db["approved"].insert_one({"chat": self.CHAT, "user": uid})
+        query = self._query("list")
+        with patch("videl.utils.db._db", self.db), \
+             patch("videl.app.connections.connected_target", new=AsyncMock(return_value=(
+                 SimpleNamespace(id=self.CHAT), None))), \
+             patch("videl.plugins.settings.rich_edit", new=AsyncMock()) as edit:
+            await settings.settings_callback(self.client, query)
+        callbacks = [button.callback_data for row in edit.await_args.kwargs["reply_markup"].inline_keyboard
+                     for button in row if button.callback_data]
+        self.assertIn(f"settings:{self.CHAT}:approved:page:1:v0", callbacks)
+        self.assertIn("Showing 1–10 of 24", edit.await_args.args[1])
+        self.assertNotIn("202", edit.await_args.args[1])
+
+        query = self._query("page:1")
+        with patch("videl.utils.db._db", self.db), \
+             patch("videl.app.connections.connected_target", new=AsyncMock(return_value=(
+                 SimpleNamespace(id=self.CHAT), None))), \
+             patch("videl.plugins.settings.rich_edit", new=AsyncMock()) as edit:
+            await settings.settings_callback(self.client, query)
+        self.assertIn("Showing 11–20 of 24", edit.await_args.args[1])
+        self.assertIn("310", edit.await_args.args[1])
+        self.assertNotIn("308", edit.await_args.args[1])
+
+    async def test_stale_page_callback_refreshes_instead_of_using_old_controls(self):
+        from videl.utils.settings_store import SettingsConflict
+        query = self._query("page:1")
+        refreshed = SimpleNamespace(html="fresh safety screen", keyboard=None)
+        with patch("videl.app.connections.connected_target", new=AsyncMock(return_value=(
+                 SimpleNamespace(id=self.CHAT), None))), \
+             patch("videl.utils.settings_store.check", side_effect=SettingsConflict(0, 1)), \
+             patch("videl.plugins.settings._settings_screen", new=AsyncMock(return_value=refreshed)), \
+             patch("videl.plugins.settings.rich_edit", new=AsyncMock()) as edit:
+            await settings.settings_callback(self.client, query)
+        self.assertIn("changed since", query.answer.call_args.args[0])
+        self.assertEqual(edit.await_args.args[1], "fresh safety screen")
+
+    async def test_duplicate_add_missing_username_and_cancel_are_clear_and_safe(self):
+        await self._start("add")
+        session = await self._reply(await engine.for_owner(chat_id=self.USER, actor_id=self.USER, target_chat_id=self.CHAT), "101")
+        response = self.client.send_message.await_args_list[-1].args[1]
+        self.assertIn("already approved", response)
+        self.assertIsNotNone(self.db["approved"].find_one({"chat": self.CHAT, "user": 101}))
+
+        await engine.cancel_owner(chat_id=self.USER, actor_id=self.USER, target_chat_id=self.CHAT)
+        self.client.get_users = AsyncMock(side_effect=ValueError("not found"))
+        session = await self._start("add")
+        await self._reply(session, "@missing_user")
+        self.assertIn("could not resolve", self.client.send_message.await_args_list[-1].args[1].lower())
+        self.assertEqual(self.db["approved"].count_documents({"chat": self.CHAT}), 1)
+
+        await engine.cancel_owner(chat_id=self.USER, actor_id=self.USER, target_chat_id=self.CHAT)
+        self.client.get_users = AsyncMock(return_value=SimpleNamespace(id=808))
+        session = await self._start("add")
+        session = await self._reply(session, "@valid_user")
+        self.assertEqual(session.values["user_id"], 808)
+        self.assertIsNone(self.db["approved"].find_one({"chat": self.CHAT, "user": 808}))
+
     async def test_add_is_previewed_and_writes_only_target_group_after_fresh_auth(self):
         session = await self._start("add")
         self.assertIsNone(self.db["approved"].find_one({"chat": self.CHAT, "user": 303}))
