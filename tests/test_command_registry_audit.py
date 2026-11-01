@@ -43,12 +43,10 @@ class CommandRegistryAuditTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(group, ast.Constant)
         self.assertGreater(group.value, 0, "broad group text listeners must run after the group-0 command router")
 
-    def test_settings_and_setup_open_the_same_group_control_center(self):
+    def test_settings_is_the_registered_group_control_center_command(self):
         self.assertIn("settings", router.commands)
-        self.assertIn("setup", router.commands)
-        self.assertIs(router.commands["settings"].handler, router.commands["setup"].handler)
+        self.assertNotIn("setup", router.commands)
         self.assertEqual(router.commands["settings"].policy, "group")
-        self.assertEqual(router.commands["setup"].policy, "group")
 
     def test_downloader_commands_are_catalogued_for_groups_and_private_chats(self):
         contexts = {entry["name"]: entry["context"] for entry in commands()}
@@ -95,10 +93,10 @@ class CommandRegistryAuditTests(unittest.IsolatedAsyncioTestCase):
         for name, _description in OWNER_COMMANDS:
             self.assertIn(name, registered, f"Telegram menu command /{name} has no handler")
 
-    def test_setup_alias_and_rose_style_adminlist_alias_are_registered(self):
+    def test_retired_setup_and_modernhelp_commands_stay_hidden(self):
         registered = {entry["name"] for entry in commands()}
-        self.assertIn("setup", router.commands)
-        self.assertIn("setup", registered)
+        self.assertNotIn("setup", router.commands)
+        self.assertNotIn("setup", registered)
         self.assertNotIn("modernhelp", registered)
         self.assertIn("adminlist", registered)
         self.assertEqual(router.commands["adminlist"].handler.__name__, "admins")

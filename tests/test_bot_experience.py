@@ -135,7 +135,7 @@ class PlayerCardTests(unittest.TestCase):
             self.assertIn('━',caption)
             controls=player._now_playing_kb(chat_id)
             callbacks=[[item.callback_data for item in row] for row in controls.inline_keyboard]
-            self.assertEqual(callbacks,[['pause','skip'],['show_queue','cycle_loop'],['replay','stop'],['help:home','cmds:all:0']])
+            self.assertEqual(callbacks,[['pause','skip'],['show_queue','show_history','cycle_loop'],['volume_down','volume_up'],['replay','stop'],['help:home','cmds:all:0']])
         finally:
             chat_queues.pop(chat_id,None)
             player.stop_progress(chat_id)

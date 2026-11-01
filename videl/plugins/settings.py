@@ -190,7 +190,7 @@ def _screen(chat_id, section="home", *, query="", category="all", page=0):
             page_size=6; pages=max(1,(len(entries)+page_size-1)//page_size); page=max(0,min(int(page),pages-1))
             current=entries[page*page_size:(page+1)*page_size]
             rows=[]
-            protected={"start","help","commands","id","ping","settings","setup","permissions"}
+            protected={"start","help","commands","id","ping","settings","permissions"}
             for entry in current:
                 name=entry["name"]; off=name in disabled; state="OFF" if off else "ON"
                 rows.append((f"/{name} · {state}",entry["summary"][:72]))
@@ -322,7 +322,7 @@ async def settings_callback(client,query):
         name,enable=value
         from videl.utils.command_catalog import commands as registered_commands
         from videl.utils.db import disable_cmd,enable_cmd,get_db
-        protected={"start","help","commands","id","ping","settings","setup","permissions"}
+        protected={"start","help","commands","id","ping","settings","permissions"}
         entry=next((item for item in registered_commands() if item["name"]==name),None)
         if entry is None or entry.get("owner") or entry.get("context")=="private" or name in protected:
             return await query.answer("That command cannot be changed here.",show_alert=True)
@@ -455,5 +455,4 @@ async def blocklist_prompt_reply(client,message):
 
 COMMANDS=(
     Command("settings",settings,"Open the full group control center",category="manage",policy="group"),
-    Command("setup",settings,"Alias for /settings; open group settings",category="manage",policy="group"),
 )
