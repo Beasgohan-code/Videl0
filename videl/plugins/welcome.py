@@ -178,7 +178,7 @@ async def _send_welcome_prompt(client, session) -> None:
                                               actor_id=session.actor_id, message_id=prompt.id)
 
 
-@bot.on_message(filters.incoming, group=1)
+@bot.on_message(filters.incoming, group=2)
 async def welcome_edit_message(client, message) -> None:
     if not base.is_group(message) or getattr(message, "from_user", None) is None:
         return

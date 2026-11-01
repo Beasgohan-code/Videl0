@@ -8,7 +8,8 @@ import json
 from time import monotonic
 from pyrogram import filters
 from pyrogram.types import ForceReply, InlineKeyboardMarkup
-from videl import bot
+from videl import LOGGER, bot
+from videl.utils.interactive_settings import Step, engine
 from videl.app.router import Command, CommandError, Screen
 from videl.plugins import base
 from videl.plugins.base import body, heading, table
@@ -107,7 +108,7 @@ def _screen(chat_id, section="home", *, query="", category="all", page=0):
         text=heading("Full group settings",3)+body("Choose a section. Only current group admins can change settings.")+table([(label,"On" if base.get_setting(chat_id,key,default) else "Off") for label,key,default in fields])+body("Advanced text and custom configuration remain available through their existing commands.")
     elif section in _TOGGLES:
         title={"music":"Music","welcome":"Welcome & onboarding","safety":"Protection"}[section]
-        description={"music":"Members can request tracks when enabled. Approval sends new requests to admin review; use /requests to review.","welcome":"Control welcome, goodbye and verification flows. Edit content with /setwelcome, /setgoodbye, /setrules and /setfaq.","safety":"Configure content locks, anti-flood (custom thresholds via /antispam) and raid mode. Gemini Guardian is off by default. When enabled, /faqassist sends the question and selected FAQ/rules/text notes; admin /safetycheck sends minimized replied-to text (URL hosts only); /guardiansummary sends aggregate counts. These are sent to Google Gemini; no result takes action."}[section]
+        description={"music":"Members can request tracks when enabled. Approval sends new requests to admin review; use /requests to review.","welcome":"Control welcome, goodbye and verification flows. Edit content with /setwelcome, /setgoodbye, /setrules and /setfaq.","safety":"Configure content locks and raid mode; anti-flood thresholds are editable here or with /antispam. Enabling anti-flood requires the bot to have Delete Messages permission. Gemini Guardian is off by default. When enabled, /faqassist sends the question and selected FAQ/rules/text notes; admin /safetycheck sends minimized replied-to text (URL hosts only); /guardiansummary sends aggregate counts. These are sent to Google Gemini; no result takes action."}[section]
         fields=_TOGGLES[section]
         rows=[(label,"On" if base.get_setting(chat_id,key,default) else "Off") for label,key,default in fields]
         if section=="welcome":
@@ -130,7 +131,11 @@ def _screen(chat_id, section="home", *, query="", category="all", page=0):
         if section=="music":
             dj=base.get_setting(chat_id,"music_dj_session",{}); rows.append(("Temporary DJ",str(dj.get("user_id")) if isinstance(dj,dict) and dj.get("user_id") else "None · use /dj"))
         text=heading(title,3)+body(description)+table(rows)
-        markup += [_switch(chat_id,key,label,default) for label,key,default in fields]
+        for label,key,default in fields:
+            if section=="safety" and key=="antispam":
+                markup.append([button("Configure anti-flood…",callback_data=f"settings:{chat_id}:antispam:edit",style="primary")])
+            else:
+                markup.append(_switch(chat_id,key,label,default))
         if section=="welcome":
             markup.append([button("Edit welcome text…",callback_data=f"settings:{chat_id}:welcome_text:edit",style="primary")])
             markup.append([button("Edit goodbye text…",callback_data=f"settings:{chat_id}:goodbye_text:edit")])
@@ -244,7 +249,7 @@ async def settings(ctx):
         return _screen(chat_id,"commands",query=query)
     return _screen(chat_id)
 
-_PATTERN=r"^settings:-?[0-9]{1,20}:(?:tab:(?:home|music|welcome|safety|moderation|retention|blocklist|presets|sessions|commands)|commands:(?:all|manage|music|tools):[0-9]{1,3}|cmd:[a-z][a-z0-9_]{0,31}:(?:on|off)|(?:music_requests_enabled|music_approval_required|welcome_enabled|goodbye_enabled|captcha_enabled|antispam|gemini_guardian_enabled|lock_[a-z_]+):(?:on|off)|welcome_text:edit|goodbye_text:edit|rules_text:(?:edit|clear)|welcome_media:(?:edit|clear)|welcome_buttons:edit|raid:(?:on|off)|warn_threshold:(?:2|3|5|10)|retention:[a-z_]+:(?:30|90|180|365|off)|blocklist:(?:add:(?:track|artist)|remove:[1-9][0-9]?)|preset:(?:save|apply:[1-9][0-9]?|delete:[1-9][0-9]?)|session:(?:schedule|cancel:[A-Za-z0-9]+)|reset:(?:music|welcome|safety|moderation|blocklist|presets)|resetconfirm:(?:music|welcome|safety|moderation|blocklist|presets):[a-f0-9]{12}|refresh):v[0-9]{1,12}$"
+_PATTERN=r"^settings:-?[0-9]{1,20}:(?:tab:(?:home|music|welcome|safety|moderation|retention|blocklist|presets|sessions|commands)|commands:(?:all|manage|music|tools):[0-9]{1,3}|cmd:[a-z][a-z0-9_]{0,31}:(?:on|off)|(?:music_requests_enabled|music_approval_required|welcome_enabled|goodbye_enabled|captcha_enabled|antispam|gemini_guardian_enabled|lock_[a-z_]+):(?:on|off)|antispam:edit|welcome_text:edit|goodbye_text:edit|rules_text:(?:edit|clear)|welcome_media:(?:edit|clear)|welcome_buttons:edit|raid:(?:on|off)|warn_threshold:(?:2|3|5|10)|retention:[a-z_]+:(?:30|90|180|365|off)|blocklist:(?:add:(?:track|artist)|remove:[1-9][0-9]?)|preset:(?:save|apply:[1-9][0-9]?|delete:[1-9][0-9]?)|session:(?:schedule|cancel:[A-Za-z0-9]+)|reset:(?:music|welcome|safety|moderation|blocklist|presets)|resetconfirm:(?:music|welcome|safety|moderation|blocklist|presets):[a-f0-9]{12}|refresh):v[0-9]{1,12}$"
 @bot.on_callback_query(filters.regex(_PATTERN))
 async def settings_callback(client,query):
     message=getattr(query,"message",None); actor=getattr(query,"from_user",None)
@@ -262,6 +267,7 @@ async def settings_callback(client,query):
             section,category,page="commands",parts[3],min(int(parts[4]),999)
         elif len(parts)==5 and parts[2]=="cmd" and parts[4] in {"on","off"}:
             key,value,section="__command_toggle__",(parts[3],parts[4]=="on"),"commands"
+        elif len(parts)==4 and parts[2]=="antispam" and parts[3]=="edit": key,value,section="__antispam_editor__",None,"safety"
         elif len(parts)==4 and parts[2] in {"welcome_text","goodbye_text","rules_text","welcome_media","welcome_buttons"} and parts[3] in {"edit","clear"}:
             workflow={"welcome_text":"welcome_text","goodbye_text":"goodbye_text","rules_text":"rules_text","welcome_media":"welcome_media","welcome_buttons":"welcome_buttons"}[parts[2]]
             key,value,section="__welcome_flow_start__",workflow,"welcome"
@@ -299,6 +305,14 @@ async def settings_callback(client,query):
         await query.answer("Settings changed since this panel was opened. Review the refreshed values.",show_alert=True)
         fresh=_screen(chat_id,section,category=category,page=page)
         return await rich_edit(message,fresh.html,reply_markup=fresh.keyboard)
+    if key=="__antispam_editor__":
+        try:
+            notice=await _start_antispam_editor(client,chat_id,int(actor.id),expected_revision)
+        except RuntimeError as error:
+            return await query.answer(str(error),show_alert=True)
+        except Exception:
+            return await query.answer("Could not start anti-flood settings; nothing changed.",show_alert=True)
+        return await query.answer(notice)
     if key=="__welcome_flow_start__":
         from videl.plugins.welcome import start_welcome_workflow
         try:
@@ -487,6 +501,214 @@ async def blocklist_prompt_reply(client,message):
         await asyncio.to_thread(record_bot,chat_id,"settings",action="music_blocklist_add",detail=f"{prompt[1]} entry",actor=int(user.id))
     except Exception: pass
     await message.reply_text("Added to the group music blocklist. Open /settings → Music blocklist to review it.")
+
+async def _bot_can_delete_messages(client, chat_id: int) -> bool:
+    try:
+        bot_user = getattr(client, "me", None) or await client.get_me()
+        member = await client.get_chat_member(chat_id, int(bot_user.id))
+        status = str(getattr(getattr(member, "status", None), "value", getattr(member, "status", None))).casefold()
+        if status == "owner":
+            return True
+        privileges = getattr(member, "privileges", None)
+        return status == "administrator" and bool(getattr(privileges, "can_delete_messages", False))
+    except Exception:
+        return False
+
+
+async def _send_antispam_prompt(client, session) -> None:
+    step = session.current_step
+    if step is None:
+        return
+    stored_enabled = bool(base.get_setting(session.target_chat_id, "antispam", False))
+    from videl.plugins.locks import antispam_config
+    stored_limit, stored_window = antispam_config(session.target_chat_id)
+    enabled = session.values.get("enabled", "on" if stored_enabled else "off") == "on"
+    limit = session.values.get("limit", stored_limit)
+    window = session.values.get("window", stored_window)
+    prompts = {
+        "enabled": f"Anti-flood is currently {'On' if enabled else 'Off'}. It deletes messages above the burst limit. Reply <code>on</code> or <code>off</code>.",
+        "limit": f"Current burst limit: {limit}. Reply with a whole number from 3 to 30.",
+        "window": f"Current time window: {window} seconds. Reply with a whole number from 3 to 60.",
+    }
+    if step.key == "enabled" and step.choices == ("off",):
+        prompts["enabled"] += " The bot currently lacks Delete Messages permission, so only Off is available."
+    prompt = await client.send_message(session.chat_id, prompts[step.key], reply_markup=ForceReply(selective=True))
+    await engine.bind_prompt(session.token, chat_id=session.chat_id, actor_id=session.actor_id, message_id=prompt.id)
+
+
+async def _start_antispam_editor(client, chat_id: int, actor_id: int, revision: int) -> str:
+    can_delete = await _bot_can_delete_messages(client, chat_id)
+    enabled_choices = ("on", "off") if can_delete else ("off",)
+    session = await engine.begin(
+        chat_id=chat_id, actor_id=actor_id, target_chat_id=chat_id, workflow="antispam",
+        revision=revision,
+        steps=(Step("enabled", "Enable anti-flood?", kind="selection", choices=enabled_choices),
+               Step("limit", "Message burst limit", kind="number", minimum=3, maximum=30),
+               Step("window", "Time window in seconds", kind="number", minimum=3, maximum=60)),
+        timeout_seconds=600,
+    )
+    try:
+        await _send_antispam_prompt(client, session)
+    except Exception:
+        await engine.cancel(session.token, chat_id=chat_id, actor_id=actor_id)
+        raise RuntimeError("Could not send anti-flood settings prompts; nothing changed.") from None
+    return "Reply to each prompt. Settings remain unchanged until the preview is confirmed."
+
+
+def _antispam_preview_keyboard(token: str):
+    return InlineKeyboardMarkup([[
+        button("Edit Again", callback_data=f"antispam_edit:{token}:edit"),
+        button("Save", callback_data=f"antispam_edit:{token}:save", style="primary"),
+        button("Cancel", callback_data=f"antispam_edit:{token}:cancel", style="danger"),
+    ]])
+
+
+@bot.on_message(filters.incoming, group=3)
+async def antispam_settings_message(client, message):
+    user = getattr(message, "from_user", None)
+    if not user or base.chat_kind(message) not in {"group", "supergroup"}:
+        return
+    chat_id, actor_id = int(message.chat.id), int(user.id)
+    session = await engine.for_owner(chat_id=chat_id, actor_id=actor_id, target_chat_id=chat_id)
+    if session is None or session.workflow != "antispam":
+        return
+    text = str(getattr(message, "text", "") or "").strip()
+    command = text.split(maxsplit=1)[0].split("@", 1)[0].casefold() if text else ""
+    if command == "/cancel":
+        await engine.cancel(session.token, chat_id=chat_id, actor_id=actor_id)
+        await client.send_message(chat_id, "Anti-flood editing cancelled. Nothing was saved.")
+        return
+    if getattr(getattr(message, "reply_to_message", None), "id", None) != session.expected_message_id:
+        return
+    step = session.current_step
+    value = text.casefold() if step and step.kind == "selection" else text
+    result = await engine.capture(session.token, chat_id=chat_id, actor_id=actor_id,
+                                  target_chat_id=chat_id,
+                                  reply_to_message_id=getattr(getattr(message, "reply_to_message", None), "id", None),
+                                  value=value)
+    if result.status == "invalid":
+        await _send_antispam_prompt(client, result.session)
+        await client.send_message(chat_id, result.error or "That value is invalid.")
+        return
+    if result.status in {"stale", "expired", "unauthorized"}:
+        return
+    if result.status == "accepted":
+        await _send_antispam_prompt(client, result.session)
+        return
+    if result.status != "preview":
+        return
+    enabled = result.session.values["enabled"] == "on"
+    preview = await client.send_message(
+        chat_id,
+        heading("Anti-flood settings preview", 3)
+        + table([("Status", "On" if enabled else "Off"),
+                 ("Burst limit", f"{result.session.values['limit']} messages"),
+                 ("Window", f"{result.session.values['window']} seconds")])
+        + body("No settings have changed yet. Confirm to save these values."),
+        reply_markup=_antispam_preview_keyboard(result.session.token),
+    )
+    await engine.bind_prompt(result.session.token, chat_id=chat_id, actor_id=actor_id, message_id=preview.id)
+
+
+@bot.on_callback_query(filters.regex(r"^antispam_edit:[A-Za-z0-9_-]{1,24}:(?:edit|save|cancel)$"))
+async def antispam_settings_callback(client, query):
+    message = getattr(query, "message", None)
+    actor = getattr(query, "from_user", None)
+    if message is None or actor is None or base.chat_kind(message) not in {"group", "supergroup"}:
+        await query.answer("Open anti-flood settings in the group.", show_alert=True)
+        return
+    _, token, action = str(query.data).split(":")
+    chat_id, actor_id = int(message.chat.id), int(actor.id)
+    session = await engine.get(token, chat_id=chat_id, actor_id=actor_id, target_chat_id=chat_id)
+    if session is None or session.workflow != "antispam":
+        await query.answer("This anti-flood edit expired or belongs to another admin.", show_alert=True)
+        return
+    if action == "cancel":
+        await engine.cancel(token, chat_id=chat_id, actor_id=actor_id)
+        await query.answer("Cancelled; nothing was saved.")
+        return await rich_edit(message, heading("Anti-flood edit cancelled", 3) + body("No settings changed."), reply_markup=None)
+    if action == "edit":
+        edited = await engine.edit_again(token, chat_id=chat_id, actor_id=actor_id, message_id=int(message.id))
+        if edited is None:
+            await query.answer("This preview is no longer active.", show_alert=True)
+            return
+        await rich_edit(message, heading("Edit anti-flood settings again", 3) + body("Reply to the prompts; nothing is saved yet."), reply_markup=None)
+        try:
+            await _send_antispam_prompt(client, edited)
+        except Exception:
+            await engine.cancel(token, chat_id=chat_id, actor_id=actor_id)
+            await query.answer("Could not restart the editor; nothing was saved.", show_alert=True)
+            return
+        await query.answer("Reply to the prompts to edit again.")
+        return
+
+    rights_denial = {"reason": None}
+    async def authorize(target_chat_id: int, user_id: int) -> bool:
+        try:
+            member = await client.get_chat_member(target_chat_id, user_id)
+            status = str(getattr(getattr(member, "status", None), "value", getattr(member, "status", None))).casefold()
+            if status not in {"owner", "administrator"}:
+                rights_denial["reason"] = "admin"
+                return False
+            if session.values["enabled"] == "on" and not await _bot_can_delete_messages(client, target_chat_id):
+                rights_denial["reason"] = "bot_rights"
+                return False
+            return True
+        except Exception:
+            rights_denial["reason"] = "admin"
+            return False
+
+    async def save(snapshot):
+        from videl.utils.settings_store import write
+        try:
+            await asyncio.to_thread(write, snapshot.target_chat_id,
+                                    {"antispam": snapshot.values["enabled"] == "on",
+                                     "antispam_limit": snapshot.values["limit"],
+                                     "antispam_window": snapshot.values["window"]},
+                                    snapshot.revision)
+            return True
+        except Exception:
+            return False
+
+    outcome, _ = await engine.commit(token, chat_id=chat_id, actor_id=actor_id,
+                                     target_chat_id=chat_id, message_id=int(message.id),
+                                     authorize=authorize, save=save)
+    if outcome == "saved":
+        from videl.plugins.locks import invalidate_antispam_config
+        invalidate_antispam_config(chat_id)
+        try:
+            from videl.utils.audit import record_bot
+            await asyncio.to_thread(record_bot, chat_id, "settings", action="antispam_interactive_saved",
+                                    detail=f"enabled={session.values['enabled']}; limit={session.values['limit']}; window={session.values['window']}", actor=actor_id)
+        except Exception:
+            LOGGER.debug("Anti-flood audit write failed", exc_info=True)
+        await query.answer("Anti-flood settings saved.")
+        return await rich_edit(message, heading("Anti-flood settings saved", 3) + body("The selected values are now active."), reply_markup=None)
+    if outcome == "permission_denied":
+        if rights_denial["reason"] == "bot_rights":
+            await engine.cancel(token, chat_id=chat_id, actor_id=actor_id)
+            await query.answer("Bot lacks Delete Messages permission. Anti-flood was not enabled.", show_alert=True)
+            return await rich_edit(message, heading("Anti-flood not saved", 3) + body("No settings changed. Grant the bot Delete Messages permission and start again."), reply_markup=None)
+        await engine.cancel(token, chat_id=chat_id, actor_id=actor_id)
+        await query.answer("Current group-admin permission could not be verified. Nothing was saved.", show_alert=True)
+        return await rich_edit(message, heading("Anti-flood not saved", 3) + body("Current admin status could not be verified."), reply_markup=None)
+    if outcome == "save_failed":
+        # Distinguish a stale revision from storage unavailability without writing.
+        from videl.utils.settings_store import SettingsConflict, check
+        try:
+            check(chat_id, session.revision)
+        except SettingsConflict:
+            await engine.cancel(token, chat_id=chat_id, actor_id=actor_id)
+            await query.answer("Settings changed elsewhere. No anti-flood values were saved.", show_alert=True)
+            fresh = _screen(chat_id, "safety")
+            return await rich_edit(message, fresh.html, reply_markup=fresh.keyboard)
+        await query.answer("Could not save anti-flood settings; nothing was reported as saved. Retry from this preview.", show_alert=True)
+        return
+    if outcome == "expired":
+        await query.answer("This anti-flood edit expired. Nothing was saved.", show_alert=True)
+        return
+    await query.answer("This anti-flood preview is no longer active.", show_alert=True)
+
 
 COMMANDS=(
     Command("settings",settings,"Open the full group control center",category="manage",policy="group"),

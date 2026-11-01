@@ -24,7 +24,8 @@ class InlineAdminSettingsTests(unittest.IsolatedAsyncioTestCase):
             for button in row
         ]
         self.assertIn("mgmt_lock:set:links:1", callbacks)
-        self.assertIn("mgmt_lock:set:antispam:1", callbacks)
+        self.assertIn(f"settings:{self.chat_id}:antispam:edit:v0", callbacks)
+        self.assertFalse(any("mgmt_lock:set:antispam" in item for item in callbacks))
         self.assertIn("mgmt_lock:set:all:1", callbacks)
         self.assertLessEqual(max(map(len, callbacks)), 64)
 
@@ -41,6 +42,18 @@ class InlineAdminSettingsTests(unittest.IsolatedAsyncioTestCase):
         audit.assert_awaited_once()
         self.query.answer.assert_awaited_once_with("Protection updated")
         edit.assert_awaited_once_with(self.message, "updated", reply_markup="markup")
+
+    async def test_legacy_antispam_toggle_opens_revision_bound_preview_instead_of_writing(self):
+        self.query.data = "mgmt_lock:set:antispam:1"
+        with (
+            patch("videl.plugins.settings._start_antispam_editor", new=AsyncMock(return_value="review")) as start,
+            patch("videl.utils.settings_store.revision", return_value=9),
+            patch.object(locks.base, "set_settings") as save,
+        ):
+            await locks.lock_toggle_callback(self.client, self.query)
+        start.assert_awaited_once_with(self.client, self.chat_id, self.admin.id, 9)
+        save.assert_not_called()
+        self.query.answer.assert_awaited_once_with("review")
 
     async def test_lock_toggle_rejects_non_admin_without_writing(self):
         self.query.data = "mgmt_lock:set:links:1"

@@ -245,9 +245,10 @@ def lock_status_screen(chat_id: int) -> Screen:
     antispam = bool(base.get_setting(chat_id, "antispam", False))
     flood_limit, flood_window = antispam_config(chat_id)
     rows.append(((pe("rijif_warning") if antispam else pe("ios_controls")) + " Anti-flood", f"{'On' if antispam else 'Off'} · removes messages above {flood_limit} in {flood_window}s"))
-    controls.append(button("Disable anti-flood" if antispam else "Enable anti-flood",
-                           callback_data=f"mgmt_lock:set:antispam:{0 if antispam else 1}",
-                           style="success" if antispam else "default"))
+    from videl.utils.settings_store import revision as settings_revision
+    controls.append(button("Configure anti-flood…",
+                           callback_data=f"settings:{chat_id}:antispam:edit:v{settings_revision(chat_id)}",
+                           style="primary" if not antispam else "default"))
     keyboard_rows = [controls[index:index + 2] for index in range(0, len(controls), 2)]
     keyboard_rows.append([button("Lock all", callback_data="mgmt_lock:set:all:1"),
                           button("Unlock all", callback_data="mgmt_lock:set:all:0", style="success")])
@@ -288,7 +289,17 @@ async def lock_toggle_callback(client, query: CallbackQuery) -> None:
     kind = parts[2]
     enabled = parts[3] == "1"
     if kind == "antispam":
-        updates = {"antispam": enabled}
+        # Older keyboards may still contain the immediate toggle callback.
+        # Route it to the revision-bound preview instead of mutating directly.
+        from videl.plugins.settings import _start_antispam_editor
+        from videl.utils.settings_store import revision as settings_revision
+        try:
+            notice = await _start_antispam_editor(client, chat_id, int(actor_id), settings_revision(chat_id))
+        except Exception:
+            await query.answer("Could not open anti-flood settings; nothing changed.", show_alert=True)
+            return
+        await query.answer(notice)
+        return
     elif kind == "all":
         updates = {f"lock_{name}": enabled for name in LOCK_TYPES}
         if "forward" in LOCK_TYPES:
