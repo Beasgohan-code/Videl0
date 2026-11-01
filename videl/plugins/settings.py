@@ -17,7 +17,7 @@ from videl.utils.bot_ui import button
 from videl.utils.command_ui import rich_edit
 from videl.utils.moderation import LOCK_TYPES
 
-_TABS = {"home", "music", "welcome", "safety", "moderation", "retention", "blocklist", "presets", "sessions", "automations", "commands", "more"}
+_TABS = {"home", "music", "welcome", "safety", "locks", "moderation", "retention", "blocklist", "presets", "sessions", "automations", "commands", "more"}
 _LOCK_KEYS = {f"lock_{kind}" for kind in LOCK_TYPES} | {"lock_forwards"}
 _PROMPTS: dict[tuple[int, int], tuple[int, str, float]] = {}
 _TOGGLES = {
@@ -118,7 +118,8 @@ def _reset_confirmation(chat_id, category):
     return Screen(text,_tag_keyboard(keyboard,chat_id))
 
 
-def _screen(chat_id, section="home", *, query="", category="all", page=0, connected_dm=False, bot_can_delete_messages=None):
+def _screen(chat_id, section="home", *, query="", category="all", page=0, connected_dm=False,
+            connected_group=None, bot_can_delete_messages=None):
     markup=_nav(chat_id,section)
     if section=="home":
         fields=(("Member music requests","music_requests_enabled",True),("Music request approval","music_approval_required",False),("Shuffle new requests","music_shuffle_enabled",False),("Welcome messages","welcome_enabled",True),("Goodbye messages","goodbye_enabled",False),("New-member verification","captcha_enabled",False),("Anti-flood","antispam",False),("Gemini Guardian assistance","gemini_guardian_enabled",False))
@@ -171,19 +172,41 @@ def _screen(chat_id, section="home", *, query="", category="all", page=0, connec
             if isinstance(base.get_setting(chat_id,"welcome_media",None),dict):
                 markup.append([button("Remove welcome media…",callback_data=f"settings:{chat_id}:welcome_media:clear",style="danger")])
         if section=="safety":
-            for kind in LOCK_TYPES:
-                key="lock_forwards" if kind=="forward" else f"lock_{kind}"
-                if bot_can_delete_messages is False:
-                    enabled = bool(base.get_setting(chat_id, key, False))
-                    markup.append([button(f"Lock {kind}"),
-                        button("On" if enabled else "On · needs bot right", style="success" if enabled else "danger"),
-                        button("Off", callback_data=f"settings:{chat_id}:{key}:off", style="danger" if not enabled else None)])
-                else:
-                    markup.append(_switch(chat_id,key,f"Lock {kind}"))
+            active_locks = sum(bool(base.get_setting(chat_id, "lock_forwards" if kind == "forward" else f"lock_{kind}", False))
+                               for kind in LOCK_TYPES)
+            markup.append([button(f"Content locks · {active_locks}/{len(LOCK_TYPES)} on",
+                                  callback_data=f"settings:{chat_id}:tab:locks", style="primary")])
             raid=base.get_setting(chat_id,"raid_mode",{}); enabled=bool(raid.get("enabled")) if isinstance(raid,dict) else False
             markup.append([button("Raid mode"),button("On",callback_data=f"settings:{chat_id}:raid:on",style="success" if enabled else None),button("Off",callback_data=f"settings:{chat_id}:raid:off",style="danger" if not enabled else None)])
             if connected_dm:
                 markup.append([button("Approved members…", callback_data=f"settings:{chat_id}:approved:list", style="primary")])
+    elif section=="locks":
+        lock_types = tuple(LOCK_TYPES)
+        page_size = 6
+        pages = max(1, (len(lock_types) + page_size - 1) // page_size)
+        page = min(max(0, int(page)), pages - 1)
+        selected = lock_types[page * page_size:(page + 1) * page_size]
+        active = sum(bool(base.get_setting(chat_id, "lock_forwards" if kind == "forward" else f"lock_{kind}", False))
+                     for kind in lock_types)
+        text = (heading("Content locks", 3)
+                + body(f"Page {page + 1}/{pages} · {active} of {len(lock_types)} lock types enabled.")
+                + body("Locks remove matching messages; group admins and approved members are exempt. Enabling requires the bot’s current Delete Messages right."))
+        for kind in selected:
+            key = "lock_forwards" if kind == "forward" else f"lock_{kind}"
+            if bot_can_delete_messages is False:
+                enabled = bool(base.get_setting(chat_id, key, False))
+                markup.append([button(f"Lock {kind}"),
+                    button("On" if enabled else "On · bot right needed", style="success" if enabled else "danger"),
+                    button("Off", callback_data=f"settings:{chat_id}:{key}:off", style="danger" if not enabled else None)])
+            else:
+                markup.append(_switch(chat_id, key, f"Lock {kind}"))
+        if pages > 1:
+            controls = []
+            if page > 0: controls.append(button("← Previous", callback_data=f"settings:{chat_id}:locks:{page - 1}"))
+            controls.append(button(f"Page {page + 1}/{pages}"))
+            if page + 1 < pages: controls.append(button("Next →", callback_data=f"settings:{chat_id}:locks:{page + 1}"))
+            markup.append(controls)
+        markup.append([button("← Protection", callback_data=f"settings:{chat_id}:tab:safety")])
     elif section=="more":
         text=heading("More group settings",3)+body("Additional music, automation and command controls for this group. Use Overview to return to the main settings hub.")
     elif section=="moderation":
@@ -307,6 +330,13 @@ def _screen(chat_id, section="home", *, query="", category="all", page=0, connec
     if section in _RESET_DEFAULTS:
         markup.append([button("Reset this section…", callback_data=f"settings:{chat_id}:reset:{section}", style="danger")])
     markup.append([button("Refresh",callback_data=f"settings:{chat_id}:refresh")])
+    if connected_dm and connected_group:
+        group_title, group_id = connected_group
+        text = (heading("Selected connected group", 3)
+                + table([("Group", base.escape(str(group_title or "Telegram group"))),
+                         ("Group ID", f"<code>{int(group_id)}</code>")])
+                + body("This panel changes this group only. Bot-wide language, reminder and notification preferences remain under <code>/preferences</code>.")
+                + text)
     if connected_dm:
         safe_rows = []
         for row in markup:
@@ -335,6 +365,7 @@ def _screen(chat_id, section="home", *, query="", category="all", page=0, connec
                            or action.startswith("approved:")
                            or action.startswith("filters:add")
                            or action.startswith("filters:manage")
+                           or action.startswith("locks:")
                            or action == "session:schedule"
                            or action.startswith("session:cancel:")
                            or action.startswith("blocklist:")
@@ -360,6 +391,15 @@ async def settings(ctx):
     if base.chat_kind(message) not in {"group","supergroup"}:
         raise CommandError("Open <code>/settings</code> in the group, or connect a group and use this command in your private chat.")
     chat_id = int(connected_dm or message.chat.id)
+    if connected_dm:
+        from pyrogram.types import InlineKeyboardMarkup
+        screen = Screen(heading("Connected groups", 3)
+            + body("Your Telegram account currently has one saved group connection. Select it to open group configuration; the target is resolved and admin-checked again when selected.")
+            + table([("Group", base.escape(str(getattr(message.chat, "title", "Telegram group"))),),
+                     ("Group ID", f"<code>{chat_id}</code>"), ("Connection", "Current saved group")])
+            + body("Personal language, reminders and opt-in notifications are separate under <code>/preferences</code>."),
+            InlineKeyboardMarkup([[button("Open group settings", callback_data="connected_settings:open", style="primary")]]))
+        return screen
     arguments=str(getattr(ctx.command,"arguments","") or "").strip()
     if arguments.casefold().startswith("commands"):
         query=arguments[len("commands"):].strip()[:40]
@@ -622,7 +662,7 @@ async def connected_escalation_callback(client, query):
         await engine.cancel(token, chat_id=session.chat_id, actor_id=session.actor_id)
         await query.answer("Restart the editor to change the draft.")
         screen = await _settings_screen(client, session.target_chat_id, "moderation",
-            connected_dm=(base.chat_kind(message) == "private"))
+            connected_dm=(base.chat_kind(message) == "private"), actor_id=session.actor_id)
         return await rich_edit(message, screen.html, reply_markup=screen.keyboard)
 
     result_flags = {"conflict": False}
@@ -654,7 +694,7 @@ async def connected_escalation_callback(client, query):
         except Exception: pass
         await query.answer("Warning-escalation settings saved.")
         screen = await _settings_screen(client, session.target_chat_id, "moderation",
-            connected_dm=(base.chat_kind(message) == "private"))
+            connected_dm=(base.chat_kind(message) == "private"), actor_id=session.actor_id)
         return await rich_edit(message, screen.html, reply_markup=screen.keyboard)
     messages = {
         "permission_denied": "Connection or current admin permission changed. No settings were saved.",
@@ -677,13 +717,40 @@ async def _connected_escalation_reply(client, message):
     return await connected_escalation_reply(client, message)
 
 
-async def _settings_screen(client, chat_id, section="home", *, query="", category="all", page=0, connected_dm=False):
-    can_delete = await _bot_can_delete_messages(client, int(chat_id)) if section == "safety" else None
+async def _settings_screen(client, chat_id, section="home", *, query="", category="all", page=0,
+                           connected_dm=False, actor_id=None):
+    can_delete = await _bot_can_delete_messages(client, int(chat_id)) if section in {"safety", "locks"} else None
+    connected_group = None
+    if connected_dm:
+        if actor_id is None:
+            raise PermissionError("The private settings actor could not be verified.")
+        from videl.app.connections import connected_target
+        group, error = await connected_target(client, int(actor_id), expected_chat_id=int(chat_id))
+        if group is None or error:
+            raise PermissionError(error or "The connected group could not be verified.")
+        connected_group = (getattr(group, "title", "Telegram group"), int(group.id))
     return _screen(chat_id, section, query=query, category=category, page=page,
-                   connected_dm=connected_dm, bot_can_delete_messages=can_delete)
+                   connected_dm=connected_dm, connected_group=connected_group,
+                   bot_can_delete_messages=can_delete)
 
 
-_PATTERN=r"^settings:-?[0-9]{1,20}:(?:tab:(?:home|music|welcome|safety|moderation|retention|blocklist|presets|sessions|automations|commands|more)|commands:(?:all|manage|music|tools):[0-9]{1,3}|filters:(?:add|manage)|cmd:[a-z][a-z0-9_]{0,31}:(?:on|off)|(?:music_requests_enabled|music_approval_required|music_shuffle_enabled|welcome_enabled|goodbye_enabled|captcha_enabled|antispam|gemini_guardian_enabled|lock_[a-z_]+):(?:on|off)|antispam:edit|captcha:edit|welcome_text:edit|goodbye_text:edit|rules_text:(?:edit|clear)|welcome_media:(?:edit|clear)|welcome_buttons:edit|raid:(?:on|off)|warn_threshold:(?:edit|2|3|5|10)|warn_escalation:edit|retention:[a-z_]+:(?:30|90|180|365|off)|blocklist:(?:add:(?:track|artist)|remove:[1-9][0-9]?)|preset:(?:save|apply:[1-9][0-9]?|delete:[1-9][0-9]?)|session:(?:schedule|cancel:[A-Za-z0-9]+)|approved:(?:list|add|page:[0-9]{1,6}|remove:[1-9][0-9]{0,18})|reset:(?:music|welcome|safety|moderation|blocklist|presets)|resetconfirm:(?:music|welcome|safety|moderation|blocklist|presets):[a-f0-9]{12}|refresh):v[0-9]{1,12}$"
+@bot.on_callback_query(filters.regex(r"^connected_settings:open$"))
+async def connected_settings_open(client, query):
+    message, actor = getattr(query, "message", None), getattr(query, "from_user", None)
+    if (message is None or actor is None or base.chat_kind(message) != "private"
+            or int(message.chat.id) != int(actor.id)):
+        return await query.answer("Open connected-group settings in your own private chat.", show_alert=True)
+    from videl.app.connections import connected_target
+    group, error = await connected_target(client, int(actor.id))
+    if group is None or error:
+        return await query.answer(error or "The connected group could not be verified.", show_alert=True)
+    screen = _screen(int(group.id), "home", connected_dm=True,
+        connected_group=(getattr(group, "title", "Telegram group"), int(group.id)))
+    await query.answer("Connected group selected.")
+    return await rich_edit(message, screen.html, reply_markup=screen.keyboard)
+
+
+_PATTERN=r"^settings:-?[0-9]{1,20}:(?:tab:(?:home|music|welcome|safety|moderation|retention|blocklist|presets|sessions|automations|commands|locks|more)|commands:(?:all|manage|music|tools):[0-9]{1,3}|locks:[0-9]{1,2}|filters:(?:add|manage)|cmd:[a-z][a-z0-9_]{0,31}:(?:on|off)|(?:music_requests_enabled|music_approval_required|music_shuffle_enabled|welcome_enabled|goodbye_enabled|captcha_enabled|antispam|gemini_guardian_enabled|lock_[a-z_]+):(?:on|off)|antispam:edit|captcha:edit|welcome_text:edit|goodbye_text:edit|rules_text:(?:edit|clear)|welcome_media:(?:edit|clear)|welcome_buttons:edit|raid:(?:on|off)|warn_threshold:(?:edit|2|3|5|10)|warn_escalation:edit|retention:[a-z_]+:(?:30|90|180|365|off)|blocklist:(?:add:(?:track|artist)|remove:[1-9][0-9]?)|preset:(?:save|apply:[1-9][0-9]?|delete:[1-9][0-9]?)|session:(?:schedule|cancel:[A-Za-z0-9]+)|approved:(?:list|add|page:[0-9]{1,6}|remove:[1-9][0-9]{0,18})|reset:(?:music|welcome|safety|moderation|blocklist|presets)|resetconfirm:(?:music|welcome|safety|moderation|blocklist|presets):[a-f0-9]{12}|refresh):v[0-9]{1,12}$"
 @bot.on_callback_query(filters.regex(_PATTERN))
 async def settings_callback(client,query):
     message=getattr(query,"message",None); actor=getattr(query,"from_user",None)
@@ -710,6 +777,8 @@ async def settings_callback(client,query):
         if len(parts)==4 and parts[2]=="tab" and parts[3] in _TABS: section=parts[3]
         elif len(parts)==5 and parts[2]=="commands" and parts[3] in {"all","manage","music","tools"} and parts[4].isdecimal():
             section,category,page="commands",parts[3],min(int(parts[4]),999)
+        elif len(parts)==4 and parts[2]=="locks" and parts[3].isdecimal():
+            section,page="locks",min(int(parts[3]),99)
         elif len(parts)==4 and parts[2]=="filters" and parts[3] in {"add", "manage"}:
             key, value, section = ("__filters_add__" if parts[3] == "add" else "__filters_manage__"), None, "automations"
         elif len(parts)==5 and parts[2]=="cmd" and parts[4] in {"on","off"}:
@@ -720,7 +789,7 @@ async def settings_callback(client,query):
             workflow={"welcome_text":"welcome_text","goodbye_text":"goodbye_text","rules_text":"rules_text","welcome_media":"welcome_media","welcome_buttons":"welcome_buttons"}[parts[2]]
             key,value,section="__welcome_flow_start__",workflow,"welcome"
         elif len(parts)==4 and parts[2] in ({k for values in _TOGGLES.values() for _,k,_ in values}|_LOCK_KEYS) and parts[3] in {"on","off"}:
-            key,value=parts[2],parts[3]=="on"; section="safety" if key in {"antispam", "gemini_guardian_enabled"} or key in _LOCK_KEYS else ("music" if key.startswith("music_") else "welcome")
+            key,value=parts[2],parts[3]=="on"; section=("locks" if key in _LOCK_KEYS else "safety" if key in {"antispam", "gemini_guardian_enabled"} else ("music" if key.startswith("music_") else "welcome"))
         elif len(parts)==4 and parts[2]=="raid" and parts[3] in {"on","off"}:
             from videl.utils.raid import normalize
             value=normalize(base.get_setting(chat_id,"raid_mode",{})); value["enabled"]=parts[3]=="on"; key,section="raid_mode","safety"
@@ -773,7 +842,7 @@ async def settings_callback(client,query):
         settings_store.check(chat_id,expected_revision)
     except SettingsConflict:
         await query.answer("Settings changed since this panel was opened. Review the refreshed values.",show_alert=True)
-        fresh=await _settings_screen(client, chat_id,section,category=category,page=page,connected_dm=connected_dm)
+        fresh=await _settings_screen(client, chat_id,section,category=category,page=page,connected_dm=connected_dm, actor_id=int(actor.id))
         return await rich_edit(message,fresh.html,reply_markup=fresh.keyboard)
     if key in {"__filters_add__", "__filters_manage__"}:
         from videl.plugins import notes
@@ -895,7 +964,7 @@ async def settings_callback(client,query):
         from videl.utils.gemini import configured
         if not configured():
             await query.answer("Gemini is not configured; this option remains off.", show_alert=True)
-            fresh = await _settings_screen(client, chat_id, section, category=category, page=page, connected_dm=connected_dm)
+            fresh = await _settings_screen(client, chat_id, section, category=category, page=page, connected_dm=connected_dm, actor_id=int(actor.id))
             return await rich_edit(message, fresh.html, reply_markup=fresh.keyboard)
     if key=="__reset_preview__":
         preview=_reset_confirmation(chat_id,value)
@@ -910,7 +979,7 @@ async def settings_callback(client,query):
         _,defaults=_reset_values(chat_id,reset_category)
         if not base.set_settings(chat_id,defaults,expected_revision=expected_revision):
             await query.answer("Reset not applied. Settings may have changed; refresh and review again.",show_alert=True)
-            fresh=await _settings_screen(client, chat_id,reset_category,connected_dm=connected_dm)
+            fresh=await _settings_screen(client, chat_id,reset_category,connected_dm=connected_dm, actor_id=int(actor.id))
             return await rich_edit(message,fresh.html,reply_markup=fresh.keyboard)
         if reset_category=="safety":
             from videl.utils.raid import clear
@@ -920,7 +989,7 @@ async def settings_callback(client,query):
             await asyncio.to_thread(record_bot,chat_id,"settings",action="settings_reset",detail=f"category={reset_category}; keys={','.join(defaults)}",actor=int(actor.id))
         except Exception: pass
         await query.answer("Section reset and audited.")
-        fresh=await _settings_screen(client, chat_id,reset_category,connected_dm=connected_dm)
+        fresh=await _settings_screen(client, chat_id,reset_category,connected_dm=connected_dm, actor_id=int(actor.id))
         return await rich_edit(message,fresh.html,reply_markup=fresh.keyboard)
     if connected_dm and section == "sessions" and key == "__session_schedule__":
         try:
@@ -970,7 +1039,7 @@ async def settings_callback(client,query):
         try: settings_store.write(chat_id,{},expected=expected_revision)
         except SettingsConflict:
             await query.answer("Settings changed; refresh before changing command switches.",show_alert=True)
-            fresh=await _settings_screen(client, chat_id,section,category=category,page=page,connected_dm=connected_dm)
+            fresh=await _settings_screen(client, chat_id,section,category=category,page=page,connected_dm=connected_dm, actor_id=int(actor.id))
             return await rich_edit(message,fresh.html,reply_markup=fresh.keyboard)
         name,enable=value
         from videl.utils.command_catalog import commands as registered_commands
@@ -997,7 +1066,7 @@ async def settings_callback(client,query):
         try: await asyncio.to_thread(settings_store.write,chat_id,{},expected=expected_revision)
         except SettingsConflict:
             await query.answer("Settings changed; refresh before cancelling this session.",show_alert=True)
-            fresh=await _settings_screen(client, chat_id,section,category=category,page=page,connected_dm=connected_dm)
+            fresh=await _settings_screen(client, chat_id,section,category=category,page=page,connected_dm=connected_dm, actor_id=int(actor.id))
             return await rich_edit(message,fresh.html,reply_markup=fresh.keyboard)
         if not await asyncio.to_thread(cancel,get_db(),chat_id,value): return await query.answer("Session not found or already started.",show_alert=True)
         key=None
@@ -1036,7 +1105,7 @@ async def settings_callback(client,query):
         try: await asyncio.to_thread(settings_store.write,chat_id,{},expected=expected_revision)
         except SettingsConflict:
             await query.answer("Settings changed; refresh and review retention before retrying.",show_alert=True)
-            fresh=await _settings_screen(client, chat_id,section,category=category,page=page,connected_dm=connected_dm)
+            fresh=await _settings_screen(client, chat_id,section,category=category,page=page,connected_dm=connected_dm, actor_id=int(actor.id))
             return await rich_edit(message,fresh.html,reply_markup=fresh.keyboard)
         saved=await asyncio.to_thread(save,get_db(),chat_id,cat,days)
         if saved is None: return await query.answer("Retention could not be saved.",show_alert=True)
@@ -1052,7 +1121,7 @@ async def settings_callback(client,query):
             await asyncio.to_thread(record_bot,chat_id,"settings",action="group_setting",detail=f"{key}={value}",actor=int(actor.id))
         except Exception: pass
     await query.answer("Settings refreshed." if key is None else "Setting saved.")
-    screen=await _settings_screen(client, chat_id,section,category=category,page=page,connected_dm=connected_dm); await rich_edit(message,screen.html,reply_markup=screen.keyboard)
+    screen=await _settings_screen(client, chat_id,section,category=category,page=page,connected_dm=connected_dm, actor_id=int(actor.id)); await rich_edit(message,screen.html,reply_markup=screen.keyboard)
 
 @bot.on_callback_query(filters.regex(_WARN_CALLBACK))
 async def warn_threshold_editor_callback(client, query):
@@ -1514,7 +1583,7 @@ async def connected_approved_action_callback(client, query):
     if action.endswith("edit"):
         await interaction_engine.cancel(token, chat_id=interaction_chat_id, actor_id=actor_id)
         await query.answer("Reopen the approved-member list to edit this draft.")
-        screen = await _settings_screen(client, target_chat_id, "safety", connected_dm=True)
+        screen = await _settings_screen(client, target_chat_id, "safety", connected_dm=True, actor_id=actor_id)
         return await rich_edit(message, screen.html, reply_markup=screen.keyboard)
 
     async def authorize(target_id, user_id):
@@ -2368,7 +2437,7 @@ async def antispam_settings_callback(client, query):
         except SettingsConflict:
             await engine.cancel(token, chat_id=interaction_chat_id, actor_id=actor_id)
             await query.answer("Settings changed elsewhere. No anti-flood values were saved.", show_alert=True)
-            fresh = await _settings_screen(client, target_chat_id, "safety", connected_dm=connected_dm)
+            fresh = await _settings_screen(client, target_chat_id, "safety", connected_dm=connected_dm, actor_id=int(actor.id))
             return await rich_edit(message, fresh.html, reply_markup=fresh.keyboard)
         await query.answer("Could not save anti-flood settings; nothing was reported as saved. Retry from this preview.", show_alert=True)
         return
