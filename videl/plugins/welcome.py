@@ -72,105 +72,180 @@ def preview_welcome_template(template: str, chat) -> str:
 
 from videl.utils.interactive_settings import Step, engine as _interaction_engine
 
+_WELCOME_MEDIA_TYPES = ("photo", "video", "animation", "document", "audio", "voice")
+_WELCOME_WORKFLOWS = {"welcome_text", "welcome_media", "welcome_buttons"}
 
-async def start_welcome_edit(client, chat_id: int, actor_id: int, revision: int) -> str:
-    """Start the real /settings → Welcome text reply workflow."""
+
+def _welcome_markup(chat_id: int, links=None):
+    from videl.utils.welcome_checklist import safe_stored
+    current = safe_stored(base.get_setting(chat_id, "welcome_checklist", []) if links is None else links)
+    from videl.utils.member_faq import normalize as normalize_faq
+    faq_items = normalize_faq(base.get_setting(chat_id, "welcome_faq", []))
+    rows = [[button(item["label"], url=item["url"])] for item in current]
+    if faq_items:
+        rows.append([button("New-member FAQ", callback_data=f"faq:open:{chat_id}")])
+    return InlineKeyboardMarkup(rows) if rows else None
+
+
+def _preview_markup(chat_id: int, token: str, links=None) -> InlineKeyboardMarkup:
+    existing = _welcome_markup(chat_id, links)
+    rows = [list(row) for row in existing.inline_keyboard] if existing else []
+    rows.append([
+        button("Edit Again", callback_data=f"welcome_edit:{token}:edit"),
+        button("Save", callback_data=f"welcome_edit:{token}:save", style="primary"),
+        button("Cancel", callback_data=f"welcome_edit:{token}:cancel", style="danger"),
+    ])
+    return InlineKeyboardMarkup(rows)
+
+
+def _media_from_message(message):
+    for kind in _WELCOME_MEDIA_TYPES:
+        item = getattr(message, kind, None)
+        if item is not None and getattr(item, "file_id", None):
+            return {"type": kind, "file_id": str(item.file_id)}
+    return None
+
+
+def _stored_welcome_media(chat_id: int):
+    value = base.get_setting(chat_id, "welcome_media", None)
+    try:
+        return Step("media", "", kind="media", required=False).validate(value)
+    except ValueError:
+        return None
+
+
+async def start_welcome_workflow(client, chat_id: int, actor_id: int, revision: int, workflow: str) -> str:
+    """Start one isolated, revision-bound Welcome Settings conversation."""
+    if workflow not in _WELCOME_WORKFLOWS:
+        raise ValueError("Unknown Welcome Settings workflow")
+    if workflow == "welcome_text":
+        step = Step("welcome_message", "Send welcome text", max_length=1000)
+        prompt_text = (
+            "Reply with the new welcome text (up to 1,000 characters). Supported placeholders: "
+            "<code>{name}</code>, <code>{id}</code>, <code>{title}</code>, <code>{mention}</code>. "
+            "Send <code>/cancel</code> to stop."
+        )
+    elif workflow == "welcome_media":
+        step = Step("welcome_media", "Send supported media", kind="media", required=False)
+        prompt_text = (
+            "Reply with a photo, video, animation, document, audio, or voice message to use with the welcome. "
+            "Send <code>/clear</code> to remove existing media, or <code>/cancel</code> to leave settings unchanged."
+        )
+    else:
+        step = Step("welcome_checklist", "Send checklist button links", max_length=4096)
+        prompt_text = (
+            "Reply with up to four HTTPS buttons, one per line: "
+            "<code>Label | https://example.com</code>. This edits the existing welcome checklist; "
+            "send <code>/clear</code> to remove its links, or <code>/cancel</code> to stop."
+        )
     session = await _interaction_engine.begin(
         chat_id=chat_id, actor_id=actor_id, target_chat_id=chat_id,
-        workflow="welcome_text", revision=revision,
-        steps=(Step("welcome_message", "Send the welcome text. Supported placeholders: {name}, {id}, {title}, {mention}.", max_length=1000),),
-        timeout_seconds=600,
+        workflow=workflow, revision=revision, steps=(step,), timeout_seconds=600,
     )
     try:
-        prompt = await client.send_message(
-            chat_id,
-            "Reply to this prompt with the new welcome text (up to 1,000 characters). "
-            "Supported placeholders: <code>{name}</code>, <code>{id}</code>, "
-            "<code>{title}</code>, <code>{mention}</code>. Send <code>/cancel</code> to stop.",
-            reply_markup=ForceReply(selective=True),
-        )
+        prompt = await client.send_message(chat_id, prompt_text, reply_markup=ForceReply(selective=True))
         await _interaction_engine.bind_prompt(session.token, chat_id=chat_id, actor_id=actor_id, message_id=prompt.id)
     except Exception:
         await _interaction_engine.cancel(session.token, chat_id=chat_id, actor_id=actor_id)
-        raise RuntimeError("Could not send the welcome-text prompt; no settings changed.") from None
-    return "Reply to the welcome-text prompt to continue. Nothing is saved until you confirm."
-
-
-def _welcome_preview_keyboard(token: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup([[
-        button("Edit Again", callback_data=f"welcome_edit:{token}:edit"),
-        button("Save", callback_data=f"welcome_edit:{token}:save", style="success"),
-        button("Cancel", callback_data=f"welcome_edit:{token}:cancel", style="danger"),
-    ]])
+        raise RuntimeError("Could not send the Welcome Settings prompt; no settings changed.") from None
+    return "Reply to the prompt to continue. Nothing is saved until you confirm the preview."
 
 
 async def _send_welcome_prompt(client, session) -> None:
-    step = session.current_step
-    if step is None:
-        return
-    prompt = await client.send_message(
-        session.chat_id,
-        "Reply with the welcome text. Supported placeholders: <code>{name}</code>, "
-        "<code>{id}</code>, <code>{title}</code>, <code>{mention}</code>. "
-        "Send <code>/cancel</code> to stop.",
-        reply_markup=ForceReply(selective=True),
-    )
-    await _interaction_engine.bind_prompt(session.token, chat_id=session.chat_id,
-                                          actor_id=session.actor_id, message_id=prompt.id)
+    workflow = session.workflow
+    prompt_text = {
+        "welcome_text": "Reply with welcome text using only {name}, {id}, {title}, or {mention}. Send /cancel to stop.",
+        "welcome_media": "Reply with a photo, video, animation, document, audio, voice message, or /clear to remove media. Send /cancel to stop.",
+        "welcome_buttons": "Reply with up to four HTTPS buttons as Label | https://example.com, one per line; /clear removes checklist links. Send /cancel to stop.",
+    }.get(workflow)
+    if prompt_text:
+        prompt = await client.send_message(session.chat_id, prompt_text, reply_markup=ForceReply(selective=True))
+        await _interaction_engine.bind_prompt(session.token, chat_id=session.chat_id,
+                                              actor_id=session.actor_id, message_id=prompt.id)
 
 
-@bot.on_message(filters.incoming & filters.text, group=1)
+@bot.on_message(filters.incoming, group=1)
 async def welcome_edit_message(client, message) -> None:
     if not base.is_group(message) or getattr(message, "from_user", None) is None:
         return
     chat_id, actor_id = int(message.chat.id), int(message.from_user.id)
     session = await _interaction_engine.for_owner(chat_id=chat_id, actor_id=actor_id, target_chat_id=chat_id)
-    if session is None or session.workflow != "welcome_text":
+    if session is None or session.workflow not in _WELCOME_WORKFLOWS:
         return
     text = str(getattr(message, "text", "") or "")
     command = text.strip().split(maxsplit=1)[0].split("@", 1)[0].casefold() if text.strip() else ""
     if command == "/cancel":
         if await _interaction_engine.cancel(session.token, chat_id=chat_id, actor_id=actor_id):
-            await client.send_message(chat_id, "Welcome-text editing cancelled. Nothing was saved.")
+            await client.send_message(chat_id, "Welcome editing cancelled. Nothing was saved.")
         return
     if getattr(getattr(message, "reply_to_message", None), "id", None) != session.expected_message_id:
         return
-    try:
-        accepted_text = validate_welcome_template(text)
-    except ValueError as error:
+
+    if session.workflow == "welcome_text":
         try:
+            value = validate_welcome_template(text)
+        except ValueError as error:
             await _send_welcome_prompt(client, session)
             await client.send_message(chat_id, str(error))
-        except Exception:
-            await _interaction_engine.cancel(session.token, chat_id=chat_id, actor_id=actor_id)
-            await client.send_message(chat_id, "Welcome-text editing ended because the next prompt could not be sent. Nothing was saved.")
-        return
+            return
+    elif session.workflow == "welcome_media":
+        value = None if command == "/clear" else _media_from_message(message)
+        if value is None and command != "/clear":
+            await _send_welcome_prompt(client, session)
+            await client.send_message(chat_id, "That media type is not supported here. Send a photo, video, animation, document, audio, or voice message.")
+            return
+    else:
+        if command == "/clear":
+            value = "/clear"
+        else:
+            from videl.utils.welcome_checklist import validate
+            try:
+                validate(text)
+            except ValueError as error:
+                await _send_welcome_prompt(client, session)
+                await client.send_message(chat_id, str(error))
+                return
+            value = text
+
     result = await _interaction_engine.capture(
         session.token, chat_id=chat_id, actor_id=actor_id, target_chat_id=chat_id,
-        reply_to_message_id=getattr(getattr(message, "reply_to_message", None), "id", None), value=accepted_text,
+        reply_to_message_id=getattr(getattr(message, "reply_to_message", None), "id", None), value=value,
     )
-    if result.status == "stale":
-        return
-    if result.status in {"expired", "unauthorized"}:
+    if result.status in {"stale", "expired", "unauthorized"}:
         return
     if result.status == "invalid":
-        try:
-            await _send_welcome_prompt(client, result.session)
-            await client.send_message(chat_id, result.error)
-        except Exception:
-            await _interaction_engine.cancel(session.token, chat_id=chat_id, actor_id=actor_id)
-            await client.send_message(chat_id, "Welcome-text editing ended because the next prompt could not be sent. Nothing was saved.")
+        await _send_welcome_prompt(client, result.session)
+        await client.send_message(chat_id, result.error or "That value is invalid.")
         return
-    if result.status == "preview":
-        try:
-            rendered = preview_welcome_template(result.session.values["welcome_message"], message.chat)
-            preview = await client.send_message(chat_id, rendered,
-                                                reply_markup=_welcome_preview_keyboard(result.session.token))
-            await _interaction_engine.bind_prompt(result.session.token, chat_id=chat_id,
-                                                  actor_id=actor_id, message_id=preview.id)
-        except Exception:
-            await _interaction_engine.cancel(session.token, chat_id=chat_id, actor_id=actor_id)
-            await client.send_message(chat_id, "Could not render the preview; nothing was saved. Start again from /settings → Welcome.")
+    if result.status != "preview":
+        return
+    try:
+        current_template = base.get_setting(chat_id, "welcome_message", DEFAULT_WELCOME)
+        current_media = _stored_welcome_media(chat_id)
+        from videl.utils.welcome_checklist import safe_stored, validate
+        current_links = safe_stored(base.get_setting(chat_id, "welcome_checklist", []))
+        template, media, links = current_template, current_media, current_links
+        if result.session.workflow == "welcome_text":
+            template = result.session.values["welcome_message"]
+        elif result.session.workflow == "welcome_media":
+            media = result.session.values["welcome_media"]
+        else:
+            raw_links = result.session.values["welcome_checklist"]
+            links = [] if raw_links == "/clear" else validate(raw_links)
+        rendered = preview_welcome_template(template, message.chat)
+        markup = _preview_markup(chat_id, result.session.token, links)
+        if media:
+            method = getattr(client, f"send_{media['type']}", None)
+            if method is None:
+                raise ValueError("This media method is unavailable in the Telegram client.")
+            preview = await method(chat_id, media["file_id"], caption=rendered, reply_markup=markup)
+        else:
+            preview = await client.send_message(chat_id, rendered, reply_markup=markup)
+        await _interaction_engine.bind_prompt(result.session.token, chat_id=chat_id,
+                                              actor_id=actor_id, message_id=preview.id)
+    except Exception:
+        await _interaction_engine.cancel(session.token, chat_id=chat_id, actor_id=actor_id)
+        await client.send_message(chat_id, "Could not render the Welcome preview; nothing was saved. Start again from /settings → Welcome.")
 
 
 @bot.on_callback_query(filters.regex(r"^welcome_edit:[A-Za-z0-9_-]{1,24}:(?:edit|save|cancel)$"))
@@ -187,13 +262,13 @@ async def welcome_edit_callback(client, query: CallbackQuery) -> None:
         return
     chat_id, actor_id = int(message.chat.id), int(actor.id)
     session = await _interaction_engine.get(token, chat_id=chat_id, actor_id=actor_id, target_chat_id=chat_id)
-    if session is None or session.workflow != "welcome_text":
+    if session is None or session.workflow not in _WELCOME_WORKFLOWS:
         await query.answer("This welcome edit expired or belongs to another admin. Nothing was saved.", show_alert=True)
         return
     if action == "cancel":
         await _interaction_engine.cancel(token, chat_id=chat_id, actor_id=actor_id)
         await query.answer("Cancelled; nothing was saved.")
-        await rich_edit(message, heading("Welcome text edit cancelled", 3) + body("Nothing was saved. Reopen /settings → Welcome to start again."), reply_markup=None)
+        await rich_edit(message, heading("Welcome edit cancelled", 3) + body("Nothing was saved. Reopen /settings → Welcome to start again."), reply_markup=None)
         return
     if action == "edit":
         edited = await _interaction_engine.edit_again(token, chat_id=chat_id, actor_id=actor_id, message_id=message.id)
@@ -201,7 +276,7 @@ async def welcome_edit_callback(client, query: CallbackQuery) -> None:
             await query.answer("This preview is no longer active.", show_alert=True)
             return
         try:
-            await rich_edit(message, heading("Edit welcome text again", 3) + body("Reply to the next prompt. Nothing has been saved."), reply_markup=None)
+            await rich_edit(message, heading("Edit Welcome settings again", 3) + body("Reply to the next prompt. Nothing has been saved."), reply_markup=None)
             await _send_welcome_prompt(client, edited)
             await query.answer("Reply to the prompt to edit again.")
         except Exception:
@@ -209,6 +284,11 @@ async def welcome_edit_callback(client, query: CallbackQuery) -> None:
             await query.answer("Could not restart the editor; nothing was saved.", show_alert=True)
         return
 
+    field_by_workflow = {
+        "welcome_text": "welcome_message",
+        "welcome_media": "welcome_media",
+        "welcome_buttons": "welcome_checklist",
+    }
     async def authorize(target_chat_id: int, user_id: int) -> bool:
         try:
             member = await client.get_chat_member(target_chat_id, user_id)
@@ -220,10 +300,13 @@ async def welcome_edit_callback(client, query: CallbackQuery) -> None:
     save_issue = {"conflict": False}
     async def save(snapshot) -> bool:
         from videl.utils.settings_store import SettingsConflict, write
+        value = snapshot.values[field_by_workflow[snapshot.workflow]]
+        if snapshot.workflow == "welcome_buttons":
+            from videl.utils.welcome_checklist import validate
+            value = [] if value == "/clear" else validate(value)
         try:
             await asyncio.to_thread(write, snapshot.target_chat_id,
-                                    {"welcome_message": snapshot.values["welcome_message"]},
-                                    snapshot.revision)
+                                    {field_by_workflow[snapshot.workflow]: value}, snapshot.revision)
             return True
         except SettingsConflict:
             save_issue["conflict"] = True
@@ -235,15 +318,17 @@ async def welcome_edit_callback(client, query: CallbackQuery) -> None:
         token, chat_id=chat_id, actor_id=actor_id, target_chat_id=chat_id,
         message_id=int(message.id), authorize=authorize, save=save,
     )
+    labels = {"welcome_text": "Welcome text", "welcome_media": "Welcome media", "welcome_buttons": "Welcome checklist buttons"}
+    label = labels[session.workflow]
     if outcome == "saved":
-        await query.answer("Welcome text saved.")
-        await rich_edit(message, heading("Welcome text saved", 3)
-                        + body("The new template is now stored. Delivery still follows the current welcome-enabled setting."),
+        await query.answer(f"{label} saved.")
+        await rich_edit(message, heading(f"{label} saved", 3)
+                        + body("The new configuration is stored. Delivery still follows the current welcome-enabled setting."),
                         reply_markup=None)
     elif outcome == "permission_denied":
         await _interaction_engine.cancel(token, chat_id=chat_id, actor_id=actor_id)
         await query.answer("Current group-admin permission could not be verified. Nothing was saved.", show_alert=True)
-        await rich_edit(message, heading("Welcome text not saved", 3)
+        await rich_edit(message, heading("Welcome settings not saved", 3)
                         + body("Your current group-admin permission could not be verified. Reopen settings if your access is restored."), reply_markup=None)
     elif outcome == "save_failed" and save_issue["conflict"]:
         await _interaction_engine.cancel(token, chat_id=chat_id, actor_id=actor_id)
@@ -252,7 +337,7 @@ async def welcome_edit_callback(client, query: CallbackQuery) -> None:
         latest = settings_plugin._screen(chat_id, "welcome")
         await rich_edit(message, latest.html, reply_markup=latest.keyboard)
     elif outcome == "save_failed":
-        await query.answer("Could not save the welcome text. Nothing was reported as saved; you can retry.", show_alert=True)
+        await query.answer("Could not save the Welcome setting. Nothing was reported as saved; you can retry.", show_alert=True)
     elif outcome == "expired":
         await query.answer("This edit expired. Nothing was saved.", show_alert=True)
     elif outcome in {"unauthorized", "stale"}:
@@ -545,19 +630,29 @@ async def welcome_handler(_, message) -> None:
                         LOGGER.debug("Raid-mode announcement failed", exc_info=True)
         if not onboarding_paused and base.get_setting(message.chat.id, "welcome_enabled", True):
             template = base.get_setting(message.chat.id, "welcome_message", DEFAULT_WELCOME)
-            from videl.utils.welcome_checklist import safe_stored
-            links = safe_stored(base.get_setting(message.chat.id, "welcome_checklist", []))
-            safe_buttons = [button(item["label"], url=item["url"]) for item in links]
-            from videl.utils.member_faq import normalize as normalize_faq
-            faq_items = normalize_faq(base.get_setting(message.chat.id, "welcome_faq", []))
-            checklist_rows = [[item] for item in safe_buttons]
-            if faq_items:
-                checklist_rows.append([button("New-member FAQ", callback_data=f"faq:open:{message.chat.id}")])
-            markup = InlineKeyboardMarkup(checklist_rows) if checklist_rows else None
+            markup = _welcome_markup(message.chat.id)
+            rendered = _render(template, member, message.chat)
+            media = _stored_welcome_media(message.chat.id)
             try:
-                await bot.send_message(message.chat.id, _render(template, member, message.chat), reply_markup=markup)
-            except Exception:
-                LOGGER.debug("Welcome delivery failed", exc_info=True)
+                if media:
+                    send_media = getattr(bot, f"send_{media['type']}", None)
+                    if send_media is None:
+                        raise RuntimeError("Configured welcome media method is unavailable")
+                    await send_media(message.chat.id, media["file_id"], caption=rendered, reply_markup=markup)
+                else:
+                    await bot.send_message(message.chat.id, rendered, reply_markup=markup)
+            except Exception as error:
+                # Only a definite Telegram rejection is safe to fall back from;
+                # retrying after a transport timeout could duplicate a greeting.
+                from pyrogram.errors import BadRequest, Forbidden
+                if media and isinstance(error, (BadRequest, Forbidden)):
+                    LOGGER.warning("Telegram rejected welcome media; sending text-only fallback: %s", type(error).__name__)
+                    try:
+                        await bot.send_message(message.chat.id, rendered, reply_markup=markup)
+                    except Exception:
+                        LOGGER.debug("Welcome delivery fallback failed", exc_info=True)
+                else:
+                    LOGGER.debug("Welcome delivery failed without retry", exc_info=True)
         if (
             not getattr(member, "is_bot", False)
             and not onboarding_paused

@@ -42,6 +42,7 @@ class InteractionEngineTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(Step("x", "", "text", max_length=3).validate(" abc "), "abc")
         self.assertEqual(Step("x", "", "media").validate({"type": "photo", "file_id": "f1"}),
                          {"type": "photo", "file_id": "f1"})
+        self.assertIsNone(Step("x", "", "media", required=False).validate(None))
         self.assertEqual(Step("x", "", "url").validate("https://example.org/path"), "https://example.org/path")
         self.assertEqual(Step("x", "", "number", minimum=1, maximum=10).validate("5"), 5)
         self.assertEqual(Step("x", "", "duration", maximum=3600).validate("30m"), 1800)

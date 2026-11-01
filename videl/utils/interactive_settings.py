@@ -48,7 +48,9 @@ class Step:
                 raise InputError(f"Keep this value to {self.max_length} characters or fewer.")
             return value
         if self.kind == "media":
-            if not isinstance(value, Mapping) or value.get("type") not in _ALLOWED_MEDIA or not isinstance(value.get("file_id"), str) or not value["file_id"]:
+            if value is None and not self.required:
+                return None
+            if not isinstance(value, Mapping) or value.get("type") not in _ALLOWED_MEDIA or not isinstance(value.get("file_id"), str) or not value["file_id"] or len(value["file_id"]) > 512 or any(char.isspace() for char in value["file_id"]):
                 raise InputError("Send a supported Telegram photo, video, animation, document, audio, voice, video note, or sticker.")
             return {"type": value["type"], "file_id": value["file_id"]}
         if self.kind == "url":

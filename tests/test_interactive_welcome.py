@@ -35,22 +35,30 @@ class InteractiveWelcomeTelegramTests(unittest.IsolatedAsyncioTestCase):
     def callback(self, action, revision=0):
         self.query.data = f"settings:{self.CHAT}:{action}:v{revision}"
 
-    async def open_welcome_settings(self):
+    async def start_workflow(self, workflow, revision=0):
         screen = settings._screen(self.CHAT, "welcome")
         rows = screen.keyboard.inline_keyboard
         button_data = [button.callback_data for row in rows for button in row if button.callback_data]
-        self.assertIn(f"settings:{self.CHAT}:welcome_text:edit:v0", button_data)
+        action = {"welcome_text": "welcome_text:edit", "welcome_media": "welcome_media:edit",
+                  "welcome_buttons": "welcome_buttons:edit"}[workflow]
+        self.assertIn(f"settings:{self.CHAT}:{action}:v{revision}", button_data)
         self.assertIn("Welcome text", screen.html)
         self.assertIn("Welcome messages", screen.html)
-        self.callback("welcome_text:edit")
+        self.callback(action, revision)
         with patch("videl.plugins.settings.rich_edit", new=AsyncMock()):
             await settings.settings_callback(self.client, self.query)
-        self.assertIn("Reply to the welcome-text prompt", self.query.answer.call_args.args[0])
+        self.assertIn("Nothing is saved until you confirm", self.query.answer.call_args.args[0])
         self.assertIsNotNone(self.client.send_message.await_args.kwargs.get("reply_markup"))
         session = await welcome._interaction_engine.for_owner(
             chat_id=self.CHAT, actor_id=self.ADMIN, target_chat_id=self.CHAT)
-        self.assertEqual(session.workflow, "welcome_text")
+        self.assertEqual(session.workflow, workflow)
         return session
+
+    async def open_welcome_settings(self):
+        screen = settings._screen(self.CHAT, "welcome")
+        self.assertIn("Welcome media", screen.html)
+        self.assertIn("Welcome buttons", screen.html)
+        return await self.start_workflow("welcome_text")
 
     async def submit_text(self, session, text, *, actor_id=None, chat_id=None, reply_id=None):
         message = SimpleNamespace(
@@ -197,6 +205,99 @@ class InteractiveWelcomeTelegramTests(unittest.IsolatedAsyncioTestCase):
                                                                  actor_id=self.ADMIN, target_chat_id=-1007654321))
         self.assertIsNotNone(await welcome._interaction_engine.get(other_group.token, chat_id=-1007654321,
                                                                      actor_id=self.ADMIN, target_chat_id=-1007654321))
+
+    async def test_media_is_previewed_saved_and_can_be_cleared(self):
+        photo = SimpleNamespace(file_id="telegram-photo-file-id")
+        self.client.send_photo = AsyncMock(return_value=SimpleNamespace(id=300))
+        session = await self.start_workflow("welcome_media")
+        message = SimpleNamespace(chat=self.group, from_user=self.admin, text=None, photo=photo,
+                                  video=None, animation=None, document=None, audio=None, voice=None,
+                                  reply_to_message=SimpleNamespace(id=session.expected_message_id))
+        await welcome.welcome_edit_message(self.client, message)
+        self.client.send_photo.assert_awaited_once()
+        self.assertEqual(self.client.send_photo.await_args.args[1], "telegram-photo-file-id")
+        self.assertEqual(self.client.send_photo.await_args.kwargs["caption"], "Welcome Alex to Test Group!")
+        keyboard = self.client.send_photo.await_args.kwargs["reply_markup"].inline_keyboard
+        controls = keyboard[-1]
+        self.assertEqual(controls[1].style.value, "primary")
+        self.assertEqual(controls[2].style.value, "danger")
+        preview_session = await welcome._interaction_engine.get(session.token, chat_id=self.CHAT,
+                                                                   actor_id=self.ADMIN, target_chat_id=self.CHAT)
+        query = self.callback_for_session(preview_session, "save")
+        with patch.object(welcome, "rich_edit", new=AsyncMock()):
+            await welcome.welcome_edit_callback(self.client, query)
+        saved = self.db["mgmt_chat_settings"].find_one({"chat_id": self.CHAT})
+        self.assertEqual(saved["welcome_media"], {"type": "photo", "file_id": "telegram-photo-file-id"})
+        self.assertEqual(saved["revision"], 1)
+
+        session = await self.start_workflow("welcome_media", revision=1)
+        clear_message = SimpleNamespace(chat=self.group, from_user=self.admin, text="/clear",
+                                        reply_to_message=SimpleNamespace(id=session.expected_message_id))
+        await welcome.welcome_edit_message(self.client, clear_message)
+        preview_session = await welcome._interaction_engine.get(session.token, chat_id=self.CHAT,
+                                                                   actor_id=self.ADMIN, target_chat_id=self.CHAT)
+        query = self.callback_for_session(preview_session, "save")
+        with patch.object(welcome, "rich_edit", new=AsyncMock()):
+            await welcome.welcome_edit_callback(self.client, query)
+        saved = self.db["mgmt_chat_settings"].find_one({"chat_id": self.CHAT})
+        self.assertIsNone(saved["welcome_media"])
+        self.assertEqual(saved["revision"], 2)
+
+    async def test_existing_checklist_buttons_use_shared_workflow_and_canonical_validator(self):
+        session = await self.start_workflow("welcome_buttons")
+        await self.submit_text(session, "Start | https://example.org/start" + chr(10) + "Rules | https://example.org/rules")
+        preview_session = await welcome._interaction_engine.get(session.token, chat_id=self.CHAT,
+                                                                   actor_id=self.ADMIN, target_chat_id=self.CHAT)
+        keyboard = self.client.send_message.await_args.kwargs["reply_markup"].inline_keyboard
+        self.assertEqual(keyboard[0][0].text, "Start")
+        self.assertEqual(keyboard[0][0].url, "https://example.org/start")
+        self.assertEqual(keyboard[-1][1].style.value, "primary")
+        query = self.callback_for_session(preview_session, "save")
+        with patch.object(welcome, "rich_edit", new=AsyncMock()):
+            await welcome.welcome_edit_callback(self.client, query)
+        saved = self.db["mgmt_chat_settings"].find_one({"chat_id": self.CHAT})
+        self.assertEqual(saved["welcome_checklist"], [
+            {"label": "Start", "url": "https://example.org/start"},
+            {"label": "Rules", "url": "https://example.org/rules"},
+        ])
+        self.assertEqual(saved["revision"], 1)
+
+    async def test_join_delivery_uses_saved_media_and_existing_checklist_buttons(self):
+        self.db["mgmt_chat_settings"].insert_one({
+            "chat_id": self.CHAT,
+            "welcome_enabled": True,
+            "welcome_message": "Hello {name} in {title}",
+            "welcome_media": {"type": "photo", "file_id": "saved-photo"},
+            "welcome_checklist": [{"label": "Read rules", "url": "https://example.org/rules"}],
+            "revision": 1,
+        })
+        member = SimpleNamespace(id=88, first_name="Sam", is_bot=False)
+        event = SimpleNamespace(chat=self.group, new_chat_members=[member])
+        with (
+            patch.object(welcome.bot, "get_me", new=AsyncMock(return_value=SimpleNamespace(id=999))),
+            patch.object(welcome.bot, "send_photo", new=AsyncMock()) as send_photo,
+            patch.object(welcome.bot, "send_message", new=AsyncMock()),
+            patch.object(welcome, "_check_lookalike", new=AsyncMock()),
+            patch("videl.utils.onboarding.record"),
+            patch("videl.utils.maintenance.is_paused", return_value=False),
+        ):
+            await welcome.welcome_handler(welcome.bot, event)
+        send_photo.assert_awaited_once()
+        self.assertEqual(send_photo.await_args.args[0], self.CHAT)
+        self.assertEqual(send_photo.await_args.args[1], "saved-photo")
+        self.assertEqual(send_photo.await_args.kwargs["caption"], "Hello Sam in Test Group")
+        markup = send_photo.await_args.kwargs["reply_markup"]
+        self.assertEqual(markup.inline_keyboard[0][0].text, "Read rules")
+        self.assertEqual(markup.inline_keyboard[0][0].url, "https://example.org/rules")
+
+    async def test_media_message_extraction_is_limited_to_existing_caption_media_methods(self):
+        for kind in welcome._WELCOME_MEDIA_TYPES:
+            with self.subTest(kind=kind):
+                media = SimpleNamespace(file_id=f"file-{kind}")
+                message = SimpleNamespace(**{name: media if name == kind else None for name in welcome._WELCOME_MEDIA_TYPES})
+                self.assertEqual(welcome._media_from_message(message), {"type": kind, "file_id": f"file-{kind}"})
+        unsupported = SimpleNamespace(photo=None, video_note=SimpleNamespace(file_id="no-caption"), sticker=None)
+        self.assertIsNone(welcome._media_from_message(unsupported))
 
     async def test_cancel_message_clears_draft(self):
         session = await self.open_welcome_settings()
