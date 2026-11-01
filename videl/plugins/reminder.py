@@ -10,15 +10,16 @@ import asyncio
 import re
 from datetime import datetime, timedelta, timezone
 
+from pyrogram import filters
 from pyrogram.types import InlineKeyboardMarkup
 from pymongo import ReturnDocument
 
 from videl import LOGGER, bot
-from videl.app.router import Command, Screen
+from videl.app.router import Command, CommandError, Screen
 from videl.plugins import base
 from videl.plugins.base import body, escape, heading, table
 from videl.utils.bot_ui import button
-from videl.utils.command_ui import usage
+from videl.utils.command_ui import rich_edit, usage
 
 COLLECTION = "plugin_reminders"
 MAX_PENDING = 20
@@ -158,7 +159,12 @@ async def remind(ctx) -> Screen:
 async def reminders(ctx) -> Screen:
     actor = getattr(ctx.message, "from_user", None)
     store = _store()
-    if actor is None or store is None:
+    if actor is None:
+        raise CommandError("Telegram could not identify your account.")
+    if (base.chat_kind(ctx.message) != "private"
+            or int(getattr(ctx.message.chat, "id", 0) or 0) != int(actor.id)):
+        raise CommandError("For privacy, list your reminders in your own private chat with Videl.")
+    if store is None:
         return Screen(heading("Reminders", 3) + body("Reminders are unavailable right now."))
     documents = await asyncio.to_thread(
         lambda: list(store.find({"user_id": actor.id, "status": "pending"}).sort("due_at", 1).limit(MAX_PENDING))
@@ -171,9 +177,46 @@ async def reminders(ctx) -> Screen:
         when = due.strftime("%d %b %H:%M UTC") if isinstance(due, datetime) else "pending"
         rows.append((when, escape(item.get("text", ""))))
     return Screen(
-        heading("Your reminders", 3) + table(rows) + body("Use <code>/forget all</code> to clear them."),
-        InlineKeyboardMarkup([[button("Clear all", callback_data="help:tools")]]),
+        heading("Your reminders", 3) + table(rows)
+        + body("These are your pending reminders across chats. Use /forget all or the button below to cancel them."),
+        InlineKeyboardMarkup([[button("Clear all", callback_data="reminders:clear", style="danger")]]),
     )
+
+
+@bot.on_callback_query(filters.regex(r"^reminders:clear$"))
+async def reminders_callback(client, query) -> None:
+    """Clear only the clicking user's pending reminders from their private panel."""
+    message = getattr(query, "message", None)
+    actor = getattr(query, "from_user", None)
+    if (message is None or actor is None or base.chat_kind(message) != "private"
+            or int(getattr(message.chat, "id", 0) or 0) != int(getattr(actor, "id", 0) or 0)):
+        return await query.answer("Open your own private reminders panel to clear reminders.", show_alert=True)
+    if getattr(query, "data", None) != "reminders:clear":
+        return await query.answer("That reminder action is invalid.", show_alert=True)
+    try:
+        bot_user = getattr(client, "me", None) or await client.get_me()
+    except Exception:
+        return await query.answer("I could not verify this reminder panel; nothing was changed.", show_alert=True)
+    if int(getattr(getattr(message, "from_user", None), "id", 0) or 0) != int(getattr(bot_user, "id", 0) or 0):
+        return await query.answer("This is not a Videl reminder panel.", show_alert=True)
+    store = _store()
+    if store is None:
+        return await query.answer("Reminders are unavailable while MongoDB is disconnected.", show_alert=True)
+    try:
+        result = await asyncio.to_thread(
+            store.delete_many, {"user_id": int(actor.id), "status": "pending"}
+        )
+        deleted = max(0, int(getattr(result, "deleted_count", 0) or 0))
+    except Exception as error:
+        LOGGER.warning("Reminder clear failed (%s); completion is unconfirmed", type(error).__name__)
+        return await query.answer("The database could not confirm the change. Check your reminder list before retrying.", show_alert=True)
+    await query.answer(f"Cancelled {deleted} pending reminder(s)." if deleted else "No pending reminders remained.")
+    text = (heading("Reminders cleared", 3)
+            + body(f"Cancelled {deleted} pending reminder(s)." if deleted else "No pending reminders remained."))
+    try:
+        await rich_edit(message, text, reply_markup=None)
+    except Exception as error:
+        LOGGER.warning("Reminder panel refresh failed after confirmed clear (%s)", type(error).__name__)
 
 
 async def forget(ctx) -> Screen:

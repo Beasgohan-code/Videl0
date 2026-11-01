@@ -244,6 +244,10 @@ Run `/connect` in a group as a current Telegram administrator. From private chat
 
 Every routed request uses the server-stored group ID, preserves the actual Telegram user, rechecks current group-admin status, and removes private reply targets. Use a username or numeric Telegram ID instead of replying to a private message.
 
+## Command-specific behavior notes
+
+`/reminders` lists the sender’s pending reminders across chats and is available only in that sender’s private chat with Videl. Its Clear all button and `/forget all` cancel only that user’s pending reminders; reminders already being delivered or already sent are not recalled.
+
 ## UI and transport exceptions
 
 Authored command feedback uses the vendored Badmunda05 Richgram helpers and native Kurigram keyboards.

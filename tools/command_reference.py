@@ -22,7 +22,9 @@ def reference():
               'Run `/connect` in a group as a current Telegram administrator. From private chat, only these registered commands are routed to that saved group:',
               '', ', '.join(f'`/{name}`' for name in remote), '',
               'Every routed request uses the server-stored group ID, preserves the actual Telegram user, rechecks current group-admin status, and removes private reply targets. Use a username or numeric Telegram ID instead of replying to a private message.', '']
-    lines += ['## UI and transport exceptions','',
+    lines += ['## Command-specific behavior notes','',
+              '`/reminders` lists the sender’s pending reminders across chats and is available only in that sender’s private chat with Videl. Its Clear all button and `/forget all` cancel only that user’s pending reminders; reminders already being delivered or already sent are not recalled.','',
+              '## UI and transport exceptions','',
               'Authored command feedback uses the vendored Badmunda05 Richgram helpers and native Kurigram keyboards.',
               'Telegram polls, media/file delivery, forwards/copies, user-authored saved notes, filters and welcome templates',
               'retain their native Telegram transport. They are not wrapped into decorative rich cards or rewritten.',

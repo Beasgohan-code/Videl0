@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from pyrogram import filters
 from pyrogram.enums import ChatType
 from pyrogram.types import InlineKeyboardMarkup
+from pymongo import ReturnDocument
 
 from videl import LOGGER, bot
 from videl.app.router import Command, Screen
@@ -90,21 +91,29 @@ async def _afk_presence(_, message) -> None:
         return
     now = time.time()
     for target in list(targets)[:4]:
+        path = f"last_notice.{int(message.chat.id)}"
+        selector = {
+            "user_id": target,
+            "$or": [
+                {path: {"$exists": False}},
+                {path: {"$lte": now - NOTICE_COOLDOWN}},
+            ],
+        }
         try:
-            document = await asyncio.to_thread(store.find_one, {"user_id": target})
+            # The cooldown claim is one atomic database operation. Concurrent
+            # workers cannot both pass a read-then-write notice check.
+            document = await asyncio.to_thread(
+                store.find_one_and_update,
+                selector,
+                {"$set": {path: now}},
+                return_document=ReturnDocument.BEFORE,
+            )
         except Exception:
-            return
+            LOGGER.debug("AFK notice cooldown claim failed", exc_info=True)
+            continue
         if not document:
             continue
-        seen = document.get("last_notice") or {}
-        if now - float(seen.get(str(message.chat.id), 0) or 0) < NOTICE_COOLDOWN:
-            continue
         try:
-            await asyncio.to_thread(
-                store.update_one,
-                {"user_id": target},
-                {"$set": {f"last_notice.{message.chat.id}": now}},
-            )
             await rich_reply(
                 message,
                 heading("Currently away", 3)

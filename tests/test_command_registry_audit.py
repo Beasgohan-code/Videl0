@@ -2,10 +2,10 @@
 import ast
 import unittest
 from pathlib import Path
-from videl.app.routes import router
+from videl.app.routes import COMMANDS as MANIFEST, router
 from videl.modules import ALL_MODULES
 from videl.plugins import COMMAND_PLUGINS
-from videl.utils.bot_commands import OWNER_COMMANDS
+from videl.utils.bot_commands import OWNER_COMMANDS, PUBLIC_COMMANDS
 from videl.utils.command_catalog import ROOT, commands
 
 
@@ -130,6 +130,32 @@ class CommandRegistryAuditTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(rows), 215)
         self.assertEqual(len(retired), 6)
         self.assertEqual(inventory - retired, live)
+        current = {row["command"]: row for row in rows if row.get("registry_status") == "live"}
+        self.assertEqual(set(current), live)
+        for entry in commands():
+            with self.subTest(runtime_inventory=entry["name"]):
+                row = current[entry["name"]]
+                self.assertEqual(row["runtime_category"], entry["category"])
+                self.assertEqual(row["catalog_context_hint"], entry["context"])
+                self.assertEqual(row["runtime_source"], entry["source"])
+                self.assertEqual(row["runtime_handler"], entry["handler"])
+                self.assertEqual(row["runtime_summary"], entry["summary"])
+                menu_scopes = []
+                if entry["name"] in {name for name, _ in PUBLIC_COMMANDS}:
+                    menu_scopes.append("public")
+                if entry["name"] in {name for name, _ in OWNER_COMMANDS}:
+                    menu_scopes.append("owner")
+                self.assertEqual(row["bot_command_menu_scopes"],
+                                 ",".join(menu_scopes) or "not in curated BotCommand menu")
+                manifest = {item.name: item for item in MANIFEST}.get(entry["name"])
+                if manifest is not None:
+                    self.assertEqual(row["runtime_auth_policy"], manifest.policy)
+                    self.assertEqual(row["runtime_required_telegram_rights"],
+                                     ",".join(manifest.rights) or "none declared")
+                    self.assertEqual(row["runtime_block_policy"], manifest.block_policy)
+        plan = (ROOT / "docs/STAGE_C_COMMAND_IMPROVEMENT_PLAN.md").read_text()
+        self.assertIn("209 live commands", plan)
+        self.assertIn("All 27 live `tools` commands", plan)
 
     async def test_removed_ai_commands_cannot_be_invoked_by_router(self):
         from types import SimpleNamespace

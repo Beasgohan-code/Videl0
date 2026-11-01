@@ -1630,8 +1630,8 @@ export const BOT_COMMANDS: BotCommand[] = [
   },
   {
     "name": "reminders",
-    "usage": "/reminders",
-    "summary": "List your pending reminders",
+    "usage": "/reminders (private chat; lists reminders across chats)",
+    "summary": "List pending reminders privately; clear them from your own chat",
     "category": "tools",
     "context": "chat",
     "owner": false
