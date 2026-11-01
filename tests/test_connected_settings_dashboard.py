@@ -23,8 +23,10 @@ class ConnectedSettingsDashboardTests(unittest.IsolatedAsyncioTestCase):
             message=SimpleNamespace(chat=SimpleNamespace(id=self.USER, type="private"), id=8),
             from_user=SimpleNamespace(id=self.USER), answer=AsyncMock(),
         )
-        self.client = SimpleNamespace(get_chat_member=AsyncMock(
-            return_value=SimpleNamespace(status="administrator")))
+        self.client = SimpleNamespace(
+            get_chat_member=AsyncMock(return_value=SimpleNamespace(status="administrator")),
+            send_message=AsyncMock(),
+        )
 
     async def test_settings_handler_uses_proxy_target_not_private_interaction_id(self):
         context = SimpleNamespace(
@@ -75,17 +77,26 @@ class ConnectedSettingsDashboardTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(saved["revision"], 0)
         self.client.get_chat_member.assert_not_awaited()
 
-    async def test_crafted_dm_prompt_callback_is_rejected_before_mutation(self):
+    async def test_connected_dm_welcome_text_callback_starts_private_prompt(self):
+        from videl.plugins import welcome
         self.query.data = f"settings:{self.CHAT}:welcome_text:edit:v0"
+        self.client.send_message.return_value = SimpleNamespace(id=71)
         with patch("videl.utils.db._db", self.db), \
              patch("videl.app.connections.connected_target", new=AsyncMock(return_value=(
-                 SimpleNamespace(id=self.CHAT), None))):
+                 SimpleNamespace(id=self.CHAT, type="supergroup", title="Target group"), None))):
             await settings.settings_callback(self.client, self.query)
-        saved = self.db["mgmt_chat_settings"].find_one({"chat_id": self.CHAT})
-        self.assertTrue(saved["music_requests_enabled"])
-        self.assertEqual(saved["revision"], 0)
-        self.client.get_chat_member.assert_not_awaited()
-        self.assertIn("no change", self.query.answer.call_args.args[0].lower())
+        session = await welcome._interaction_engine.for_owner(
+            chat_id=self.USER, actor_id=self.USER, target_chat_id=self.CHAT)
+        try:
+            self.assertEqual(session.workflow, "welcome_text")
+            self.assertEqual(session.chat_id, self.USER)
+            self.assertEqual(session.target_chat_id, self.CHAT)
+            self.client.send_message.assert_awaited_once()
+            self.assertEqual(self.client.send_message.await_args.args[0], self.USER)
+            self.assertIn("welcome text", self.client.send_message.await_args.args[1].lower())
+            self.assertEqual(session.expected_message_id, 71)
+        finally:
+            await welcome._interaction_engine.cancel(session.token, chat_id=self.USER, actor_id=self.USER)
 
     async def test_target_resolver_checks_current_connection_and_admin_role(self):
         group = SimpleNamespace(id=self.CHAT, type="supergroup")
@@ -107,9 +118,7 @@ class ConnectedSettingsDashboardTests(unittest.IsolatedAsyncioTestCase):
 
     def test_connected_dm_hides_prompt_based_controls_across_sections(self):
         unsupported = (":filters:", ":blocklist:add:", ":blocklist:remove:", ":preset:save",
-                       ":preset:delete:", ":session:schedule", ":antispam:edit",
-                       ":captcha:edit", ":welcome_text:", ":welcome_media:",
-                       ":welcome_buttons:", ":warn_threshold:")
+                       ":preset:delete:", ":session:schedule")
         with patch("videl.plugins.settings._revision", return_value=0):
             screens = [settings._screen(self.CHAT, section, connected_dm=True)
                        for section in ("home", "music", "welcome", "safety", "moderation",
@@ -120,10 +129,18 @@ class ConnectedSettingsDashboardTests(unittest.IsolatedAsyncioTestCase):
                      if button.callback_data]
         self.assertTrue(any(":tab:home:" in callback for callback in callbacks))
         self.assertFalse(any(fragment in callback for callback in callbacks for fragment in unsupported))
+        self.assertTrue(any(":welcome_text:edit:" in callback for callback in callbacks))
+        self.assertTrue(any(":goodbye_text:edit:" in callback for callback in callbacks))
+        self.assertTrue(any(":rules_text:edit:" in callback for callback in callbacks))
+        self.assertTrue(any(":welcome_media:edit:" in callback for callback in callbacks))
+        self.assertTrue(any(":welcome_buttons:edit:" in callback for callback in callbacks))
+        self.assertTrue(any(":captcha:edit:" in callback for callback in callbacks))
+        self.assertTrue(any(":antispam:edit:" in callback for callback in callbacks))
+        self.assertTrue(any(":warn_threshold:edit:" in callback for callback in callbacks))
         self.assertFalse(any(":retention:" in callback and ":tab:retention:" not in callback
                              for callback in callbacks))
         self.assertTrue(all(callback.endswith(":v0") for callback in callbacks))
-        self.assertTrue(all("hidden here" in screen.html for screen in screens))
+        self.assertTrue(all("other prompt and media workflows remain hidden" in screen.html for screen in screens))
 
 
 if __name__ == "__main__":

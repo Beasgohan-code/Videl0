@@ -305,14 +305,14 @@ async def welcome_edit_message(client, message) -> None:
 
 
 @bot.on_message(filters.private & filters.incoming, group=2)
-async def connected_captcha_reply(client, message) -> None:
+async def connected_welcome_reply(client, message) -> None:
     """Capture the CAPTCHA enable wizard privately, scoped to its connected group."""
     actor = getattr(message, "from_user", None)
     if actor is None or int(message.chat.id) != int(actor.id):
         return
     interaction_chat_id, actor_id = int(message.chat.id), int(actor.id)
     session = await _interaction_engine.for_owner(chat_id=interaction_chat_id, actor_id=actor_id)
-    if session is None or session.workflow not in {"captcha_enabled", "welcome_text"}:
+    if session is None or session.workflow not in {"captcha_enabled", "welcome_text", "goodbye_text", "rules_text", "welcome_media", "welcome_buttons"}:
         return
     target_chat_id = int(session.target_chat_id)
     from videl.app.connections import connected_target
@@ -332,13 +332,33 @@ async def connected_captcha_reply(client, message) -> None:
         return
     if session.workflow == "captcha_enabled":
         value = text.casefold()
-    else:
+    elif session.workflow in {"welcome_text", "goodbye_text"}:
         try:
             value = validate_welcome_template(text)
         except ValueError as error:
             await _send_welcome_prompt(client, session)
             await client.send_message(interaction_chat_id, str(error))
             return
+    elif session.workflow == "rules_text":
+        value = "/clear" if command == "/clear" else text
+    elif session.workflow == "welcome_media":
+        value = None if command == "/clear" else _media_from_message(message)
+        if value is None and command != "/clear":
+            await _send_welcome_prompt(client, session)
+            await client.send_message(interaction_chat_id, "That media type is not supported here. Send a photo, video, animation, document, audio, or voice message.")
+            return
+    else:
+        if command == "/clear":
+            value = "/clear"
+        else:
+            from videl.utils.welcome_checklist import validate
+            try:
+                validate(text)
+            except ValueError as error:
+                await _send_welcome_prompt(client, session)
+                await client.send_message(interaction_chat_id, str(error))
+                return
+            value = text
     result = await _interaction_engine.capture(
         session.token, chat_id=interaction_chat_id, actor_id=actor_id,
         target_chat_id=target_chat_id, reply_to_message_id=getattr(reply, "id", None),
@@ -352,21 +372,66 @@ async def connected_captcha_reply(client, message) -> None:
         return
     if result.status != "preview":
         return
-    from videl.plugins.base import body, heading, table
-    if result.session.workflow == "captcha_enabled":
+    from videl.plugins.base import body, escape, heading, table
+    destructive = False
+    preview_media = None
+    media_caption = None
+    workflow = result.session.workflow
+    if workflow == "captcha_enabled":
         enabled = result.session.values["enabled"] == "on"
         preview_text = (heading("Join verification preview", 3)
                         + table([("Status", "On" if enabled else "Off")])
                         + body("The active challenge is a math question with a fixed 120-second timeout; this workflow changes only its enabled state. Nothing has changed yet."))
-    else:
+    elif workflow == "welcome_text":
         preview_text = (heading("Welcome text preview", 3)
                         + preview_welcome_template(result.session.values["welcome_message"], target_chat)
                         + body("No settings have changed yet. Confirm to save this text to the connected group."))
+    elif workflow == "goodbye_text":
+        preview_text = (heading("Goodbye text preview", 3)
+                        + preview_welcome_template(result.session.values["goodbye_message"], target_chat)
+                        + body("No settings have changed yet. Confirm to save this text to the connected group."))
+    elif workflow == "welcome_media":
+        preview_media = result.session.values["welcome_media"]
+        destructive = preview_media is None
+        template = base.get_setting(target_chat_id, "welcome_message", DEFAULT_WELCOME)
+        media_caption = preview_welcome_template(template, target_chat)
+        preview_text = heading("Welcome media preview", 3) + media_caption
+        preview_text += body("No settings have changed yet.")
+    elif workflow == "welcome_buttons":
+        raw_links = result.session.values["welcome_checklist"]
+        destructive = raw_links == "/clear"
+        if destructive:
+            current_links = base.get_setting(target_chat_id, "welcome_checklist", [])
+            message_text = "Current checklist links will be removed only if you confirm." if current_links else "No checklist links are currently saved."
+            preview_text = heading("Clear welcome checklist?", 3) + body(message_text)
+        else:
+            from videl.utils.welcome_checklist import validate
+            links = validate(raw_links)
+            link_rows = [(escape(item["label"]), escape(item["url"])) for item in links]
+            preview_text = heading("Welcome checklist preview", 3) + table(link_rows)
+        preview_text += body("No settings have changed yet.")
+    else:
+        raw_rules = result.session.values["rules"]
+        destructive = raw_rules == "/clear"
+        if destructive:
+            current_rules = base.get_setting(target_chat_id, "rules", None)
+            description = "Current rules will be removed only if you confirm this preview." if current_rules else "No rules are currently saved."
+            preview_text = heading("Clear group rules?", 3) + body(description)
+        else:
+            preview_text = heading("Group rules preview", 3) + body(escape(raw_rules))
+        preview_text += body("No settings have changed yet.")
     try:
-        preview = await client.send_message(
-            interaction_chat_id, preview_text,
-            reply_markup=_preview_markup(interaction_chat_id, result.session.token, include_links=False),
-        )
+        preview_markup = _preview_markup(interaction_chat_id, result.session.token,
+                                          include_links=False, destructive=destructive)
+        if preview_media:
+            send_media = getattr(client, f"send_{preview_media['type']}", None)
+            if send_media is None:
+                raise ValueError("This media method is unavailable in the Telegram client.")
+            preview = await send_media(interaction_chat_id, preview_media["file_id"],
+                                       caption=media_caption, reply_markup=preview_markup)
+        else:
+            preview = await client.send_message(interaction_chat_id, preview_text,
+                                                reply_markup=preview_markup)
         await _interaction_engine.bind_prompt(result.session.token, chat_id=interaction_chat_id,
                                               actor_id=actor_id, message_id=preview.id)
     except Exception:
@@ -398,7 +463,7 @@ async def welcome_edit_callback(client, query: CallbackQuery) -> None:
         return
     target_chat_id = int(session.target_chat_id)
     if connected_dm:
-        if session.workflow not in {"captcha_enabled", "welcome_text"}:
+        if session.workflow not in {"captcha_enabled", "welcome_text", "goodbye_text", "rules_text", "welcome_media", "welcome_buttons"}:
             await query.answer("This editor is not available in connected private chat yet.", show_alert=True)
             return
         from videl.app.connections import connected_target

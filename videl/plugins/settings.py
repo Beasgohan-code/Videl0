@@ -295,7 +295,10 @@ def _screen(chat_id, section="home", *, query="", category="all", page=0, connec
                            or action.startswith("reset:")
                            or action.startswith("resetconfirm:")
                            or action.startswith("warn_threshold:")
-                           or action in {"antispam:edit", "captcha:edit", "welcome_text:edit"})
+                           or action in {"antispam:edit", "captcha:edit", "welcome_text:edit",
+                                         "goodbye_text:edit", "rules_text:edit", "rules_text:clear",
+                                         "welcome_media:edit", "welcome_media:clear",
+                                         "welcome_buttons:edit"})
                 if action.startswith(("music_requests_enabled:", "music_approval_required:",
                                       "music_shuffle_enabled:", "welcome_enabled:",
                                       "goodbye_enabled:", "gemini_guardian_enabled:", "raid:")):
@@ -477,7 +480,8 @@ async def settings_callback(client,query):
                         "__warn_threshold_editor__", "__antispam_editor__", "__captcha_editor__",
                         "__command_toggle__", "__reset_preview__", "__reset_confirm__",
                         "__session_cancel__"}
-        if key not in dm_safe_keys and not (key == "__welcome_flow_start__" and value == "welcome_text"):
+        if key not in dm_safe_keys and not (
+                key == "__welcome_flow_start__" and value in {"welcome_text", "goodbye_text", "rules_text", "welcome_media", "welcome_buttons"}):
             return await query.answer("That editor is not available in connected DM yet. No change was made.", show_alert=True)
     try:
         member=await client.get_chat_member(chat_id,int(actor.id)); status=str(getattr(member.status,"value",member.status)).casefold()
