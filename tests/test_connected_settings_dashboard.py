@@ -117,8 +117,7 @@ class ConnectedSettingsDashboardTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("no longer a current administrator", error)
 
     def test_connected_dm_hides_prompt_based_controls_across_sections(self):
-        unsupported = (":filters:", ":preset:save",
-                       ":preset:delete:", ":session:schedule")
+        unsupported = (":filters:", ":preset:delete:", ":session:schedule")
         with patch("videl.plugins.settings._revision", return_value=0):
             screens = [settings._screen(self.CHAT, section, connected_dm=True)
                        for section in ("home", "music", "welcome", "safety", "moderation",
@@ -128,6 +127,7 @@ class ConnectedSettingsDashboardTests(unittest.IsolatedAsyncioTestCase):
                      for row in screen.keyboard.inline_keyboard for button in row
                      if button.callback_data]
         self.assertTrue(any(":tab:home:" in callback for callback in callbacks))
+        self.assertTrue(any(":preset:save:" in callback for callback in callbacks))
         self.assertFalse(any(fragment in callback for callback in callbacks for fragment in unsupported))
         self.assertTrue(any(":welcome_text:edit:" in callback for callback in callbacks))
         self.assertTrue(any(":goodbye_text:edit:" in callback for callback in callbacks))

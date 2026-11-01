@@ -197,6 +197,7 @@ def _screen(chat_id, section="home", *, query="", category="all", page=0, connec
         from videl.utils.music_presets import normalize as normalize_presets
         presets=normalize_presets(base.get_setting(chat_id,"music_session_presets",[]))
         text=heading("Queue session presets",3)+body("Save named snapshots of repeat, shuffle, member-request and approval settings. Applying a preset updates those settings and shuffles the current upcoming queue when shuffle is enabled.")
+        if connected_dm: text += body("Creation is staged and previewed before saving.")
         rows=[]
         for i,item in enumerate(presets,1):
             if not isinstance(item,dict): continue
@@ -296,6 +297,7 @@ def _screen(chat_id, section="home", *, query="", category="all", page=0, connec
                            or action.startswith("reset:")
                            or action.startswith("resetconfirm:")
                            or action.startswith("warn_threshold:")
+                           or action == "preset:save"
                            or action.startswith("blocklist:")
                            or action in {"antispam:edit", "captcha:edit", "welcome_text:edit",
                                          "goodbye_text:edit", "rules_text:edit", "rules_text:clear",
@@ -483,7 +485,8 @@ async def settings_callback(client,query):
                         "__command_toggle__", "__reset_preview__", "__reset_confirm__",
                         "__session_cancel__"}
         if key not in dm_safe_keys and not (
-                key == "__welcome_flow_start__" and value in {"welcome_text", "goodbye_text", "rules_text", "welcome_media", "welcome_buttons"}
+                key == "__preset_save__" and section == "presets"
+                or key == "__welcome_flow_start__" and value in {"welcome_text", "goodbye_text", "rules_text", "welcome_media", "welcome_buttons"}
                 or key in {"__prompt__", "__remove__"} and section == "blocklist"):
             return await query.answer("That editor is not available in connected DM yet. No change was made.", show_alert=True)
     try:
@@ -581,6 +584,14 @@ async def settings_callback(client,query):
         await query.answer("Section reset and audited.")
         fresh=_screen(chat_id,reset_category,connected_dm=connected_dm)
         return await rich_edit(message,fresh.html,reply_markup=fresh.keyboard)
+    if connected_dm and section == "presets" and key == "__preset_save__":
+        try:
+            await _start_connected_preset(client, int(message.chat.id), int(actor.id), chat_id, expected_revision)
+        except RuntimeError as error:
+            return await query.answer(str(error), show_alert=True)
+        except Exception:
+            return await query.answer("Could not start the preset editor; nothing changed.", show_alert=True)
+        return await query.answer("Reply privately to continue; nothing is saved until confirmation.")
     if connected_dm and section == "blocklist" and key in {"__prompt__", "__remove__"}:
         try:
             await _start_connected_blocklist(client, int(message.chat.id), int(actor.id), chat_id,
@@ -875,6 +886,145 @@ async def blocklist_prompt_reply(client,message):
         await asyncio.to_thread(record_bot,chat_id,"settings",action="music_blocklist_add",detail=f"{prompt[1]} entry",actor=int(user.id))
     except Exception: pass
     await message.reply_text("Added to the group music blocklist. Open /settings → Music blocklist to review it.")
+
+async def _preset_snapshot(chat_id: int) -> dict:
+    from videl.core.player import get_loop
+    return {"loop": get_loop(chat_id),
+            "shuffle": bool(base.get_setting(chat_id, "music_shuffle_enabled", False)),
+            "requests": bool(base.get_setting(chat_id, "music_requests_enabled", True)),
+            "approval": bool(base.get_setting(chat_id, "music_approval_required", False))}
+
+
+async def _start_connected_preset(client, interaction_chat_id: int, actor_id: int,
+                                  target_chat_id: int, revision: int) -> None:
+    from videl.utils.interactive_settings import Step, engine as interaction_engine
+    session = await interaction_engine.begin(chat_id=interaction_chat_id, actor_id=actor_id,
+        target_chat_id=target_chat_id, workflow="music_preset_create",
+        steps=(Step("name", "Preset name", max_length=32),), revision=revision, timeout_seconds=600)
+    try:
+        prompt = await client.send_message(interaction_chat_id,
+            "Reply with a preset name (1–32 characters). Send /cancel to stop.",
+            reply_markup=ForceReply(selective=True))
+        await interaction_engine.bind_prompt(session.token, chat_id=interaction_chat_id,
+                                             actor_id=actor_id, message_id=prompt.id)
+    except Exception:
+        await interaction_engine.cancel(session.token, chat_id=interaction_chat_id, actor_id=actor_id)
+        raise
+
+
+async def _send_connected_preset_preview(client, session) -> None:
+    from pyrogram.types import InlineKeyboardMarkup
+    from videl.utils.bot_ui import button
+    from videl.utils.music_presets import add, normalize
+    current = normalize(base.get_setting(session.target_chat_id, "music_session_presets", []))
+    updated = add(current, session.values["name"], session.values["snapshot"])
+    session.values["updated"] = updated
+    item = updated[-1]
+    text = ("<b>Queue preset preview</b>\\nNothing has been saved yet.\\n"
+            f"Name: <b>{item['name']}</b>\\nRepeat: {item['loop']}\\nShuffle: {'On' if item['shuffle'] else 'Off'}\\n"
+            f"Member requests: {'On' if item['requests'] else 'Off'}\\nApproval required: {'On' if item['approval'] else 'Off'}")
+    markup = InlineKeyboardMarkup([[button("Edit", callback_data=f"preset_edit:{session.token}"),
+        button("Confirm", callback_data=f"preset_save:{session.token}", style="primary"),
+        button("Cancel", callback_data=f"preset_cancel:{session.token}", style="danger")]])
+    preview = await client.send_message(session.chat_id, text, reply_markup=markup)
+    from videl.utils.interactive_settings import engine as interaction_engine
+    await interaction_engine.bind_prompt(session.token, chat_id=session.chat_id,
+        actor_id=session.actor_id, message_id=preview.id)
+
+
+@bot.on_message(filters.private & filters.incoming, group=2)
+async def connected_preset_reply(client, message):
+    actor = getattr(message, "from_user", None)
+    if actor is None or int(message.chat.id) != int(actor.id): return
+    from videl.utils.interactive_settings import engine as interaction_engine
+    actor_id = int(actor.id); interaction_chat_id = int(message.chat.id)
+    session = await interaction_engine.for_owner(chat_id=interaction_chat_id, actor_id=actor_id)
+    if session is None or session.workflow != "music_preset_create": return
+    text = str(getattr(message, "text", "") or "").strip()
+    command = text.split(maxsplit=1)[0].split("@", 1)[0].casefold() if text else ""
+    if command == "/cancel":
+        await interaction_engine.cancel(session.token, chat_id=interaction_chat_id, actor_id=actor_id)
+        return await client.send_message(interaction_chat_id, "Preset creation cancelled; nothing was saved.")
+    reply = getattr(message, "reply_to_message", None)
+    if getattr(reply, "id", None) != session.expected_message_id: return
+    from videl.utils.music_presets import add, normalize
+    try:
+        snapshot = await _preset_snapshot(session.target_chat_id)
+        add(normalize(base.get_setting(session.target_chat_id, "music_session_presets", [])), text, snapshot)
+    except ValueError as error:
+        return await client.send_message(interaction_chat_id, str(error) + " Reply to the prompt again or /cancel.")
+    except Exception:
+        return await client.send_message(interaction_chat_id, "Could not read current playback settings; nothing was saved.")
+    result = await interaction_engine.capture(session.token, chat_id=interaction_chat_id,
+        actor_id=actor_id, target_chat_id=session.target_chat_id,
+        reply_to_message_id=getattr(reply, "id", None), value=text)
+    if result.status == "invalid":
+        return await client.send_message(interaction_chat_id, result.error or "Invalid preset name.")
+    if result.status != "preview": return
+    result.session.values["snapshot"] = snapshot
+    try:
+        await _send_connected_preset_preview(client, result.session)
+    except ValueError as error:
+        await interaction_engine.cancel(session.token, chat_id=interaction_chat_id, actor_id=actor_id)
+        return await client.send_message(interaction_chat_id, str(error))
+    except Exception:
+        await interaction_engine.cancel(session.token, chat_id=interaction_chat_id, actor_id=actor_id)
+        return await client.send_message(interaction_chat_id, "Could not render preset preview; nothing was saved.")
+
+
+@bot.on_callback_query(filters.regex(r"^preset_(?:edit|save|cancel):[A-Za-z0-9_-]{1,24}$"))
+async def connected_preset_callback(client, query):
+    message = getattr(query, "message", None); actor = getattr(query, "from_user", None)
+    if message is None or actor is None or base.chat_kind(message) != "private" or int(message.chat.id) != int(actor.id):
+        return await query.answer("This preset action is unavailable.", show_alert=True)
+    action, token = str(query.data).split(":", 1)
+    from videl.utils.interactive_settings import engine as interaction_engine
+    interaction_chat_id = int(message.chat.id); actor_id = int(actor.id)
+    session = await interaction_engine.get(token, chat_id=interaction_chat_id, actor_id=actor_id)
+    if session is None or session.workflow != "music_preset_create":
+        return await query.answer("This preset edit expired or is not yours.", show_alert=True)
+    target_chat_id = int(session.target_chat_id)
+    if action.endswith("cancel"):
+        await interaction_engine.cancel(token, chat_id=interaction_chat_id, actor_id=actor_id)
+        await query.answer("Cancelled; nothing was saved.")
+        return await rich_edit(message, "Preset creation cancelled. Nothing was saved.", reply_markup=None)
+    if action.endswith("edit"):
+        edited = await interaction_engine.edit_again(token, chat_id=interaction_chat_id,
+            actor_id=actor_id, message_id=message.id)
+        if edited is None: return await query.answer("This preview is no longer active.", show_alert=True)
+        edited.values.pop("updated", None); edited.values.pop("name", None); edited.values.pop("snapshot", None)
+        try:
+            prompt = await client.send_message(interaction_chat_id,
+                "Reply with a preset name (1–32 characters). Send /cancel to stop.",
+                reply_markup=ForceReply(selective=True))
+            await interaction_engine.bind_prompt(token, chat_id=interaction_chat_id, actor_id=actor_id, message_id=prompt.id)
+        except Exception:
+            await interaction_engine.cancel(token, chat_id=interaction_chat_id, actor_id=actor_id)
+            return await query.answer("Could not restart editor; nothing was saved.", show_alert=True)
+        return await query.answer("Reply to the private prompt to edit again.")
+
+    async def authorize(target_id, user_id):
+        from videl.app.connections import connected_target
+        _, error = await connected_target(client, user_id, expected_chat_id=target_id)
+        return not error
+
+    async def save(snapshot):
+        return bool(base.set_setting(target_chat_id, "music_session_presets", snapshot.values["updated"],
+                                     expected_revision=snapshot.revision))
+
+    outcome, _ = await interaction_engine.commit(token, chat_id=interaction_chat_id,
+        actor_id=actor_id, target_chat_id=target_chat_id, message_id=message.id,
+        authorize=authorize, save=save)
+    if outcome == "saved":
+        await query.answer("Queue preset saved.")
+        return await rich_edit(message, "Queue preset saved.", reply_markup=None)
+    messages = {"permission_denied": "Connection or group-admin access changed. Nothing was saved.",
+                "save_failed": "Could not save the preset; refresh settings and retry.",
+                "expired": "This edit expired. Nothing was saved.",
+                "stale": "This preview is stale or already being confirmed.",
+                "unauthorized": "This action does not belong to this group or admin."}
+    return await query.answer(messages.get(outcome, "Could not save preset."), show_alert=True)
+
 
 async def _start_connected_blocklist(client, interaction_chat_id: int, actor_id: int, target_chat_id: int,
                                     revision: int, operation: str, value) -> None:
