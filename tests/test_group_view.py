@@ -247,6 +247,12 @@ class GroupViewerTests(unittest.TestCase):
         # An emoji plus its variation selector spans one visible character.
         html,used=view.entities_html("\U0001F44D\U0001F3FD",[NS(type=NS(name="CUSTOM_EMOJI"),offset=0,length=4,custom_emoji_id=5368324170671202286)])
         self.assertTrue(used);self.assertIn('<tg-emoji emoji-id="5368324170671202286">',html)
+        # Entity offsets are UTF-16 code units: the leading astral emoji takes
+        # two units before the custom emoji span even though it is one codepoint.
+        astral_text="A😀🚀z"
+        html,used=view.entities_html(astral_text,[NS(type=NS(name="CUSTOM_EMOJI"),offset=3,length=2,custom_emoji_id=5368324170671202286)])
+        self.assertTrue(used)
+        self.assertEqual(html,'A😀<tg-emoji emoji-id="5368324170671202286">🚀</tg-emoji>z')
         self.assertEqual(view.entities_html("plain text",[])[1],False)
 
     def test_snapshot_marks_formatting_for_rendering(self):

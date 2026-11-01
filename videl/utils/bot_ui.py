@@ -8,7 +8,15 @@ import os
 import re
 from pyrogram import enums
 from pyrogram.types import InlineKeyboardButton as NativeButton, InlineKeyboardMarkup
-from videl.utils.premium_emojis import FALLBACK, PREMIUM_IDS, USE_PREMIUM
+from videl.utils.premium_emojis import (
+    FALLBACK,
+    PREMIUM_IDS,
+    USE_PREMIUM,
+    callback_text,
+    custom_emoji_id,
+    fallback_custom_emoji_html,
+    unicode_fallback,
+)
 
 ICONS_ENABLED = os.getenv(
     "USE_PREMIUM_BUTTON_ICONS", "1" if USE_PREMIUM else "0"
@@ -38,7 +46,7 @@ def button(text: str, *args, style=None, icon=None, **kwargs) -> NativeButton:
     label = label.translate(str.maketrans("ᴀʙᴄᴅᴇғɢʜɪᴊᴋʟᴍɴᴏᴘǫʀsᴛᴜᴠᴡxʏᴢ", "abcdefghijklmnopqrstuvwxyz"))
     label = re.sub(r"^[◍⬪⫶⬩𖦹⦿◎⬢]+\s*", "", label)
     leading_emoji_key = None
-    if ICONS_ENABLED:
+    if ICONS_ENABLED and not (embedded and embedded[1] not in _ICON_FALLBACKS):
         prefixes = sorted(FALLBACK.items(), key=lambda item: len(item[1]), reverse=True)
         while label:
             for key, glyph in prefixes:
@@ -122,11 +130,12 @@ def button(text: str, *args, style=None, icon=None, **kwargs) -> NativeButton:
             aliases.get(selected.lower(), selected.lower()), enums.ButtonStyle.DEFAULT
         )
     emoji_id = kwargs.pop("icon_custom_emoji_id", None)
-    if not emoji_id and embedded:
+    if not emoji_id and embedded and embedded[1] in _ICON_FALLBACKS:
         emoji_id = embedded[1]
-    if ICONS_ENABLED:
-        emoji_id = emoji_id or PREMIUM_IDS.get(icon or leading_emoji_key or semantic or "", "") or None
-    else:
+    if ICONS_ENABLED and not emoji_id and not (embedded and embedded[1] not in _ICON_FALLBACKS):
+        emoji_key = icon or leading_emoji_key or semantic
+        emoji_id = custom_emoji_id(emoji_key) if emoji_key else None
+    if not ICONS_ENABLED:
         emoji_id = None
     if emoji_id is not None and (
         not re.fullmatch(r"[1-9][0-9]{0,18}", str(emoji_id))
@@ -171,8 +180,8 @@ def icon_keyboard(markup):
     return InlineKeyboardMarkup(rows) if changed else markup
 
 
-def plain_keyboard(markup):
-    """Copy, never mutate actions, when optional styles/icons are rejected."""
+def fallback_custom_emoji_keyboard(markup):
+    """Remove native custom icons after definite rejection, keeping actions/styles."""
     if not isinstance(markup, InlineKeyboardMarkup):
         return markup
     rows = []
@@ -186,10 +195,40 @@ def plain_keyboard(markup):
             if glyph and not text.startswith(glyph):
                 clone.text = f"{glyph} {text}".strip()
             clone.icon_custom_emoji_id = None
-            clone.style = enums.ButtonStyle.DEFAULT
             clean.append(clone)
         rows.append(clean)
     return InlineKeyboardMarkup(rows)
+
+
+def plain_keyboard(markup):
+    """Copy, never mutate actions, when both optional styles and icons are rejected."""
+    fallback = fallback_custom_emoji_keyboard(markup)
+    if not isinstance(fallback, InlineKeyboardMarkup):
+        return fallback
+    for row in fallback.inline_keyboard:
+        for item in row:
+            item.style = enums.ButtonStyle.DEFAULT
+    return fallback
+
+
+def fallback_custom_emoji_entities(entities):
+    """Drop only CUSTOM_EMOJI entities; their visible replacement text remains."""
+    if entities is None:
+        return None
+    kept = []
+    for entity in entities:
+        kind = getattr(getattr(entity, "type", None), "name", None) or getattr(getattr(entity, "type", None), "value", None) or getattr(entity, "type", None)
+        if str(kind).casefold() in {"custom_emoji", "messageentitytype.custom_emoji"}:
+            continue
+        if getattr(entity, "custom_emoji_id", None):
+            continue
+        kept.append(entity)
+    return kept
+
+
+async def answer_callback(query, text=None, **kwargs):
+    """Answer a callback with plain text and no unsupported HTML emoji entities."""
+    return await query.answer(callback_text(text), **kwargs)
 
 
 
@@ -215,40 +254,121 @@ def _is_button_style_rejection(error) -> bool:
         "button_style", "style_invalid", "style is not allowed", "unsupported button style",
     ))
 
+
+def _is_custom_emoji_rejection(error) -> bool:
+    """Recognize explicit Telegram custom-emoji ID/entity rejections only."""
+    message = str(error).casefold()
+    return any(marker in message for marker in (
+        "custom_emoji_invalid",
+        "button_custom_emoji_invalid",
+        "custom_emoji_id_invalid",
+        "custom_emoji_not_found",
+        "custom emoji not found",
+        "custom emoji id is invalid",
+        "custom emoji is invalid",
+        "custom emoji cannot be used",
+        "custom emoji can't be used",
+    )) or ("unsupported start tag" in message and "tg-emoji" in message)
+
+
+def _fallback_custom_emoji_payload(function, args, kwargs):
+    safe_args = list(args)
+    safe = dict(kwargs)
+    changed = False
+    for field in ("text", "caption"):
+        value = safe.get(field)
+        if isinstance(value, str):
+            fallback = fallback_custom_emoji_html(value)
+            if fallback != value:
+                safe[field] = fallback
+                changed = True
+    for field in ("entities", "caption_entities"):
+        value = safe.get(field)
+        if value is not None:
+            fallback = fallback_custom_emoji_entities(value)
+            if len(fallback) != len(value):
+                safe[field] = fallback
+                changed = True
+    for field in ("reply_markup", "markup"):
+        value = safe.get(field)
+        if any(
+            getattr(item, "icon_custom_emoji_id", None)
+            for row in getattr(value, "inline_keyboard", [])
+            for item in row
+        ):
+            safe[field] = fallback_custom_emoji_keyboard(value)
+            changed = True
+    for index, value in enumerate(safe_args):
+        if isinstance(value, InlineKeyboardMarkup) and any(
+            getattr(item, "icon_custom_emoji_id", None)
+            for row in value.inline_keyboard
+            for item in row
+        ):
+            safe_args[index] = fallback_custom_emoji_keyboard(value)
+            changed = True
+
+    # Positional Pyrogram, Richgram and callback adapters have different
+    # signatures; only touch argument strings that actually contain this tag.
+    for index, value in enumerate(safe_args):
+        if isinstance(value, str) and "<tg-emoji" in value.casefold():
+            fallback = fallback_custom_emoji_html(value)
+            if fallback != value:
+                safe_args[index] = fallback
+                changed = True
+    return safe_args, safe, changed
+
+
 async def visual_call(function, *args, **kwargs):
-    """Retry rejected button styles only; never downgrade Premium Emoji entities."""
+    """Apply definite, bounded Telegram visual fallbacks without replaying actions."""
     from pyrogram.errors import BadRequest, MessageNotModified
 
-    kwargs = dict(kwargs)
+    safe_args = list(args)
+    safe = dict(kwargs)
     for field in ("reply_markup", "markup"):
-        if kwargs.get(field) is not None:
-            kwargs[field] = icon_keyboard(kwargs[field])
-    try:
-        return await function(*args, **kwargs)
-    except MessageNotModified:
-        return None
-    except BadRequest as error:
-        if not _is_button_style_rejection(error):
+        if safe.get(field) is not None:
+            safe[field] = icon_keyboard(safe[field])
+    for index, value in enumerate(safe_args):
+        if isinstance(value, InlineKeyboardMarkup):
+            safe_args[index] = icon_keyboard(value)
+    custom_fallback_used = False
+    style_fallback_used = False
+    for _ in range(3):
+        try:
+            return await function(*safe_args, **safe)
+        except MessageNotModified:
+            return None
+        except BadRequest as error:
+            if _is_custom_emoji_rejection(error) and not custom_fallback_used:
+                safe_args, safe, changed = _fallback_custom_emoji_payload(function, safe_args, safe)
+                if changed:
+                    custom_fallback_used = True
+                    logging.getLogger(__name__).info(
+                        "Telegram rejected a custom emoji; retrying once with catalogued Unicode fallbacks"
+                    )
+                    continue
+            if _is_button_style_rejection(error) and not style_fallback_used:
+                changed = False
+                for field in ("reply_markup", "markup"):
+                    markup = safe.get(field)
+                    if any(
+                        getattr(item, "style", None) not in (None, enums.ButtonStyle.DEFAULT)
+                        for row in getattr(markup, "inline_keyboard", [])
+                        for item in row
+                    ):
+                        safe[field] = unstyled_keyboard(markup)
+                        changed = True
+                for index, markup in enumerate(safe_args):
+                    if isinstance(markup, InlineKeyboardMarkup) and any(
+                        getattr(item, "style", None) not in (None, enums.ButtonStyle.DEFAULT)
+                        for row in markup.inline_keyboard
+                        for item in row
+                    ):
+                        safe_args[index] = unstyled_keyboard(markup)
+                        changed = True
+                if changed:
+                    style_fallback_used = True
+                    logging.getLogger(__name__).info(
+                        "Telegram rejected button styling; retrying without optional styles"
+                    )
+                    continue
             raise
-        logging.getLogger(__name__).info(
-            "Telegram rejected button styling; retrying with Premium Emoji text and icon IDs preserved"
-        )
-        safe = dict(kwargs)
-        safe_args = list(args)
-        changed = False
-        # Keep custom-emoji text and button icon IDs intact. Only strip rejected
-        # button styles; flattening <tg-emoji> made rich edits look successful
-        # while replacing Premium Emoji with ordinary glyphs.
-        for field in ("reply_markup", "markup"):
-            markup = safe.get(field)
-            if any(
-                getattr(item, "icon_custom_emoji_id", None)
-                or getattr(item, "style", None) not in (None, enums.ButtonStyle.DEFAULT)
-                for row in getattr(markup, "inline_keyboard", [])
-                for item in row
-            ):
-                safe[field] = unstyled_keyboard(markup)
-                changed = True
-        if not changed:
-            raise
-        return await function(*safe_args, **safe)

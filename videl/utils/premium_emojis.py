@@ -8,6 +8,7 @@ from __future__ import annotations
 import os
 import html
 import re
+from typing import Literal
 import config
 
 # ── Premium toggle — env USE_PREMIUM_EMOJI=1 (default ON) ─────────────────────
@@ -752,21 +753,83 @@ for _pack, _rows in SUPPLIED_EMOJI_PACKS.items():
         FALLBACK[_alias] = _fallback
 
 
+EmojiContext = Literal["message_html", "caption_html", "plain_text", "button_text", "callback"]
+_EMOJI_TAG = re.compile(r"<tg-emoji\b([^>]*)>(.*?)</tg-emoji\s*>", re.I | re.S)
+_EMOJI_ID_ATTRIBUTE = re.compile(r"\bemoji-id\s*=\s*(?:\"([^\"]+)\"|'([^']+)')", re.I)
+_HTML_TAG = re.compile(r"<[^>]*>")
+
+
+def unicode_fallback(key_or_id: str | int, fallback: str | None = None) -> str:
+    """Resolve a catalogued alias/ID to its supplied Unicode rendering."""
+    key = str(key_or_id)
+    if key in FALLBACK:
+        return FALLBACK[key]
+    for alias, emoji_id in PREMIUM_IDS.items():
+        if str(emoji_id) == key and FALLBACK.get(alias):
+            return FALLBACK[alias]
+    return str(fallback) if fallback is not None else "✨"
+
+
+def custom_emoji_id(key: str) -> str | None:
+    """Return only a catalogued ID; callers must still honor their surface policy."""
+    value = str(PREMIUM_IDS.get(key, ""))
+    if re.fullmatch(r"[1-9][0-9]{0,18}", value) and int(value) <= 9223372036854775807:
+        return value
+    return None
+
+
 def tg_emoji(emoji_id: str | int, fallback: str = "✨") -> str:
-    """Return <tg-emoji> HTML if premium enabled, else fallback glyph."""
+    """Return Telegram HTML for message/caption contexts, otherwise Unicode."""
     fallback = html.escape(str(fallback))
     if not USE_PREMIUM or not re.fullmatch(r"[1-9][0-9]{0,18}", str(emoji_id)) or int(emoji_id) > 9223372036854775807:
         return fallback
-    # Bot API supports <tg-emoji emoji-id="...">emoji</tg-emoji>
+    # Telegram supports this tag in HTML-formatted message and caption text.
     return f'<tg-emoji emoji-id="{emoji_id}">{fallback}</tg-emoji>'
 
+
+def render_emoji(key: str, context: EmojiContext = "message_html", fallback: str | None = None) -> str:
+    """Render a semantic emoji only in contexts that can carry its representation.
+
+    HTML message/caption text can carry Telegram's custom-emoji entity. Plain
+    text, callback toasts and button labels always receive the catalogued glyph;
+    native buttons may separately use :func:`custom_emoji_id` as their icon.
+    """
+    glyph = fallback or FALLBACK.get(key, "✨")
+    if context in {"message_html", "caption_html"}:
+        return tg_emoji(custom_emoji_id(key) or "", glyph)
+    if context in {"plain_text", "button_text", "callback"}:
+        return glyph
+    raise ValueError(f"Unsupported Telegram emoji context: {context}")
+
+
+def fallback_custom_emoji_html(value: str) -> str:
+    """Unwrap custom-emoji entities after Telegram explicitly rejects an ID.
+
+    This is deliberately not used for network errors or speculative rendering:
+    the caller must first observe a definite Telegram BadRequest for a custom
+    emoji. Known IDs use only their catalogued fallback; unknown IDs retain the
+    replacement character already carried inside the entity.
+    """
+    def replace(match: re.Match[str]) -> str:
+        attrs, inner = match.group(1), match.group(2)
+        found = _EMOJI_ID_ATTRIBUTE.search(attrs)
+        emoji_id = (found.group(1) or found.group(2)) if found else ""
+        replacement = unicode_fallback(emoji_id, html.unescape(inner)) if emoji_id else html.unescape(inner)
+        return html.escape(replacement, quote=False)
+
+    return _EMOJI_TAG.sub(replace, str(value or ""))
+
+
+def callback_text(value: str | None) -> str | None:
+    """Return plain callback text; callback toasts do not support HTML entities."""
+    if value is None:
+        return None
+    return html.unescape(_HTML_TAG.sub("", fallback_custom_emoji_html(str(value))))
+
+
 def pe(key: str, fallback: str | None = None) -> str:
-    """Premium emoji by logical key — auto falls back to cyber glyph."""
-    fid = PREMIUM_IDS.get(key, "")
-    # An empty legacy fallback means "use the canonical Unicode fallback", not
-    # an empty custom-emoji entity (which Telegram cannot render).
-    fb = fallback or FALLBACK.get(key, "✨")
-    return tg_emoji(fid, fb)
+    """Backwards-compatible HTML renderer for existing message builders."""
+    return render_emoji(key, "message_html", fallback)
 
 # ── Ready-made cyber helpers — drop-in replacements for formatters.CYBER ──
 def orb() -> str:     return pe("orb", "◍")
