@@ -83,10 +83,13 @@ export function importDraftDocument(value: unknown): PostDraft {
  * buttons are shared on purpose, because that is the point of duplicating.
  */
 export function copyDraft(draft: PostDraft, now = new Date()): PostDraft {
+  const source = parseDraft(draft);
+  if (!source) throw new Error("Invalid post draft");
   return {
-    ...draft,
+    ...source,
     id: `copy-${now.getTime()}-${Math.random().toString(36).slice(2, 8)}`,
-    buttons: (draft.buttons || []).map((row) => row.map((button) => ({ ...button }))),
+    buttons: source.buttons.map((row) => row.map((button) => ({ ...button }))),
+    ...(source.tags ? { tags: [...source.tags] } : {}),
     savedAt: now.toISOString(),
   };
 }
