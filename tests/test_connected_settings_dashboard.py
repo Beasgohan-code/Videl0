@@ -77,6 +77,52 @@ class ConnectedSettingsDashboardTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(saved["revision"], 0)
         self.client.get_chat_member.assert_not_awaited()
 
+    async def test_lock_enable_requires_method_specific_bot_rights(self):
+        self.query.data = f"settings:{self.CHAT}:lock_links:on:v0"
+        with patch("videl.utils.db._db", self.db), \
+             patch("videl.app.connections.connected_target", new=AsyncMock(return_value=(
+                 SimpleNamespace(id=self.CHAT), None))), \
+             patch("videl.plugins.settings._bot_can_delete_messages", new=AsyncMock(return_value=False)) as rights:
+            await settings.settings_callback(self.client, self.query)
+        rights.assert_awaited_once_with(self.client, self.CHAT)
+        self.assertIn("Delete Messages", self.query.answer.call_args.args[0])
+        self.assertEqual(self.db["mgmt_chat_settings"].find_one({"chat_id": self.CHAT})["revision"], 0)
+
+    async def test_safety_dashboard_hides_lock_enable_when_bot_lacks_right(self):
+        with patch("videl.plugins.settings._bot_can_delete_messages", new=AsyncMock(return_value=False)):
+            screen = await settings._settings_screen(self.client, self.CHAT, "safety", connected_dm=True)
+        callbacks = [button.callback_data for row in screen.keyboard.inline_keyboard for button in row
+                     if button.callback_data]
+        self.assertFalse(any(callback.endswith(":lock_links:on:v0") for callback in callbacks))
+        self.assertTrue(any(callback.endswith(":lock_links:off:v0") for callback in callbacks))
+        self.assertIn("Delete Messages permission", screen.html)
+
+    async def test_lock_disable_remains_available_without_bot_delete_right(self):
+        self.db["mgmt_chat_settings"].update_one({"chat_id": self.CHAT}, {"$set": {"lock_links": True}})
+        self.query.data = f"settings:{self.CHAT}:lock_links:off:v0"
+        with patch("videl.utils.db._db", self.db), \
+             patch("videl.app.connections.connected_target", new=AsyncMock(return_value=(
+                 SimpleNamespace(id=self.CHAT), None))), \
+             patch("videl.plugins.settings._bot_can_delete_messages", new=AsyncMock(return_value=False)) as rights:
+            await settings.settings_callback(self.client, self.query)
+        rights.assert_awaited_once_with(self.client, self.CHAT)
+        saved = self.db["mgmt_chat_settings"].find_one({"chat_id": self.CHAT})
+        self.assertFalse(saved["lock_links"])
+        self.assertEqual(saved["revision"], 1)
+
+    async def test_lock_enable_saves_only_after_bot_delete_right_is_verified(self):
+        self.query.data = f"settings:{self.CHAT}:lock_links:on:v0"
+        with patch("videl.utils.db._db", self.db), \
+             patch("videl.app.connections.connected_target", new=AsyncMock(return_value=(
+                 SimpleNamespace(id=self.CHAT), None))), \
+             patch("videl.plugins.settings._bot_can_delete_messages", new=AsyncMock(return_value=True)) as rights, \
+             patch("videl.plugins.settings.rich_edit", new=AsyncMock()):
+            await settings.settings_callback(self.client, self.query)
+        self.assertEqual(rights.await_count, 2)
+        saved = self.db["mgmt_chat_settings"].find_one({"chat_id": self.CHAT})
+        self.assertTrue(saved["lock_links"])
+        self.assertEqual(saved["revision"], 1)
+
     async def test_connected_dm_welcome_text_callback_starts_private_prompt(self):
         from videl.plugins import welcome
         self.query.data = f"settings:{self.CHAT}:welcome_text:edit:v0"
@@ -143,6 +189,7 @@ class ConnectedSettingsDashboardTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any(":welcome_media:edit:" in callback for callback in callbacks))
         self.assertTrue(any(":welcome_buttons:edit:" in callback for callback in callbacks))
         self.assertTrue(any(":captcha:edit:" in callback for callback in callbacks))
+        self.assertTrue(any(":approved:list:" in callback for callback in callbacks))
         self.assertTrue(any(":antispam:edit:" in callback for callback in callbacks))
         self.assertTrue(any(":warn_threshold:edit:" in callback for callback in callbacks))
         self.assertFalse(any(":retention:" in callback and ":tab:retention:" not in callback
