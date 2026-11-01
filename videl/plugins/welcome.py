@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 from pyrogram import filters
 from pyrogram.enums import ChatMemberStatus, ChatMembersFilter
-from pyrogram.types import CallbackQuery, CopyTextButton, InlineKeyboardMarkup
+from pyrogram.types import CallbackQuery, CopyTextButton, ForceReply, InlineKeyboardMarkup
 
 from videl import LOGGER, bot
 from videl.app.router import Command, CommandError, Screen
@@ -36,6 +36,227 @@ def _render(template: str, member, chat) -> str:
         return template.format(**values)
     except Exception:
         return template
+
+
+_SUPPORTED_WELCOME_FIELDS = {"name", "id", "title", "mention"}
+
+
+def validate_welcome_template(template: str) -> str:
+    """Accept only the placeholders supported by the existing welcome renderer."""
+    import string
+    if not isinstance(template, str):
+        raise ValueError("Send welcome text as a message.")
+    template = template.strip()
+    if not template:
+        raise ValueError("Welcome text cannot be empty.")
+    if len(template) > 1000:
+        raise ValueError("Welcome text must be 1,000 characters or fewer.")
+    try:
+        for _, field_name, format_spec, conversion in string.Formatter().parse(template):
+            if field_name is None:
+                continue
+            if field_name not in _SUPPORTED_WELCOME_FIELDS or format_spec or conversion:
+                raise ValueError(f"Unsupported placeholder. Use only {{name}}, {{id}}, {{title}} or {{mention}}.")
+    except ValueError as error:
+        if "Unsupported placeholder" in str(error):
+            raise
+        raise ValueError("Welcome text has an unmatched brace; use double braces for literal braces.") from None
+    return template
+
+
+def preview_welcome_template(template: str, chat) -> str:
+    """Render with the existing delivery formatter and safe sample values."""
+    from types import SimpleNamespace
+    return _render(validate_welcome_template(template), SimpleNamespace(first_name="Alex", id=12345), chat)
+
+
+from videl.utils.interactive_settings import Step, engine as _interaction_engine
+
+
+async def start_welcome_edit(client, chat_id: int, actor_id: int, revision: int) -> str:
+    """Start the real /settings → Welcome text reply workflow."""
+    session = await _interaction_engine.begin(
+        chat_id=chat_id, actor_id=actor_id, target_chat_id=chat_id,
+        workflow="welcome_text", revision=revision,
+        steps=(Step("welcome_message", "Send the welcome text. Supported placeholders: {name}, {id}, {title}, {mention}.", max_length=1000),),
+        timeout_seconds=600,
+    )
+    try:
+        prompt = await client.send_message(
+            chat_id,
+            "Reply to this prompt with the new welcome text (up to 1,000 characters). "
+            "Supported placeholders: <code>{name}</code>, <code>{id}</code>, "
+            "<code>{title}</code>, <code>{mention}</code>. Send <code>/cancel</code> to stop.",
+            reply_markup=ForceReply(selective=True),
+        )
+        await _interaction_engine.bind_prompt(session.token, chat_id=chat_id, actor_id=actor_id, message_id=prompt.id)
+    except Exception:
+        await _interaction_engine.cancel(session.token, chat_id=chat_id, actor_id=actor_id)
+        raise RuntimeError("Could not send the welcome-text prompt; no settings changed.") from None
+    return "Reply to the welcome-text prompt to continue. Nothing is saved until you confirm."
+
+
+def _welcome_preview_keyboard(token: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([[
+        button("Edit Again", callback_data=f"welcome_edit:{token}:edit"),
+        button("Save", callback_data=f"welcome_edit:{token}:save", style="success"),
+        button("Cancel", callback_data=f"welcome_edit:{token}:cancel", style="danger"),
+    ]])
+
+
+async def _send_welcome_prompt(client, session) -> None:
+    step = session.current_step
+    if step is None:
+        return
+    prompt = await client.send_message(
+        session.chat_id,
+        "Reply with the welcome text. Supported placeholders: <code>{name}</code>, "
+        "<code>{id}</code>, <code>{title}</code>, <code>{mention}</code>. "
+        "Send <code>/cancel</code> to stop.",
+        reply_markup=ForceReply(selective=True),
+    )
+    await _interaction_engine.bind_prompt(session.token, chat_id=session.chat_id,
+                                          actor_id=session.actor_id, message_id=prompt.id)
+
+
+@bot.on_message(filters.incoming & filters.text, group=1)
+async def welcome_edit_message(client, message) -> None:
+    if not base.is_group(message) or getattr(message, "from_user", None) is None:
+        return
+    chat_id, actor_id = int(message.chat.id), int(message.from_user.id)
+    session = await _interaction_engine.for_owner(chat_id=chat_id, actor_id=actor_id, target_chat_id=chat_id)
+    if session is None or session.workflow != "welcome_text":
+        return
+    text = str(getattr(message, "text", "") or "")
+    command = text.strip().split(maxsplit=1)[0].split("@", 1)[0].casefold() if text.strip() else ""
+    if command == "/cancel":
+        if await _interaction_engine.cancel(session.token, chat_id=chat_id, actor_id=actor_id):
+            await client.send_message(chat_id, "Welcome-text editing cancelled. Nothing was saved.")
+        return
+    if getattr(getattr(message, "reply_to_message", None), "id", None) != session.expected_message_id:
+        return
+    try:
+        accepted_text = validate_welcome_template(text)
+    except ValueError as error:
+        try:
+            await _send_welcome_prompt(client, session)
+            await client.send_message(chat_id, str(error))
+        except Exception:
+            await _interaction_engine.cancel(session.token, chat_id=chat_id, actor_id=actor_id)
+            await client.send_message(chat_id, "Welcome-text editing ended because the next prompt could not be sent. Nothing was saved.")
+        return
+    result = await _interaction_engine.capture(
+        session.token, chat_id=chat_id, actor_id=actor_id, target_chat_id=chat_id,
+        reply_to_message_id=getattr(getattr(message, "reply_to_message", None), "id", None), value=accepted_text,
+    )
+    if result.status == "stale":
+        return
+    if result.status in {"expired", "unauthorized"}:
+        return
+    if result.status == "invalid":
+        try:
+            await _send_welcome_prompt(client, result.session)
+            await client.send_message(chat_id, result.error)
+        except Exception:
+            await _interaction_engine.cancel(session.token, chat_id=chat_id, actor_id=actor_id)
+            await client.send_message(chat_id, "Welcome-text editing ended because the next prompt could not be sent. Nothing was saved.")
+        return
+    if result.status == "preview":
+        try:
+            rendered = preview_welcome_template(result.session.values["welcome_message"], message.chat)
+            preview = await client.send_message(chat_id, rendered,
+                                                reply_markup=_welcome_preview_keyboard(result.session.token))
+            await _interaction_engine.bind_prompt(result.session.token, chat_id=chat_id,
+                                                  actor_id=actor_id, message_id=preview.id)
+        except Exception:
+            await _interaction_engine.cancel(session.token, chat_id=chat_id, actor_id=actor_id)
+            await client.send_message(chat_id, "Could not render the preview; nothing was saved. Start again from /settings → Welcome.")
+
+
+@bot.on_callback_query(filters.regex(r"^welcome_edit:[A-Za-z0-9_-]{1,24}:(?:edit|save|cancel)$"))
+async def welcome_edit_callback(client, query: CallbackQuery) -> None:
+    message = getattr(query, "message", None)
+    actor = getattr(query, "from_user", None)
+    if message is None or actor is None or not base.is_group(message):
+        await query.answer("Open Welcome Settings in the group.", show_alert=True)
+        return
+    try:
+        _, token, action = str(query.data).split(":")
+    except ValueError:
+        await query.answer("This welcome action is invalid.", show_alert=True)
+        return
+    chat_id, actor_id = int(message.chat.id), int(actor.id)
+    session = await _interaction_engine.get(token, chat_id=chat_id, actor_id=actor_id, target_chat_id=chat_id)
+    if session is None or session.workflow != "welcome_text":
+        await query.answer("This welcome edit expired or belongs to another admin. Nothing was saved.", show_alert=True)
+        return
+    if action == "cancel":
+        await _interaction_engine.cancel(token, chat_id=chat_id, actor_id=actor_id)
+        await query.answer("Cancelled; nothing was saved.")
+        await rich_edit(message, heading("Welcome text edit cancelled", 3) + body("Nothing was saved. Reopen /settings → Welcome to start again."), reply_markup=None)
+        return
+    if action == "edit":
+        edited = await _interaction_engine.edit_again(token, chat_id=chat_id, actor_id=actor_id, message_id=message.id)
+        if edited is None:
+            await query.answer("This preview is no longer active.", show_alert=True)
+            return
+        try:
+            await rich_edit(message, heading("Edit welcome text again", 3) + body("Reply to the next prompt. Nothing has been saved."), reply_markup=None)
+            await _send_welcome_prompt(client, edited)
+            await query.answer("Reply to the prompt to edit again.")
+        except Exception:
+            await _interaction_engine.cancel(token, chat_id=chat_id, actor_id=actor_id)
+            await query.answer("Could not restart the editor; nothing was saved.", show_alert=True)
+        return
+
+    async def authorize(target_chat_id: int, user_id: int) -> bool:
+        try:
+            member = await client.get_chat_member(target_chat_id, user_id)
+            status = getattr(getattr(member, "status", None), "value", getattr(member, "status", None))
+            return str(status).casefold() in {"owner", "administrator"}
+        except Exception:
+            return False
+
+    save_issue = {"conflict": False}
+    async def save(snapshot) -> bool:
+        from videl.utils.settings_store import SettingsConflict, write
+        try:
+            await asyncio.to_thread(write, snapshot.target_chat_id,
+                                    {"welcome_message": snapshot.values["welcome_message"]},
+                                    snapshot.revision)
+            return True
+        except SettingsConflict:
+            save_issue["conflict"] = True
+            return False
+        except Exception:
+            return False
+
+    outcome, _ = await _interaction_engine.commit(
+        token, chat_id=chat_id, actor_id=actor_id, target_chat_id=chat_id,
+        message_id=int(message.id), authorize=authorize, save=save,
+    )
+    if outcome == "saved":
+        await query.answer("Welcome text saved.")
+        await rich_edit(message, heading("Welcome text saved", 3)
+                        + body("The new template is now stored. Delivery still follows the current welcome-enabled setting."),
+                        reply_markup=None)
+    elif outcome == "permission_denied":
+        await _interaction_engine.cancel(token, chat_id=chat_id, actor_id=actor_id)
+        await query.answer("Current group-admin permission could not be verified. Nothing was saved.", show_alert=True)
+        await rich_edit(message, heading("Welcome text not saved", 3)
+                        + body("Your current group-admin permission could not be verified. Reopen settings if your access is restored."), reply_markup=None)
+    elif outcome == "save_failed" and save_issue["conflict"]:
+        await _interaction_engine.cancel(token, chat_id=chat_id, actor_id=actor_id)
+        await query.answer("Settings changed elsewhere. This draft was not saved; review the latest value.", show_alert=True)
+        from videl.plugins import settings as settings_plugin
+        latest = settings_plugin._screen(chat_id, "welcome")
+        await rich_edit(message, latest.html, reply_markup=latest.keyboard)
+    elif outcome == "save_failed":
+        await query.answer("Could not save the welcome text. Nothing was reported as saved; you can retry.", show_alert=True)
+    elif outcome == "expired":
+        await query.answer("This edit expired. Nothing was saved.", show_alert=True)
+    elif outcome in {"unauthorized", "stale"}:
+        await query.answer("This action is not available to this admin or preview.", show_alert=True)
 
 
 async def set_welcome(ctx) -> Screen:

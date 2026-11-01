@@ -110,6 +110,10 @@ def _screen(chat_id, section="home", *, query="", category="all", page=0):
         description={"music":"Members can request tracks when enabled. Approval sends new requests to admin review; use /requests to review.","welcome":"Control welcome, goodbye and verification flows. Edit content with /setwelcome, /setgoodbye, /setrules and /setfaq.","safety":"Configure content locks, anti-flood (custom thresholds via /antispam) and raid mode. Gemini Guardian is off by default. When enabled, /faqassist sends the question and selected FAQ/rules/text notes; admin /safetycheck sends minimized replied-to text (URL hosts only); /guardiansummary sends aggregate counts. These are sent to Google Gemini; no result takes action."}[section]
         fields=_TOGGLES[section]
         rows=[(label,"On" if base.get_setting(chat_id,key,default) else "Off") for label,key,default in fields]
+        if section=="welcome":
+            from videl.plugins.welcome import DEFAULT_WELCOME
+            current=base.get_setting(chat_id,"welcome_message",DEFAULT_WELCOME)
+            rows.append(("Welcome text",base.escape(str(current)[:180])))
         if section=="safety":
             from videl.plugins.locks import antispam_config
             flood_limit, flood_window = antispam_config(chat_id)
@@ -118,6 +122,8 @@ def _screen(chat_id, section="home", *, query="", category="all", page=0):
             dj=base.get_setting(chat_id,"music_dj_session",{}); rows.append(("Temporary DJ",str(dj.get("user_id")) if isinstance(dj,dict) and dj.get("user_id") else "None · use /dj"))
         text=heading(title,3)+body(description)+table(rows)
         markup += [_switch(chat_id,key,label,default) for label,key,default in fields]
+        if section=="welcome":
+            markup.append([button("Edit welcome text…",callback_data=f"settings:{chat_id}:welcome_text:edit")])
         if section=="safety":
             for kind in LOCK_TYPES:
                 key="lock_forwards" if kind=="forward" else f"lock_{kind}"
@@ -221,7 +227,7 @@ async def settings(ctx):
         return _screen(chat_id,"commands",query=query)
     return _screen(chat_id)
 
-_PATTERN=r"^settings:-?[0-9]{1,20}:(?:tab:(?:home|music|welcome|safety|moderation|retention|blocklist|presets|sessions|commands)|commands:(?:all|manage|music|tools):[0-9]{1,3}|cmd:[a-z][a-z0-9_]{0,31}:(?:on|off)|(?:music_requests_enabled|music_approval_required|welcome_enabled|goodbye_enabled|captcha_enabled|antispam|gemini_guardian_enabled|lock_[a-z_]+):(?:on|off)|raid:(?:on|off)|warn_threshold:(?:2|3|5|10)|retention:[a-z_]+:(?:30|90|180|365|off)|blocklist:(?:add:(?:track|artist)|remove:[1-9][0-9]?)|preset:(?:save|apply:[1-9][0-9]?|delete:[1-9][0-9]?)|session:(?:schedule|cancel:[A-Za-z0-9]+)|reset:(?:music|welcome|safety|moderation|blocklist|presets)|resetconfirm:(?:music|welcome|safety|moderation|blocklist|presets):[a-f0-9]{12}|refresh):v[0-9]{1,12}$"
+_PATTERN=r"^settings:-?[0-9]{1,20}:(?:tab:(?:home|music|welcome|safety|moderation|retention|blocklist|presets|sessions|commands)|commands:(?:all|manage|music|tools):[0-9]{1,3}|cmd:[a-z][a-z0-9_]{0,31}:(?:on|off)|(?:music_requests_enabled|music_approval_required|welcome_enabled|goodbye_enabled|captcha_enabled|antispam|gemini_guardian_enabled|lock_[a-z_]+):(?:on|off)|welcome_text:edit|raid:(?:on|off)|warn_threshold:(?:2|3|5|10)|retention:[a-z_]+:(?:30|90|180|365|off)|blocklist:(?:add:(?:track|artist)|remove:[1-9][0-9]?)|preset:(?:save|apply:[1-9][0-9]?|delete:[1-9][0-9]?)|session:(?:schedule|cancel:[A-Za-z0-9]+)|reset:(?:music|welcome|safety|moderation|blocklist|presets)|resetconfirm:(?:music|welcome|safety|moderation|blocklist|presets):[a-f0-9]{12}|refresh):v[0-9]{1,12}$"
 @bot.on_callback_query(filters.regex(_PATTERN))
 async def settings_callback(client,query):
     message=getattr(query,"message",None); actor=getattr(query,"from_user",None)
@@ -239,6 +245,7 @@ async def settings_callback(client,query):
             section,category,page="commands",parts[3],min(int(parts[4]),999)
         elif len(parts)==5 and parts[2]=="cmd" and parts[4] in {"on","off"}:
             key,value,section="__command_toggle__",(parts[3],parts[4]=="on"),"commands"
+        elif len(parts)==4 and parts[2]=="welcome_text" and parts[3]=="edit": key,value,section="__welcome_text_edit__",None,"welcome"
         elif len(parts)==4 and parts[2] in ({k for values in _TOGGLES.values() for _,k,_ in values}|_LOCK_KEYS) and parts[3] in {"on","off"}:
             key,value=parts[2],parts[3]=="on"; section="safety" if key in {"antispam", "gemini_guardian_enabled"} or key in _LOCK_KEYS else ("music" if key.startswith("music_") else "welcome")
         elif len(parts)==4 and parts[2]=="raid" and parts[3] in {"on","off"}:
@@ -273,6 +280,15 @@ async def settings_callback(client,query):
         await query.answer("Settings changed since this panel was opened. Review the refreshed values.",show_alert=True)
         fresh=_screen(chat_id,section,category=category,page=page)
         return await rich_edit(message,fresh.html,reply_markup=fresh.keyboard)
+    if key=="__welcome_text_edit__":
+        from videl.plugins.welcome import start_welcome_edit
+        try:
+            message_text=await start_welcome_edit(client,chat_id,int(actor.id),expected_revision)
+        except RuntimeError as error:
+            return await query.answer(str(error),show_alert=True)
+        except Exception:
+            return await query.answer("Could not start the welcome-text editor; no settings changed.",show_alert=True)
+        return await query.answer(message_text)
     if key == "gemini_guardian_enabled" and value:
         from videl.utils.gemini import configured
         if not configured():
