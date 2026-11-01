@@ -293,7 +293,8 @@ def _screen(chat_id, section="home", *, query="", category="all", page=0, connec
                            or action.startswith("commands:")
                            or action.startswith("cmd:")
                            or action.startswith("reset:")
-                           or action.startswith("resetconfirm:"))
+                           or action.startswith("resetconfirm:")
+                           or action.startswith("warn_threshold:"))
                 if action.startswith(("music_requests_enabled:", "music_approval_required:",
                                       "music_shuffle_enabled:", "welcome_enabled:",
                                       "goodbye_enabled:", "gemini_guardian_enabled:", "raid:")):
@@ -380,10 +381,12 @@ def _warn_threshold_selection_screen(session):
     return Screen(text, _warn_threshold_selection(session))
 
 
-async def _start_warn_threshold_editor(message, chat_id: int, actor_id: int, revision: int, initial=None):
+async def _start_warn_threshold_editor(message, chat_id: int, actor_id: int, revision: int, initial=None,
+                                       *, interaction_chat_id: int | None = None):
+    interaction_chat_id = int(interaction_chat_id if interaction_chat_id is not None else chat_id)
     current = _saved_warn_threshold(chat_id)
     session = await engine.begin(
-        chat_id=chat_id, actor_id=actor_id, target_chat_id=chat_id,
+        chat_id=interaction_chat_id, actor_id=actor_id, target_chat_id=chat_id,
         workflow="warn_threshold", revision=revision,
         steps=(Step("warn_threshold", "Warning threshold", kind="selection",
                     choices=_WARN_THRESHOLD_VALUES),), timeout_seconds=600,
@@ -393,17 +396,17 @@ async def _start_warn_threshold_editor(message, chat_id: int, actor_id: int, rev
         if initial is None:
             screen = _warn_threshold_selection_screen(session)
         else:
-            await engine.bind_prompt(session.token, chat_id=chat_id, actor_id=actor_id, message_id=int(message.id))
-            captured = await engine.capture(session.token, chat_id=chat_id, actor_id=actor_id,
+            await engine.bind_prompt(session.token, chat_id=interaction_chat_id, actor_id=actor_id, message_id=int(message.id))
+            captured = await engine.capture(session.token, chat_id=interaction_chat_id, actor_id=actor_id,
                                             target_chat_id=chat_id, reply_to_message_id=int(message.id),
                                             value=str(initial))
             if captured.status != "preview":
                 raise ValueError("Invalid warning threshold selection.")
             screen = _warn_threshold_preview(captured.session)
         await rich_edit(message, screen.html, reply_markup=screen.keyboard)
-        await engine.bind_prompt(session.token, chat_id=chat_id, actor_id=actor_id, message_id=int(message.id))
+        await engine.bind_prompt(session.token, chat_id=interaction_chat_id, actor_id=actor_id, message_id=int(message.id))
     except Exception:
-        await engine.cancel(session.token, chat_id=chat_id, actor_id=actor_id)
+        await engine.cancel(session.token, chat_id=interaction_chat_id, actor_id=actor_id)
         raise RuntimeError("Could not display the warning threshold editor; nothing changed.") from None
     return session
 
@@ -470,6 +473,7 @@ async def settings_callback(client,query):
     if connected_dm:
         dm_safe_keys = {None, "music_requests_enabled", "music_approval_required", "music_shuffle_enabled",
                         "welcome_enabled", "goodbye_enabled", "gemini_guardian_enabled", "raid_mode",
+                        "__warn_threshold_editor__",
                         "__command_toggle__", "__reset_preview__", "__reset_confirm__",
                         "__session_cancel__"}
         if key not in dm_safe_keys:
@@ -502,7 +506,8 @@ async def settings_callback(client,query):
                                       else "Could not open group filters.", show_alert=True)
     if key=="__warn_threshold_editor__":
         try:
-            await _start_warn_threshold_editor(message, chat_id, int(actor.id), expected_revision, value)
+            await _start_warn_threshold_editor(message, chat_id, int(actor.id), expected_revision, value,
+                                                interaction_chat_id=int(message.chat.id))
         except RuntimeError as error:
             return await query.answer(str(error), show_alert=True)
         except Exception:
@@ -664,57 +669,84 @@ async def settings_callback(client,query):
 async def warn_threshold_editor_callback(client, query):
     message = getattr(query, "message", None)
     actor = getattr(query, "from_user", None)
-    if message is None or actor is None or base.chat_kind(message) not in {"group", "supergroup"}:
-        return await query.answer("Open the warning editor in the group.", show_alert=True)
-    chat_id, actor_id = int(message.chat.id), int(actor.id)
+    if message is None or actor is None:
+        return await query.answer("Open the warning editor from a valid Telegram account.", show_alert=True)
+    interaction_kind = base.chat_kind(message)
+    connected_dm = interaction_kind == "private" and int(message.chat.id) == int(actor.id)
+    if interaction_kind not in {"group", "supergroup"} and not connected_dm:
+        return await query.answer("This warning editor is not available in this chat.", show_alert=True)
+    interaction_chat_id, actor_id = int(message.chat.id), int(actor.id)
     try:
         _, token, action, *selected = str(query.data).split(":")
     except ValueError:
         return await query.answer("That warning editor action is invalid.", show_alert=True)
-    session = await engine.get(token, chat_id=chat_id, actor_id=actor_id, target_chat_id=chat_id)
+    session = await engine.get(token, chat_id=interaction_chat_id, actor_id=actor_id)
     if session is None or session.workflow != "warn_threshold":
         return await query.answer("This warning threshold edit expired or belongs to another admin.", show_alert=True)
+    target_chat_id = int(session.target_chat_id)
+    if connected_dm:
+        from videl.app.connections import connected_target
+        _, connection_error = await connected_target(client, actor_id, expected_chat_id=target_chat_id)
+        if connection_error:
+            await engine.cancel(token, chat_id=interaction_chat_id, actor_id=actor_id)
+            return await query.answer(connection_error, show_alert=True)
+    elif target_chat_id != interaction_chat_id:
+        await engine.cancel(token, chat_id=interaction_chat_id, actor_id=actor_id)
+        return await query.answer("This editor belongs to another group.", show_alert=True)
+    try:
+        member = await client.get_chat_member(target_chat_id, actor_id)
+        status = str(getattr(getattr(member, "status", None), "value", getattr(member, "status", None))).casefold()
+        if status not in {"owner", "administrator"}:
+            await engine.cancel(token, chat_id=interaction_chat_id, actor_id=actor_id)
+            return await query.answer("Current group-admin permission could not be verified. Nothing was saved.", show_alert=True)
+    except Exception:
+        await engine.cancel(token, chat_id=interaction_chat_id, actor_id=actor_id)
+        return await query.answer("Current group-admin status could not be verified. Nothing was saved.", show_alert=True)
 
     if action in {"cancel", "back"}:
-        await engine.cancel(token, chat_id=chat_id, actor_id=actor_id)
-        if action == "cancel":
-            await query.answer("Cancelled; nothing was saved.")
-            screen = _screen(chat_id, "moderation")
-        else:
-            await query.answer("Back to moderation settings.")
-            screen = _screen(chat_id, "moderation")
+        await engine.cancel(token, chat_id=interaction_chat_id, actor_id=actor_id)
+        await query.answer("Cancelled; nothing was saved." if action == "cancel" else "Back to moderation settings.")
+        screen = _screen(target_chat_id, "moderation", connected_dm=connected_dm)
         return await rich_edit(message, screen.html, reply_markup=screen.keyboard)
 
     if action == "edit":
         saved_value = session.values.get("saved_value", 3)
-        edited = await engine.edit_again(token, chat_id=chat_id, actor_id=actor_id, message_id=int(message.id))
+        edited = await engine.edit_again(token, chat_id=interaction_chat_id, actor_id=actor_id,
+                                         message_id=int(message.id))
         if edited is None:
             return await query.answer("This preview is no longer active.", show_alert=True)
         edited.values["saved_value"] = saved_value
         screen = _warn_threshold_selection_screen(edited)
         await rich_edit(message, screen.html, reply_markup=screen.keyboard)
-        await engine.bind_prompt(token, chat_id=chat_id, actor_id=actor_id, message_id=int(message.id))
+        await engine.bind_prompt(token, chat_id=interaction_chat_id, actor_id=actor_id,
+                                 message_id=int(message.id))
         return await query.answer("Choose a value from 1 to 10.")
 
     if action == "pick":
         if len(selected) != 1 or selected[0] not in _WARN_THRESHOLD_VALUES:
             return await query.answer("Choose a warning threshold from 1 to 10.", show_alert=True)
-        result = await engine.capture(token, chat_id=chat_id, actor_id=actor_id,
-                                      target_chat_id=chat_id, reply_to_message_id=int(message.id),
+        result = await engine.capture(token, chat_id=interaction_chat_id, actor_id=actor_id,
+                                      target_chat_id=target_chat_id, reply_to_message_id=int(message.id),
                                       value=selected[0])
         if result.status != "preview":
             return await query.answer("This selection is no longer active. Reopen the editor.", show_alert=True)
         screen = _warn_threshold_preview(result.session)
         await rich_edit(message, screen.html, reply_markup=screen.keyboard)
-        await engine.bind_prompt(token, chat_id=chat_id, actor_id=actor_id, message_id=int(message.id))
+        await engine.bind_prompt(token, chat_id=interaction_chat_id, actor_id=actor_id,
+                                 message_id=int(message.id))
         return await query.answer("Review the preview; nothing has been saved.")
 
     if action != "save":
         return await query.answer("That warning editor action is invalid.", show_alert=True)
 
-    async def authorize(target_chat_id: int, user_id: int) -> bool:
+    async def authorize(target_id: int, user_id: int) -> bool:
+        if connected_dm:
+            from videl.app.connections import connected_target
+            _, error = await connected_target(client, user_id, expected_chat_id=target_id)
+            if error:
+                return False
         try:
-            member = await client.get_chat_member(target_chat_id, user_id)
+            member = await client.get_chat_member(target_id, user_id)
             status = str(getattr(getattr(member, "status", None), "value",
                                  getattr(member, "status", None))).casefold()
             return status in {"owner", "administrator"}
@@ -736,30 +768,30 @@ async def warn_threshold_editor_callback(client, query):
         except Exception:
             return False
 
-    outcome, _ = await engine.commit(token, chat_id=chat_id, actor_id=actor_id,
-                                     target_chat_id=chat_id, message_id=int(message.id),
+    outcome, _ = await engine.commit(token, chat_id=interaction_chat_id, actor_id=actor_id,
+                                     target_chat_id=target_chat_id, message_id=int(message.id),
                                      authorize=authorize, save=save)
     if outcome == "saved":
         try:
             from videl.utils.audit import record_bot
             value = int(session.values["warn_threshold"])
-            await asyncio.to_thread(record_bot, chat_id, "settings",
+            await asyncio.to_thread(record_bot, target_chat_id, "settings",
                                     action="warn_threshold_interactive_saved",
                                     detail=f"warn_threshold={value}", actor=actor_id)
         except Exception:
             LOGGER.debug("Warning threshold audit write failed", exc_info=True)
         await query.answer("Warning threshold saved.")
-        screen = _screen(chat_id, "moderation")
+        screen = _screen(target_chat_id, "moderation", connected_dm=connected_dm)
         return await rich_edit(message, screen.html, reply_markup=screen.keyboard)
     if outcome == "permission_denied":
-        await engine.cancel(token, chat_id=chat_id, actor_id=actor_id)
+        await engine.cancel(token, chat_id=interaction_chat_id, actor_id=actor_id)
         await query.answer("Current group-admin permission could not be verified. Nothing was saved.", show_alert=True)
-        screen = _screen(chat_id, "moderation")
+        screen = _screen(target_chat_id, "moderation", connected_dm=connected_dm)
         return await rich_edit(message, screen.html, reply_markup=screen.keyboard)
     if outcome == "save_failed" and save_error["conflict"]:
-        await engine.cancel(token, chat_id=chat_id, actor_id=actor_id)
+        await engine.cancel(token, chat_id=interaction_chat_id, actor_id=actor_id)
         await query.answer("Settings changed elsewhere. No warning threshold was saved; review the latest value.", show_alert=True)
-        screen = _screen(chat_id, "moderation")
+        screen = _screen(target_chat_id, "moderation", connected_dm=connected_dm)
         return await rich_edit(message, screen.html, reply_markup=screen.keyboard)
     if outcome == "save_failed":
         await query.answer("Could not save the warning threshold. Nothing was reported as saved; retry from this preview.", show_alert=True)
