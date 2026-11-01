@@ -355,7 +355,7 @@ async def _send_filter_prompt(client, session, error: str | None = None):
     return sent
 
 
-async def start_filter_editor(client, panel, chat_id: int, actor_id: int, *, mode="add", original=None):
+async def start_filter_editor(client, panel, chat_id: int, actor_id: int, *, mode="add", original=None, interaction_chat_id=None):
     if mode not in {"add", "edit"}:
         raise ValueError("Unknown filter editor mode.")
     if _filters() is None:
@@ -365,8 +365,9 @@ async def start_filter_editor(client, panel, chat_id: int, actor_id: int, *, mod
         if not isinstance(original, dict) or "_id" not in original:
             raise filter_store.FilterStoreConflict("This filter is no longer available. Reopen /filters.")
         original_snapshot = {key: original.get(key) for key in ("_id", "keyword", "reply")}
+    interaction_chat_id = int(chat_id if interaction_chat_id is None else interaction_chat_id)
     session = await engine.begin(
-        chat_id=int(chat_id), actor_id=int(actor_id), target_chat_id=int(chat_id),
+        chat_id=interaction_chat_id, actor_id=int(actor_id), target_chat_id=int(chat_id),
         workflow=f"filter_{mode}",
         steps=(Step("keyword", "Send a trigger keyword (1–64 characters).", max_length=64),
                Step("reply", "Send the plain-text response (1–400 characters).", max_length=400)),
@@ -381,7 +382,7 @@ async def start_filter_editor(client, panel, chat_id: int, actor_id: int, *, mod
                         reply_markup=None)
         await _send_filter_prompt(client, session)
     except Exception:
-        await engine.cancel(session.token, chat_id=int(chat_id), actor_id=int(actor_id))
+        await engine.cancel(session.token, chat_id=interaction_chat_id, actor_id=int(actor_id))
         raise filter_store.FilterStoreError("Could not start the filter editor; nothing changed.") from None
     return session
 
@@ -502,21 +503,40 @@ async def filter_management_callback(client, query: CallbackQuery) -> None:
         reply_markup=_filter_markup(documents, page, total, chat_id=chat_id, can_manage=can_manage),
     )
 
-@bot.on_message(filters.group & (filters.text | filters.media), group=3)
+async def _filter_session_authorized(client, session) -> bool:
+    interaction_chat_id = int(session.chat_id)
+    target_chat_id = int(session.target_chat_id)
+    actor_id = int(session.actor_id)
+    if interaction_chat_id == target_chat_id:
+        return await _live_group_admin(client, target_chat_id, actor_id)
+    if interaction_chat_id != actor_id:
+        return False
+    from videl.app.connections import connected_target
+    group, error = await connected_target(client, actor_id, expected_chat_id=target_chat_id)
+    return group is not None and error is None
+
+
+@bot.on_message((filters.group | filters.private) & filters.incoming & (filters.text | filters.media), group=3)
 async def filter_editor_message(client, message) -> None:
     user = getattr(message, "from_user", None)
     if user is None:
         return
-    chat_id, actor_id = int(message.chat.id), int(user.id)
-    session = await engine.for_owner(chat_id=chat_id, actor_id=actor_id, target_chat_id=chat_id)
+    interaction_chat_id, actor_id = int(message.chat.id), int(user.id)
+    if base.chat_kind(message) == "private" and interaction_chat_id != actor_id:
+        return
+    session = await engine.for_owner(chat_id=interaction_chat_id, actor_id=actor_id)
     if session is None or session.workflow not in {"filter_add", "filter_edit"}:
         return
+    chat_id = int(session.target_chat_id)
+    if not await _filter_session_authorized(client, session):
+        await engine.cancel(session.token, chat_id=interaction_chat_id, actor_id=actor_id)
+        return await client.send_message(interaction_chat_id, "Connection or current group-admin access changed. Filter draft discarded; nothing was saved.")
     raw_text = getattr(message, "text", None)
     text = str(raw_text or "")
     tokens = text.strip().split(maxsplit=1)
     if tokens and tokens[0].split("@", 1)[0].casefold() == "/cancel":
-        await engine.cancel(session.token, chat_id=chat_id, actor_id=actor_id)
-        await client.send_message(chat_id, "Filter editing cancelled. Nothing was saved.")
+        await engine.cancel(session.token, chat_id=interaction_chat_id, actor_id=actor_id)
+        await client.send_message(interaction_chat_id, "Filter editing cancelled. Nothing was saved.")
         return
     reply = getattr(message, "reply_to_message", None)
     if getattr(reply, "id", None) != session.expected_message_id:
@@ -536,7 +556,7 @@ async def filter_editor_message(client, message) -> None:
             await _send_filter_prompt(client, session, str(error))
             return
         value = normalized_keyword
-    result = await engine.capture(session.token, chat_id=chat_id, actor_id=actor_id,
+    result = await engine.capture(session.token, chat_id=interaction_chat_id, actor_id=actor_id,
                                   target_chat_id=chat_id,
                                   reply_to_message_id=getattr(reply, "id", None), value=value)
     if result.status == "invalid":
@@ -553,11 +573,11 @@ async def filter_editor_message(client, message) -> None:
         return
     text_preview, keyboard = _filter_preview(result.session)
     try:
-        preview = await client.send_message(chat_id, text_preview, reply_markup=keyboard)
-        await engine.bind_prompt(result.session.token, chat_id=chat_id, actor_id=actor_id,
+        preview = await client.send_message(interaction_chat_id, text_preview, reply_markup=keyboard)
+        await engine.bind_prompt(result.session.token, chat_id=interaction_chat_id, actor_id=actor_id,
                                  message_id=int(preview.id))
     except Exception:
-        await engine.cancel(result.session.token, chat_id=chat_id, actor_id=actor_id)
+        await engine.cancel(result.session.token, chat_id=interaction_chat_id, actor_id=actor_id)
         LOGGER.debug("Filter preview could not be delivered", exc_info=True)
 
 
@@ -565,29 +585,47 @@ async def filter_editor_message(client, message) -> None:
 async def filter_editor_callback(client, query: CallbackQuery) -> None:
     message = getattr(query, "message", None)
     actor = getattr(query, "from_user", None)
-    if message is None or actor is None or base.chat_kind(message) not in {"group", "supergroup"}:
-        return await query.answer("Open the filter editor in the group.", show_alert=True)
+    if message is None or actor is None:
+        return await query.answer("Open the filter editor from a valid Telegram account.", show_alert=True)
+    interaction_kind = base.chat_kind(message)
+    connected_dm = interaction_kind == "private" and int(message.chat.id) == int(actor.id)
+    if interaction_kind not in {"group", "supergroup"} and not connected_dm:
+        return await query.answer("This filter editor is unavailable in this chat.", show_alert=True)
     try:
         _, token, action = str(query.data).split(":")
     except ValueError:
         return await query.answer("This filter action is invalid.", show_alert=True)
-    chat_id, actor_id = int(message.chat.id), int(actor.id)
-    session = await engine.get(token, chat_id=chat_id, actor_id=actor_id, target_chat_id=chat_id)
+    interaction_chat_id, actor_id = int(message.chat.id), int(actor.id)
+    session = await engine.get(token, chat_id=interaction_chat_id, actor_id=actor_id)
     if session is None or session.workflow not in {"filter_add", "filter_edit"}:
         return await query.answer("This filter edit expired or belongs to another admin.", show_alert=True)
+    chat_id = int(session.target_chat_id)
+    if connected_dm and interaction_chat_id != int(session.actor_id):
+        return await query.answer("This private filter action is unavailable.", show_alert=True)
+    if not connected_dm and chat_id != interaction_chat_id:
+        return await query.answer("This filter editor belongs to another group.", show_alert=True)
+    if action not in {"cancel", "back"} and not await _filter_session_authorized(client, session):
+        await engine.cancel(token, chat_id=interaction_chat_id, actor_id=actor_id)
+        denial = ("Connection or current group-admin access changed. Nothing was saved." if connected_dm
+                  else "Current group-admin status could not be verified. Nothing was saved.")
+        return await query.answer(denial, show_alert=True)
 
     async def show_list():
-        context = SimpleNamespace(message=message, user=actor, client=client)
-        screen = await list_filters(context)
+        if connected_dm:
+            from videl.plugins.settings import _screen
+            screen = _screen(chat_id, "automations", connected_dm=True)
+        else:
+            context = SimpleNamespace(message=message, user=actor, client=client)
+            screen = await list_filters(context)
         return await rich_edit(message, screen.html, reply_markup=screen.keyboard)
 
     if action in {"cancel", "back"}:
-        await engine.cancel(token, chat_id=chat_id, actor_id=actor_id)
+        await engine.cancel(token, chat_id=interaction_chat_id, actor_id=actor_id)
         await query.answer("Cancelled; nothing was saved." if action == "cancel" else "Back to filters.")
         return await show_list()
     if action == "edit":
         original = session.values.get("original")
-        edited = await engine.edit_again(token, chat_id=chat_id, actor_id=actor_id,
+        edited = await engine.edit_again(token, chat_id=interaction_chat_id, actor_id=actor_id,
                                          message_id=int(message.id))
         if edited is None:
             return await query.answer("This preview is no longer active.", show_alert=True)
@@ -599,14 +637,14 @@ async def filter_editor_callback(client, query: CallbackQuery) -> None:
         try:
             await _send_filter_prompt(client, edited)
         except Exception:
-            await engine.cancel(token, chat_id=chat_id, actor_id=actor_id)
+            await engine.cancel(token, chat_id=interaction_chat_id, actor_id=actor_id)
             return await query.answer("Could not restart the filter editor; nothing changed.", show_alert=True)
         return await query.answer("Reply to the prompts to revise the filter.")
     if action != "save":
         return await query.answer("This filter action is invalid.", show_alert=True)
 
     async def authorize(target_chat_id: int, user_id: int) -> bool:
-        return await _live_group_admin(client, target_chat_id, user_id)
+        return await _filter_session_authorized(client, session)
 
     save_error = {"conflict": None, "storage": False}
 
@@ -631,7 +669,7 @@ async def filter_editor_callback(client, query: CallbackQuery) -> None:
             save_error["storage"] = True
             return False
 
-    outcome, _ = await engine.commit(token, chat_id=chat_id, actor_id=actor_id,
+    outcome, _ = await engine.commit(token, chat_id=interaction_chat_id, actor_id=actor_id,
                                      target_chat_id=chat_id, message_id=int(message.id),
                                      authorize=authorize, save=save)
     if outcome == "saved":
@@ -644,11 +682,11 @@ async def filter_editor_callback(client, query: CallbackQuery) -> None:
         await query.answer("Filter saved.")
         return await show_list()
     if outcome == "permission_denied":
-        await engine.cancel(token, chat_id=chat_id, actor_id=actor_id)
+        await engine.cancel(token, chat_id=interaction_chat_id, actor_id=actor_id)
         await query.answer("Current group-admin status could not be verified. Nothing was saved.", show_alert=True)
         return await show_list()
     if outcome == "save_failed" and save_error["conflict"]:
-        await engine.cancel(token, chat_id=chat_id, actor_id=actor_id)
+        await engine.cancel(token, chat_id=interaction_chat_id, actor_id=actor_id)
         await query.answer(save_error["conflict"], show_alert=True)
         return await show_list()
     if outcome == "save_failed":

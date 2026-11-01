@@ -163,7 +163,7 @@ class ConnectedSettingsDashboardTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("no longer a current administrator", error)
 
     def test_connected_dm_hides_prompt_based_controls_across_sections(self):
-        unsupported = (":filters:",)
+        unsupported = (":filters:manage:",)
         original_get_setting = settings.base.get_setting
         def get_setting(chat_id, key, default=None):
             if key == "music_session_presets":
@@ -190,6 +190,8 @@ class ConnectedSettingsDashboardTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any(":welcome_buttons:edit:" in callback for callback in callbacks))
         self.assertTrue(any(":captcha:edit:" in callback for callback in callbacks))
         self.assertTrue(any(":approved:list:" in callback for callback in callbacks))
+        self.assertTrue(any(":filters:add:" in callback for callback in callbacks))
+        self.assertFalse(any(":filters:manage:" in callback for callback in callbacks))
         self.assertTrue(any(":antispam:edit:" in callback for callback in callbacks))
         self.assertTrue(any(":warn_threshold:edit:" in callback for callback in callbacks))
         self.assertFalse(any(":retention:" in callback and ":tab:retention:" not in callback
