@@ -526,7 +526,8 @@ async def settings_callback(client,query):
     if key=="__captcha_editor__":
         from videl.plugins.welcome import start_welcome_workflow
         try:
-            notice=await start_welcome_workflow(client,chat_id,int(actor.id),expected_revision,"captcha_enabled")
+            notice=await start_welcome_workflow(client,chat_id,int(actor.id),expected_revision,"captcha_enabled",
+                                                interaction_chat_id=int(message.chat.id))
         except RuntimeError as error:
             return await query.answer(str(error),show_alert=True)
         except Exception:

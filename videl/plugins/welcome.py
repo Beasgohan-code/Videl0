@@ -116,8 +116,10 @@ def _stored_welcome_media(chat_id: int):
         return None
 
 
-async def start_welcome_workflow(client, chat_id: int, actor_id: int, revision: int, workflow: str) -> str:
+async def start_welcome_workflow(client, chat_id: int, actor_id: int, revision: int, workflow: str,
+                                 *, interaction_chat_id: int | None = None) -> str:
     """Start one isolated, revision-bound Welcome Settings conversation."""
+    interaction_chat_id = int(interaction_chat_id if interaction_chat_id is not None else chat_id)
     if workflow not in _WELCOME_WORKFLOWS:
         raise ValueError("Unknown Welcome Settings workflow")
     if workflow == "welcome_text":
@@ -160,14 +162,14 @@ async def start_welcome_workflow(client, chat_id: int, actor_id: int, revision: 
             "send <code>/clear</code> to remove its links, or <code>/cancel</code> to stop."
         )
     session = await _interaction_engine.begin(
-        chat_id=chat_id, actor_id=actor_id, target_chat_id=chat_id,
+        chat_id=interaction_chat_id, actor_id=actor_id, target_chat_id=chat_id,
         workflow=workflow, revision=revision, steps=(step,), timeout_seconds=600,
     )
     try:
-        prompt = await client.send_message(chat_id, prompt_text, reply_markup=ForceReply(selective=True))
-        await _interaction_engine.bind_prompt(session.token, chat_id=chat_id, actor_id=actor_id, message_id=prompt.id)
+        prompt = await client.send_message(interaction_chat_id, prompt_text, reply_markup=ForceReply(selective=True))
+        await _interaction_engine.bind_prompt(session.token, chat_id=interaction_chat_id, actor_id=actor_id, message_id=prompt.id)
     except Exception:
-        await _interaction_engine.cancel(session.token, chat_id=chat_id, actor_id=actor_id)
+        await _interaction_engine.cancel(session.token, chat_id=interaction_chat_id, actor_id=actor_id)
         raise RuntimeError("Could not send the Welcome Settings prompt; no settings changed.") from None
     return "Reply to the prompt to continue. Nothing is saved until you confirm the preview."
 
@@ -302,12 +304,69 @@ async def welcome_edit_message(client, message) -> None:
         await client.send_message(chat_id, "Could not render the Welcome preview; nothing was saved. Start again from /settings → Welcome.")
 
 
+@bot.on_message(filters.private & filters.incoming, group=2)
+async def connected_captcha_reply(client, message) -> None:
+    """Capture the CAPTCHA enable wizard privately, scoped to its connected group."""
+    actor = getattr(message, "from_user", None)
+    if actor is None or int(message.chat.id) != int(actor.id):
+        return
+    interaction_chat_id, actor_id = int(message.chat.id), int(actor.id)
+    session = await _interaction_engine.for_owner(chat_id=interaction_chat_id, actor_id=actor_id)
+    if session is None or session.workflow != "captcha_enabled":
+        return
+    target_chat_id = int(session.target_chat_id)
+    from videl.app.connections import connected_target
+    _, connection_error = await connected_target(client, actor_id, expected_chat_id=target_chat_id)
+    if connection_error:
+        await _interaction_engine.cancel(session.token, chat_id=interaction_chat_id, actor_id=actor_id)
+        await client.send_message(interaction_chat_id, connection_error)
+        return
+    text = str(getattr(message, "text", "") or "").strip()
+    command = text.split(maxsplit=1)[0].split("@", 1)[0].casefold() if text else ""
+    if command == "/cancel":
+        await _interaction_engine.cancel(session.token, chat_id=interaction_chat_id, actor_id=actor_id)
+        await client.send_message(interaction_chat_id, "Join-verification editing cancelled. Nothing was saved.")
+        return
+    reply = getattr(message, "reply_to_message", None)
+    if getattr(reply, "id", None) != session.expected_message_id:
+        return
+    result = await _interaction_engine.capture(
+        session.token, chat_id=interaction_chat_id, actor_id=actor_id,
+        target_chat_id=target_chat_id, reply_to_message_id=getattr(reply, "id", None),
+        value=text.casefold(),
+    )
+    if result.status in {"stale", "expired", "unauthorized"}:
+        return
+    if result.status == "invalid":
+        await _send_welcome_prompt(client, result.session)
+        await client.send_message(interaction_chat_id, result.error or "Choose on or off.")
+        return
+    if result.status != "preview":
+        return
+    enabled = result.session.values["enabled"] == "on"
+    from videl.plugins.base import body, heading, table
+    preview_text = (heading("Join verification preview", 3)
+                    + table([("Status", "On" if enabled else "Off")])
+                    + body("The active challenge is a math question with a fixed 120-second timeout; this workflow changes only its enabled state. Nothing has changed yet."))
+    preview = await client.send_message(
+        interaction_chat_id, preview_text,
+        reply_markup=_preview_markup(interaction_chat_id, result.session.token, include_links=False),
+    )
+    await _interaction_engine.bind_prompt(result.session.token, chat_id=interaction_chat_id,
+                                          actor_id=actor_id, message_id=preview.id)
+
+
 @bot.on_callback_query(filters.regex(r"^welcome_edit:[A-Za-z0-9_-]{1,24}:(?:edit|save|cancel)$"))
 async def welcome_edit_callback(client, query: CallbackQuery) -> None:
     message = getattr(query, "message", None)
     actor = getattr(query, "from_user", None)
-    if message is None or actor is None or not base.is_group(message):
-        await query.answer("Open Welcome Settings in the group.", show_alert=True)
+    if message is None or actor is None:
+        await query.answer("This Welcome Settings action is unavailable.", show_alert=True)
+        return
+    kind = base.chat_kind(message)
+    connected_dm = kind == "private" and int(message.chat.id) == int(actor.id)
+    if kind not in {"group", "supergroup"} and not connected_dm:
+        await query.answer("Open group settings in the group or your connected private chat.", show_alert=True)
         return
     try:
         _, token, action = str(query.data).split(":")
@@ -315,10 +374,36 @@ async def welcome_edit_callback(client, query: CallbackQuery) -> None:
         await query.answer("This welcome action is invalid.", show_alert=True)
         return
     chat_id, actor_id = int(message.chat.id), int(actor.id)
-    session = await _interaction_engine.get(token, chat_id=chat_id, actor_id=actor_id, target_chat_id=chat_id)
+    session = await _interaction_engine.get(token, chat_id=chat_id, actor_id=actor_id)
     if session is None or session.workflow not in _WELCOME_WORKFLOWS:
         await query.answer("This welcome edit expired or belongs to another admin. Nothing was saved.", show_alert=True)
         return
+    target_chat_id = int(session.target_chat_id)
+    if connected_dm:
+        if session.workflow != "captcha_enabled":
+            await query.answer("This editor is not available in connected private chat yet.", show_alert=True)
+            return
+        from videl.app.connections import connected_target
+        _, connection_error = await connected_target(client, actor_id, expected_chat_id=target_chat_id)
+        if connection_error:
+            await _interaction_engine.cancel(token, chat_id=chat_id, actor_id=actor_id)
+            await query.answer(connection_error, show_alert=True)
+            return
+    elif target_chat_id != chat_id:
+        await query.answer("This editor belongs to another group.", show_alert=True)
+        return
+    if connected_dm:
+        try:
+            member = await client.get_chat_member(target_chat_id, actor_id)
+            status = str(getattr(getattr(member, "status", None), "value", getattr(member, "status", None))).casefold()
+            if status not in {"owner", "administrator"}:
+                await _interaction_engine.cancel(token, chat_id=chat_id, actor_id=actor_id)
+                await query.answer("Current group-admin permission could not be verified. Nothing was saved.", show_alert=True)
+                return
+        except Exception:
+            await _interaction_engine.cancel(token, chat_id=chat_id, actor_id=actor_id)
+            await query.answer("Could not verify current group-admin status. Nothing was saved.", show_alert=True)
+            return
     if action == "cancel":
         await _interaction_engine.cancel(token, chat_id=chat_id, actor_id=actor_id)
         await query.answer("Cancelled; nothing was saved.")
@@ -347,15 +432,24 @@ async def welcome_edit_callback(client, query: CallbackQuery) -> None:
         "welcome_buttons": "welcome_checklist",
     }
     authorization_issue = {"reason": None}
-    async def authorize(target_chat_id: int, user_id: int) -> bool:
+    async def authorize(target_id: int, user_id: int) -> bool:
         try:
-            member = await client.get_chat_member(target_chat_id, user_id)
+            if target_id != target_chat_id or user_id != actor_id:
+                authorization_issue["reason"] = "admin"
+                return False
+            if connected_dm:
+                from videl.app.connections import connected_target
+                _, error = await connected_target(client, user_id, expected_chat_id=target_id)
+                if error:
+                    authorization_issue["reason"] = "admin"
+                    return False
+            member = await client.get_chat_member(target_id, user_id)
             status = getattr(getattr(member, "status", None), "value", getattr(member, "status", None))
             if str(status).casefold() not in {"owner", "administrator"}:
                 authorization_issue["reason"] = "admin"
                 return False
             if session.workflow == "captcha_enabled" and session.values["enabled"] == "on":
-                current_rights = await base.bot_rights(client, target_chat_id)
+                current_rights = await base.bot_rights(client, target_id)
                 if not (current_rights.get("owner") or current_rights.get("can_restrict_members")):
                     authorization_issue["reason"] = "bot_rights"
                     return False
@@ -386,7 +480,7 @@ async def welcome_edit_callback(client, query: CallbackQuery) -> None:
             return False
 
     outcome, _ = await _interaction_engine.commit(
-        token, chat_id=chat_id, actor_id=actor_id, target_chat_id=chat_id,
+        token, chat_id=chat_id, actor_id=actor_id, target_chat_id=target_chat_id,
         message_id=int(message.id), authorize=authorize, save=save,
     )
     labels = {"welcome_text": "Welcome text", "goodbye_text": "Goodbye text", "rules_text": "Group rules", "captcha_enabled": "Join verification", "welcome_media": "Welcome media", "welcome_buttons": "Welcome checklist buttons"}
@@ -394,7 +488,7 @@ async def welcome_edit_callback(client, query: CallbackQuery) -> None:
     if outcome == "saved":
         try:
             from videl.utils.audit import record_bot
-            await asyncio.to_thread(record_bot, chat_id, "settings", action=f"{session.workflow}_saved",
+            await asyncio.to_thread(record_bot, target_chat_id, "settings", action=f"{session.workflow}_saved",
                                     detail="interactive settings value updated", actor=actor_id)
         except Exception:
             LOGGER.debug("Interactive Welcome audit write failed", exc_info=True)
@@ -414,7 +508,7 @@ async def welcome_edit_callback(client, query: CallbackQuery) -> None:
         await _interaction_engine.cancel(token, chat_id=chat_id, actor_id=actor_id)
         await query.answer("Settings changed elsewhere. This draft was not saved; review the latest value.", show_alert=True)
         from videl.plugins import settings as settings_plugin
-        latest = settings_plugin._screen(chat_id, "welcome")
+        latest = settings_plugin._screen(target_chat_id, "welcome", connected_dm=connected_dm)
         await rich_edit(message, latest.html, reply_markup=latest.keyboard)
     elif outcome == "save_failed":
         await query.answer("Could not save the Welcome setting. Nothing was reported as saved; you can retry.", show_alert=True)
