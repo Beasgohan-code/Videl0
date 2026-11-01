@@ -10,6 +10,7 @@ import {
   Wand2,
   MessageCircle,
   Users,
+  Network,
   Zap,
   BarChart3,
   Send,
@@ -40,18 +41,19 @@ const tabs: NavItem[] = [
   { tab: "music", label: "Videl Music", icon: Music2, ownerOnly: true },
   { tab: "chat", label: "Bot Inbox", icon: MessageCircle, ownerOnly: true },
   { tab: "groups", label: "Group Manager", icon: Users, ownerOnly: true },
+  { tab: "federations", label: "Federations", icon: Network, ownerOnly: true },
   { tab: "automation", label: "Automation", icon: Zap, ownerOnly: true },
   { tab: "analytics", label: "Analytics", icon: BarChart3, ownerOnly: true },
   { tab: "broadcast", label: "Broadcast", icon: Send, ownerOnly: true },
   { tab: "settings", label: "Bot Settings", icon: Settings2, ownerOnly: true },
 ];
 
-const groups: { label: string; tabs: Section[] }[] = [
-  { label: "Create", tabs: ["home", "post", "tools", "guide"] },
-  { label: "Play", tabs: ["arcade"] },
-  { label: "Listen", tabs: ["music"] },
-  { label: "Operate", tabs: ["chat", "groups", "automation", "analytics", "broadcast"] },
-  { label: "System", tabs: ["settings", "auth"] },
+export const navigationGroups: { label: string; tabs: Section[] }[] = [
+  { label: "Overview", tabs: ["home", "analytics"] },
+  { label: "Create", tabs: ["post", "tools", "guide", "broadcast"] },
+  { label: "Community", tabs: ["chat", "groups", "federations"] },
+  { label: "Music & Arcade", tabs: ["music", "arcade"] },
+  { label: "Bot management", tabs: ["automation", "settings", "auth"] },
 ];
 
 const primaryTabs: Section[] = ["home", "music", "post", "groups"];
@@ -105,7 +107,7 @@ export function IOSNav() {
   }
   const visible = tabs.filter((item) => canOpenSection(item.tab, telegram.authenticated));
   const groupOf = (section: Section) =>
-    groups.find((group) => group.tabs.includes(section))?.label ??
+    navigationGroups.find((group) => group.tabs.includes(section))?.label ??
     (section === "auth" ? "System" : "");
   return (
     <>
@@ -124,7 +126,7 @@ export function IOSNav() {
           {telegram.authenticated ? "Owner workspace" : "Create & share"}
         </p>
         <nav aria-label="Main navigation" className="flex-1 space-y-5 overflow-y-auto pb-4">
-          {groups.map((group) => {
+          {navigationGroups.map((group) => {
             const items = visible.filter((item) => group.tabs.includes(item.tab));
             if (!items.length) return null;
             return (
@@ -320,7 +322,7 @@ export function IOSTabBar() {
             </button>
           </header>
           <div className="mt-3 space-y-4">
-            {groups.map((group) => {
+            {navigationGroups.map((group) => {
               const items = secondary.filter((item) => group.tabs.includes(item.tab));
               if (!items.length) return null;
               return (

@@ -3,6 +3,22 @@ import assert from "node:assert/strict";
 import { createElement } from "react";
 import { render } from "./dom";
 
+test("the workspace navigation keeps public groups clear and owner tools gated", async () => {
+  const { IOSNav, IOSTabBar, navigationGroups } = await import("../src/components/ios/IOSNav");
+  assert.deepEqual(navigationGroups.map((group) => group.label), [
+    "Overview", "Create", "Community", "Music & Arcade", "Bot management",
+  ]);
+  assert.ok(navigationGroups.find((group) => group.label === "Community")?.tabs.includes("federations"));
+  const html = render(createElement(IOSNav));
+  assert.match(html, /Overview/);
+  assert.match(html, /Create/);
+  assert.match(html, /Music &amp; Arcade/);
+  assert.match(html, /Post Studio/);
+  const mobileHtml = render(createElement(IOSTabBar));
+  assert.match(mobileHtml, /More workspace/);
+  assert.doesNotMatch(html, /Federations|Bot management/);
+});
+
 test("the backend strip starts quiet instead of assuming an outage", async () => {
   // Server rendering runs no effect, so this is the first paint: the strip must
   // not claim the backend is down before it has asked.
