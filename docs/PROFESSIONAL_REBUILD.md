@@ -59,7 +59,7 @@ Premium icon eligibility and client rendering are still enforced by Telegram.
 - Portable versioned post JSON import/export retains formatting and button metadata.
   Local image blobs are deliberately excluded; PNG/design export remains separate.
 - Public local creation/export stays available; exact-owner 6265999542 publishing
-  and bot-management boundaries remain intact. No AI, Supabase or Dropbox added.
+  and bot-management boundaries remain intact. No Supabase or Dropbox integration was added.
 
 ## Music/API provenance and rollout limits
 

@@ -93,6 +93,55 @@ class CommandRegistryAuditTests(unittest.IsolatedAsyncioTestCase):
         for name, _description in OWNER_COMMANDS:
             self.assertIn(name, registered, f"Telegram menu command /{name} has no handler")
 
+    def test_ai_commands_are_unregistered_but_ordinary_faq_and_safety_remain(self):
+        removed = {"faqassist", "faqcancel", "guardianai", "guardianjoin", "guardiansummary", "safetycheck"}
+        registered = {entry["name"] for entry in commands()}
+        self.assertTrue(removed.isdisjoint(registered))
+        self.assertTrue(removed.isdisjoint(router.commands))
+        self.assertTrue(removed.isdisjoint(name for name, _ in OWNER_COMMANDS))
+        from videl.utils.bot_commands import PUBLIC_COMMANDS
+        self.assertTrue(removed.isdisjoint(name for name, _ in PUBLIC_COMMANDS))
+        self.assertNotIn("guardian", COMMAND_PLUGINS)
+        self.assertIn("faq", router.commands)
+        self.assertIn("setfaq", router.commands)
+        self.assertIn("antispam", router.commands)
+        self.assertIn("raidmode", router.commands)
+        self.assertIn("safetystats", router.commands)
+        self.assertIn("rulefeedback", router.commands)
+
+    def test_provider_runtime_configuration_and_generated_commands_are_absent(self):
+        import config
+        from scripts.build_webapp_commands import command_rows
+        self.assertFalse((ROOT / "videl/utils/gemini.py").exists())
+        self.assertFalse(hasattr(config, "GEMINI_API_KEY"))
+        names = {entry["name"] for entry in command_rows()}
+        self.assertTrue({"faqassist", "faqcancel", "guardianai", "guardianjoin", "guardiansummary", "safetycheck"}.isdisjoint(names))
+        guest_source = (ROOT / "videl/modules/telegram_features.py").read_text()
+        self.assertNotIn("videl.utils.gemini", guest_source)
+        self.assertNotIn("Gemini", guest_source)
+
+    def test_command_audit_inventory_matches_the_live_registry_plus_retired_history(self):
+        import csv
+        with (ROOT / "docs/COMMAND_INVENTORY_AUDIT.csv").open(newline="", encoding="utf-8") as source:
+            rows = list(csv.DictReader(source))
+        retired = {row["command"] for row in rows if row["disposition"].startswith("Removed in Stage A")}
+        inventory = {row["command"] for row in rows}
+        live = {entry["name"] for entry in commands()}
+        self.assertEqual(len(rows), 215)
+        self.assertEqual(len(retired), 6)
+        self.assertEqual(inventory - retired, live)
+
+    async def test_removed_ai_commands_cannot_be_invoked_by_router(self):
+        from types import SimpleNamespace
+        client = SimpleNamespace(me=SimpleNamespace(username="Videl0Bot"))
+        for name in ("faqassist", "faqcancel", "guardianai", "guardianjoin", "guardiansummary", "safetycheck"):
+            with self.subTest(command=name):
+                message = SimpleNamespace(
+                    text=f"/{name} test", from_user=SimpleNamespace(id=42),
+                    chat=SimpleNamespace(id=-100123, type="supergroup"), id=12,
+                )
+                self.assertFalse(await router.dispatch(client, message))
+
     def test_retired_setup_and_modernhelp_commands_stay_hidden(self):
         registered = {entry["name"] for entry in commands()}
         self.assertNotIn("setup", router.commands)

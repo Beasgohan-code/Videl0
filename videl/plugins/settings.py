@@ -23,7 +23,7 @@ _PROMPTS: dict[tuple[int, int], tuple[int, str, float]] = {}
 _TOGGLES = {
  "music": (("Member requests", "music_requests_enabled", True), ("Admin approval", "music_approval_required", False), ("Shuffle new requests", "music_shuffle_enabled", False)),
  "welcome": (("Welcome messages", "welcome_enabled", True), ("Goodbye messages", "goodbye_enabled", False), ("New-member verification", "captcha_enabled", False)),
- "safety": (("Anti-flood", "antispam", False), ("Gemini Guardian assistance", "gemini_guardian_enabled", False)),
+ "safety": (("Anti-flood", "antispam", False),),
 }
 _RESET_DEFAULTS = {
     "music": {"music_requests_enabled": True, "music_approval_required": False,
@@ -31,7 +31,7 @@ _RESET_DEFAULTS = {
               "music_track_blocklist": [], "music_session_presets": []},
     "welcome": {"welcome_enabled": True, "goodbye_enabled": False, "captcha_enabled": False},
     "safety": {"antispam": False, "antispam_limit": 7, "antispam_window": 8,
-               "gemini_guardian_enabled": False, **{key: False for key in _LOCK_KEYS},
+               **{key: False for key in _LOCK_KEYS},
                "raid_mode": {"enabled": False, "window_seconds": 30,
                              "join_threshold": 8, "message_threshold": 20,
                              "duration_minutes": 15}},
@@ -122,11 +122,11 @@ def _screen(chat_id, section="home", *, query="", category="all", page=0, connec
             connected_group=None, bot_can_delete_messages=None):
     markup=_nav(chat_id,section)
     if section=="home":
-        fields=(("Member music requests","music_requests_enabled",True),("Music request approval","music_approval_required",False),("Shuffle new requests","music_shuffle_enabled",False),("Welcome messages","welcome_enabled",True),("Goodbye messages","goodbye_enabled",False),("New-member verification","captcha_enabled",False),("Anti-flood","antispam",False),("Gemini Guardian assistance","gemini_guardian_enabled",False))
+        fields=(("Member music requests","music_requests_enabled",True),("Music request approval","music_approval_required",False),("Shuffle new requests","music_shuffle_enabled",False),("Welcome messages","welcome_enabled",True),("Goodbye messages","goodbye_enabled",False),("New-member verification","captcha_enabled",False),("Anti-flood","antispam",False))
         text=heading("Group settings",3)+body("Choose a section to view and manage this group. Current Telegram group admins are checked before changes.")+table([(label,"On" if base.get_setting(chat_id,key,default) else "Off") for label,key,default in fields])+body("For personal DM language, reminders and optional private updates, use <code>/preferences</code> in your private chat. Those settings do not change this group.")
     elif section in _TOGGLES:
         title={"music":"Music","welcome":"Welcome & onboarding","safety":"Protection"}[section]
-        description={"music":"Members can request tracks when enabled. Approval sends new requests to admin review; use /requests to review.","welcome":"Control welcome, goodbye and verification flows. Edit content with /setwelcome, /setgoodbye, /setrules and /setfaq.","safety":"Configure content locks and raid mode; anti-flood thresholds are editable here or with /antispam. Enabling anti-flood requires the bot to have Delete Messages permission. Gemini Guardian is off by default. When enabled, /faqassist sends the question and selected FAQ/rules/text notes; admin /safetycheck sends minimized replied-to text (URL hosts only); /guardiansummary sends aggregate counts. These are sent to Google Gemini; no result takes action."}[section]
+        description={"music":"Members can request tracks when enabled. Approval sends new requests to admin review; use /requests to review.","welcome":"Control welcome, goodbye and verification flows. Edit content with /setwelcome, /setgoodbye, /setrules and /setfaq.","safety":"Configure content locks and raid mode; anti-flood thresholds are editable here or with /antispam. Enabling anti-flood requires the bot to have Delete Messages permission."}[section]
         fields=_TOGGLES[section]
         rows=[(label,"On" if base.get_setting(chat_id,key,default) else "Off") for label,key,default in fields]
         if section=="welcome":
@@ -375,7 +375,7 @@ def _screen(chat_id, section="home", *, query="", category="all", page=0, connec
                                          "welcome_buttons:edit"})
                 if action.startswith(("lock_", "music_requests_enabled:", "music_approval_required:",
                                       "music_shuffle_enabled:", "welcome_enabled:",
-                                      "goodbye_enabled:", "gemini_guardian_enabled:", "raid:")):
+                                      "goodbye_enabled:", "raid:")):
                     allowed = True
                 if allowed:
                     safe.append(item)
@@ -750,7 +750,7 @@ async def connected_settings_open(client, query):
     return await rich_edit(message, screen.html, reply_markup=screen.keyboard)
 
 
-_PATTERN=r"^settings:-?[0-9]{1,20}:(?:tab:(?:home|music|welcome|safety|moderation|retention|blocklist|presets|sessions|automations|commands|locks|more)|commands:(?:all|manage|music|tools):[0-9]{1,3}|locks:[0-9]{1,2}|filters:(?:add|manage)|cmd:[a-z][a-z0-9_]{0,31}:(?:on|off)|(?:music_requests_enabled|music_approval_required|music_shuffle_enabled|welcome_enabled|goodbye_enabled|captcha_enabled|antispam|gemini_guardian_enabled|lock_[a-z_]+):(?:on|off)|antispam:edit|captcha:edit|welcome_text:edit|goodbye_text:edit|rules_text:(?:edit|clear)|welcome_media:(?:edit|clear)|welcome_buttons:edit|raid:(?:on|off)|warn_threshold:(?:edit|2|3|5|10)|warn_escalation:edit|retention:[a-z_]+:(?:30|90|180|365|off)|blocklist:(?:add:(?:track|artist)|remove:[1-9][0-9]?)|preset:(?:save|apply:[1-9][0-9]?|delete:[1-9][0-9]?)|session:(?:schedule|cancel:[A-Za-z0-9]+)|approved:(?:list|add|page:[0-9]{1,6}|remove:[1-9][0-9]{0,18})|reset:(?:music|welcome|safety|moderation|blocklist|presets)|resetconfirm:(?:music|welcome|safety|moderation|blocklist|presets):[a-f0-9]{12}|refresh):v[0-9]{1,12}$"
+_PATTERN=r"^settings:-?[0-9]{1,20}:(?:tab:(?:home|music|welcome|safety|moderation|retention|blocklist|presets|sessions|automations|commands|locks|more)|commands:(?:all|manage|music|tools):[0-9]{1,3}|locks:[0-9]{1,2}|filters:(?:add|manage)|cmd:[a-z][a-z0-9_]{0,31}:(?:on|off)|(?:music_requests_enabled|music_approval_required|music_shuffle_enabled|welcome_enabled|goodbye_enabled|captcha_enabled|antispam|lock_[a-z_]+):(?:on|off)|antispam:edit|captcha:edit|welcome_text:edit|goodbye_text:edit|rules_text:(?:edit|clear)|welcome_media:(?:edit|clear)|welcome_buttons:edit|raid:(?:on|off)|warn_threshold:(?:edit|2|3|5|10)|warn_escalation:edit|retention:[a-z_]+:(?:30|90|180|365|off)|blocklist:(?:add:(?:track|artist)|remove:[1-9][0-9]?)|preset:(?:save|apply:[1-9][0-9]?|delete:[1-9][0-9]?)|session:(?:schedule|cancel:[A-Za-z0-9]+)|approved:(?:list|add|page:[0-9]{1,6}|remove:[1-9][0-9]{0,18})|reset:(?:music|welcome|safety|moderation|blocklist|presets)|resetconfirm:(?:music|welcome|safety|moderation|blocklist|presets):[a-f0-9]{12}|refresh):v[0-9]{1,12}$"
 @bot.on_callback_query(filters.regex(_PATTERN))
 async def settings_callback(client,query):
     message=getattr(query,"message",None); actor=getattr(query,"from_user",None)
@@ -789,7 +789,7 @@ async def settings_callback(client,query):
             workflow={"welcome_text":"welcome_text","goodbye_text":"goodbye_text","rules_text":"rules_text","welcome_media":"welcome_media","welcome_buttons":"welcome_buttons"}[parts[2]]
             key,value,section="__welcome_flow_start__",workflow,"welcome"
         elif len(parts)==4 and parts[2] in ({k for values in _TOGGLES.values() for _,k,_ in values}|_LOCK_KEYS) and parts[3] in {"on","off"}:
-            key,value=parts[2],parts[3]=="on"; section=("locks" if key in _LOCK_KEYS else "safety" if key in {"antispam", "gemini_guardian_enabled"} else ("music" if key.startswith("music_") else "welcome"))
+            key,value=parts[2],parts[3]=="on"; section=("locks" if key in _LOCK_KEYS else "safety" if key == "antispam" else ("music" if key.startswith("music_") else "welcome"))
         elif len(parts)==4 and parts[2]=="raid" and parts[3] in {"on","off"}:
             from videl.utils.raid import normalize
             value=normalize(base.get_setting(chat_id,"raid_mode",{})); value["enabled"]=parts[3]=="on"; key,section="raid_mode","safety"
@@ -821,7 +821,7 @@ async def settings_callback(client,query):
     except (TypeError,ValueError,IndexError): return await query.answer("That settings button is invalid.",show_alert=True)
     if connected_dm:
         dm_safe_keys = {None, "music_requests_enabled", "music_approval_required", "music_shuffle_enabled",
-                        "welcome_enabled", "goodbye_enabled", "gemini_guardian_enabled", "raid_mode", *_LOCK_KEYS,
+                        "welcome_enabled", "goodbye_enabled", "raid_mode", *_LOCK_KEYS,
                         "__warn_threshold_editor__", "__escalation_editor__", "__antispam_editor__", "__captcha_editor__",
                         "__command_toggle__", "__reset_preview__", "__reset_confirm__",
                         "__session_cancel__", "__session_schedule__"}
@@ -960,12 +960,6 @@ async def settings_callback(client,query):
         except Exception:
             return await query.answer("Could not start the Welcome editor; no settings changed.",show_alert=True)
         return await query.answer(message_text)
-    if key == "gemini_guardian_enabled" and value:
-        from videl.utils.gemini import configured
-        if not configured():
-            await query.answer("Gemini is not configured; this option remains off.", show_alert=True)
-            fresh = await _settings_screen(client, chat_id, section, category=category, page=page, connected_dm=connected_dm, actor_id=int(actor.id))
-            return await rich_edit(message, fresh.html, reply_markup=fresh.keyboard)
     if key=="__reset_preview__":
         preview=_reset_confirmation(chat_id,value)
         await query.answer("Review the reset preview; nothing changed.")

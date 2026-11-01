@@ -418,9 +418,9 @@ async def permission_command(_, message):
 async def join_request_seen(_, request):
     """Queue Telegram's screening query and record the request for human review.
 
-    This bot has no AI provider, so it never claims to make an AI decision.
-    Telegram requires screening-query updates to be answered within 10 seconds;
-    QUEUE preserves the request for the existing owner-panel review flow.
+    The bot does not make join decisions. Telegram requires screening-query
+    updates to be answered within 10 seconds; QUEUE preserves the request for
+    the existing owner-panel human review flow.
     """
     query_id = getattr(request, "query_id", None)
     if query_id:

@@ -309,22 +309,6 @@ export const BOT_COMMANDS: BotCommand[] = [
     "owner": false
   },
   {
-    "name": "faqassist",
-    "usage": "/faqassist <question> (group FAQ/rules/notes; Gemini must be enabled)",
-    "summary": "Answer from saved group sources; use --private or --stream for an opt-in reply mode",
-    "category": "manage",
-    "context": "group",
-    "owner": false
-  },
-  {
-    "name": "faqcancel",
-    "usage": "/faqcancel",
-    "summary": "Stop your active streamed FAQ answer",
-    "category": "manage",
-    "context": "group",
-    "owner": false
-  },
-  {
     "name": "fban",
     "usage": "/fban",
     "summary": "Ban a user from every federation chat",
@@ -448,30 +432,6 @@ export const BOT_COMMANDS: BotCommand[] = [
     "name": "groupview",
     "usage": "/groupview",
     "summary": "Check or stop bot-visible group recording",
-    "category": "manage",
-    "context": "group",
-    "owner": false
-  },
-  {
-    "name": "guardianai",
-    "usage": "/guardianai on|off (group admin; opt-in, disclosure required)",
-    "summary": "Enable or disable disclosed Gemini safety assistance",
-    "category": "manage",
-    "context": "group",
-    "owner": false
-  },
-  {
-    "name": "guardianjoin",
-    "usage": "/guardianjoin (group admin; rules-only human-review guide)",
-    "summary": "Create a rules-only join-request review guide for human admins",
-    "category": "manage",
-    "context": "group",
-    "owner": false
-  },
-  {
-    "name": "guardiansummary",
-    "usage": "/guardiansummary (group admin; seven-day aggregate counts)",
-    "summary": "Summarize bounded group audit counts for admins",
     "category": "manage",
     "context": "group",
     "owner": false
@@ -629,6 +589,14 @@ export const BOT_COMMANDS: BotCommand[] = [
     "owner": false
   },
   {
+    "name": "reload",
+    "usage": "/reload",
+    "summary": "Refresh the current group administrator and bot-permission snapshot (does not restart Videl)",
+    "category": "manage",
+    "context": "group",
+    "owner": false
+  },
+  {
     "name": "report",
     "usage": "/report",
     "summary": "Report a message to the group admins",
@@ -688,14 +656,6 @@ export const BOT_COMMANDS: BotCommand[] = [
     "name": "rules",
     "usage": "/rules",
     "summary": "Show the group rules",
-    "category": "manage",
-    "context": "group",
-    "owner": false
-  },
-  {
-    "name": "safetycheck",
-    "usage": "/safetycheck (reply to a message; group admin; advisory only)",
-    "summary": "Ask for a cautious advisory on a replied-to message",
     "category": "manage",
     "context": "group",
     "owner": false

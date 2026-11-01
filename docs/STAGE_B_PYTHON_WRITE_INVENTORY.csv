@@ -1,0 +1,158 @@
+source,line,function,direct_write_calls_and_lines,source_cues_not_proof
+videl/__main__.py,830,enrich,db['mgmt_chat_info'].update_one@869,admin/role; actor binding
+videl/api/eldian_routes.py,38,_persist_music_task,collection.update_one@57,owner
+videl/app/group_view.py,12,change,db['group_view_settings'].update_one@15,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/core/queue.py,82,_write_snapshot,collection.update_one@96,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/games/community_events.py,87,create,_collection().insert_one@108,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/games/community_events.py,128,rsvp,collection.update_one@135; collection.update_one@136,actor binding
+videl/games/community_events.py,142,update,_collection().update_one@158,actor binding
+videl/games/community_events.py,166,cancel,_collection().update_one@172,actor binding
+videl/games/community_events.py,180,dispatch_reminder,collection.find_one_and_update@186; collection.update_one@203,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/games/store.py,154,_seen,rooms().update_one@166,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/games/store.py,239,create,rooms().insert_one@256,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/games/store.py,261,join,rooms().update_one@279,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/games/store.py,286,start,rooms().update_one@297,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/games/store.py,307,leave,rooms().update_one@315; rooms().update_one@326,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/games/store.py,334,kick,rooms().update_one@345,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/games/store.py,408,move,rooms().update_one@427,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/games/store.py,439,voice_note,clips().insert_one@478,connection
+videl/games/store.py,502,voice_presence,rooms().update_one@525,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/games/store.py,542,resign,rooms().update_one@552,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/games/store.py,565,draw,rooms().update_one@581; rooms().update_one@598,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/games/store.py,641,_finish,rooms().update_one@646,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/games/store.py,680,settle,rooms().update_one@711,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/games/store.py,841,_next_seq,rooms().find_one_and_update@842,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/games/store.py,848,_event,events().insert_one@852,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/modules/analytics.py,19,record_command,db['command_events'].insert_one@38,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/modules/approve.py,270,save,database['approved'].delete_many@281,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/modules/blocklist.py,295,save,database['blacklist'].delete_many@306,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/modules/group_manager.py,169,reviewer_command,collection.update_one@208; collection.delete_one@216,admin/role; actor binding
+videl/modules/group_manager.py,418,join_request_seen,db['mgmt_join_requests'].update_one@443,owner
+videl/plugins/afk.py,46,_autoclear,store.find_one_and_delete@50,actor binding
+videl/plugins/moderation.py,103,handoff,db['mgmt_handoff_notes'].insert_one@120,admin/role; actor binding
+videl/plugins/moderation.py,190,_audit,store.delete_one@196; store.update_one@198,actor binding
+videl/plugins/settings.py,1588,save,collection.update_one@1596; collection.delete_one@1599,actor binding
+videl/utils/admin_digest.py,21,subscribe,db[COLLECTION].update_one@29,actor binding
+videl/utils/admin_digest.py,38,unsubscribe,db[COLLECTION].delete_one@40,actor binding
+videl/utils/admin_digest.py,45,dispatch_one,col.update_one@68; col.update_one@77; col.update_one@90; col.update_one@97,admin/role; actor binding
+videl/utils/audit.py,78,record,col.insert_one@95,actor binding
+videl/utils/audit.py,200,prune,col.delete_many@207,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/avatars.py,125,_remember,database['player_avatars'].replace_one@133,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/avatars.py,156,clear,database['player_avatars'].delete_one@161,actor binding
+videl/utils/chat_admins.py,50,acquire_refresh_lock,col.update_one@60,owner; admin/role
+videl/utils/chat_admins.py,81,release_refresh_lock,col.delete_one@86,owner
+videl/utils/chat_admins.py,92,replace_group_snapshot,col.update_one@143,admin/role; actor binding
+videl/utils/chat_admins.py,191,_store,collection(db).update_one@197,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/chat_admins.py,272,forget,collection(db).delete_one@274,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/custom_commands.py,76,save,collection.update_one@91,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/custom_commands.py,122,delete,db['mgmt_custom_commands'].delete_one@128,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/db.py,142,set_bot_setting,col.update_one@148,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/db.py,178,add_served_chat,col.update_one@183,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/db.py,210,remove_served_chat,col.delete_one@215,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/db.py,222,add_served_user,col.update_one@227,actor binding
+videl/utils/db.py,256,ban_chat,col.update_one@261,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/db.py,266,unban_chat,col.delete_one@271,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/db.py,308,mark_assistant_joined,col.update_one@313,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/db.py,330,increment_play_count,col.update_one@335,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/db.py,371,add_broadcast_chat,col.update_one@376,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/db.py,416,remove_broadcast_chat,col.delete_one@421,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/db.py,438,block_group,col.update_one@443,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/db.py,448,unblock_group,col.delete_one@453,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/db.py,480,block_user,col.update_one@485,actor binding
+videl/utils/db.py,490,unblock_user,col.delete_one@495,actor binding
+videl/utils/db.py,512,is_sudo_user,col.delete_one@532,admin/role; actor binding
+videl/utils/db.py,540,add_sudo_user,col.insert_one@556,actor binding
+videl/utils/db.py,565,remove_sudo_user,col.delete_one@571,actor binding
+videl/utils/db.py,577,get_sudo_users,col.delete_many@583,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/db.py,592,save_chat_effects,col.update_one@598,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/db.py,630,delete_chat_effects,col.delete_one@636,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/db.py,679,set_mod_setting,col.update_one@689,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/db.py,730,approve_nsfw_user,col.update_one@735,actor binding
+videl/utils/db.py,744,disapprove_nsfw_user,col.delete_one@749,actor binding
+videl/utils/db.py,784,add_warn,col.update_one@792,actor binding
+videl/utils/db.py,874,reset_warns,col.delete_one@879,actor binding
+videl/utils/db.py,896,set_warn_limit,col.update_one@901,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/db.py,930,set_welcome,col.update_one@935,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/db.py,944,set_welcome_enabled,col.update_one@949,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/db.py,975,set_goodbye,col.update_one@980,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/db.py,991,save_playlist,col.update_one@997,owner; actor binding
+videl/utils/db.py,1039,delete_playlist,col.delete_one@1044,owner
+videl/utils/db.py,1066,set_chat_setting,col.update_one@1071,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/db.py,1123,touch_chat_activity,col.update_one@1130,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/db.py,1139,touch_user_activity,col.update_one@1145,actor binding
+videl/utils/db.py,1154,cleanup_old_data,collection.delete_many@1185,owner
+videl/utils/db.py,1202,create_fed,col.insert_one@1209; chats.update_one@1216,owner
+videl/utils/db.py,1221,delete_fed,col.delete_one@1225; _col('fed_chats').delete_many@1225; _col('fed_bans').delete_many@1225; _col('fed_admins').delete_many@1225,admin/role
+videl/utils/db.py,1240,join_fed_chat,col.update_one@1243,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/db.py,1246,leave_fed_chat,col.delete_one@1249,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/db.py,1260,set_chat_fed,col.delete_one@1264; col.update_one@1265,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/db.py,1268,fban,col.update_one@1271,actor binding
+videl/utils/db.py,1274,unfban,col.delete_one@1277,actor binding
+videl/utils/db.py,1298,fed_add_admin,col.update_one@1303,admin/role; actor binding
+videl/utils/db.py,1309,fed_remove_admin,col.delete_one@1314,admin/role; actor binding
+videl/utils/db.py,1341,add_blacklist,col.update_one@1344,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/db.py,1347,remove_blacklist,col.delete_one@1350,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/db.py,1367,set_blacklist_mode,col.update_one@1370,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/db.py,1373,add_blacklist_sticker,col.update_one@1376,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/db.py,1379,remove_blacklist_sticker,col.delete_one@1382,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/db.py,1400,approve_user,col.update_one@1403,actor binding
+videl/utils/db.py,1406,disapprove_user,col.delete_one@1409,actor binding
+videl/utils/db.py,1437,set_captcha,col.update_one@1440,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/db.py,1446,disable_cmd,col.update_one@1449,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/db.py,1453,enable_cmd,col.delete_one@1457,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/db.py,1494,connect_user,col.update_one@1499,actor binding; connection
+videl/utils/db.py,1504,disconnect_user,col.delete_one@1509,actor binding; connection
+videl/utils/db.py,1522,allow_connect,col.update_one@1525,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/db.py,1539,set_log_channel,col.update_one@1542,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/db.py,1553,set_reports,col.update_one@1556,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/db.py,1567,set_clean_service,col.update_one@1570,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/db.py,1581,set_nightmode,col.update_one@1584,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/db.py,1639,set_protection_state,col.update_one@1646,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/db.py,1663,save_backup,col.update_one@1668; col.delete_many@1677,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/db.py,1696,set_costume,col.update_one@1699,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/db.py,1710,del_costume,col.delete_one@1713,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/escalations.py,9,queue_review,col.update_one@28; col.insert_one@32; col.update_one@39,actor binding
+videl/utils/federation_view.py,124,unban,db['fed_bans'].delete_one@130,actor binding
+videl/utils/filter_store.py,64,_group_lease,collection.find_one_and_update@71; collection.delete_one@89,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/filter_store.py,120,put_filter,collection.update_one@139; collection.insert_one@150,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/filter_store.py,156,edit_filter,collection.update_one@181,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/filter_store.py,193,_delete_locked,collection.delete_one@195,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/group_view.py,450,store,db['bot_inbox_peers'].update_one@452; db['group_view_messages'].update_one@468; db['group_view_messages'].delete_one@471,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/group_view.py,978,_apply_backup,self.db['blacklist'].delete_many@995; self.db['blacklist'].update_one@997,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/group_view.py,1194,review_escalation,self.db['mgmt_escalations'].update_one@1208; self.db['mgmt_escalations'].update_one@1220; self.db['mgmt_escalations'].update_one@1224,admin/role; actor binding
+videl/utils/group_view.py,1231,case_note,self.db['mgmt_case_notes'].insert_one@1238,actor binding
+videl/utils/group_view.py,1261,_join_request,self.db['mgmt_join_requests'].update_one@1275; self.db['mgmt_join_requests'].update_one@1277,actor binding
+videl/utils/group_view.py,1281,_report_update,self.db['mgmt_reports'].update_one@1293,actor binding
+videl/utils/group_view.py,1297,_report_action,self.db['mgmt_warnings'].update_one@1327; self.db['mgmt_reports'].update_one@1360,admin/role; actor binding
+videl/utils/group_view.py,1485,_admin,self.db['blacklist'].update_one@1528; self.db['blacklist'].delete_one@1530; self.db['mgmt_notes'].update_one@1542; self.db['mgmt_notes'].delete_one@1548; self.db['approved'].delete_one@1589; self.db['mgmt_warnings'].delete_one@1593,admin/role; actor binding
+videl/utils/group_view.py,1597,settings,self.db['group_view_settings'].update_one@1608; self.db['group_view_settings'].update_one@1614; self.db['group_view_messages'].delete_many@1615,owner; admin/role; actor binding
+videl/utils/group_view.py,1631,act,self.db['group_view_operations'].insert_one@1710; self.db['group_view_operations'].update_one@1729; self.db['group_view_operations'].update_one@1734; self.db['group_view_messages'].update_one@1735; self.db['group_view_messages'].update_one@1736,owner; admin/role; actor binding
+videl/utils/inbox_media.py,61,send_attachment,service.db['group_view_operations'].insert_one@90; service.db['group_view_operations'].update_one@106; service.db['group_view_operations'].update_one@110,actor binding
+videl/utils/inbox_workspace.py,50,change,self.db['inbox_owner_chats'].update_one@73; self.db['inbox_owner_chats'].update_one@76; self.db['inbox_owner_chats'].update_one@79,owner
+videl/utils/inbox_workspace.py,84,reply,col.delete_one@90; col.insert_one@98; col.update_one@101,owner
+videl/utils/listening_sessions.py,32,schedule,col.insert_one@72,actor binding
+videl/utils/listening_sessions.py,101,cancel,db['listening_sessions'].update_one@105,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/listening_sessions.py,113,claim_due,db['listening_sessions'].find_one_and_update@120,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/listening_sessions.py,129,finish,db['listening_sessions'].update_one@137,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/logger.py,46,_save_error_mongo,col.insert_one@53; col.delete_many@64,owner
+videl/utils/maintenance.py,26,save,db['mgmt_chat_settings'].update_one@32,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/member_data.py,63,delete_member_group_data,"db[{'warnings': 'mgmt_warnings', 'ban_records': 'mgmt_banned_users', 'approved_members': 'approved', 'case_notes': 'mgmt_case_notes', 'join_requests': 'mgmt_join_requests', 'appeals': 'mgmt_appeals'}[name]].delete_many@78; db['mgmt_reports'].delete_many@84",owner; actor binding
+videl/utils/member_data.py,100,submit_feedback,col.insert_one@108,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/member_preferences.py,53,update,db['user_preferences'].update_one@75,actor binding
+videl/utils/onboarding.py,8,record,db['onboarding_daily'].update_one@23,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/players.py,29,upsert,col.update_one@39,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/players.py,53,touch,col.update_one@60,actor binding
+videl/utils/players.py,76,set_profile_private,col.update_one@83,actor binding
+videl/utils/players.py,151,_bump,col.update_one@165,actor binding
+videl/utils/retention.py,26,save,db['mgmt_chat_settings'].update_one@34,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/retention.py,41,cleanup_group_history,col.delete_many@82,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/rule_effectiveness.py,11,record,db[COLLECTION].update_one@15,No auth cue in this writer; likely worker/helper—trace caller and stored scope
+videl/utils/scheduled_posts.py,119,enqueue,col.insert_one@176,owner
+videl/utils/scheduled_posts.py,232,retry_job,col.update_one@259,owner
+videl/utils/scheduled_posts.py,267,duplicate_job,col.insert_one@314,owner
+videl/utils/scheduled_posts.py,319,cancel_job,_collection().update_one@321,owner
+videl/utils/scheduled_posts.py,396,set_paused,col.update_one@424,owner
+videl/utils/scheduled_posts.py,432,skip_next,col.update_one@454,owner
+videl/utils/scheduled_posts.py,499,_skip_missed_series,col.update_one@546,owner
+videl/utils/scheduled_posts.py,549,dispatch_one,col.find_one_and_update@558; col.update_one@570; col.update_one@607; col.update_one@613,owner
+videl/utils/settings_store.py,76,write,collection.update_one@94; collection.update_one@96; collection.insert_one@103,No auth cue in this writer; likely worker/helper—trace caller and stored scope
