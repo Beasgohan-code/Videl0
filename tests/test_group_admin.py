@@ -122,6 +122,20 @@ class GroupAdminTests(unittest.TestCase):
                             ("approved", {"chat": CID}), ("mgmt_warnings", {"chat_id": CID})):
             self.assertEqual(self.db[name].count_documents(query), 0, name)
 
+    def test_filter_writers_use_duplicate_safe_store_and_content_free_audit(self):
+        self.act(action="filter_create", keyword="  Welcome ", reply="Private response text")
+        audit = self.db["mgmt_audit"].find_one({"chat_id": CID, "action": "filter_create"})
+        self.assertEqual(audit["detail"], "text filter created or updated")
+        self.assertNotIn("Private response", audit["detail"])
+        self.db["mgmt_filters"].insert_one({"chat_id": CID, "keyword": "WELCOME", "reply": "legacy duplicate"})
+        with self.assertRaises(view.ViewError) as conflict:
+            self.act(action="filter_create", keyword="welcome", reply="do not replace")
+        self.assertEqual(conflict.exception.status, 409)
+        with self.assertRaises(view.ViewError) as conflict:
+            self.act(action="filter_delete", keyword="welcome")
+        self.assertEqual(conflict.exception.status, 409)
+        self.assertEqual(self.db["mgmt_filters"].count_documents({"chat_id": CID}), 2)
+
     def test_settings_are_rechecked_against_telegram_permissions(self):
         self.owner = {"status": "member"}
         with self.assertRaises(view.ViewError) as error:

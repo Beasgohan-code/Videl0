@@ -17,7 +17,7 @@ from videl.utils.bot_ui import button
 from videl.utils.command_ui import rich_edit
 from videl.utils.moderation import LOCK_TYPES
 
-_TABS = {"home", "music", "welcome", "safety", "moderation", "retention", "blocklist", "presets", "sessions", "commands"}
+_TABS = {"home", "music", "welcome", "safety", "moderation", "retention", "blocklist", "presets", "sessions", "automations", "commands"}
 _LOCK_KEYS = {f"lock_{kind}" for kind in LOCK_TYPES} | {"lock_forwards"}
 _PROMPTS: dict[tuple[int, int], tuple[int, str, float]] = {}
 _TOGGLES = {
@@ -81,7 +81,7 @@ def _nav(chat_id):
     return [[button("Overview",callback_data=f"settings:{chat_id}:tab:home"),button("Music",callback_data=f"settings:{chat_id}:tab:music"),button("Welcome",callback_data=f"settings:{chat_id}:tab:welcome")],
             [button("Protection",callback_data=f"settings:{chat_id}:tab:safety"),button("Moderation",callback_data=f"settings:{chat_id}:tab:moderation"),button("Retention",callback_data=f"settings:{chat_id}:tab:retention")],
             [button("Music blocklist",callback_data=f"settings:{chat_id}:tab:blocklist"),button("Queue presets",callback_data=f"settings:{chat_id}:tab:presets"),button("Listening sessions",callback_data=f"settings:{chat_id}:tab:sessions")],
-            [button("Command manager",callback_data=f"settings:{chat_id}:tab:commands")]]
+            [button("Automations & filters",callback_data=f"settings:{chat_id}:tab:automations"),button("Command manager",callback_data=f"settings:{chat_id}:tab:commands")]]
 
 def _reset_confirmation(chat_id, category):
     current, defaults = _reset_values(chat_id, category)
@@ -197,6 +197,21 @@ def _screen(chat_id, section="home", *, query="", category="all", page=0):
             markup.append([button("Cancel session",callback_data=f"settings:{chat_id}:session:cancel:{item['_id']}",style="danger")])
         text=heading("Scheduled listening sessions",3)+body("Schedule a one-time group announcement up to 30 days ahead. When it fires, member music requests are opened automatically. Times are UTC.")+table(rows if rows else [("Upcoming sessions","None")])
         markup.append([button("＋ Schedule a session",callback_data=f"settings:{chat_id}:session:schedule")])
+    elif section=="automations":
+        store = base.collection("mgmt_filters")
+        try:
+            if store is None:
+                raise RuntimeError("database unavailable")
+            filter_count = store.count_documents({"chat_id": int(chat_id)})
+        except Exception:
+            filter_count = None
+        count_label = "Unavailable" if filter_count is None else str(filter_count)
+        text = (heading("Automations", 3)
+                + body("Group keyword filters send plain-text answers when matching non-command messages arrive. Matching remains case-insensitive; the longest matching keyword wins.")
+                + table([("Automatic filters", count_label)])
+                + body("Create or edit text-only filters. No regex or media-response behavior is added."))
+        markup.append([button("＋ Add Filter", callback_data=f"settings:{chat_id}:filters:add", style="primary"),
+                       button("Manage Filters", callback_data=f"settings:{chat_id}:filters:manage")])
     elif section=="commands":
         from videl.utils.db import get_db
         from videl.utils.command_catalog import commands as registered_commands
@@ -341,7 +356,7 @@ async def _start_warn_threshold_editor(message, chat_id: int, actor_id: int, rev
     return session
 
 
-_PATTERN=r"^settings:-?[0-9]{1,20}:(?:tab:(?:home|music|welcome|safety|moderation|retention|blocklist|presets|sessions|commands)|commands:(?:all|manage|music|tools):[0-9]{1,3}|cmd:[a-z][a-z0-9_]{0,31}:(?:on|off)|(?:music_requests_enabled|music_approval_required|welcome_enabled|goodbye_enabled|captcha_enabled|antispam|gemini_guardian_enabled|lock_[a-z_]+):(?:on|off)|antispam:edit|captcha:edit|welcome_text:edit|goodbye_text:edit|rules_text:(?:edit|clear)|welcome_media:(?:edit|clear)|welcome_buttons:edit|raid:(?:on|off)|warn_threshold:(?:edit|2|3|5|10)|retention:[a-z_]+:(?:30|90|180|365|off)|blocklist:(?:add:(?:track|artist)|remove:[1-9][0-9]?)|preset:(?:save|apply:[1-9][0-9]?|delete:[1-9][0-9]?)|session:(?:schedule|cancel:[A-Za-z0-9]+)|reset:(?:music|welcome|safety|moderation|blocklist|presets)|resetconfirm:(?:music|welcome|safety|moderation|blocklist|presets):[a-f0-9]{12}|refresh):v[0-9]{1,12}$"
+_PATTERN=r"^settings:-?[0-9]{1,20}:(?:tab:(?:home|music|welcome|safety|moderation|retention|blocklist|presets|sessions|automations|commands)|commands:(?:all|manage|music|tools):[0-9]{1,3}|filters:(?:add|manage)|cmd:[a-z][a-z0-9_]{0,31}:(?:on|off)|(?:music_requests_enabled|music_approval_required|welcome_enabled|goodbye_enabled|captcha_enabled|antispam|gemini_guardian_enabled|lock_[a-z_]+):(?:on|off)|antispam:edit|captcha:edit|welcome_text:edit|goodbye_text:edit|rules_text:(?:edit|clear)|welcome_media:(?:edit|clear)|welcome_buttons:edit|raid:(?:on|off)|warn_threshold:(?:edit|2|3|5|10)|retention:[a-z_]+:(?:30|90|180|365|off)|blocklist:(?:add:(?:track|artist)|remove:[1-9][0-9]?)|preset:(?:save|apply:[1-9][0-9]?|delete:[1-9][0-9]?)|session:(?:schedule|cancel:[A-Za-z0-9]+)|reset:(?:music|welcome|safety|moderation|blocklist|presets)|resetconfirm:(?:music|welcome|safety|moderation|blocklist|presets):[a-f0-9]{12}|refresh):v[0-9]{1,12}$"
 @bot.on_callback_query(filters.regex(_PATTERN))
 async def settings_callback(client,query):
     message=getattr(query,"message",None); actor=getattr(query,"from_user",None)
@@ -357,6 +372,8 @@ async def settings_callback(client,query):
         if len(parts)==4 and parts[2]=="tab" and parts[3] in _TABS: section=parts[3]
         elif len(parts)==5 and parts[2]=="commands" and parts[3] in {"all","manage","music","tools"} and parts[4].isdecimal():
             section,category,page="commands",parts[3],min(int(parts[4]),999)
+        elif len(parts)==4 and parts[2]=="filters" and parts[3] in {"add", "manage"}:
+            key, value, section = ("__filters_add__" if parts[3] == "add" else "__filters_manage__"), None, "automations"
         elif len(parts)==5 and parts[2]=="cmd" and parts[4] in {"on","off"}:
             key,value,section="__command_toggle__",(parts[3],parts[4]=="on"),"commands"
         elif len(parts)==4 and parts[2]=="antispam" and parts[3]=="edit": key,value,section="__antispam_editor__",None,"safety"
@@ -399,6 +416,20 @@ async def settings_callback(client,query):
         await query.answer("Settings changed since this panel was opened. Review the refreshed values.",show_alert=True)
         fresh=_screen(chat_id,section,category=category,page=page)
         return await rich_edit(message,fresh.html,reply_markup=fresh.keyboard)
+    if key in {"__filters_add__", "__filters_manage__"}:
+        from videl.plugins import notes
+        try:
+            if key == "__filters_add__":
+                await notes.start_filter_editor(client, message, chat_id, int(actor.id), mode="add")
+                return await query.answer("Reply to the keyword and response prompts; nothing is saved until confirmation.")
+            from types import SimpleNamespace
+            screen = await notes.list_filters(SimpleNamespace(message=message, user=actor, client=client))
+            await query.answer("Filter list opened.")
+            return await rich_edit(message, screen.html, reply_markup=screen.keyboard)
+        except Exception as error:
+            LOGGER.debug("Could not open filter settings", exc_info=True)
+            return await query.answer(str(error) if isinstance(error, (RuntimeError, ValueError))
+                                      else "Could not open group filters.", show_alert=True)
     if key=="__warn_threshold_editor__":
         try:
             await _start_warn_threshold_editor(message, chat_id, int(actor.id), expected_revision, value)

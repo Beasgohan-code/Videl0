@@ -12,6 +12,9 @@ class FilterInlineManagementTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.chat_id = -93001
         self.db = mongomock.MongoClient().db
+        self.db_patch = patch("videl.utils.db._db", self.db)
+        self.db_patch.start()
+        self.addCleanup(self.db_patch.stop)
         self.store = self.db.mgmt_filters
         self.store.insert_many([
             {"chat_id": self.chat_id, "keyword": f"key{i:02d}", "reply": f"answer{i}"}

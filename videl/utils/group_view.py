@@ -71,6 +71,8 @@ _AUDIT_TEXT_FIELDS={'welcome','goodbye','rules','text'}
 def audit_detail(action,body):
     """A short human summary of a change, without dumping message bodies."""
     body=body if isinstance(body,dict) else {}
+    if action=='filter_create':return 'text filter created or updated'
+    if action=='filter_delete':return 'text filter removed'
     parts=[]
     if action=='settings' and isinstance(body.get('settings'),dict):
         on=[key for key,value in body['settings'].items() if value is True]
@@ -1546,17 +1548,27 @@ class GroupView:
             self.db['mgmt_notes'].delete_one({'chat_id':cid,'name':name})
             return {'ok':True,'deleted':name}
         if action=='filter_create':
-            keyword=str(body.get('keyword') or '').strip().casefold()
-            reply=body.get('reply')
-            if not keyword or len(keyword)>64:raise ViewError('Filter keywords must contain 1–64 characters.')
-            if not isinstance(reply,str) or not reply.strip() or len(reply)>400:raise ViewError('An automatic reply needs 1–400 characters.')
-            self.db['mgmt_filters'].update_one({'chat_id':cid,'keyword':keyword},
-                {'$set':{'chat_id':cid,'keyword':keyword,'reply':reply.strip()}},upsert=True)
-            return {'ok':True,'saved':keyword}
+            from videl.utils import filter_store
+            try:
+                saved,_=filter_store.put_filter(self.db,cid,body.get('keyword'),body.get('reply'),mode='upsert')
+            except filter_store.FilterStoreConflict as error:
+                raise ViewError(str(error),409) from None
+            except filter_store.FilterStoreError as error:
+                raise ViewError(str(error),503) from None
+            except ValueError as error:
+                raise ViewError(str(error)) from None
+            return {'ok':True,'saved':saved['keyword']}
         if action=='filter_delete':
-            keyword=str(body.get('keyword') or '').strip().casefold()
-            if not keyword:raise ViewError('A filter keyword is required.')
-            self.db['mgmt_filters'].delete_one({'chat_id':cid,'keyword':keyword})
+            from videl.utils import filter_store
+            try:
+                keyword=filter_store.normalize_keyword(body.get('keyword'))
+                filter_store.delete_filter_by_keyword(self.db,cid,keyword)
+            except filter_store.FilterStoreConflict as error:
+                raise ViewError(str(error),409) from None
+            except filter_store.FilterStoreError as error:
+                raise ViewError(str(error),503) from None
+            except ValueError as error:
+                raise ViewError(str(error)) from None
             return {'ok':True,'deleted':keyword}
         if action=='custom_command_create':
             from videl.utils import custom_commands

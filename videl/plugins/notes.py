@@ -11,10 +11,11 @@ import re
 import secrets
 import time
 from collections import OrderedDict
+from types import SimpleNamespace
 
 from pyrogram import filters
 from pyrogram.enums import ChatMemberStatus
-from pyrogram.types import CallbackQuery, InlineKeyboardMarkup
+from pyrogram.types import CallbackQuery, ForceReply, InlineKeyboardMarkup
 
 import config
 from videl import LOGGER, bot
@@ -25,10 +26,12 @@ from videl.utils.audit import record_bot
 from videl.utils.bot_ui import button
 from videl.utils.command_ui import rich_edit, rich_send, usage
 from videl.utils.premium_emojis import pe
+from videl.utils.interactive_settings import Step, engine
+from videl.utils import filter_store
 
 NOTES = "mgmt_notes"
 FILTERS = "mgmt_filters"
-_FILTER_DELETE_ACTIONS: OrderedDict[str, tuple[int, str, int, float]] = OrderedDict()
+_FILTER_ACTIONS: OrderedDict[str, tuple[str, int, dict, int, float]] = OrderedDict()
 _FILTER_ACTION_TTL = 900
 HASHTAG = re.compile(r"^#([A-Za-z0-9_]{1,32})")
 
@@ -175,45 +178,50 @@ async def add_filter(ctx) -> Screen:
     tokens = ctx.command.arguments.split()
     if len(tokens) < 2:
         return Screen(usage("/filter hello Hi there!", "Reply to a message to reuse it as the answer."))
-    keyword = tokens[0].casefold()[:64]
-    reply = " ".join(tokens[1:])[:400]
+    keyword = tokens[0][:filter_store.MAX_KEYWORD]
+    reply = " ".join(tokens[1:])[:filter_store.MAX_REPLY]
     replied = getattr(ctx.message, "reply_to_message", None)
-    if replied is not None and replied.text:
-        reply = replied.text
-    reply = reply[:400]
-    store = _filters()
-    if store is None:
-        raise CommandError("MongoDB is not connected.")
+    if replied is not None and getattr(replied, "text", None):
+        reply = replied.text[:filter_store.MAX_REPLY]
+    database = base.db()
+    if database is None:
+        raise CommandError("MongoDB is not connected; the filter was not saved.")
+    try:
+        saved, outcome = await asyncio.to_thread(
+            filter_store.put_filter, database, ctx.message.chat.id, keyword, reply, mode="upsert")
+    except (filter_store.FilterStoreConflict, filter_store.FilterStoreError, ValueError) as error:
+        raise CommandError(str(error)) from None
     await asyncio.to_thread(
-        store.update_one,
-        {"chat_id": ctx.message.chat.id, "keyword": keyword},
-        {"$set": {"reply": reply}},
-        upsert=True,
-    )
-    await asyncio.to_thread(
-        record_bot, ctx.message.chat.id, "filter", action="filter_add",
-        detail=f"keyword: {keyword}"[:80],
+        record_bot, ctx.message.chat.id, "filter",
+        action="filter_add" if outcome == "created" else "filter_update",
+        detail=f"text filter {outcome}",
         actor=getattr(getattr(ctx.message, "from_user", None), "id", None),
     )
-    return Screen(heading("Filter saved", 3) + body(f"<code>{escape(keyword)}</code> → {escape(reply[:120])}"))
+    return Screen(heading("Filter saved", 3)
+                  + body(f"<code>{escape(saved['keyword'])}</code> → {escape(saved['reply'][:120])}"))
 
 
 async def remove_filter(ctx) -> Screen:
     tokens = ctx.command.arguments.split()
     if not tokens:
         return Screen(usage("/stopfilter hello", "Stops one automatic answer."))
-    keyword = tokens[0].casefold()
-    store = _filters()
-    if store is None:
-        raise CommandError("MongoDB is not connected.")
-    result = await asyncio.to_thread(
-        store.delete_one, {"chat_id": ctx.message.chat.id, "keyword": keyword}
-    )
-    if not result.deleted_count:
+    try:
+        keyword = filter_store.normalize_keyword(tokens[0])
+    except ValueError as error:
+        raise CommandError(str(error)) from None
+    database = base.db()
+    if database is None:
+        raise CommandError("MongoDB is not connected; no filter was removed.")
+    try:
+        removed = await asyncio.to_thread(filter_store.delete_filter_by_keyword,
+                                          database, ctx.message.chat.id, keyword)
+    except (filter_store.FilterStoreConflict, filter_store.FilterStoreError, ValueError) as error:
+        raise CommandError(str(error)) from None
+    if not removed:
         return Screen(heading("Filter not found", 3) + body(f"No filter named <code>{escape(keyword)}</code>."))
     await asyncio.to_thread(
         record_bot, ctx.message.chat.id, "filter", action="filter_delete",
-        detail=f"keyword: {keyword}"[:80],
+        detail="text filter removed",
         actor=getattr(getattr(ctx.message, "from_user", None), "id", None),
     )
     return Screen(heading("Filter removed", 3) + body(f"<code>{escape(keyword)}</code> is silent again."))
@@ -222,27 +230,31 @@ async def remove_filter(ctx) -> Screen:
 FILTER_PAGE_SIZE = 8
 
 
-def _remember_filter_delete(chat_id: int, keyword: str, page: int) -> str:
+def _remember_filter_action(action: str, chat_id: int, item: dict, page: int) -> str:
     now = time.monotonic()
-    for token, value in list(_FILTER_DELETE_ACTIONS.items()):
-        if now - value[3] > _FILTER_ACTION_TTL:
-            _FILTER_DELETE_ACTIONS.pop(token, None)
+    for token, value in list(_FILTER_ACTIONS.items()):
+        if now - value[4] > _FILTER_ACTION_TTL:
+            _FILTER_ACTIONS.pop(token, None)
     token = secrets.token_urlsafe(6)
-    _FILTER_DELETE_ACTIONS[token] = (chat_id, keyword, page, now)
-    _FILTER_DELETE_ACTIONS.move_to_end(token)
-    while len(_FILTER_DELETE_ACTIONS) > 4096:
-        _FILTER_DELETE_ACTIONS.popitem(last=False)
+    snapshot = {key: item.get(key) for key in ("_id", "keyword", "reply")}
+    _FILTER_ACTIONS[token] = (action, int(chat_id), snapshot, int(page), now)
+    _FILTER_ACTIONS.move_to_end(token)
+    while len(_FILTER_ACTIONS) > 4096:
+        _FILTER_ACTIONS.popitem(last=False)
     return token
 
 
 def _filter_markup(documents, page: int, total: int, *, chat_id: int, can_manage: bool):
     rows = []
     if can_manage:
-        for index, item in enumerate(documents):
+        for item in documents:
             keyword = str(item.get("keyword", ""))
-            label = re.sub(r"\s+", " ", keyword).strip()[:30] or "unnamed filter"
-            token = _remember_filter_delete(chat_id, keyword, page)
-            rows.append([button(f"🗑 Remove · {label}", callback_data=f"mgmt_filter:delete:{token}", style="danger")])
+            label = re.sub(r"\s+", " ", keyword).strip()[:24] or "unnamed filter"
+            edit_token = _remember_filter_action("edit", chat_id, item, page)
+            delete_token = _remember_filter_action("delete", chat_id, item, page)
+            rows.append([button(f"Edit · {label}", callback_data=f"mgmt_filter:edit:{edit_token}"),
+                         button(f"Remove · {label}", callback_data=f"mgmt_filter:delete:{delete_token}", style="danger")])
+        rows.append([button("＋ Add filter", callback_data="mgmt_filter:add", style="primary")])
     pages = max(1, (total + FILTER_PAGE_SIZE - 1) // FILTER_PAGE_SIZE)
     if pages > 1:
         nav = []
@@ -298,8 +310,80 @@ def _filter_page_text(total: int, documents, page: int, can_manage: bool) -> str
         + body(f"{total} filter{'s' if total != 1 else ''} in this group · page {page + 1}/{pages}.")
         + table(rows)
     )
-    text += body("Tap a filter button below to remove it." if can_manage else "Only a current group admin can remove filters; use <code>/stopfilter keyword</code>.")
+    text += body("Edit or remove a filter below, or add a new filter." if can_manage else "Only a current group admin can edit or remove filters; use <code>/stopfilter keyword</code>.")
     return text
+
+
+def _filter_preview(session):
+    original = session.values.get("original")
+    keyword = session.values["keyword"]
+    reply = session.values["reply"]
+    mode = "Edit existing filter" if original else "Add new filter"
+    rows = [("Trigger keyword", f"<code>{escape(keyword)}</code>")]
+    if original:
+        rows.extend([("Current keyword", f"<code>{escape(str(original.get('keyword') or ''))}</code>"),
+                     ("Current response", f"<pre>{escape(str(original.get('reply') or ''))}</pre>")])
+    rows.append(("New response", f"<pre>{escape(reply)}</pre>"))
+    text = (heading(mode + " preview", 3) + table(rows)
+            + body("This is a plain-text response. Nothing has changed until you confirm Save."))
+    keyboard = InlineKeyboardMarkup([
+        [button("Save", callback_data=f"filter_edit:{session.token}:save", style="primary"),
+         button("Edit Again", callback_data=f"filter_edit:{session.token}:edit")],
+        [button("Cancel", callback_data=f"filter_edit:{session.token}:cancel", style="danger"),
+         button("Back to filters", callback_data=f"filter_edit:{session.token}:back")],
+    ])
+    return text, keyboard
+
+
+async def _send_filter_prompt(client, session, error: str | None = None):
+    step = session.current_step
+    if step is None:
+        return None
+    original = session.values.get("original") or {}
+    current = ""
+    if step.key == "keyword" and original.get("keyword"):
+        current = f" Current keyword: <code>{escape(original['keyword'])}</code>."
+    elif step.key == "reply" and original.get("reply"):
+        current = f" Current response: <code>{escape(str(original['reply'])[:120])}</code>."
+    prompt = (heading("Filter editor", 3)
+              + body((escape(error) + " ") if error else "")
+              + body(f"{escape(step.prompt)}{current} Reply to this prompt. Use /cancel to discard the draft."))
+    sent = await client.send_message(session.chat_id, prompt,
+                                     reply_markup=ForceReply(selective=True))
+    await engine.bind_prompt(session.token, chat_id=session.chat_id,
+                             actor_id=session.actor_id, message_id=int(sent.id))
+    return sent
+
+
+async def start_filter_editor(client, panel, chat_id: int, actor_id: int, *, mode="add", original=None):
+    if mode not in {"add", "edit"}:
+        raise ValueError("Unknown filter editor mode.")
+    if _filters() is None:
+        raise filter_store.FilterStoreError("The filters database is unavailable; nothing changed.")
+    original_snapshot = None
+    if mode == "edit":
+        if not isinstance(original, dict) or "_id" not in original:
+            raise filter_store.FilterStoreConflict("This filter is no longer available. Reopen /filters.")
+        original_snapshot = {key: original.get(key) for key in ("_id", "keyword", "reply")}
+    session = await engine.begin(
+        chat_id=int(chat_id), actor_id=int(actor_id), target_chat_id=int(chat_id),
+        workflow=f"filter_{mode}",
+        steps=(Step("keyword", "Send a trigger keyword (1–64 characters).", max_length=64),
+               Step("reply", "Send the plain-text response (1–400 characters).", max_length=400)),
+        timeout_seconds=600,
+    )
+    if original_snapshot is not None:
+        session.values["original"] = original_snapshot
+    try:
+        await rich_edit(panel,
+                        heading("Filter editor started", 3)
+                        + body("Reply to each prompt. Your existing filter remains unchanged until you save the preview."),
+                        reply_markup=None)
+        await _send_filter_prompt(client, session)
+    except Exception:
+        await engine.cancel(session.token, chat_id=int(chat_id), actor_id=int(actor_id))
+        raise filter_store.FilterStoreError("Could not start the filter editor; nothing changed.") from None
+    return session
 
 
 async def list_filters(ctx) -> Screen:
@@ -319,7 +403,8 @@ async def list_filters(ctx) -> Screen:
 @bot.on_callback_query(filters.regex(r"^mgmt_filter:"))
 async def filter_management_callback(client, query: CallbackQuery) -> None:
     message = getattr(query, "message", None)
-    if message is None or base.chat_kind(message) not in {"group", "supergroup"}:
+    actor = getattr(query, "from_user", None)
+    if message is None or actor is None or base.chat_kind(message) not in {"group", "supergroup"}:
         await query.answer("Open this panel in the group.", show_alert=True)
         return
     parts = (query.data or "").split(":")
@@ -334,50 +419,78 @@ async def filter_management_callback(client, query: CallbackQuery) -> None:
     if action == "noop":
         await query.answer()
         return
-    if action not in {"page", "delete"} or len(parts) != 3:
+    if action == "add":
+        if len(parts) != 2 or not await _live_group_admin(client, message.chat.id, actor.id):
+            await query.answer("A current group admin is required to add filters.", show_alert=True)
+            return
+        try:
+            await start_filter_editor(client, message, message.chat.id, actor.id, mode="add")
+        except (filter_store.FilterStoreConflict, filter_store.FilterStoreError, RuntimeError) as error:
+            await query.answer(str(error), show_alert=True)
+            return
+        await query.answer("Reply to the prompts; nothing is saved until you confirm.")
+        return
+    if action not in {"page", "delete", "edit"} or len(parts) != 3:
         await query.answer("This filter action is invalid.", show_alert=True)
         return
-    try:
+    if action == "page":
         if not parts[2].isdigit() or len(parts[2]) > 6:
-            if action != "delete" or not re.fullmatch(r"[A-Za-z0-9_-]{6,12}", parts[2]):
-                raise ValueError
-        page = int(parts[2]) if action == "page" else 0
-        token = parts[2] if action == "delete" else ""
-    except ValueError:
-        await query.answer("This filter action is invalid.", show_alert=True)
-        return
+            await query.answer("This filter page is invalid.", show_alert=True)
+            return
+        page, token = int(parts[2]), ""
+    else:
+        if not re.fullmatch(r"[A-Za-z0-9_-]{6,12}", parts[2]):
+            await query.answer("This filter action is invalid.", show_alert=True)
+            return
+        page, token = 0, parts[2]
 
-    chat_id = message.chat.id
-    actor_id = getattr(getattr(query, "from_user", None), "id", 0)
+    chat_id, actor_id = int(message.chat.id), int(actor.id)
     can_manage = await _live_group_admin(client, chat_id, actor_id)
-    if action == "delete" and not can_manage:
-        await query.answer("A current group admin is required to remove filters.", show_alert=True)
+    if action in {"delete", "edit"} and not can_manage:
+        await query.answer("A current group admin is required to change filters.", show_alert=True)
         return
     store = _filters()
     if store is None:
         await query.answer("The filters database is unavailable.", show_alert=True)
         return
 
-    if action == "delete":
-        token_entry = _FILTER_DELETE_ACTIONS.get(token)
-        if token_entry is None or time.monotonic() - token_entry[3] > _FILTER_ACTION_TTL:
-            _FILTER_DELETE_ACTIONS.pop(token, None)
+    if action in {"delete", "edit"}:
+        token_entry = _FILTER_ACTIONS.get(token)
+        if token_entry is None or time.monotonic() - token_entry[4] > _FILTER_ACTION_TTL:
+            _FILTER_ACTIONS.pop(token, None)
             await query.answer("This button expired. Reopen /filters and try again.", show_alert=True)
             return
-        token_chat_id, keyword, page, _created = token_entry
-        if token_chat_id != chat_id:
-            await query.answer("This filter button belongs to another group.", show_alert=True)
+        token_action, token_chat_id, original, page, _created = token_entry
+        if token_action != action or token_chat_id != chat_id:
+            await query.answer("This filter button belongs to another action or group.", show_alert=True)
             return
-        _FILTER_DELETE_ACTIONS.pop(token, None)
-        result = await asyncio.to_thread(store.delete_one, {"chat_id": chat_id, "keyword": keyword})
-        if result.deleted_count:
-            await asyncio.to_thread(
-                record_bot, chat_id, "filter", action="filter_delete",
-                detail=f"keyword: {keyword}"[:80], actor=actor_id,
-            )
-            await query.answer("Filter removed")
+        _FILTER_ACTIONS.pop(token, None)
+        if action == "edit":
+            try:
+                current = await asyncio.to_thread(store.find_one,
+                                                  {"_id": original["_id"], "chat_id": chat_id})
+            except Exception:
+                await query.answer("Could not verify this filter; reopen /filters and try again.", show_alert=True)
+                return
+            if current is None or current.get("keyword") != original.get("keyword") or current.get("reply") != original.get("reply"):
+                await query.answer("This filter changed or was removed. Refresh the filter list.", show_alert=True)
+                return
+            try:
+                await start_filter_editor(client, message, chat_id, actor_id,
+                                          mode="edit", original=original)
+            except (filter_store.FilterStoreConflict, filter_store.FilterStoreError, RuntimeError) as error:
+                await query.answer(str(error), show_alert=True)
+                return
+            await query.answer("Reply to the prompts; the existing filter stays unchanged until Save.")
+            return
+        try:
+            await asyncio.to_thread(filter_store.delete_filter_by_id, base.db(), chat_id, original)
+        except (filter_store.FilterStoreConflict, filter_store.FilterStoreError) as error:
+            await query.answer(str(error), show_alert=True)
         else:
-            await query.answer("That filter was already removed")
+            await asyncio.to_thread(record_bot, chat_id, "filter", action="filter_delete",
+                                    detail="text filter removed", actor=actor_id)
+            await query.answer("Filter removed")
     else:
         await query.answer()
 
@@ -388,6 +501,163 @@ async def filter_management_callback(client, query: CallbackQuery) -> None:
         _filter_page_text(total, documents, page, can_manage),
         reply_markup=_filter_markup(documents, page, total, chat_id=chat_id, can_manage=can_manage),
     )
+
+@bot.on_message(filters.group & (filters.text | filters.media), group=3)
+async def filter_editor_message(client, message) -> None:
+    user = getattr(message, "from_user", None)
+    if user is None:
+        return
+    chat_id, actor_id = int(message.chat.id), int(user.id)
+    session = await engine.for_owner(chat_id=chat_id, actor_id=actor_id, target_chat_id=chat_id)
+    if session is None or session.workflow not in {"filter_add", "filter_edit"}:
+        return
+    raw_text = getattr(message, "text", None)
+    text = str(raw_text or "")
+    tokens = text.strip().split(maxsplit=1)
+    if tokens and tokens[0].split("@", 1)[0].casefold() == "/cancel":
+        await engine.cancel(session.token, chat_id=chat_id, actor_id=actor_id)
+        await client.send_message(chat_id, "Filter editing cancelled. Nothing was saved.")
+        return
+    reply = getattr(message, "reply_to_message", None)
+    if getattr(reply, "id", None) != session.expected_message_id:
+        return
+    if raw_text is None:
+        await _send_filter_prompt(client, session, "Only plain-text keywords and responses are supported.")
+        return
+    if tokens and tokens[0].startswith("/"):
+        return
+    step = session.current_step
+    value = text
+    normalized_keyword = None
+    if step and step.key == "keyword":
+        try:
+            normalized_keyword = filter_store.normalize_keyword(text)
+        except ValueError as error:
+            await _send_filter_prompt(client, session, str(error))
+            return
+        value = normalized_keyword
+    result = await engine.capture(session.token, chat_id=chat_id, actor_id=actor_id,
+                                  target_chat_id=chat_id,
+                                  reply_to_message_id=getattr(reply, "id", None), value=value)
+    if result.status == "invalid":
+        await _send_filter_prompt(client, result.session, result.error or "That value is invalid.")
+        return
+    if result.status in {"stale", "expired", "unauthorized"}:
+        return
+    if normalized_keyword is not None:
+        result.session.values["keyword"] = normalized_keyword
+    if result.status == "accepted":
+        await _send_filter_prompt(client, result.session)
+        return
+    if result.status != "preview":
+        return
+    text_preview, keyboard = _filter_preview(result.session)
+    try:
+        preview = await client.send_message(chat_id, text_preview, reply_markup=keyboard)
+        await engine.bind_prompt(result.session.token, chat_id=chat_id, actor_id=actor_id,
+                                 message_id=int(preview.id))
+    except Exception:
+        await engine.cancel(result.session.token, chat_id=chat_id, actor_id=actor_id)
+        LOGGER.debug("Filter preview could not be delivered", exc_info=True)
+
+
+@bot.on_callback_query(filters.regex(r"^filter_edit:[A-Za-z0-9_-]{1,24}:(?:save|edit|cancel|back)$"))
+async def filter_editor_callback(client, query: CallbackQuery) -> None:
+    message = getattr(query, "message", None)
+    actor = getattr(query, "from_user", None)
+    if message is None or actor is None or base.chat_kind(message) not in {"group", "supergroup"}:
+        return await query.answer("Open the filter editor in the group.", show_alert=True)
+    try:
+        _, token, action = str(query.data).split(":")
+    except ValueError:
+        return await query.answer("This filter action is invalid.", show_alert=True)
+    chat_id, actor_id = int(message.chat.id), int(actor.id)
+    session = await engine.get(token, chat_id=chat_id, actor_id=actor_id, target_chat_id=chat_id)
+    if session is None or session.workflow not in {"filter_add", "filter_edit"}:
+        return await query.answer("This filter edit expired or belongs to another admin.", show_alert=True)
+
+    async def show_list():
+        context = SimpleNamespace(message=message, user=actor, client=client)
+        screen = await list_filters(context)
+        return await rich_edit(message, screen.html, reply_markup=screen.keyboard)
+
+    if action in {"cancel", "back"}:
+        await engine.cancel(token, chat_id=chat_id, actor_id=actor_id)
+        await query.answer("Cancelled; nothing was saved." if action == "cancel" else "Back to filters.")
+        return await show_list()
+    if action == "edit":
+        original = session.values.get("original")
+        edited = await engine.edit_again(token, chat_id=chat_id, actor_id=actor_id,
+                                         message_id=int(message.id))
+        if edited is None:
+            return await query.answer("This preview is no longer active.", show_alert=True)
+        if original is not None:
+            edited.values["original"] = original
+        await rich_edit(message, heading("Edit filter again", 3)
+                        + body("Reply to the keyword and response prompts. Nothing is saved yet."),
+                        reply_markup=None)
+        try:
+            await _send_filter_prompt(client, edited)
+        except Exception:
+            await engine.cancel(token, chat_id=chat_id, actor_id=actor_id)
+            return await query.answer("Could not restart the filter editor; nothing changed.", show_alert=True)
+        return await query.answer("Reply to the prompts to revise the filter.")
+    if action != "save":
+        return await query.answer("This filter action is invalid.", show_alert=True)
+
+    async def authorize(target_chat_id: int, user_id: int) -> bool:
+        return await _live_group_admin(client, target_chat_id, user_id)
+
+    save_error = {"conflict": None, "storage": False}
+
+    async def save(snapshot) -> bool:
+        try:
+            database = base.db()
+            if snapshot.workflow == "filter_add":
+                await asyncio.to_thread(filter_store.put_filter, database, snapshot.target_chat_id,
+                                        snapshot.values["keyword"], snapshot.values["reply"], mode="create")
+            else:
+                await asyncio.to_thread(filter_store.edit_filter, database, snapshot.target_chat_id,
+                                        snapshot.values["original"], snapshot.values["keyword"],
+                                        snapshot.values["reply"])
+            return True
+        except filter_store.FilterStoreConflict as error:
+            save_error["conflict"] = str(error)
+            return False
+        except (filter_store.FilterStoreError, ValueError):
+            save_error["storage"] = True
+            return False
+        except Exception:
+            save_error["storage"] = True
+            return False
+
+    outcome, _ = await engine.commit(token, chat_id=chat_id, actor_id=actor_id,
+                                     target_chat_id=chat_id, message_id=int(message.id),
+                                     authorize=authorize, save=save)
+    if outcome == "saved":
+        await asyncio.to_thread(
+            record_bot, chat_id, "filter",
+            action="filter_add" if session.workflow == "filter_add" else "filter_edit",
+            detail="text filter added" if session.workflow == "filter_add" else "text filter edited",
+            actor=actor_id,
+        )
+        await query.answer("Filter saved.")
+        return await show_list()
+    if outcome == "permission_denied":
+        await engine.cancel(token, chat_id=chat_id, actor_id=actor_id)
+        await query.answer("Current group-admin status could not be verified. Nothing was saved.", show_alert=True)
+        return await show_list()
+    if outcome == "save_failed" and save_error["conflict"]:
+        await engine.cancel(token, chat_id=chat_id, actor_id=actor_id)
+        await query.answer(save_error["conflict"], show_alert=True)
+        return await show_list()
+    if outcome == "save_failed":
+        await query.answer("Could not save the filter. Nothing was reported as saved; retry from this preview.", show_alert=True)
+        return
+    if outcome == "expired":
+        return await query.answer("This filter edit expired. Nothing was saved.", show_alert=True)
+    return await query.answer("This filter preview is no longer active.", show_alert=True)
+
 
 @bot.on_message(filters.group, group=17)
 async def filter_watcher(_, message) -> None:
