@@ -27,9 +27,12 @@ import {
   DASHBOARD_WIDGETS,
   DEFAULT_DASHBOARD_WIDGETS,
   moveDashboardItem,
-  normalizeDashboardOrder,
   setDashboardItemVisible,
   dashboardMetricValue,
+  dashboardSourceFailure,
+  readDashboardPreferences,
+  writeDashboardPreferences,
+  type DashboardSourceState,
   type DashboardWidgetId,
 } from "@/lib/dashboard-layout";
 type Metrics = {
@@ -130,7 +133,9 @@ export default function Home() {
   const [measured, setMeasured] = useState<string | null>(null);
   const [stats, setStats] = useState<Metrics | null>(null);
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
+  const [analyticsState, setAnalyticsState] = useState<DashboardSourceState>("loading");
   const [groupsPulse, setGroupsPulse] = useState<GroupsPulse | null>(null);
+  const [groupsState, setGroupsState] = useState<DashboardSourceState>("loading");
   const [onboarding, setOnboarding] = useState<OnboardingPulse | null>(null);
   const [scheduledJobs, setScheduledJobs] = useState<ScheduledJob[] | null>(null);
   const [opsEvents, setOpsEvents] = useState<OpsEvent[] | null>(null);
@@ -157,19 +162,16 @@ export default function Home() {
   const [loaded, setLoaded] = useState(false);
   useEffect(() => {
     try {
-      const widgets = localStorage.getItem("videl-owner-home-widgets-v1");
-      const quickActions = localStorage.getItem("videl-owner-home-actions-v1");
-      if (widgets) setWidgetOrder(normalizeDashboardOrder(JSON.parse(widgets), DASHBOARD_WIDGETS.map(({ id }) => id), DEFAULT_DASHBOARD_WIDGETS));
-      if (quickActions) setActionOrder(normalizeDashboardOrder(JSON.parse(quickActions), defaultActions, defaultActions));
-    } catch { /* Keep defaults when browser storage is unavailable or malformed. */ }
+      const saved = readDashboardPreferences(localStorage, DEFAULT_DASHBOARD_WIDGETS, defaultActions);
+      setWidgetOrder(saved.widgets);
+      setActionOrder(saved.actions);
+    } catch { /* Storage access itself can be blocked in privacy-restricted WebViews. */ }
     setLayoutReady(true);
   }, []);
   useEffect(() => {
     if (!layoutReady) return;
-    try {
-      localStorage.setItem("videl-owner-home-widgets-v1", JSON.stringify(widgetOrder));
-      localStorage.setItem("videl-owner-home-actions-v1", JSON.stringify(actionOrder));
-    } catch { /* Preferences remain active for this session if storage is blocked. */ }
+    try { writeDashboardPreferences(localStorage, widgetOrder, actionOrder, defaultActions); }
+    catch { /* Preferences still apply in memory for this session. */ }
   }, [layoutReady, widgetOrder, actionOrder]);
   useEffect(() => {
     if (tab !== "home") return;
@@ -196,6 +198,7 @@ export default function Home() {
       await Promise.allSettled([
         read("/api/summary")
           .then((data) => {
+            if (!data.stats || typeof data.stats !== "object") throw new Error("Metrics response is incomplete");
             if (active) {
               setStats(data.stats);
               setMeasured(data.measured_at || null);
@@ -215,20 +218,32 @@ export default function Home() {
           : Promise.resolve(null)
         )
           .then((data) => {
-            if (active) setAnalytics(data);
+            if (!active) return;
+            if (data && typeof data === "object") {
+              setAnalytics(data);
+              setAnalyticsState("ready");
+            } else {
+              setAnalyticsState((state) => dashboardSourceFailure(state));
+            }
           })
           .catch(() => {
-            if (active) setAnalytics(null);
+            if (active) setAnalyticsState((state) => dashboardSourceFailure(state));
           }),
         (telegram.authenticated
           ? read("/api/groups?limit=100")
           : Promise.resolve(null)
         )
           .then((data) => {
-            if (active) setGroupsPulse(data);
+            if (!active) return;
+            if (data && Array.isArray(data.chats)) {
+              setGroupsPulse(data);
+              setGroupsState("ready");
+            } else {
+              setGroupsState((state) => dashboardSourceFailure(state));
+            }
           })
           .catch(() => {
-            if (active) setGroupsPulse(null);
+            if (active) setGroupsState((state) => dashboardSourceFailure(state));
           }),
         (telegram.authenticated ? read("/api/onboarding") : Promise.resolve(null))
           .then((data) => { if (active) setOnboarding(data); })
@@ -328,8 +343,8 @@ export default function Home() {
   );
   const openReports = pulseGroupsList.reduce((sum, group) => sum + (group.counts?.reports ?? 0), 0);
   const pendingJoins = pulseGroupsList.reduce((sum, group) => sum + (group.counts?.pending_joins ?? 0), 0);
-  const groupValueState = !loaded ? "loading" : groupsAvailable ? "available" : "unavailable";
-  const queueValueState = !loaded ? "loading" : queueCountsAvailable ? "available" : "unavailable";
+  const groupValueState = groupsState === "loading" ? "loading" : groupsAvailable ? "available" : "unavailable";
+  const queueValueState = groupsState === "loading" ? "loading" : queueCountsAvailable ? "available" : "unavailable";
   const attentionCount = groupsAvailable
     ? groupsPulse.summary?.attention ?? attentionGroups.length
     : undefined;
@@ -375,14 +390,14 @@ export default function Home() {
         <section className="p-5">
           <header className="flex items-start justify-between gap-4">
             <div><h2 id="owner-dashboard-layout-title" className="text-base font-semibold">Customize your dashboard</h2><p className="mt-1 text-xs leading-5 text-indigo-100/50">Choose and reorder widgets and quick actions. Preferences are saved in this browser.</p></div>
-            <button type="button" aria-label="Close dashboard customization" onClick={() => layoutDialog.current?.close()} className="grid h-10 w-10 shrink-0 place-items-center rounded-lg text-white/55 hover:bg-white/5"><X size={16} aria-hidden/></button>
+            <button type="button" aria-label="Close dashboard customization" onClick={() => layoutDialog.current?.close()} className="grid h-11 w-11 shrink-0 place-items-center rounded-lg text-white/55 hover:bg-white/5"><X size={16} aria-hidden/></button>
           </header>
           <fieldset className="mt-5 space-y-2"><legend className="mb-2 text-xs font-semibold text-indigo-100/70">Widgets · order shown on Home</legend>
             {[...DASHBOARD_WIDGETS].sort((a,b) => { const ai=widgetOrder.indexOf(a.id), bi=widgetOrder.indexOf(b.id); return (ai<0?999:ai)-(bi<0?999:bi); }).map((widget) => {
               const index=widgetOrder.indexOf(widget.id);
               return <div key={widget.id} className="flex min-h-12 items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/[.03] px-3 py-2 text-sm">
                 <label className="flex min-w-0 flex-1 items-center gap-3"><input type="checkbox" checked={index>=0} onChange={(event) => setWidgetOrder((current) => setDashboardItemVisible(current,widget.id,event.currentTarget.checked))} className="h-4 w-4 accent-indigo-400"/><span>{widget.label}</span></label>
-                <span className="flex shrink-0 gap-1"><button type="button" aria-label={`Move ${widget.label} up`} disabled={index<=0} onClick={() => setWidgetOrder((current)=>moveDashboardItem(current,widget.id,-1))} className="grid h-9 w-9 place-items-center rounded-lg text-indigo-100/65 hover:bg-white/10 disabled:opacity-25"><ChevronUp size={16}/></button><button type="button" aria-label={`Move ${widget.label} down`} disabled={index<0||index>=widgetOrder.length-1} onClick={() => setWidgetOrder((current)=>moveDashboardItem(current,widget.id,1))} className="grid h-9 w-9 place-items-center rounded-lg text-indigo-100/65 hover:bg-white/10 disabled:opacity-25"><ChevronDown size={16}/></button></span>
+                <span className="flex shrink-0 gap-1"><button type="button" aria-label={`Move ${widget.label} up`} disabled={index<=0} onClick={() => setWidgetOrder((current)=>moveDashboardItem(current,widget.id,-1))} className="grid h-11 w-11 place-items-center rounded-lg text-indigo-100/65 hover:bg-white/10 disabled:opacity-25"><ChevronUp size={16}/></button><button type="button" aria-label={`Move ${widget.label} down`} disabled={index<0||index>=widgetOrder.length-1} onClick={() => setWidgetOrder((current)=>moveDashboardItem(current,widget.id,1))} className="grid h-11 w-11 place-items-center rounded-lg text-indigo-100/65 hover:bg-white/10 disabled:opacity-25"><ChevronDown size={16}/></button></span>
               </div>;
             })}
           </fieldset>
@@ -391,7 +406,7 @@ export default function Home() {
               const index=actionOrder.indexOf(action.tab);
               return <div key={action.tab} className="flex min-h-12 items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/[.03] px-3 py-2 text-sm">
                 <label className="flex min-w-0 flex-1 items-center gap-3"><input type="checkbox" checked={index>=0} onChange={(event)=>setActionOrder((current)=>setDashboardItemVisible(current,action.tab,event.currentTarget.checked))} className="h-4 w-4 accent-indigo-400"/><span>{action.label}</span></label>
-                <span className="flex shrink-0 gap-1"><button type="button" aria-label={`Move ${action.label} up`} disabled={index<=0} onClick={()=>setActionOrder((current)=>moveDashboardItem(current,action.tab,-1))} className="grid h-9 w-9 place-items-center rounded-lg text-indigo-100/65 hover:bg-white/10 disabled:opacity-25"><ChevronUp size={16}/></button><button type="button" aria-label={`Move ${action.label} down`} disabled={index<0||index>=actionOrder.length-1} onClick={()=>setActionOrder((current)=>moveDashboardItem(current,action.tab,1))} className="grid h-9 w-9 place-items-center rounded-lg text-indigo-100/65 hover:bg-white/10 disabled:opacity-25"><ChevronDown size={16}/></button></span>
+                <span className="flex shrink-0 gap-1"><button type="button" aria-label={`Move ${action.label} up`} disabled={index<=0} onClick={()=>setActionOrder((current)=>moveDashboardItem(current,action.tab,-1))} className="grid h-11 w-11 place-items-center rounded-lg text-indigo-100/65 hover:bg-white/10 disabled:opacity-25"><ChevronUp size={16}/></button><button type="button" aria-label={`Move ${action.label} down`} disabled={index<0||index>=actionOrder.length-1} onClick={()=>setActionOrder((current)=>moveDashboardItem(current,action.tab,1))} className="grid h-11 w-11 place-items-center rounded-lg text-indigo-100/65 hover:bg-white/10 disabled:opacity-25"><ChevronDown size={16}/></button></span>
               </div>;
             })}
           </fieldset>
@@ -540,6 +555,8 @@ export default function Home() {
           <div>
             <p className="ios-caps text-[10px] text-indigo-300">Community Pulse · last 24 hours</p>
             <h2 className="mt-1 text-base font-semibold">What needs your attention?</h2>
+            {refreshing && loaded && <p role="status" className="mt-1 text-[10px] text-indigo-100/55">Refreshing live dashboard data…</p>}
+            {(analyticsState === "stale" || groupsState === "stale") && <p role="status" className="mt-1 text-[10px] text-amber-200/70">Some figures are from the last successful refresh.</p>}
           </div>
           <button onClick={() => open("groups")} className="ios-btn ios-btn-glass text-xs">
             Review groups <ArrowUpRight size={14} />
@@ -559,12 +576,12 @@ export default function Home() {
           <div className="rounded-xl border border-amber-300/10 bg-amber-300/[0.035] p-3">
             <p className="text-[10px] text-indigo-100/45">Groups to review</p>
             <p className="mt-1 text-xl font-bold">{dashboardMetricValue(attentionCount, groupValueState)}</p>
-            <p className="mt-1 text-[10px] text-indigo-100/35">{groupsAvailable ? "Bot access or protection needs checking" : loaded ? "Group status could not be loaded" : "Loading group status"}</p>
+            <p className="mt-1 text-[10px] text-indigo-100/35">{groupsState === "loading" ? "Loading group status" : groupsState === "unavailable" ? "Group status unavailable" : groupsState === "stale" ? "Last successful snapshot · refresh failed" : "Bot access or protection needs checking"}</p>
           </div>
           <div className="rounded-xl border border-indigo-300/10 bg-indigo-400/[0.035] p-3">
             <p className="text-[10px] text-indigo-100/45">Open community queue</p>
             <p className="mt-1 text-xl font-bold">{dashboardMetricValue(queueCount, queueValueState)}</p>
-            <p className="mt-1 text-[10px] text-indigo-100/35">{queueCountsAvailable ? `${count(openReports)} reports · ${count(pendingJoins)} join requests` : loaded ? "Queue totals unavailable" : "Loading queue totals"}</p>
+            <p className="mt-1 text-[10px] text-indigo-100/35">{groupsState === "loading" ? "Loading queue totals" : groupsState === "stale" ? "Last successful queue snapshot · refresh failed" : queueCountsAvailable ? `${count(openReports)} reports · ${count(pendingJoins)} join requests` : "Queue totals unavailable"}</p>
           </div>
         </div>
         {attentionGroups.length > 0 && (
@@ -607,7 +624,7 @@ export default function Home() {
         <p className="mt-3 text-[10px] text-indigo-100/30">Showing up to four pending items from the owner queue.</p>
       </section>}
       {widgetOrder.includes("automation") && <section className="ios-card owner-home-widget p-5" style={{ order: widgetOrder.indexOf("automation") }} aria-label="Automation run history"><p className="ios-caps text-[10px] text-violet-200">Automation</p><h2 className="mt-1 text-sm font-semibold">Recent automation runs</h2><p className="mt-4 rounded-xl border border-amber-300/10 bg-amber-300/[.03] p-3 text-xs leading-5 text-indigo-100/55">Execution history is not exposed by the available backend API. Automation settings are available, but they are not evidence of completed runs.</p><button onClick={() => open("automation")} className="mt-3 text-[11px] text-indigo-300">Open automation settings ↗</button></section>}
-      {widgetOrder.includes("health") && <section className="ios-card owner-home-widget p-5" style={{ order: widgetOrder.indexOf("health") }} aria-label="System and API health"><div className="flex items-center justify-between"><div><p className="ios-caps text-[10px] text-emerald-200">Service status</p><h2 className="mt-1 text-sm font-semibold">System &amp; API health</h2></div><button onClick={() => open("settings")} className="text-[11px] text-indigo-300">Diagnostics ↗</button></div><div className="mt-4 grid gap-3 sm:grid-cols-2"><div className={`rounded-xl border p-4 ${panelStatusTone}`}><p className="text-xs font-medium text-indigo-100/55">Panel API</p><p className="mt-1 text-base font-semibold">{panelStatus}</p></div><div className={`rounded-xl border p-4 ${botStatusTone}`}><p className="text-xs font-medium text-indigo-100/55">Telegram bot</p><p className="mt-1 text-base font-semibold">{botStatus}</p></div></div><div className="mt-3 grid grid-cols-2 gap-2 text-[10px] text-indigo-100/50"><span>Panel RTT {typeof health?.latency_ms === "number" ? `${health.latency_ms} ms` : "not measured"}</span><span>API p95 {typeof health?.api?.p95_ms === "number" ? `${health.api.p95_ms} ms` : "not measured"}</span><span>Build {health?.revision || "unknown"}</span><span>{typeof health?.api?.samples === "number" ? health.api.samples : "not measured"} API samples</span><span>Host CPU {processMetrics?.cpu == null ? "not measured" : `${processMetrics.cpu.toFixed(0)}%`}</span><span>Process CPU {processMetrics?.process_cpu == null ? "not measured" : `${processMetrics.process_cpu.toFixed(0)}%`}</span><span>RAM {processMetrics?.memory_used == null || processMetrics.memory_total == null ? "not measured" : `${(processMetrics.memory_used / 1073741824).toFixed(1)} / ${(processMetrics.memory_total / 1073741824).toFixed(1)} GiB (${processMetrics.memory_percent?.toFixed(0) ?? "?"}%)`}</span><span>Process RSS {processMetrics?.rss == null ? "not measured" : `${(processMetrics.rss / 1048576).toFixed(0)} MiB`}</span><span>Threads {processMetrics?.threads ?? "not measured"}</span><span>Disk {processMetrics?.disk || "not measured"}</span><span>Process sample {processMetrics?.measured_at ? `${new Date(processMetrics.measured_at * 1000).toLocaleTimeString()} · ${freshness(processMetrics.measured_at)}` : "unavailable"}</span><span>MongoDB {health?.database || "unknown"}</span><span>Voice assistant {health?.assistant?.configured ? health.assistant.ready ? "ready" : health.assistant.state || "not ready" : "not configured"}</span><span>Primary media provider {health?.media_downloaders?.shruti?.state || "unknown"}</span><span>Release compatibility {releaseCheck ? `${releaseCheck.drift} · ${releaseCheck.web}/${releaseCheck.backend || "unknown"} · ${Number.isFinite(Date.parse(releaseCheck.checkedAt)) ? freshness(Date.parse(releaseCheck.checkedAt) / 1000) : "time unavailable"}` : "unavailable"}</span><span>Protected groups {protection?.state === "measured" ? `${protection.protected_groups ?? "unknown"}/${protection.sampled_groups ?? "unknown"}${protection.sample_truncated ? "+ sampled" : " sampled"} · ${freshness(protection.measured_at)}` : "unavailable"}</span></div><p className="mt-3 text-[10px] leading-4 text-indigo-100/35">Process and host metrics are sampled; provider readiness is configuration-only, not a live service probe.</p><div className="mt-3 grid grid-cols-2 gap-2 text-[10px] text-indigo-100/50"><span>Active voice calls {opsMusic?.voice.state === "measured" && opsMusic.voice.active_calls != null ? opsMusic.voice.active_calls : "unavailable"}</span><span>Music queues {opsMusic?.queue.state === "measured" && opsMusic.queue.active_queues != null ? opsMusic.queue.active_queues : "unavailable"}</span><span>Upcoming tracks {opsMusic?.queue.state === "measured" && opsMusic.queue.upcoming_tracks != null ? opsMusic.queue.upcoming_tracks : "unavailable"}</span><span>Download failures, 30m {opsMusic?.downloads.state !== "unavailable" && opsMusic?.downloads.failed != null ? opsMusic.downloads.failed : "unavailable"}</span><span>Download jobs observed {opsMusic?.downloads.observed ?? "unavailable"} · {opsMusic?.downloads.state || "unavailable"}</span><span>Music sample {opsMusic?.measured_at ? `${new Date(opsMusic.measured_at * 1000).toLocaleTimeString()} · ${freshness(opsMusic.measured_at)}` : "unavailable"}</span></div><div className="mt-4 border-t border-white/10 pt-3"><div className="flex items-center justify-between"><h3 className="text-xs font-medium">Recent command activity</h3><span className="text-[10px] text-indigo-100/40">24h · schema v1</span></div>{opsEvents === null ? <p className="mt-2 text-[11px] text-indigo-100/45">Event feed unavailable or unsupported.</p> : opsEvents.length ? <ul className="mt-2 space-y-1.5">{opsEvents.slice(0, 8).map((event, index) => <li key={`${event.at || "event"}-${event.command}-${index}`} className="flex items-center justify-between gap-3 text-[10px] text-indigo-100/55"><span className="truncate"><code>/{event.command}</code> · {event.chat_type}</span><time className="shrink-0">{event.at && Number.isFinite(Date.parse(event.at)) ? new Date(event.at).toLocaleTimeString() : "time unavailable"}</time></li>)}</ul> : <p className="mt-2 text-[11px] text-indigo-100/45">No versioned command events recorded in the last day.</p>}<p className="mt-2 text-[9px] text-indigo-100/30">Names, message text, chat IDs and user IDs are excluded.</p></div><div className="mt-3 border-t border-white/10 pt-3"><div className="flex items-center justify-between"><h3 className="text-xs font-medium">Redacted error log</h3><span className="text-[10px] text-indigo-100/40">24h · latest 20</span></div>{opsLogs === null ? <p className="mt-2 text-[11px] text-indigo-100/45">Log feed unavailable.</p> : opsLogs.length ? <ul className="mt-2 space-y-1.5">{opsLogs.slice(0, 8).map((entry, index) => <li key={`${entry.at ?? "log"}-${index}`} className="flex items-center justify-between gap-3 text-[10px] text-indigo-100/55"><span className="truncate">{entry.source} · {entry.kind}</span><time className="shrink-0">{entry.at ? new Date(entry.at * 1000).toLocaleTimeString() : "time unavailable"}</time></li>)}</ul> : <p className="mt-2 text-[11px] text-indigo-100/45">No persisted error records in the last day.</p>}<p className="mt-2 text-[9px] text-indigo-100/30">Only sanitized source labels and error categories are shown; raw messages and context are withheld.</p></div></section>}
+      {widgetOrder.includes("health") && <section className="ios-card owner-home-widget p-5" style={{ order: widgetOrder.indexOf("health") }} aria-label="System and API health"><div className="flex items-center justify-between"><div><p className="ios-caps text-[10px] text-emerald-200">Service status</p><h2 className="mt-1 text-sm font-semibold">System &amp; API health</h2></div><button onClick={() => open("settings")} className="text-[11px] text-indigo-300">Diagnostics ↗</button></div><div className="mt-4 grid gap-3 sm:grid-cols-2"><div className={`rounded-xl border p-4 ${panelStatusTone}`}><p className="text-xs font-medium text-indigo-100/55">Panel API</p><p className="mt-1 text-base font-semibold">{panelStatus}</p></div><div className={`rounded-xl border p-4 ${botStatusTone}`}><p className="text-xs font-medium text-indigo-100/55">Telegram bot</p><p className="mt-1 text-base font-semibold">{botStatus}</p></div></div><div className="mt-3 grid grid-cols-1 gap-2 break-words text-[10px] text-indigo-100/50 sm:grid-cols-2"><span>Panel RTT {typeof health?.latency_ms === "number" ? `${health.latency_ms} ms` : "not measured"}</span><span>API p95 {typeof health?.api?.p95_ms === "number" ? `${health.api.p95_ms} ms` : "not measured"}</span><span>Build {health?.revision || "unknown"}</span><span>{typeof health?.api?.samples === "number" ? health.api.samples : "not measured"} API samples</span><span>Host CPU {processMetrics?.cpu == null ? "not measured" : `${processMetrics.cpu.toFixed(0)}%`}</span><span>Process CPU {processMetrics?.process_cpu == null ? "not measured" : `${processMetrics.process_cpu.toFixed(0)}%`}</span><span>RAM {processMetrics?.memory_used == null || processMetrics.memory_total == null ? "not measured" : `${(processMetrics.memory_used / 1073741824).toFixed(1)} / ${(processMetrics.memory_total / 1073741824).toFixed(1)} GiB (${processMetrics.memory_percent?.toFixed(0) ?? "?"}%)`}</span><span>Process RSS {processMetrics?.rss == null ? "not measured" : `${(processMetrics.rss / 1048576).toFixed(0)} MiB`}</span><span>Threads {processMetrics?.threads ?? "not measured"}</span><span>Disk {processMetrics?.disk || "not measured"}</span><span>Process sample {processMetrics?.measured_at ? `${new Date(processMetrics.measured_at * 1000).toLocaleTimeString()} · ${freshness(processMetrics.measured_at)}` : "unavailable"}</span><span>MongoDB {health?.database || "unknown"}</span><span>Voice assistant {health?.assistant?.configured ? health.assistant.ready ? "ready" : health.assistant.state || "not ready" : "not configured"}</span><span>Primary media provider {health?.media_downloaders?.shruti?.state || "unknown"}</span><span>Release compatibility {releaseCheck ? `${releaseCheck.drift} · ${releaseCheck.web}/${releaseCheck.backend || "unknown"} · ${Number.isFinite(Date.parse(releaseCheck.checkedAt)) ? freshness(Date.parse(releaseCheck.checkedAt) / 1000) : "time unavailable"}` : "unavailable"}</span><span>Protected groups {protection?.state === "measured" ? `${protection.protected_groups ?? "unknown"}/${protection.sampled_groups ?? "unknown"}${protection.sample_truncated ? "+ sampled" : " sampled"} · ${freshness(protection.measured_at)}` : "unavailable"}</span></div><p className="mt-3 text-[10px] leading-4 text-indigo-100/35">Process and host metrics are sampled; provider readiness is configuration-only, not a live service probe.</p><div className="mt-3 grid grid-cols-1 gap-2 break-words text-[10px] text-indigo-100/50 sm:grid-cols-2"><span>Active voice calls {opsMusic?.voice.state === "measured" && opsMusic.voice.active_calls != null ? opsMusic.voice.active_calls : "unavailable"}</span><span>Music queues {opsMusic?.queue.state === "measured" && opsMusic.queue.active_queues != null ? opsMusic.queue.active_queues : "unavailable"}</span><span>Upcoming tracks {opsMusic?.queue.state === "measured" && opsMusic.queue.upcoming_tracks != null ? opsMusic.queue.upcoming_tracks : "unavailable"}</span><span>Download failures, 30m {opsMusic?.downloads.state !== "unavailable" && opsMusic?.downloads.failed != null ? opsMusic.downloads.failed : "unavailable"}</span><span>Download jobs observed {opsMusic?.downloads.observed ?? "unavailable"} · {opsMusic?.downloads.state || "unavailable"}</span><span>Music sample {opsMusic?.measured_at ? `${new Date(opsMusic.measured_at * 1000).toLocaleTimeString()} · ${freshness(opsMusic.measured_at)}` : "unavailable"}</span></div><div className="mt-4 border-t border-white/10 pt-3"><div className="flex items-center justify-between"><h3 className="text-xs font-medium">Recent command activity</h3><span className="text-[10px] text-indigo-100/40">24h · schema v1</span></div>{opsEvents === null ? <p className="mt-2 text-[11px] text-indigo-100/45">Event feed unavailable or unsupported.</p> : opsEvents.length ? <ul className="mt-2 space-y-1.5">{opsEvents.slice(0, 8).map((event, index) => <li key={`${event.at || "event"}-${event.command}-${index}`} className="flex items-center justify-between gap-3 text-[10px] text-indigo-100/55"><span className="truncate"><code>/{event.command}</code> · {event.chat_type}</span><time className="shrink-0">{event.at && Number.isFinite(Date.parse(event.at)) ? new Date(event.at).toLocaleTimeString() : "time unavailable"}</time></li>)}</ul> : <p className="mt-2 text-[11px] text-indigo-100/45">No versioned command events recorded in the last day.</p>}<p className="mt-2 text-[9px] text-indigo-100/30">Names, message text, chat IDs and user IDs are excluded.</p></div><div className="mt-3 border-t border-white/10 pt-3"><div className="flex items-center justify-between"><h3 className="text-xs font-medium">Redacted error log</h3><span className="text-[10px] text-indigo-100/40">24h · latest 20</span></div>{opsLogs === null ? <p className="mt-2 text-[11px] text-indigo-100/45">Log feed unavailable.</p> : opsLogs.length ? <ul className="mt-2 space-y-1.5">{opsLogs.slice(0, 8).map((entry, index) => <li key={`${entry.at ?? "log"}-${index}`} className="flex items-center justify-between gap-3 text-[10px] text-indigo-100/55"><span className="truncate">{entry.source} · {entry.kind}</span><time className="shrink-0">{entry.at ? new Date(entry.at * 1000).toLocaleTimeString() : "time unavailable"}</time></li>)}</ul> : <p className="mt-2 text-[11px] text-indigo-100/45">No persisted error records in the last day.</p>}<p className="mt-2 text-[9px] text-indigo-100/30">Only sanitized source labels and error categories are shown; raw messages and context are withheld.</p></div></section>}
       {(widgetOrder.includes("activity") || widgetOrder.includes("groups")) && <div className="contents">
         {widgetOrder.includes("activity") && <section className="ios-card owner-home-widget p-5" style={{ order: widgetOrder.indexOf("activity") }}>
           <div className="flex items-center justify-between">
@@ -619,8 +636,11 @@ export default function Home() {
               View all ↗
             </button>
           </div>
+          {analyticsState === "stale" && <p role="status" className="mt-2 text-[10px] text-amber-200/70">Refresh failed; showing the last successful analytics response.</p>}
           <div className="mt-4 space-y-2">
-            {analytics?.recent_events?.length ? (
+            {analyticsState === "loading" ? (
+              <p role="status" className="rounded-xl border border-white/10 p-4 text-xs text-indigo-100/50">Loading recent activity…</p>
+            ) : analytics?.recent_events?.length ? (
               analytics.recent_events.slice(0, 5).map((event, i) => (
                 <div
                   key={`${event.at}-${i}`}
@@ -650,12 +670,8 @@ export default function Home() {
               <EmptyState
                 compact
                 icon={<Activity size={20} />}
-                title="Your activity starts here"
-                hint={
-                  stats
-                    ? "Real command events appear as your community uses Videl."
-                    : "Sign in to load your community’s recent activity."
-                }
+                title={analyticsState === "unavailable" ? "Activity unavailable" : analytics?.recent_events ? "No recent activity" : "Activity data is incomplete"}
+                hint={analyticsState === "unavailable" ? "The analytics service could not provide recent activity. Try refreshing." : analytics?.recent_events ? "No command events were recorded in the current reporting window." : "The analytics response did not include recent activity."}
                 action={
                   <button
                     onClick={() => open("analytics")}
@@ -678,8 +694,11 @@ export default function Home() {
           <p className="mt-2 text-[10px] text-indigo-100/35">
             Command activity · last 24 hours
           </p>
+          {analyticsState === "stale" && <p role="status" className="mt-2 text-[10px] text-amber-200/70">Refresh failed; rankings may be stale.</p>}
           <div className="mt-4 space-y-2">
-            {analytics?.top_chats?.length ? (
+            {analyticsState === "loading" ? (
+              <p role="status" className="rounded-xl border border-white/10 p-4 text-xs text-indigo-100/50">Loading group activity…</p>
+            ) : analytics?.top_chats?.length ? (
               analytics.top_chats.slice(0, 5).map((chat, i) => (
                 <div
                   key={chat.id}
@@ -710,8 +729,8 @@ export default function Home() {
               <EmptyState
                 compact
                 icon={<Shield size={20} />}
-                title="A home for your communities"
-                hint="Add Videl to a group and its command activity will rank here."
+                title={analyticsState === "unavailable" ? "Group activity unavailable" : analytics?.top_chats ? "No group activity to rank yet" : "Group ranking data is incomplete"}
+                hint={analyticsState === "unavailable" ? "The analytics service could not provide group activity." : analytics?.top_chats ? "Groups appear here after command events are recorded in the reporting window." : "The analytics response did not include group rankings."}
                 action={
                   <button
                     className="ios-btn ios-btn-glass text-xs"
@@ -732,10 +751,10 @@ export default function Home() {
             <button
               key={action.tab}
               onClick={() => open(action.tab)}
-              className={`flex min-h-24 flex-col items-center justify-center gap-2 rounded-xl border border-white/10 bg-gradient-to-br ${action.color} px-2 py-4 shadow-lg transition active:translate-y-0`}
+              className={`flex min-h-24 min-w-0 flex-col items-center justify-center gap-2 rounded-xl border border-white/10 bg-gradient-to-br ${action.color} px-2 py-4 text-center shadow-lg transition active:translate-y-0`}
             >
               <action.icon size={21} aria-hidden />
-              <span className="text-[10px] font-medium">{action.label}</span>
+              <span className="break-words text-[10px] font-medium leading-4">{action.label}</span>
             </button>
           ))}
         </div>
