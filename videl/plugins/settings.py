@@ -295,7 +295,7 @@ def _screen(chat_id, section="home", *, query="", category="all", page=0, connec
                            or action.startswith("reset:")
                            or action.startswith("resetconfirm:")
                            or action.startswith("warn_threshold:")
-                           or action == "antispam:edit")
+                           or action in {"antispam:edit", "captcha:edit", "welcome_text:edit"})
                 if action.startswith(("music_requests_enabled:", "music_approval_required:",
                                       "music_shuffle_enabled:", "welcome_enabled:",
                                       "goodbye_enabled:", "gemini_guardian_enabled:", "raid:")):
@@ -305,7 +305,7 @@ def _screen(chat_id, section="home", *, query="", category="all", page=0, connec
             if safe:
                 safe_rows.append(safe)
         markup = safe_rows
-        text += body("Connected-group view: edits needing a text/media prompt or specialized editor are hidden here. Open <code>/settings</code> in the group for those workflows. This panel rechecks your saved connection and current admin status before every action.")
+        text += body("Connected-group view: only migrated editors are available here; other prompt and media workflows remain hidden. This panel rechecks your saved connection and current admin status before each action.")
     return Screen(text,_tag_keyboard(InlineKeyboardMarkup(markup),chat_id))
 
 async def settings(ctx):
@@ -474,10 +474,10 @@ async def settings_callback(client,query):
     if connected_dm:
         dm_safe_keys = {None, "music_requests_enabled", "music_approval_required", "music_shuffle_enabled",
                         "welcome_enabled", "goodbye_enabled", "gemini_guardian_enabled", "raid_mode",
-                        "__warn_threshold_editor__", "__antispam_editor__",
+                        "__warn_threshold_editor__", "__antispam_editor__", "__captcha_editor__",
                         "__command_toggle__", "__reset_preview__", "__reset_confirm__",
                         "__session_cancel__"}
-        if key not in dm_safe_keys:
+        if key not in dm_safe_keys and not (key == "__welcome_flow_start__" and value == "welcome_text"):
             return await query.answer("That editor is not available in connected DM yet. No change was made.", show_alert=True)
     try:
         member=await client.get_chat_member(chat_id,int(actor.id)); status=str(getattr(member.status,"value",member.status)).casefold()
@@ -536,7 +536,8 @@ async def settings_callback(client,query):
     if key=="__welcome_flow_start__":
         from videl.plugins.welcome import start_welcome_workflow
         try:
-            message_text=await start_welcome_workflow(client,chat_id,int(actor.id),expected_revision,value)
+            message_text=await start_welcome_workflow(client,chat_id,int(actor.id),expected_revision,value,
+                                                      interaction_chat_id=int(message.chat.id))
         except RuntimeError as error:
             return await query.answer(str(error),show_alert=True)
         except Exception:

@@ -312,11 +312,11 @@ async def connected_captcha_reply(client, message) -> None:
         return
     interaction_chat_id, actor_id = int(message.chat.id), int(actor.id)
     session = await _interaction_engine.for_owner(chat_id=interaction_chat_id, actor_id=actor_id)
-    if session is None or session.workflow != "captcha_enabled":
+    if session is None or session.workflow not in {"captcha_enabled", "welcome_text"}:
         return
     target_chat_id = int(session.target_chat_id)
     from videl.app.connections import connected_target
-    _, connection_error = await connected_target(client, actor_id, expected_chat_id=target_chat_id)
+    target_chat, connection_error = await connected_target(client, actor_id, expected_chat_id=target_chat_id)
     if connection_error:
         await _interaction_engine.cancel(session.token, chat_id=interaction_chat_id, actor_id=actor_id)
         await client.send_message(interaction_chat_id, connection_error)
@@ -330,10 +330,19 @@ async def connected_captcha_reply(client, message) -> None:
     reply = getattr(message, "reply_to_message", None)
     if getattr(reply, "id", None) != session.expected_message_id:
         return
+    if session.workflow == "captcha_enabled":
+        value = text.casefold()
+    else:
+        try:
+            value = validate_welcome_template(text)
+        except ValueError as error:
+            await _send_welcome_prompt(client, session)
+            await client.send_message(interaction_chat_id, str(error))
+            return
     result = await _interaction_engine.capture(
         session.token, chat_id=interaction_chat_id, actor_id=actor_id,
         target_chat_id=target_chat_id, reply_to_message_id=getattr(reply, "id", None),
-        value=text.casefold(),
+        value=value,
     )
     if result.status in {"stale", "expired", "unauthorized"}:
         return
@@ -343,17 +352,26 @@ async def connected_captcha_reply(client, message) -> None:
         return
     if result.status != "preview":
         return
-    enabled = result.session.values["enabled"] == "on"
     from videl.plugins.base import body, heading, table
-    preview_text = (heading("Join verification preview", 3)
-                    + table([("Status", "On" if enabled else "Off")])
-                    + body("The active challenge is a math question with a fixed 120-second timeout; this workflow changes only its enabled state. Nothing has changed yet."))
-    preview = await client.send_message(
-        interaction_chat_id, preview_text,
-        reply_markup=_preview_markup(interaction_chat_id, result.session.token, include_links=False),
-    )
-    await _interaction_engine.bind_prompt(result.session.token, chat_id=interaction_chat_id,
-                                          actor_id=actor_id, message_id=preview.id)
+    if result.session.workflow == "captcha_enabled":
+        enabled = result.session.values["enabled"] == "on"
+        preview_text = (heading("Join verification preview", 3)
+                        + table([("Status", "On" if enabled else "Off")])
+                        + body("The active challenge is a math question with a fixed 120-second timeout; this workflow changes only its enabled state. Nothing has changed yet."))
+    else:
+        preview_text = (heading("Welcome text preview", 3)
+                        + preview_welcome_template(result.session.values["welcome_message"], target_chat)
+                        + body("No settings have changed yet. Confirm to save this text to the connected group."))
+    try:
+        preview = await client.send_message(
+            interaction_chat_id, preview_text,
+            reply_markup=_preview_markup(interaction_chat_id, result.session.token, include_links=False),
+        )
+        await _interaction_engine.bind_prompt(result.session.token, chat_id=interaction_chat_id,
+                                              actor_id=actor_id, message_id=preview.id)
+    except Exception:
+        await _interaction_engine.cancel(result.session.token, chat_id=interaction_chat_id, actor_id=actor_id)
+        await client.send_message(interaction_chat_id, "Could not show the preview; nothing was saved. Reopen connected /settings to try again.")
 
 
 @bot.on_callback_query(filters.regex(r"^welcome_edit:[A-Za-z0-9_-]{1,24}:(?:edit|save|cancel)$"))
@@ -380,7 +398,7 @@ async def welcome_edit_callback(client, query: CallbackQuery) -> None:
         return
     target_chat_id = int(session.target_chat_id)
     if connected_dm:
-        if session.workflow != "captcha_enabled":
+        if session.workflow not in {"captcha_enabled", "welcome_text"}:
             await query.answer("This editor is not available in connected private chat yet.", show_alert=True)
             return
         from videl.app.connections import connected_target
