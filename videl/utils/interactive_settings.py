@@ -196,6 +196,14 @@ class InteractionEngine:
                        and (target_chat_id is None or session.target_chat_id == int(target_chat_id))]
             return matches[0] if len(matches) == 1 else None
 
+    async def for_prompt(self, *, chat_id: int, actor_id: int, message_id: int) -> Session | None:
+        """Resolve a reply against its exact ForceReply prompt across targets."""
+        async with self._lock:
+            self._expire(self._clock())
+            return next((session for session in self._sessions.values()
+                         if session.chat_id == int(chat_id) and session.actor_id == int(actor_id)
+                         and session.expected_message_id == int(message_id)), None)
+
     async def bind_prompt(self, token: str, *, chat_id: int, actor_id: int, message_id: int) -> bool:
         async with self._lock:
             self._expire(self._clock())

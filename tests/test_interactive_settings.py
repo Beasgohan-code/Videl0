@@ -26,6 +26,15 @@ class InteractionEngineTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(await self.engine.get(first.token, chat_id=-100, actor_id=8))
         self.assertIsNone(await self.engine.get(first.token, chat_id=-101, actor_id=7))
 
+    async def test_for_prompt_routes_private_replies_to_the_exact_target_draft(self):
+        first = await self.begin(chat_id=7, actor_id=7, target_chat_id=-100, workflow="first")
+        second = await self.begin(chat_id=7, actor_id=7, target_chat_id=-200, workflow="second")
+        await self.engine.bind_prompt(first.token, chat_id=7, actor_id=7, message_id=501)
+        await self.engine.bind_prompt(second.token, chat_id=7, actor_id=7, message_id=502)
+        self.assertEqual((await self.engine.for_prompt(chat_id=7, actor_id=7, message_id=501)).token, first.token)
+        self.assertEqual((await self.engine.for_prompt(chat_id=7, actor_id=7, message_id=502)).token, second.token)
+        self.assertIsNone(await self.engine.for_prompt(chat_id=7, actor_id=7, message_id=503))
+
     async def test_capture_requires_bound_prompt_and_matching_scope(self):
         session = await self.begin()
         await self.engine.bind_prompt(session.token, chat_id=-100, actor_id=7, message_id=50)

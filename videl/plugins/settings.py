@@ -189,8 +189,21 @@ def _screen(chat_id, section="home", *, query="", category="all", page=0, connec
     elif section=="moderation":
         threshold = _saved_warn_threshold(chat_id)
         display = "Unavailable" if threshold is None else base.escape(str(threshold))
-        text=heading("Moderation",3)+body("Choose the active-warning threshold. The configured escalation action is unchanged.")+table([("Warning threshold",display)])
+        try:
+            from videl.utils.db import get_automation, get_db
+            if get_db() is None: raise RuntimeError("automation storage unavailable")
+            escalation = get_automation(chat_id)["escalation"]
+        except Exception:
+            escalation = None
+        if escalation is None:
+            escalation_display = "Unavailable"
+        else:
+            ladder = list(escalation.get("ladder") or [])
+            action = " → ".join(ladder) if ladder else str(escalation.get("action", "ban"))
+            escalation_display = f"{'On' if escalation.get('enabled') else 'Off'} · {action} · decay {int(escalation.get('decay_days') or 0)} days"
+        text=heading("Moderation",3)+body("Choose the active-warning threshold and shared warning-escalation defaults.")+table([("Warning threshold",display),("Warning escalation",escalation_display)])
         markup.append([button("Edit warning threshold…",callback_data=f"settings:{chat_id}:warn_threshold:edit",style="primary")])
+        markup.append([button("Edit warning escalation…",callback_data=f"settings:{chat_id}:warn_escalation:edit",style="primary")])
     elif section=="retention":
         from videl.utils.retention import ALLOWED_DAYS,CATEGORIES,normalize
         policy=normalize(base.get_setting(chat_id,"data_retention",{})); rows=[]
@@ -441,13 +454,232 @@ async def _start_warn_threshold_editor(message, chat_id: int, actor_id: int, rev
     return session
 
 
+_ESCALATION_LADDERS = {
+    "single": [], "mute-kick-ban": ["mute", "kick", "ban"],
+    "mute-ban": ["mute", "ban"], "kick-ban": ["kick", "ban"], "mute-kick": ["mute", "kick"],
+}
+_ESCALATION_CALLBACK = r"^warn_escalation_edit:[A-Za-z0-9_-]{1,24}:(?:save|edit|cancel|back)$"
+_ESCALATION_STEPS = (
+    Step("enabled", "Enable automatic warning escalation? Reply on or off.", kind="selection", choices=("on", "off")),
+    Step("ladder_key", "Choose the sequence: single, mute-kick-ban, mute-ban, kick-ban, or mute-kick.",
+         kind="selection", choices=tuple(_ESCALATION_LADDERS)),
+    Step("action", "When using a single step, choose none, mute, kick, or ban.", kind="selection",
+         choices=("none", "mute", "kick", "ban")),
+    Step("mute_hours", "Mute duration in whole hours (1–168).", kind="number", minimum=1, maximum=168),
+    Step("decay_days", "Warning decay in days (0–365; 0 means warnings do not expire).", kind="number", minimum=0, maximum=365),
+    Step("review_severe", "Require an admin to review kick/ban steps? Reply on or off.",
+         kind="selection", choices=("on", "off")),
+)
+
+
+def _escalation_config(values):
+    return {
+        "enabled": values["enabled"] == "on",
+        "ladder": list(_ESCALATION_LADDERS[values["ladder_key"]]),
+        "action": values["action"],
+        "mute_hours": int(values["mute_hours"]),
+        "decay_days": int(values["decay_days"]),
+        "review_severe": values["review_severe"] == "on",
+    }
+
+
+def _escalation_preview(session):
+    from pyrogram.types import InlineKeyboardMarkup
+    from videl.utils.bot_ui import button
+    before = session.values["before"]
+    after = _escalation_config(session.values)
+    def describe(config):
+        ladder = list(config.get("ladder") or [])
+        sequence = " → ".join(ladder) if ladder else f"single action: {config.get('action', 'ban')}"
+        return [
+            ("Enabled", "On" if config.get("enabled") else "Off"),
+            ("Sequence", sequence),
+            ("Single-action fallback", str(config.get("action", "ban"))),
+            ("Mute duration", f"{int(config.get('mute_hours') or 6)} hours"),
+            ("Warning decay", f"{int(config.get('decay_days') or 0)} days"),
+            ("Severe-action review", "Required" if config.get("review_severe") else "Not required"),
+        ]
+    text = (heading("Warning escalation preview", 3)
+            + body(f"Target group: <code>{session.target_chat_id}</code>. This updates only the existing automation.escalation settings; warning threshold and other automations are unchanged.")
+            + table([("Setting", "Currently saved"), *describe(before)])
+            + table([("Setting", "Proposed value"), *describe(after)])
+            + body("No settings have changed yet. Confirm to save the shared escalation policy."))
+    keyboard = InlineKeyboardMarkup([
+        [button("Confirm", callback_data=f"warn_escalation_edit:{session.token}:save", style="primary"),
+         button("Edit", callback_data=f"warn_escalation_edit:{session.token}:edit")],
+        [button("Cancel", callback_data=f"warn_escalation_edit:{session.token}:cancel", style="danger"),
+         button("Back", callback_data=f"warn_escalation_edit:{session.token}:back")],
+    ])
+    return text, keyboard
+
+
+async def _send_escalation_prompt(client, session):
+    from pyrogram.types import ForceReply
+    step = session.current_step
+    if step is None: raise RuntimeError("Warning escalation input is complete.")
+    prompt = await client.send_message(session.chat_id, step.prompt, reply_markup=ForceReply(selective=True))
+    await engine.bind_prompt(session.token, chat_id=session.chat_id, actor_id=session.actor_id, message_id=prompt.id)
+
+
+async def _start_escalation_editor(client, interaction_chat_id: int, actor_id: int, target_chat_id: int,
+                                   revision: int, *, connected_dm: bool):
+    from videl.utils.db import get_automation, get_db
+    if get_db() is None:
+        raise RuntimeError("Warning-escalation settings are unavailable because storage is offline.")
+    current = get_automation(target_chat_id)["escalation"]
+    try:
+        session = await engine.begin(chat_id=interaction_chat_id, actor_id=actor_id,
+            target_chat_id=target_chat_id, workflow="warning_escalation", revision=revision,
+            steps=_ESCALATION_STEPS, timeout_seconds=600)
+        session.values["before"] = {
+            "enabled": bool(current.get("enabled")), "action": current.get("action", "ban"),
+            "mute_hours": int(current.get("mute_hours") or 6), "decay_days": int(current.get("decay_days") or 0),
+            "ladder": list(current.get("ladder") or []), "review_severe": bool(current.get("review_severe")),
+        }
+        await _send_escalation_prompt(client, session)
+        return session
+    except Exception:
+        active = await engine.for_owner(chat_id=interaction_chat_id, actor_id=actor_id, target_chat_id=target_chat_id)
+        if active is not None and active.workflow == "warning_escalation":
+            await engine.cancel(active.token, chat_id=interaction_chat_id, actor_id=actor_id)
+        raise
+
+
+async def _bot_can_restrict_members(client, chat_id: int) -> bool:
+    try:
+        member = await client.get_chat_member(int(chat_id), int(client.me.id))
+        status = str(getattr(member.status, "value", member.status)).casefold()
+        return status in {"owner", "creator"} or (status == "administrator"
+            and bool(getattr(member, "can_restrict_members", False)))
+    except Exception:
+        return False
+
+
+async def connected_escalation_reply(client, message):
+    actor = getattr(message, "from_user", None)
+    if actor is None: return
+    reply = getattr(message, "reply_to_message", None)
+    prompt_id = getattr(reply, "id", None)
+    if prompt_id is None: return
+    session = await engine.for_prompt(chat_id=int(message.chat.id), actor_id=int(actor.id), message_id=int(prompt_id))
+    if session is None or session.workflow != "warning_escalation": return
+    text = str(getattr(message, "text", "") or "").strip()
+    command = text.split(maxsplit=1)[0].split("@", 1)[0].casefold() if text else ""
+    if command == "/cancel":
+        await engine.cancel(session.token, chat_id=session.chat_id, actor_id=session.actor_id)
+        return await client.send_message(session.chat_id, "Warning-escalation editor cancelled; nothing changed.")
+    captured = await engine.capture(session.token, chat_id=session.chat_id, actor_id=session.actor_id,
+        target_chat_id=session.target_chat_id, reply_to_message_id=getattr(reply, "id", None), value=text.casefold())
+    if captured.status == "invalid":
+        await client.send_message(session.chat_id, captured.error or "That response is not valid for this setting.")
+        return await _send_escalation_prompt(client, captured.session)
+    if captured.status == "accepted":
+        return await _send_escalation_prompt(client, captured.session)
+    if captured.status != "preview": return
+    rendered, keyboard = _escalation_preview(captured.session)
+    preview = await client.send_message(session.chat_id, rendered, reply_markup=keyboard)
+    await engine.bind_prompt(session.token, chat_id=session.chat_id, actor_id=session.actor_id, message_id=preview.id)
+
+
+async def connected_escalation_callback(client, query):
+    message = getattr(query, "message", None); actor = getattr(query, "from_user", None)
+    if message is None or actor is None:
+        return await query.answer("This warning-escalation action is unavailable.", show_alert=True)
+    kind = base.chat_kind(message)
+    if kind not in {"private", "group", "supergroup"} or (kind == "private" and int(message.chat.id) != int(actor.id)):
+        return await query.answer("This warning-escalation action is unavailable.", show_alert=True)
+    try:
+        _, token, action = str(query.data).split(":", 2)
+    except ValueError:
+        return await query.answer("Malformed warning-escalation callback.", show_alert=True)
+    session = await engine.get(token, chat_id=int(message.chat.id), actor_id=int(actor.id))
+    if session is None or session.workflow != "warning_escalation":
+        return await query.answer("This warning-escalation preview expired or is not yours.", show_alert=True)
+
+    async def authorize(target_id, user_id):
+        if base.chat_kind(message) == "private":
+            from videl.app.connections import connected_target
+            _, error = await connected_target(client, user_id, expected_chat_id=target_id)
+            return not error
+        try:
+            member = await client.get_chat_member(target_id, user_id)
+            status = str(getattr(member.status, "value", member.status)).casefold()
+            return status in {"owner", "creator", "administrator"}
+        except Exception:
+            return False
+
+    if action.endswith("cancel"):
+        await engine.cancel(token, chat_id=session.chat_id, actor_id=session.actor_id)
+        await query.answer("Cancelled; escalation settings were unchanged.")
+        return await rich_edit(message, "Warning-escalation changes cancelled. Nothing changed.", reply_markup=None)
+    if action.endswith("edit") or action.endswith("back"):
+        if not await authorize(session.target_chat_id, session.actor_id):
+            return await query.answer("Connection or current admin permission changed. Reopen settings to continue.", show_alert=True)
+        await engine.cancel(token, chat_id=session.chat_id, actor_id=session.actor_id)
+        await query.answer("Restart the editor to change the draft.")
+        screen = await _settings_screen(client, session.target_chat_id, "moderation",
+            connected_dm=(base.chat_kind(message) == "private"))
+        return await rich_edit(message, screen.html, reply_markup=screen.keyboard)
+
+    result_flags = {"conflict": False}
+    async def save(snapshot):
+        from videl.utils import settings_store
+        from videl.utils.db import get_automation, get_db, set_automation
+        from videl.utils.automation import normalize_escalation
+        db = get_db()
+        if db is None: return False
+        config = normalize_escalation(_escalation_config(snapshot.values))
+        actions = list(config["ladder"]) or ([config["action"]] if config["action"] != "none" else [])
+        if config["enabled"] and actions and not await _bot_can_restrict_members(client, snapshot.target_chat_id):
+            return False
+        try:
+            set_automation(snapshot.target_chat_id, escalation=config, expected=snapshot.revision)
+        except settings_store.SettingsConflict:
+            result_flags["conflict"] = True
+            return False
+        stored = get_automation(snapshot.target_chat_id)["escalation"]
+        return normalize_escalation(stored) == config
+
+    outcome, _ = await engine.commit(token, chat_id=session.chat_id, actor_id=session.actor_id,
+        target_chat_id=session.target_chat_id, message_id=message.id, authorize=authorize, save=save)
+    if outcome == "saved":
+        try:
+            from videl.utils.audit import record_bot
+            await asyncio.to_thread(record_bot, session.target_chat_id, "settings",
+                action="warning_escalation_updated", detail="warning escalation settings updated", actor=session.actor_id)
+        except Exception: pass
+        await query.answer("Warning-escalation settings saved.")
+        screen = await _settings_screen(client, session.target_chat_id, "moderation",
+            connected_dm=(base.chat_kind(message) == "private"))
+        return await rich_edit(message, screen.html, reply_markup=screen.keyboard)
+    messages = {
+        "permission_denied": "Connection or current admin permission changed. No settings were saved.",
+        "save_failed": ("Settings changed since the preview; reopen and review current values." if result_flags["conflict"]
+                        else "Storage or required bot Restrict Members permission is unavailable. No success was reported."),
+        "expired": "This warning-escalation preview expired. No settings were saved.",
+        "stale": "This preview is stale or already being confirmed.",
+        "unauthorized": "This action does not belong to this admin or group.",
+    }
+    return await query.answer(messages.get(outcome, "Could not save warning escalation."), show_alert=True)
+
+
+@bot.on_callback_query(filters.regex(_ESCALATION_CALLBACK))
+async def _connected_escalation_callback(client, query):
+    return await connected_escalation_callback(client, query)
+
+
+@bot.on_message((filters.private | filters.group) & filters.incoming, group=4)
+async def _connected_escalation_reply(client, message):
+    return await connected_escalation_reply(client, message)
+
+
 async def _settings_screen(client, chat_id, section="home", *, query="", category="all", page=0, connected_dm=False):
     can_delete = await _bot_can_delete_messages(client, int(chat_id)) if section == "safety" else None
     return _screen(chat_id, section, query=query, category=category, page=page,
                    connected_dm=connected_dm, bot_can_delete_messages=can_delete)
 
 
-_PATTERN=r"^settings:-?[0-9]{1,20}:(?:tab:(?:home|music|welcome|safety|moderation|retention|blocklist|presets|sessions|automations|commands|more)|commands:(?:all|manage|music|tools):[0-9]{1,3}|filters:(?:add|manage)|cmd:[a-z][a-z0-9_]{0,31}:(?:on|off)|(?:music_requests_enabled|music_approval_required|welcome_enabled|goodbye_enabled|captcha_enabled|antispam|gemini_guardian_enabled|lock_[a-z_]+):(?:on|off)|antispam:edit|captcha:edit|welcome_text:edit|goodbye_text:edit|rules_text:(?:edit|clear)|welcome_media:(?:edit|clear)|welcome_buttons:edit|raid:(?:on|off)|warn_threshold:(?:edit|2|3|5|10)|retention:[a-z_]+:(?:30|90|180|365|off)|blocklist:(?:add:(?:track|artist)|remove:[1-9][0-9]?)|preset:(?:save|apply:[1-9][0-9]?|delete:[1-9][0-9]?)|session:(?:schedule|cancel:[A-Za-z0-9]+)|approved:(?:list|add|page:[0-9]{1,6}|remove:[1-9][0-9]{0,18})|reset:(?:music|welcome|safety|moderation|blocklist|presets)|resetconfirm:(?:music|welcome|safety|moderation|blocklist|presets):[a-f0-9]{12}|refresh):v[0-9]{1,12}$"
+_PATTERN=r"^settings:-?[0-9]{1,20}:(?:tab:(?:home|music|welcome|safety|moderation|retention|blocklist|presets|sessions|automations|commands|more)|commands:(?:all|manage|music|tools):[0-9]{1,3}|filters:(?:add|manage)|cmd:[a-z][a-z0-9_]{0,31}:(?:on|off)|(?:music_requests_enabled|music_approval_required|welcome_enabled|goodbye_enabled|captcha_enabled|antispam|gemini_guardian_enabled|lock_[a-z_]+):(?:on|off)|antispam:edit|captcha:edit|welcome_text:edit|goodbye_text:edit|rules_text:(?:edit|clear)|welcome_media:(?:edit|clear)|welcome_buttons:edit|raid:(?:on|off)|warn_threshold:(?:edit|2|3|5|10)|warn_escalation:edit|retention:[a-z_]+:(?:30|90|180|365|off)|blocklist:(?:add:(?:track|artist)|remove:[1-9][0-9]?)|preset:(?:save|apply:[1-9][0-9]?|delete:[1-9][0-9]?)|session:(?:schedule|cancel:[A-Za-z0-9]+)|approved:(?:list|add|page:[0-9]{1,6}|remove:[1-9][0-9]{0,18})|reset:(?:music|welcome|safety|moderation|blocklist|presets)|resetconfirm:(?:music|welcome|safety|moderation|blocklist|presets):[a-f0-9]{12}|refresh):v[0-9]{1,12}$"
 @bot.on_callback_query(filters.regex(_PATTERN))
 async def settings_callback(client,query):
     message=getattr(query,"message",None); actor=getattr(query,"from_user",None)
@@ -490,6 +722,8 @@ async def settings_callback(client,query):
             value=normalize(base.get_setting(chat_id,"raid_mode",{})); value["enabled"]=parts[3]=="on"; key,section="raid_mode","safety"
         elif len(parts)==4 and parts[2]=="warn_threshold" and parts[3] in {"edit","2","3","5","10"}:
             key,value,section="__warn_threshold_editor__",(None if parts[3]=="edit" else int(parts[3])),"moderation"
+        elif len(parts)==4 and parts[2]=="warn_escalation" and parts[3]=="edit":
+            key,value,section="__escalation_editor__",None,"moderation"
         elif len(parts)==5 and parts[2]=="retention":
             from videl.utils.retention import ALLOWED_DAYS,CATEGORIES
             cat=parts[3]; days=None if parts[4]=="off" else int(parts[4])
@@ -515,7 +749,7 @@ async def settings_callback(client,query):
     if connected_dm:
         dm_safe_keys = {None, "music_requests_enabled", "music_approval_required", "music_shuffle_enabled",
                         "welcome_enabled", "goodbye_enabled", "gemini_guardian_enabled", "raid_mode", *_LOCK_KEYS,
-                        "__warn_threshold_editor__", "__antispam_editor__", "__captcha_editor__",
+                        "__warn_threshold_editor__", "__escalation_editor__", "__antispam_editor__", "__captcha_editor__",
                         "__command_toggle__", "__reset_preview__", "__reset_confirm__",
                         "__session_cancel__", "__session_schedule__"}
         if key not in dm_safe_keys and not (
@@ -600,6 +834,15 @@ async def settings_callback(client,query):
         except Exception:
             return await query.answer("Could not stage approved-member change; nothing changed.", show_alert=True)
         return await query.answer("Reply privately to review the approved-member change. Nothing changed yet.")
+    if key=="__escalation_editor__":
+        try:
+            await _start_escalation_editor(client, int(message.chat.id), int(actor.id), chat_id,
+                expected_revision, connected_dm=connected_dm)
+        except RuntimeError as error:
+            return await query.answer(str(error), show_alert=True)
+        except Exception:
+            return await query.answer("Could not open warning escalation settings; nothing changed.", show_alert=True)
+        return await query.answer("Reply to the prompt to review each warning-escalation setting before saving.")
     if key=="__warn_threshold_editor__":
         try:
             await _start_warn_threshold_editor(message, chat_id, int(actor.id), expected_revision, value,
