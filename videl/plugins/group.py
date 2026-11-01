@@ -180,12 +180,20 @@ async def stats(ctx) -> Screen:
     uptime = int(time.time() - bot_start_time)
     hours, remainder = divmod(uptime, 3600)
     minutes, seconds = divmod(remainder, 60)
+    me = getattr(ctx.client, "me", None)
+    if not getattr(me, "username", None):
+        try:
+            me = await ctx.client.get_me()
+        except Exception:
+            me = None
+    bot_username = getattr(me, "username", None) or "Videlapp"
+    bot_username = str(bot_username).strip().lstrip("@") or "Videlapp"
     rows = [
         ("Uptime", f"{hours}h {minutes}m {seconds}s"),
         ("Configured groups", counts["groups"]),
         ("Warnings stored", counts["warnings"]),
         ("Notes stored", counts["notes"]),
-        ("Bot", "@" + escape(getattr(config, "BOT_USERNAME", "videlapp"))),
+        ("Bot", "@" + escape(bot_username)),
     ]
     next_action = (
         rich_button("Owner workspace", callback_data="help:owner:0", style="primary")
