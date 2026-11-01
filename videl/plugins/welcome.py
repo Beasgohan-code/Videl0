@@ -73,7 +73,7 @@ def preview_welcome_template(template: str, chat) -> str:
 from videl.utils.interactive_settings import Step, engine as _interaction_engine
 
 _WELCOME_MEDIA_TYPES = ("photo", "video", "animation", "document", "audio", "voice")
-_WELCOME_WORKFLOWS = {"welcome_text", "goodbye_text", "rules_text", "welcome_media", "welcome_buttons"}
+_WELCOME_WORKFLOWS = {"welcome_text", "goodbye_text", "rules_text", "welcome_media", "welcome_buttons", "captcha_enabled"}
 
 
 def _welcome_markup(chat_id: int, links=None):
@@ -137,6 +137,15 @@ async def start_welcome_workflow(client, chat_id: int, actor_id: int, revision: 
     elif workflow == "rules_text":
         step = Step("rules", "Send group rules", max_length=2000)
         prompt_text = "Reply with the group rules (up to 2,000 characters). Send <code>/clear</code> to clear them after preview, or <code>/cancel</code> to stop."
+    elif workflow == "captcha_enabled":
+        bot_rights = await base.bot_rights(client, chat_id)
+        can_restrict = bool(bot_rights.get("owner") or bot_rights.get("can_restrict_members"))
+        choices = ("on", "off") if can_restrict else ("off",)
+        step = Step("enabled", "Enable join verification?", kind="selection", choices=choices)
+        current = bool(base.get_setting(chat_id, "captcha_enabled", False))
+        prompt_text = f"Join verification is currently {'On' if current else 'Off'}. Reply <code>on</code> or <code>off</code>."
+        if not can_restrict:
+            prompt_text += " The bot lacks Restrict Members permission, so only Off is available."
     elif workflow == "welcome_media":
         step = Step("welcome_media", "Send supported media", kind="media", required=False)
         prompt_text = (
@@ -169,9 +178,12 @@ async def _send_welcome_prompt(client, session) -> None:
         "welcome_text": "Reply with welcome text using only {name}, {id}, {title}, or {mention}. Send /cancel to stop.",
         "goodbye_text": "Reply with goodbye text using only {name}, {id}, {title}, or {mention}. Send /cancel to stop.",
         "rules_text": "Reply with group rules (up to 2,000 characters); /clear clears rules after preview. Send /cancel to stop.",
+        "captcha_enabled": f"Join verification is currently {'On' if base.get_setting(session.target_chat_id, 'captcha_enabled', False) else 'Off'}. Reply on or off.",
         "welcome_media": "Reply with a photo, video, animation, document, audio, voice message, or /clear to remove media. Send /cancel to stop.",
         "welcome_buttons": "Reply with up to four HTTPS buttons as Label | https://example.com, one per line; /clear removes checklist links. Send /cancel to stop.",
     }.get(workflow)
+    if workflow == "captcha_enabled" and session.current_step and session.current_step.choices == ("off",):
+        prompt_text += " The bot lacks Restrict Members permission, so only Off is available."
     if prompt_text:
         prompt = await client.send_message(session.chat_id, prompt_text, reply_markup=ForceReply(selective=True))
         await _interaction_engine.bind_prompt(session.token, chat_id=session.chat_id,
@@ -204,6 +216,8 @@ async def welcome_edit_message(client, message) -> None:
             return
     elif session.workflow == "rules_text":
         value = "/clear" if command == "/clear" else text
+    elif session.workflow == "captcha_enabled":
+        value = text.casefold()
     elif session.workflow == "welcome_media":
         value = None if command == "/clear" else _media_from_message(message)
         if value is None and command != "/clear":
@@ -257,6 +271,13 @@ async def welcome_edit_message(client, message) -> None:
             else:
                 rendered = heading("Group rules preview", 3) + body(escape(raw_rules))
             media, links, include_links = None, [], False
+        elif result.session.workflow == "captcha_enabled":
+            enabled = result.session.values["enabled"] == "on"
+            from videl.plugins.base import body, heading, table
+            rendered = (heading("Join verification preview", 3)
+                        + table([("Status", "On" if enabled else "Off")])
+                        + body("The active challenge is a math question with a fixed 120-second timeout; this workflow changes only its enabled state."))
+            media, links, include_links = None, [], False
         elif result.session.workflow == "welcome_media":
             media = result.session.values["welcome_media"]
             destructive = media is None
@@ -264,7 +285,7 @@ async def welcome_edit_message(client, message) -> None:
             raw_links = result.session.values["welcome_checklist"]
             links = [] if raw_links == "/clear" else validate(raw_links)
             destructive = raw_links == "/clear"
-        if result.session.workflow != "rules_text":
+        if result.session.workflow not in {"rules_text", "captcha_enabled"}:
             rendered = preview_welcome_template(template, message.chat)
         markup = _preview_markup(chat_id, result.session.token, links, include_links=include_links, destructive=destructive)
         if media:
@@ -321,22 +342,35 @@ async def welcome_edit_callback(client, query: CallbackQuery) -> None:
         "welcome_text": "welcome_message",
         "goodbye_text": "goodbye_message",
         "rules_text": "rules",
+        "captcha_enabled": "captcha_enabled",
         "welcome_media": "welcome_media",
         "welcome_buttons": "welcome_checklist",
     }
+    authorization_issue = {"reason": None}
     async def authorize(target_chat_id: int, user_id: int) -> bool:
         try:
             member = await client.get_chat_member(target_chat_id, user_id)
             status = getattr(getattr(member, "status", None), "value", getattr(member, "status", None))
-            return str(status).casefold() in {"owner", "administrator"}
+            if str(status).casefold() not in {"owner", "administrator"}:
+                authorization_issue["reason"] = "admin"
+                return False
+            if session.workflow == "captcha_enabled" and session.values["enabled"] == "on":
+                current_rights = await base.bot_rights(client, target_chat_id)
+                if not (current_rights.get("owner") or current_rights.get("can_restrict_members")):
+                    authorization_issue["reason"] = "bot_rights"
+                    return False
+            return True
         except Exception:
+            authorization_issue["reason"] = "admin"
             return False
 
     save_issue = {"conflict": False}
     async def save(snapshot) -> bool:
         from videl.utils.settings_store import SettingsConflict, write
-        value = snapshot.values[field_by_workflow[snapshot.workflow]]
-        if snapshot.workflow == "welcome_buttons":
+        value = snapshot.values["enabled"] if snapshot.workflow == "captcha_enabled" else snapshot.values[field_by_workflow[snapshot.workflow]]
+        if snapshot.workflow == "captcha_enabled":
+            value = value == "on"
+        elif snapshot.workflow == "welcome_buttons":
             from videl.utils.welcome_checklist import validate
             value = [] if value == "/clear" else validate(value)
         elif snapshot.workflow == "rules_text" and value == "/clear":
@@ -355,7 +389,7 @@ async def welcome_edit_callback(client, query: CallbackQuery) -> None:
         token, chat_id=chat_id, actor_id=actor_id, target_chat_id=chat_id,
         message_id=int(message.id), authorize=authorize, save=save,
     )
-    labels = {"welcome_text": "Welcome text", "goodbye_text": "Goodbye text", "rules_text": "Group rules", "welcome_media": "Welcome media", "welcome_buttons": "Welcome checklist buttons"}
+    labels = {"welcome_text": "Welcome text", "goodbye_text": "Goodbye text", "rules_text": "Group rules", "captcha_enabled": "Join verification", "welcome_media": "Welcome media", "welcome_buttons": "Welcome checklist buttons"}
     label = labels[session.workflow]
     if outcome == "saved":
         try:
@@ -365,14 +399,17 @@ async def welcome_edit_callback(client, query: CallbackQuery) -> None:
         except Exception:
             LOGGER.debug("Interactive Welcome audit write failed", exc_info=True)
         await query.answer(f"{label} saved.")
-        await rich_edit(message, heading(f"{label} saved", 3)
-                        + body("The new configuration is stored. Delivery still follows the current welcome-enabled setting."),
-                        reply_markup=None)
+        detail = ("Join verification now follows this setting." if session.workflow == "captcha_enabled"
+                  else "The new configuration is stored. Delivery still follows the current welcome-enabled setting.")
+        await rich_edit(message, heading(f"{label} saved", 3) + body(detail), reply_markup=None)
     elif outcome == "permission_denied":
         await _interaction_engine.cancel(token, chat_id=chat_id, actor_id=actor_id)
-        await query.answer("Current group-admin permission could not be verified. Nothing was saved.", show_alert=True)
-        await rich_edit(message, heading("Welcome settings not saved", 3)
-                        + body("Your current group-admin permission could not be verified. Reopen settings if your access is restored."), reply_markup=None)
+        if authorization_issue["reason"] == "bot_rights":
+            reason = "The bot needs Restrict Members permission to enable join verification. Nothing was saved."
+        else:
+            reason = "Your current group-admin permission could not be verified. Nothing was saved. Reopen settings if your access is restored."
+        await query.answer(reason, show_alert=True)
+        await rich_edit(message, heading(f"{label} not saved", 3) + body(reason), reply_markup=None)
     elif outcome == "save_failed" and save_issue["conflict"]:
         await _interaction_engine.cancel(token, chat_id=chat_id, actor_id=actor_id)
         await query.answer("Settings changed elsewhere. This draft was not saved; review the latest value.", show_alert=True)
@@ -557,6 +594,8 @@ async def toggle_captcha(ctx) -> Screen:
 
 
 def greeting_status_screen(chat_id: int) -> Screen:
+    from videl.utils.settings_store import revision
+    settings_revision = revision(chat_id)
     states = {
         "welcome_enabled": bool(base.get_setting(chat_id, "welcome_enabled", True)),
         "goodbye_enabled": bool(base.get_setting(chat_id, "goodbye_enabled", False)),
@@ -575,16 +614,16 @@ def greeting_status_screen(chat_id: int) -> Screen:
         button("Goodbye off" if states["goodbye_enabled"] else "Goodbye on",
                callback_data=f"mgmt_greeting:goodbye_enabled:{0 if states['goodbye_enabled'] else 1}",
                style="success" if states["goodbye_enabled"] else "default"),
-        button("Captcha off" if states["captcha_enabled"] else "Captcha on",
-               callback_data=f"mgmt_greeting:captcha_enabled:{0 if states['captcha_enabled'] else 1}",
-               style="success" if states["captcha_enabled"] else "default"),
+        button("Configure join verification…",
+               callback_data=f"settings:{chat_id}:captcha:edit:v{settings_revision}",
+               style="primary"),
         button("Copy /setrules", copy_text=CopyTextButton(text="/setrules ")),
     ]
     keyboard = InlineKeyboardMarkup([controls[:2], controls[2:]])
     return Screen(
         heading("👋 Greetings & rules status", 3)
         + table(rows)
-        + body("Use the buttons to toggle welcome, goodbye, and join verification. Each change checks current admin status."),
+        + body("Welcome and goodbye can be toggled here. Join verification opens a preview-and-confirm editor; current admin status is rechecked before changes are saved."),
         keyboard,
     )
 
@@ -615,6 +654,16 @@ async def greeting_toggle_callback(client, query: CallbackQuery) -> None:
         await query.answer("A current group admin is required to change greetings.", show_alert=True)
         return
     enabled = parts[2] == "1"
+    if parts[1] == "captcha_enabled":
+        try:
+            from videl.utils.settings_store import revision
+            await start_welcome_workflow(client, chat_id, actor_id, revision(chat_id), "captcha_enabled")
+            await query.answer("Review join-verification changes, then confirm to save.")
+        except RuntimeError as error:
+            await query.answer(str(error), show_alert=True)
+        except Exception:
+            await query.answer("Could not open the join-verification editor; nothing changed.", show_alert=True)
+        return
     if not base.set_setting(chat_id, parts[1], enabled):
         await query.answer("The settings database is unavailable; nothing changed.", show_alert=True)
         return

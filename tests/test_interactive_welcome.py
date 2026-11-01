@@ -40,8 +40,8 @@ class InteractiveWelcomeTelegramTests(unittest.IsolatedAsyncioTestCase):
         rows = screen.keyboard.inline_keyboard
         button_data = [button.callback_data for row in rows for button in row if button.callback_data]
         action = {"welcome_text": "welcome_text:edit", "goodbye_text": "goodbye_text:edit",
-                  "rules_text": "rules_text:edit", "welcome_media": "welcome_media:edit",
-                  "welcome_buttons": "welcome_buttons:edit"}[workflow]
+                  "rules_text": "rules_text:edit", "captcha_enabled": "captcha:edit",
+                  "welcome_media": "welcome_media:edit", "welcome_buttons": "welcome_buttons:edit"}[workflow]
         self.assertIn(f"settings:{self.CHAT}:{action}:v{revision}", button_data)
         self.assertIn("Welcome text", screen.html)
         self.assertIn("Welcome messages", screen.html)
@@ -323,6 +323,61 @@ class InteractiveWelcomeTelegramTests(unittest.IsolatedAsyncioTestCase):
             {"label": "Rules", "url": "https://example.org/rules"},
         ])
         self.assertEqual(saved["revision"], 1)
+
+    async def test_captcha_editor_hides_enable_without_bot_rights_and_saves_off_only_after_confirmation(self):
+        self.client.me.id = 999
+        self.client.get_chat_member.side_effect = lambda chat_id, user_id: SimpleNamespace(
+            status=welcome.ChatMemberStatus.ADMINISTRATOR, privileges=SimpleNamespace(can_restrict_members=False))
+        session = await self.start_workflow("captcha_enabled")
+        self.assertEqual(session.steps[0].choices, ("off",))
+        await self.submit_text(session, "off")
+        self.assertIn("ᴠᴇʀɪғɪᴄᴀᴛɪᴏɴ ᴘʀᴇᴠɪᴇᴡ", self.client.send_message.await_args.args[1])
+        self.assertIsNone(self.db["mgmt_chat_settings"].find_one({"chat_id": self.CHAT}))
+        preview_session = await welcome._interaction_engine.get(session.token, chat_id=self.CHAT,
+                                                                   actor_id=self.ADMIN, target_chat_id=self.CHAT)
+        query = self.callback_for_session(preview_session, "save")
+        with patch.object(welcome, "rich_edit", new=AsyncMock()):
+            await welcome.welcome_edit_callback(self.client, query)
+        saved = self.db["mgmt_chat_settings"].find_one({"chat_id": self.CHAT})
+        self.assertIsNotNone(saved, query.answer.call_args)
+        self.assertFalse(saved["captcha_enabled"])
+        self.assertEqual(saved["revision"], 1)
+
+    async def test_greetings_legacy_captcha_toggle_redirects_without_immediate_write(self):
+        screen = welcome.greeting_status_screen(self.CHAT)
+        callback_data = [button.callback_data for row in screen.keyboard.inline_keyboard for button in row
+                         if button.callback_data]
+        self.assertTrue(any(value.startswith(f"settings:{self.CHAT}:captcha:edit:v") for value in callback_data))
+        self.query.data = "mgmt_greeting:captcha_enabled:1"
+        self.client.get_chat_member.return_value = SimpleNamespace(status=welcome.ChatMemberStatus.ADMINISTRATOR)
+        with patch.object(welcome, "rich_edit", new=AsyncMock()):
+            await welcome.greeting_toggle_callback(self.client, self.query)
+        self.assertIn("review", self.query.answer.call_args.args[0].lower())
+        self.assertIsNone(self.db["mgmt_chat_settings"].find_one({"chat_id": self.CHAT}))
+        session = await welcome._interaction_engine.for_owner(chat_id=self.CHAT, actor_id=self.ADMIN,
+                                                               target_chat_id=self.CHAT)
+        self.assertEqual(session.workflow, "captcha_enabled")
+
+    async def test_captcha_enable_rechecks_bot_restrict_permission_before_save(self):
+        self.client.me.id = 999
+        state = {"can_restrict": True}
+        def member_for(chat_id, user_id):
+            if user_id == 999:
+                return SimpleNamespace(status=welcome.ChatMemberStatus.ADMINISTRATOR, privileges=SimpleNamespace(
+                    can_restrict_members=state["can_restrict"]))
+            return SimpleNamespace(status="administrator")
+        self.client.get_chat_member.side_effect = member_for
+        session = await self.start_workflow("captcha_enabled")
+        self.assertEqual(session.steps[0].choices, ("on", "off"))
+        await self.submit_text(session, "on")
+        state["can_restrict"] = False
+        preview_session = await welcome._interaction_engine.get(session.token, chat_id=self.CHAT,
+                                                                   actor_id=self.ADMIN, target_chat_id=self.CHAT)
+        query = self.callback_for_session(preview_session, "save")
+        with patch.object(welcome, "rich_edit", new=AsyncMock()):
+            await welcome.welcome_edit_callback(self.client, query)
+        self.assertIn("Restrict Members", query.answer.call_args.args[0])
+        self.assertIsNone(self.db["mgmt_chat_settings"].find_one({"chat_id": self.CHAT}))
 
     async def test_join_delivery_uses_saved_media_and_existing_checklist_buttons(self):
         self.db["mgmt_chat_settings"].insert_one({

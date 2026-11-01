@@ -134,6 +134,8 @@ def _screen(chat_id, section="home", *, query="", category="all", page=0):
         for label,key,default in fields:
             if section=="safety" and key=="antispam":
                 markup.append([button("Configure anti-flood…",callback_data=f"settings:{chat_id}:antispam:edit",style="primary")])
+            elif section=="welcome" and key=="captcha_enabled":
+                markup.append([button("Configure join verification…",callback_data=f"settings:{chat_id}:captcha:edit",style="primary")])
             else:
                 markup.append(_switch(chat_id,key,label,default))
         if section=="welcome":
@@ -249,7 +251,7 @@ async def settings(ctx):
         return _screen(chat_id,"commands",query=query)
     return _screen(chat_id)
 
-_PATTERN=r"^settings:-?[0-9]{1,20}:(?:tab:(?:home|music|welcome|safety|moderation|retention|blocklist|presets|sessions|commands)|commands:(?:all|manage|music|tools):[0-9]{1,3}|cmd:[a-z][a-z0-9_]{0,31}:(?:on|off)|(?:music_requests_enabled|music_approval_required|welcome_enabled|goodbye_enabled|captcha_enabled|antispam|gemini_guardian_enabled|lock_[a-z_]+):(?:on|off)|antispam:edit|welcome_text:edit|goodbye_text:edit|rules_text:(?:edit|clear)|welcome_media:(?:edit|clear)|welcome_buttons:edit|raid:(?:on|off)|warn_threshold:(?:2|3|5|10)|retention:[a-z_]+:(?:30|90|180|365|off)|blocklist:(?:add:(?:track|artist)|remove:[1-9][0-9]?)|preset:(?:save|apply:[1-9][0-9]?|delete:[1-9][0-9]?)|session:(?:schedule|cancel:[A-Za-z0-9]+)|reset:(?:music|welcome|safety|moderation|blocklist|presets)|resetconfirm:(?:music|welcome|safety|moderation|blocklist|presets):[a-f0-9]{12}|refresh):v[0-9]{1,12}$"
+_PATTERN=r"^settings:-?[0-9]{1,20}:(?:tab:(?:home|music|welcome|safety|moderation|retention|blocklist|presets|sessions|commands)|commands:(?:all|manage|music|tools):[0-9]{1,3}|cmd:[a-z][a-z0-9_]{0,31}:(?:on|off)|(?:music_requests_enabled|music_approval_required|welcome_enabled|goodbye_enabled|captcha_enabled|antispam|gemini_guardian_enabled|lock_[a-z_]+):(?:on|off)|antispam:edit|captcha:edit|welcome_text:edit|goodbye_text:edit|rules_text:(?:edit|clear)|welcome_media:(?:edit|clear)|welcome_buttons:edit|raid:(?:on|off)|warn_threshold:(?:2|3|5|10)|retention:[a-z_]+:(?:30|90|180|365|off)|blocklist:(?:add:(?:track|artist)|remove:[1-9][0-9]?)|preset:(?:save|apply:[1-9][0-9]?|delete:[1-9][0-9]?)|session:(?:schedule|cancel:[A-Za-z0-9]+)|reset:(?:music|welcome|safety|moderation|blocklist|presets)|resetconfirm:(?:music|welcome|safety|moderation|blocklist|presets):[a-f0-9]{12}|refresh):v[0-9]{1,12}$"
 @bot.on_callback_query(filters.regex(_PATTERN))
 async def settings_callback(client,query):
     message=getattr(query,"message",None); actor=getattr(query,"from_user",None)
@@ -268,6 +270,7 @@ async def settings_callback(client,query):
         elif len(parts)==5 and parts[2]=="cmd" and parts[4] in {"on","off"}:
             key,value,section="__command_toggle__",(parts[3],parts[4]=="on"),"commands"
         elif len(parts)==4 and parts[2]=="antispam" and parts[3]=="edit": key,value,section="__antispam_editor__",None,"safety"
+        elif len(parts)==4 and parts[2]=="captcha" and parts[3]=="edit": key,value,section="__captcha_editor__",None,"welcome"
         elif len(parts)==4 and parts[2] in {"welcome_text","goodbye_text","rules_text","welcome_media","welcome_buttons"} and parts[3] in {"edit","clear"}:
             workflow={"welcome_text":"welcome_text","goodbye_text":"goodbye_text","rules_text":"rules_text","welcome_media":"welcome_media","welcome_buttons":"welcome_buttons"}[parts[2]]
             key,value,section="__welcome_flow_start__",workflow,"welcome"
@@ -312,6 +315,15 @@ async def settings_callback(client,query):
             return await query.answer(str(error),show_alert=True)
         except Exception:
             return await query.answer("Could not start anti-flood settings; nothing changed.",show_alert=True)
+        return await query.answer(notice)
+    if key=="__captcha_editor__":
+        from videl.plugins.welcome import start_welcome_workflow
+        try:
+            notice=await start_welcome_workflow(client,chat_id,int(actor.id),expected_revision,"captcha_enabled")
+        except RuntimeError as error:
+            return await query.answer(str(error),show_alert=True)
+        except Exception:
+            return await query.answer("Could not start join-verification settings; nothing changed.",show_alert=True)
         return await query.answer(notice)
     if key=="__welcome_flow_start__":
         from videl.plugins.welcome import start_welcome_workflow
