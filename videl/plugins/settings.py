@@ -17,7 +17,7 @@ from videl.utils.bot_ui import button
 from videl.utils.command_ui import rich_edit
 from videl.utils.moderation import LOCK_TYPES
 
-_TABS = {"home", "music", "welcome", "safety", "moderation", "retention", "blocklist", "presets", "sessions", "automations", "commands"}
+_TABS = {"home", "music", "welcome", "safety", "moderation", "retention", "blocklist", "presets", "sessions", "automations", "commands", "more"}
 _LOCK_KEYS = {f"lock_{kind}" for kind in LOCK_TYPES} | {"lock_forwards"}
 _PROMPTS: dict[tuple[int, int], tuple[int, str, float]] = {}
 _TOGGLES = {
@@ -77,11 +77,28 @@ def _switch(chat_id, key, label, default=False):
     enabled=bool(base.get_setting(chat_id,key,default))
     return [button(label),button("On",callback_data=f"settings:{chat_id}:{key}:on",style="success" if enabled else None),button("Off",callback_data=f"settings:{chat_id}:{key}:off",style="danger" if not enabled else None)]
 
-def _nav(chat_id):
-    return [[button("Overview",callback_data=f"settings:{chat_id}:tab:home"),button("Music",callback_data=f"settings:{chat_id}:tab:music"),button("Welcome",callback_data=f"settings:{chat_id}:tab:welcome")],
-            [button("Protection",callback_data=f"settings:{chat_id}:tab:safety"),button("Moderation",callback_data=f"settings:{chat_id}:tab:moderation"),button("Retention",callback_data=f"settings:{chat_id}:tab:retention")],
-            [button("Music blocklist",callback_data=f"settings:{chat_id}:tab:blocklist"),button("Queue presets",callback_data=f"settings:{chat_id}:tab:presets"),button("Listening sessions",callback_data=f"settings:{chat_id}:tab:sessions")],
-            [button("Automations & filters",callback_data=f"settings:{chat_id}:tab:automations"),button("Command manager",callback_data=f"settings:{chat_id}:tab:commands")]]
+def _nav(chat_id, section="home"):
+    """Compact navigation: the overview is a hub; detail pages keep two exits."""
+    if section == "home":
+        return [
+            [button("🎵 Music", callback_data=f"settings:{chat_id}:tab:music", style="primary"),
+             button("👋 Welcome", callback_data=f"settings:{chat_id}:tab:welcome")],
+            [button("🛡 Protection", callback_data=f"settings:{chat_id}:tab:safety"),
+             button("⚖ Moderation", callback_data=f"settings:{chat_id}:tab:moderation")],
+            [button("⚙ More settings", callback_data=f"settings:{chat_id}:tab:more")],
+        ]
+    if section == "more":
+        return [
+            [button("📌 Music blocklist", callback_data=f"settings:{chat_id}:tab:blocklist"),
+             button("🎚 Queue presets", callback_data=f"settings:{chat_id}:tab:presets")],
+            [button("🗓 Sessions", callback_data=f"settings:{chat_id}:tab:sessions"),
+             button("🧹 Retention", callback_data=f"settings:{chat_id}:tab:retention")],
+            [button("🤖 Automations", callback_data=f"settings:{chat_id}:tab:automations"),
+             button("⌘ Commands", callback_data=f"settings:{chat_id}:tab:commands")],
+            [button("← Overview", callback_data=f"settings:{chat_id}:tab:home")],
+        ]
+    return [[button("← Overview", callback_data=f"settings:{chat_id}:tab:home"),
+             button("More settings", callback_data=f"settings:{chat_id}:tab:more")]]
 
 def _reset_confirmation(chat_id, category):
     current, defaults = _reset_values(chat_id, category)
@@ -102,10 +119,10 @@ def _reset_confirmation(chat_id, category):
 
 
 def _screen(chat_id, section="home", *, query="", category="all", page=0):
-    markup=_nav(chat_id)
+    markup=_nav(chat_id,section)
     if section=="home":
         fields=(("Member music requests","music_requests_enabled",True),("Music request approval","music_approval_required",False),("Shuffle new requests","music_shuffle_enabled",False),("Welcome messages","welcome_enabled",True),("Goodbye messages","goodbye_enabled",False),("New-member verification","captcha_enabled",False),("Anti-flood","antispam",False),("Gemini Guardian assistance","gemini_guardian_enabled",False))
-        text=heading("Full group settings",3)+body("Choose a section. Only current group admins can change settings.")+table([(label,"On" if base.get_setting(chat_id,key,default) else "Off") for label,key,default in fields])+body("Advanced text and custom configuration remain available through their existing commands.")
+        text=heading("Group settings",3)+body("Choose a section to view and manage this group. Current Telegram group admins are checked before changes.")+table([(label,"On" if base.get_setting(chat_id,key,default) else "Off") for label,key,default in fields])+body("For personal DM language, reminders and optional private updates, use <code>/preferences</code> in your private chat. Those settings do not change this group.")
     elif section in _TOGGLES:
         title={"music":"Music","welcome":"Welcome & onboarding","safety":"Protection"}[section]
         description={"music":"Members can request tracks when enabled. Approval sends new requests to admin review; use /requests to review.","welcome":"Control welcome, goodbye and verification flows. Edit content with /setwelcome, /setgoodbye, /setrules and /setfaq.","safety":"Configure content locks and raid mode; anti-flood thresholds are editable here or with /antispam. Enabling anti-flood requires the bot to have Delete Messages permission. Gemini Guardian is off by default. When enabled, /faqassist sends the question and selected FAQ/rules/text notes; admin /safetycheck sends minimized replied-to text (URL hosts only); /guardiansummary sends aggregate counts. These are sent to Google Gemini; no result takes action."}[section]
@@ -154,6 +171,8 @@ def _screen(chat_id, section="home", *, query="", category="all", page=0):
                 markup.append(_switch(chat_id,key,f"Lock {kind}"))
             raid=base.get_setting(chat_id,"raid_mode",{}); enabled=bool(raid.get("enabled")) if isinstance(raid,dict) else False
             markup.append([button("Raid mode"),button("On",callback_data=f"settings:{chat_id}:raid:on",style="success" if enabled else None),button("Off",callback_data=f"settings:{chat_id}:raid:off",style="danger" if not enabled else None)])
+    elif section=="more":
+        text=heading("More group settings",3)+body("Additional music, automation and command controls for this group. Use Overview to return to the main settings hub.")
     elif section=="moderation":
         threshold = _saved_warn_threshold(chat_id)
         display = "Unavailable" if threshold is None else base.escape(str(threshold))
@@ -356,7 +375,7 @@ async def _start_warn_threshold_editor(message, chat_id: int, actor_id: int, rev
     return session
 
 
-_PATTERN=r"^settings:-?[0-9]{1,20}:(?:tab:(?:home|music|welcome|safety|moderation|retention|blocklist|presets|sessions|automations|commands)|commands:(?:all|manage|music|tools):[0-9]{1,3}|filters:(?:add|manage)|cmd:[a-z][a-z0-9_]{0,31}:(?:on|off)|(?:music_requests_enabled|music_approval_required|welcome_enabled|goodbye_enabled|captcha_enabled|antispam|gemini_guardian_enabled|lock_[a-z_]+):(?:on|off)|antispam:edit|captcha:edit|welcome_text:edit|goodbye_text:edit|rules_text:(?:edit|clear)|welcome_media:(?:edit|clear)|welcome_buttons:edit|raid:(?:on|off)|warn_threshold:(?:edit|2|3|5|10)|retention:[a-z_]+:(?:30|90|180|365|off)|blocklist:(?:add:(?:track|artist)|remove:[1-9][0-9]?)|preset:(?:save|apply:[1-9][0-9]?|delete:[1-9][0-9]?)|session:(?:schedule|cancel:[A-Za-z0-9]+)|reset:(?:music|welcome|safety|moderation|blocklist|presets)|resetconfirm:(?:music|welcome|safety|moderation|blocklist|presets):[a-f0-9]{12}|refresh):v[0-9]{1,12}$"
+_PATTERN=r"^settings:-?[0-9]{1,20}:(?:tab:(?:home|music|welcome|safety|moderation|retention|blocklist|presets|sessions|automations|commands|more)|commands:(?:all|manage|music|tools):[0-9]{1,3}|filters:(?:add|manage)|cmd:[a-z][a-z0-9_]{0,31}:(?:on|off)|(?:music_requests_enabled|music_approval_required|welcome_enabled|goodbye_enabled|captcha_enabled|antispam|gemini_guardian_enabled|lock_[a-z_]+):(?:on|off)|antispam:edit|captcha:edit|welcome_text:edit|goodbye_text:edit|rules_text:(?:edit|clear)|welcome_media:(?:edit|clear)|welcome_buttons:edit|raid:(?:on|off)|warn_threshold:(?:edit|2|3|5|10)|retention:[a-z_]+:(?:30|90|180|365|off)|blocklist:(?:add:(?:track|artist)|remove:[1-9][0-9]?)|preset:(?:save|apply:[1-9][0-9]?|delete:[1-9][0-9]?)|session:(?:schedule|cancel:[A-Za-z0-9]+)|reset:(?:music|welcome|safety|moderation|blocklist|presets)|resetconfirm:(?:music|welcome|safety|moderation|blocklist|presets):[a-f0-9]{12}|refresh):v[0-9]{1,12}$"
 @bot.on_callback_query(filters.regex(_PATTERN))
 async def settings_callback(client,query):
     message=getattr(query,"message",None); actor=getattr(query,"from_user",None)

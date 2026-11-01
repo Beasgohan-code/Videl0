@@ -23,6 +23,23 @@ class TelegramSettingsRevisionTests(unittest.IsolatedAsyncioTestCase):
         )
         self.client = SimpleNamespace(get_chat_member=AsyncMock(return_value=SimpleNamespace(status="administrator")))
 
+    async def test_compact_navigation_has_more_hub_and_back_links(self):
+        home = settings._screen(self.CHAT)
+        home_labels = [button.text for row in home.keyboard.inline_keyboard for button in row]
+        self.assertIn("⚙ More settings", home_labels)
+        self.assertLessEqual(len(home_labels), 8)
+
+        more = settings._screen(self.CHAT, "more")
+        more_labels = [button.text for row in more.keyboard.inline_keyboard for button in row]
+        self.assertIn("← Overview", more_labels)
+        self.assertIn("Automations", more_labels)
+        self.assertIn("⌘ Commands", more_labels)
+
+        detail = settings._screen(self.CHAT, "music")
+        detail_labels = [button.text for row in detail.keyboard.inline_keyboard for button in row]
+        self.assertIn("← Overview", detail_labels)
+        self.assertIn("More settings", detail_labels)
+
     async def test_rendered_keyboard_has_revision_and_respects_callback_limit(self):
         screen = settings._screen(self.CHAT)
         buttons = [button for row in screen.keyboard.inline_keyboard for button in row]
