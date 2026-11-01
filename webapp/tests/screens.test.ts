@@ -19,6 +19,15 @@ test("the workspace navigation keeps public groups clear and owner tools gated",
   assert.doesNotMatch(html, /Federations|Bot management/);
 });
 
+test("the owner dashboard labels group and queue totals as loading before data arrives", async () => {
+  const { default: OwnerHome } = await import("../src/components/studio/screens/OwnerHome");
+  const html = render(createElement(OwnerHome));
+  assert.match(html, /Loading group status/);
+  assert.match(html, /Loading queue totals/);
+  assert.match(html, /not measured API samples/);
+  assert.doesNotMatch(html, /0 reports · 0 join requests/);
+});
+
 test("the backend strip starts quiet instead of assuming an outage", async () => {
   // Server rendering runs no effect, so this is the first paint: the strip must
   // not claim the backend is down before it has asked.

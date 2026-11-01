@@ -1,17 +1,26 @@
 export const DASHBOARD_WIDGETS = [
   { id: "metrics", label: "Community metrics" },
   { id: "pulse", label: "Community pulse" },
+  { id: "actions", label: "Quick actions" },
+  { id: "health", label: "System and API health" },
   { id: "onboarding", label: "New-member insights" },
   { id: "scheduled", label: "Scheduled broadcasts" },
   { id: "automation", label: "Automation runs" },
-  { id: "health", label: "System and API health" },
   { id: "activity", label: "Recent activity" },
   { id: "groups", label: "Top groups" },
-  { id: "actions", label: "Quick actions" },
 ] as const;
 
 export type DashboardWidgetId = (typeof DASHBOARD_WIDGETS)[number]["id"];
 export const DEFAULT_DASHBOARD_WIDGETS: DashboardWidgetId[] = DASHBOARD_WIDGETS.map(({ id }) => id);
+
+export type DashboardValueState = "loading" | "unavailable" | "available";
+
+/** Never turn a missing/unavailable measurement into a plausible-looking zero. */
+export function dashboardMetricValue(value: number | undefined, state: DashboardValueState): string {
+  if (state === "loading") return "Loading…";
+  if (state === "unavailable") return "Unavailable";
+  return typeof value === "number" && Number.isFinite(value) ? value.toLocaleString() : "—";
+}
 
 export function normalizeDashboardOrder<T extends string>(
   saved: unknown,

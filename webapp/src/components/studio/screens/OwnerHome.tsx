@@ -29,6 +29,7 @@ import {
   moveDashboardItem,
   normalizeDashboardOrder,
   setDashboardItemVisible,
+  dashboardMetricValue,
   type DashboardWidgetId,
 } from "@/lib/dashboard-layout";
 type Metrics = {
@@ -149,7 +150,7 @@ export default function Home() {
     bot_error?: string | null;
     revision?: string | null;
     latency_ms?: number;
-    api?: { p95_ms?: number | null; samples?: number } | null;
+    api?: { p95_ms?: number | null; samples?: number | null } | null;
   } | null>(null);
   const [processMetrics, setProcessMetrics] = useState<{ cpu: number | null; process_cpu: number | null; memory_used: number | null; memory_total: number | null; memory_percent: number | null; rss: number | null; disk: string | null; threads: number | null; measured_at: number | null } | null>(null);
   const [error, setError] = useState("");
@@ -282,35 +283,63 @@ export default function Home() {
   }, [telegram.authenticated, refreshTick, tab]);
   const count = (n?: number) =>
     typeof n === "number" ? n.toLocaleString() : "—";
+  const measuredAtLabel = measured && Number.isFinite(Date.parse(measured))
+    ? new Date(measured).toLocaleTimeString()
+    : "time unavailable";
   const freshness = (stamp?: number | null) => {
     if (typeof stamp !== "number" || !Number.isFinite(stamp)) return "time unavailable";
     const age = Date.now() / 1000 - stamp;
     return age >= 0 && age <= 120 ? "fresh" : "stale";
   };
+  const botStatusKnown = Boolean(health?.bot_status && health.bot_status !== "unknown");
   const online = health?.status === "ok" && health.bot_status === "online";
-  // "Reachable" is not "working": name the part that is down, during the outage
-  // itself rather than only in Settings.
-  const degraded = health?.status === "ok" && !online;
+  // A responding health endpoint can still report a degraded bot or backend.
+  // Missing/unknown status stays unknown rather than being painted as offline.
+  const degraded = Boolean(
+    (health?.status && health.status !== "ok") || (botStatusKnown && health?.bot_status !== "online"),
+  );
+  const panelStatus = health?.status === "ok" ? "Reachable" : health?.status ? "Degraded" : "Not confirmed";
+  const botStatus = health?.bot_status === "online" ? "Online" : botStatusKnown ? "Not online" : "Not confirmed";
+  const panelStatusTone = health?.status === "ok" ? "border-emerald-300/15 bg-emerald-300/[.04]" : health?.status ? "border-amber-300/20 bg-amber-300/[.05]" : "border-white/10 bg-white/[.02]";
+  const botStatusTone = health?.bot_status === "online" ? "border-emerald-300/15 bg-emerald-300/[.04]" : botStatusKnown ? "border-amber-300/20 bg-amber-300/[.05]" : "border-white/10 bg-white/[.02]";
   const degradedReason = [
     ...(health?.degraded_reasons ?? []),
+    ...(health?.status && health.status !== "ok" ? ["The panel health check reports a degraded service."] : []),
     ...(health?.bot_error ? [`Last start error: ${health.bot_error}`] : []),
   ].join(" · ");
+  const connectionLabel = online
+    ? "Bot online"
+    : degraded
+      ? health?.status === "ok" ? `Bot ${health.bot_status} · panel up` : "Service degraded"
+      : loaded ? "Connection not confirmed" : "Connecting…";
   const uptimeSeconds = stats?.uptime ?? health?.uptime;
   const uptime =
     typeof uptimeSeconds === "number"
       ? `${Math.floor(uptimeSeconds / 3600)}h ${Math.floor((uptimeSeconds % 3600) / 60)}m`
       : "—";
   const name = telegram.user?.first_name || "Creator";
-  const pulseGroupsList = groupsPulse?.chats ?? [];
+  const groupsAvailable = Array.isArray(groupsPulse?.chats);
+  const pulseGroupsList = groupsAvailable ? groupsPulse.chats! : [];
   const attentionGroups = pulseGroupsList.filter(
     (group) => group.health?.attention || group.available === false || group.bot_admin === false,
   );
+  const queueCountsAvailable = groupsAvailable && pulseGroupsList.every(
+    (group) => Number.isFinite(group.counts?.reports) && Number.isFinite(group.counts?.pending_joins),
+  );
   const openReports = pulseGroupsList.reduce((sum, group) => sum + (group.counts?.reports ?? 0), 0);
   const pendingJoins = pulseGroupsList.reduce((sum, group) => sum + (group.counts?.pending_joins ?? 0), 0);
+  const groupValueState = !loaded ? "loading" : groupsAvailable ? "available" : "unavailable";
+  const queueValueState = !loaded ? "loading" : queueCountsAvailable ? "available" : "unavailable";
+  const attentionCount = groupsAvailable
+    ? groupsPulse.summary?.attention ?? attentionGroups.length
+    : undefined;
+  const queueCount = queueCountsAvailable ? openReports + pendingJoins : undefined;
   const upcomingJobs = scheduledJobs?.filter((job) => job.status === "pending" && !job.paused).sort((a, b) => Date.parse(a.scheduled_at) - Date.parse(b.scheduled_at)).slice(0, 4) ?? [];
   const onboardingTotals = onboarding?.totals;
-  const verificationRate = (onboardingTotals?.challenged ?? 0) > 0
-    ? Math.round(((onboardingTotals?.verified ?? 0) / (onboardingTotals?.challenged ?? 1)) * 100)
+  const verificationRate = typeof onboardingTotals?.challenged === "number"
+    && onboardingTotals.challenged > 0
+    && typeof onboardingTotals.verified === "number"
+    ? Math.round((onboardingTotals.verified / onboardingTotals.challenged) * 100)
     : null;
   const peakHour = analytics?.series?.reduce<{ time: string; commands: number } | null>(
     (peak, point) => (!peak || point.commands > peak.commands ? point : peak),
@@ -337,13 +366,7 @@ export default function Home() {
               aria-hidden
               className={`h-1.5 w-1.5 rounded-full ${online ? "bg-emerald-400 shadow-[0_0_8px_#34d399]" : degraded ? "bg-amber-300" : "bg-indigo-300/50"}`}
             />
-            {online
-              ? "Bot online"
-              : degraded
-                ? "Bot offline · panel up"
-                : loaded
-                  ? "Connection not confirmed"
-                  : "Connecting…"}
+            {connectionLabel}
           </span>
           </div>
         }
@@ -375,7 +398,7 @@ export default function Home() {
           <footer className="mt-5 flex flex-wrap justify-between gap-2 border-t border-white/10 pt-4"><button type="button" onClick={()=>{setWidgetOrder([...DEFAULT_DASHBOARD_WIDGETS]);setActionOrder([...defaultActions]);}} className="ios-btn ios-btn-glass text-xs"><RotateCcw size={13} aria-hidden/> Reset layout</button><button type="button" onClick={()=>layoutDialog.current?.close()} className="ios-btn ios-btn-primary text-xs">Done</button></footer>
         </section>
       </dialog>
-      <section data-screen-intro className="studio-hero relative mt-6 overflow-hidden rounded-3xl border border-indigo-400/25 p-6 sm:p-8">
+      <section data-screen-intro className="studio-hero relative mt-4 overflow-hidden rounded-3xl border border-indigo-400/25 px-5 py-5 sm:px-6 sm:py-6">
         <img
           src="/studio-night.png"
           alt="Anime creator overlooking a neon violet city at night"
@@ -386,18 +409,18 @@ export default function Home() {
           <span className="ios-caps inline-flex items-center gap-2 rounded-full border border-indigo-300/20 bg-indigo-500/15 px-3 py-1 text-[11px] font-semibold text-indigo-200">
             <Crown size={12} /> Videl Studio
           </span>
-          <h2 className="mt-5 text-3xl font-bold leading-tight tracking-tight sm:text-[42px]">
+          <h2 className="mt-3 text-2xl font-bold leading-tight tracking-tight sm:text-3xl">
             Your Bot. Your Groups.
             <br />
             <span className="bg-gradient-to-r from-blue-300 via-indigo-300 to-fuchsia-300 bg-clip-text text-transparent">
               Your Community.
             </span>
           </h2>
-          <p className="mt-4 max-w-sm text-sm leading-6 text-indigo-100/60">
+          <p className="mt-2 max-w-sm text-sm leading-6 text-indigo-100/60">
             Manage, chat, post, automate — all in one powerful Telegram
             workspace.
           </p>
-          <div className="mt-5 flex flex-wrap gap-2">
+          <div className="mt-3 flex flex-wrap gap-2">
             <button onClick={() => open("post")} className="ios-btn ios-btn-primary text-sm">
               Create something <ArrowUpRight size={16} />
             </button>
@@ -473,20 +496,21 @@ export default function Home() {
         ))}
       </section>}
       {measured && (
-        <p className="owner-home-widget-wide mt-3 text-[10px] text-indigo-100/40">
-          {error
-            ? "Last successful database snapshot"
-            : "Live bot database totals"}{" "}
-          · refreshed {new Date(measured).toLocaleTimeString()} · updates every
-          30 seconds{" "}
+        <div role="group" aria-label="Community metrics update" className="owner-home-widget-wide mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/[.025] px-4 py-3 text-xs text-indigo-100/55">
+          <span>
+            {error ? "Last successful database snapshot" : "Database snapshot"}
+            <span className="ml-1 text-indigo-100/75">· refreshed {measuredAtLabel}</span>
+            <span className="ml-1 text-indigo-100/40">· auto-refreshes every 30 seconds</span>
+          </span>
           <button
             disabled={refreshing}
             onClick={() => refresh((n) => n + 1)}
-            className="ml-2 underline underline-offset-2 disabled:opacity-40"
+            aria-label="Refresh community metrics"
+            className="rounded-lg px-2 py-1 font-medium text-indigo-200 underline underline-offset-2 hover:bg-white/5 disabled:opacity-40"
           >
             {refreshing ? "Refreshing…" : "Refresh now"}
           </button>
-        </p>
+        </div>
       )}
       {error && (
         <Callout
@@ -534,13 +558,13 @@ export default function Home() {
           </div>
           <div className="rounded-xl border border-amber-300/10 bg-amber-300/[0.035] p-3">
             <p className="text-[10px] text-indigo-100/45">Groups to review</p>
-            <p className="mt-1 text-xl font-bold">{count(groupsPulse?.summary?.attention ?? attentionGroups.length)}</p>
-            <p className="mt-1 text-[10px] text-indigo-100/35">Bot access or protection needs checking</p>
+            <p className="mt-1 text-xl font-bold">{dashboardMetricValue(attentionCount, groupValueState)}</p>
+            <p className="mt-1 text-[10px] text-indigo-100/35">{groupsAvailable ? "Bot access or protection needs checking" : loaded ? "Group status could not be loaded" : "Loading group status"}</p>
           </div>
           <div className="rounded-xl border border-indigo-300/10 bg-indigo-400/[0.035] p-3">
             <p className="text-[10px] text-indigo-100/45">Open community queue</p>
-            <p className="mt-1 text-xl font-bold">{count(openReports + pendingJoins)}</p>
-            <p className="mt-1 text-[10px] text-indigo-100/35">{count(openReports)} reports · {count(pendingJoins)} join requests</p>
+            <p className="mt-1 text-xl font-bold">{dashboardMetricValue(queueCount, queueValueState)}</p>
+            <p className="mt-1 text-[10px] text-indigo-100/35">{queueCountsAvailable ? `${count(openReports)} reports · ${count(pendingJoins)} join requests` : loaded ? "Queue totals unavailable" : "Loading queue totals"}</p>
           </div>
         </div>
         {attentionGroups.length > 0 && (
@@ -583,7 +607,7 @@ export default function Home() {
         <p className="mt-3 text-[10px] text-indigo-100/30">Showing up to four pending items from the owner queue.</p>
       </section>}
       {widgetOrder.includes("automation") && <section className="ios-card owner-home-widget p-5" style={{ order: widgetOrder.indexOf("automation") }} aria-label="Automation run history"><p className="ios-caps text-[10px] text-violet-200">Automation</p><h2 className="mt-1 text-sm font-semibold">Recent automation runs</h2><p className="mt-4 rounded-xl border border-amber-300/10 bg-amber-300/[.03] p-3 text-xs leading-5 text-indigo-100/55">Execution history is not exposed by the available backend API. Automation settings are available, but they are not evidence of completed runs.</p><button onClick={() => open("automation")} className="mt-3 text-[11px] text-indigo-300">Open automation settings ↗</button></section>}
-      {widgetOrder.includes("health") && <section className="ios-card owner-home-widget p-5" style={{ order: widgetOrder.indexOf("health") }} aria-label="System and API health"><div className="flex items-center justify-between"><div><p className="ios-caps text-[10px] text-emerald-200">Service status</p><h2 className="mt-1 text-sm font-semibold">System &amp; API health</h2></div><button onClick={() => open("settings")} className="text-[11px] text-indigo-300">Diagnostics ↗</button></div><div className="mt-4 grid grid-cols-2 gap-3"><div className="rounded-xl border border-white/10 p-3"><p className="text-[10px] text-indigo-100/40">Panel API</p><p className="mt-1 text-xs font-medium">{health ? health.status === "ok" ? "Reachable" : "Degraded" : "Not confirmed"}</p></div><div className="rounded-xl border border-white/10 p-3"><p className="text-[10px] text-indigo-100/40">Telegram bot</p><p className="mt-1 text-xs font-medium">{health?.bot_status === "online" ? "Online" : health ? "Not online" : "Not confirmed"}</p></div></div><div className="mt-3 grid grid-cols-2 gap-2 text-[10px] text-indigo-100/50"><span>Panel RTT {typeof health?.latency_ms === "number" ? `${health.latency_ms} ms` : "not measured"}</span><span>API p95 {typeof health?.api?.p95_ms === "number" ? `${health.api.p95_ms} ms` : "not measured"}</span><span>Build {health?.revision || "unknown"}</span><span>{health?.api?.samples ?? 0} API samples</span><span>Host CPU {processMetrics?.cpu == null ? "not measured" : `${processMetrics.cpu.toFixed(0)}%`}</span><span>Process CPU {processMetrics?.process_cpu == null ? "not measured" : `${processMetrics.process_cpu.toFixed(0)}%`}</span><span>RAM {processMetrics?.memory_used == null || processMetrics.memory_total == null ? "not measured" : `${(processMetrics.memory_used / 1073741824).toFixed(1)} / ${(processMetrics.memory_total / 1073741824).toFixed(1)} GiB (${processMetrics.memory_percent?.toFixed(0) ?? "?"}%)`}</span><span>Process RSS {processMetrics?.rss == null ? "not measured" : `${(processMetrics.rss / 1048576).toFixed(0)} MiB`}</span><span>Threads {processMetrics?.threads ?? "not measured"}</span><span>Disk {processMetrics?.disk || "not measured"}</span><span>Process sample {processMetrics?.measured_at ? `${new Date(processMetrics.measured_at * 1000).toLocaleTimeString()} · ${freshness(processMetrics.measured_at)}` : "unavailable"}</span><span>MongoDB {health?.database || "unknown"}</span><span>Voice assistant {health?.assistant?.configured ? health.assistant.ready ? "ready" : health.assistant.state || "not ready" : "not configured"}</span><span>Primary media provider {health?.media_downloaders?.shruti?.state || "unknown"}</span><span>Release compatibility {releaseCheck ? `${releaseCheck.drift} · ${releaseCheck.web}/${releaseCheck.backend || "unknown"} · ${Number.isFinite(Date.parse(releaseCheck.checkedAt)) ? freshness(Date.parse(releaseCheck.checkedAt) / 1000) : "time unavailable"}` : "unavailable"}</span><span>Protected groups {protection?.state === "measured" ? `${protection.protected_groups ?? "unknown"}/${protection.sampled_groups ?? "unknown"}${protection.sample_truncated ? "+ sampled" : " sampled"} · ${freshness(protection.measured_at)}` : "unavailable"}</span></div><p className="mt-3 text-[10px] leading-4 text-indigo-100/35">Process and host metrics are sampled; provider readiness is configuration-only, not a live service probe.</p><div className="mt-3 grid grid-cols-2 gap-2 text-[10px] text-indigo-100/50"><span>Active voice calls {opsMusic?.voice.state === "measured" && opsMusic.voice.active_calls != null ? opsMusic.voice.active_calls : "unavailable"}</span><span>Music queues {opsMusic?.queue.state === "measured" && opsMusic.queue.active_queues != null ? opsMusic.queue.active_queues : "unavailable"}</span><span>Upcoming tracks {opsMusic?.queue.state === "measured" && opsMusic.queue.upcoming_tracks != null ? opsMusic.queue.upcoming_tracks : "unavailable"}</span><span>Download failures, 30m {opsMusic?.downloads.state !== "unavailable" && opsMusic?.downloads.failed != null ? opsMusic.downloads.failed : "unavailable"}</span><span>Download jobs observed {opsMusic?.downloads.observed ?? "unavailable"} · {opsMusic?.downloads.state || "unavailable"}</span><span>Music sample {opsMusic?.measured_at ? `${new Date(opsMusic.measured_at * 1000).toLocaleTimeString()} · ${freshness(opsMusic.measured_at)}` : "unavailable"}</span></div><div className="mt-4 border-t border-white/10 pt-3"><div className="flex items-center justify-between"><h3 className="text-xs font-medium">Recent command activity</h3><span className="text-[10px] text-indigo-100/40">24h · schema v1</span></div>{opsEvents === null ? <p className="mt-2 text-[11px] text-indigo-100/45">Event feed unavailable or unsupported.</p> : opsEvents.length ? <ul className="mt-2 space-y-1.5">{opsEvents.slice(0, 8).map((event, index) => <li key={`${event.at || "event"}-${event.command}-${index}`} className="flex items-center justify-between gap-3 text-[10px] text-indigo-100/55"><span className="truncate"><code>/{event.command}</code> · {event.chat_type}</span><time className="shrink-0">{event.at && Number.isFinite(Date.parse(event.at)) ? new Date(event.at).toLocaleTimeString() : "time unavailable"}</time></li>)}</ul> : <p className="mt-2 text-[11px] text-indigo-100/45">No versioned command events recorded in the last day.</p>}<p className="mt-2 text-[9px] text-indigo-100/30">Names, message text, chat IDs and user IDs are excluded.</p></div><div className="mt-3 border-t border-white/10 pt-3"><div className="flex items-center justify-between"><h3 className="text-xs font-medium">Redacted error log</h3><span className="text-[10px] text-indigo-100/40">24h · latest 20</span></div>{opsLogs === null ? <p className="mt-2 text-[11px] text-indigo-100/45">Log feed unavailable.</p> : opsLogs.length ? <ul className="mt-2 space-y-1.5">{opsLogs.slice(0, 8).map((entry, index) => <li key={`${entry.at ?? "log"}-${index}`} className="flex items-center justify-between gap-3 text-[10px] text-indigo-100/55"><span className="truncate">{entry.source} · {entry.kind}</span><time className="shrink-0">{entry.at ? new Date(entry.at * 1000).toLocaleTimeString() : "time unavailable"}</time></li>)}</ul> : <p className="mt-2 text-[11px] text-indigo-100/45">No persisted error records in the last day.</p>}<p className="mt-2 text-[9px] text-indigo-100/30">Only sanitized source labels and error categories are shown; raw messages and context are withheld.</p></div></section>}
+      {widgetOrder.includes("health") && <section className="ios-card owner-home-widget p-5" style={{ order: widgetOrder.indexOf("health") }} aria-label="System and API health"><div className="flex items-center justify-between"><div><p className="ios-caps text-[10px] text-emerald-200">Service status</p><h2 className="mt-1 text-sm font-semibold">System &amp; API health</h2></div><button onClick={() => open("settings")} className="text-[11px] text-indigo-300">Diagnostics ↗</button></div><div className="mt-4 grid gap-3 sm:grid-cols-2"><div className={`rounded-xl border p-4 ${panelStatusTone}`}><p className="text-xs font-medium text-indigo-100/55">Panel API</p><p className="mt-1 text-base font-semibold">{panelStatus}</p></div><div className={`rounded-xl border p-4 ${botStatusTone}`}><p className="text-xs font-medium text-indigo-100/55">Telegram bot</p><p className="mt-1 text-base font-semibold">{botStatus}</p></div></div><div className="mt-3 grid grid-cols-2 gap-2 text-[10px] text-indigo-100/50"><span>Panel RTT {typeof health?.latency_ms === "number" ? `${health.latency_ms} ms` : "not measured"}</span><span>API p95 {typeof health?.api?.p95_ms === "number" ? `${health.api.p95_ms} ms` : "not measured"}</span><span>Build {health?.revision || "unknown"}</span><span>{typeof health?.api?.samples === "number" ? health.api.samples : "not measured"} API samples</span><span>Host CPU {processMetrics?.cpu == null ? "not measured" : `${processMetrics.cpu.toFixed(0)}%`}</span><span>Process CPU {processMetrics?.process_cpu == null ? "not measured" : `${processMetrics.process_cpu.toFixed(0)}%`}</span><span>RAM {processMetrics?.memory_used == null || processMetrics.memory_total == null ? "not measured" : `${(processMetrics.memory_used / 1073741824).toFixed(1)} / ${(processMetrics.memory_total / 1073741824).toFixed(1)} GiB (${processMetrics.memory_percent?.toFixed(0) ?? "?"}%)`}</span><span>Process RSS {processMetrics?.rss == null ? "not measured" : `${(processMetrics.rss / 1048576).toFixed(0)} MiB`}</span><span>Threads {processMetrics?.threads ?? "not measured"}</span><span>Disk {processMetrics?.disk || "not measured"}</span><span>Process sample {processMetrics?.measured_at ? `${new Date(processMetrics.measured_at * 1000).toLocaleTimeString()} · ${freshness(processMetrics.measured_at)}` : "unavailable"}</span><span>MongoDB {health?.database || "unknown"}</span><span>Voice assistant {health?.assistant?.configured ? health.assistant.ready ? "ready" : health.assistant.state || "not ready" : "not configured"}</span><span>Primary media provider {health?.media_downloaders?.shruti?.state || "unknown"}</span><span>Release compatibility {releaseCheck ? `${releaseCheck.drift} · ${releaseCheck.web}/${releaseCheck.backend || "unknown"} · ${Number.isFinite(Date.parse(releaseCheck.checkedAt)) ? freshness(Date.parse(releaseCheck.checkedAt) / 1000) : "time unavailable"}` : "unavailable"}</span><span>Protected groups {protection?.state === "measured" ? `${protection.protected_groups ?? "unknown"}/${protection.sampled_groups ?? "unknown"}${protection.sample_truncated ? "+ sampled" : " sampled"} · ${freshness(protection.measured_at)}` : "unavailable"}</span></div><p className="mt-3 text-[10px] leading-4 text-indigo-100/35">Process and host metrics are sampled; provider readiness is configuration-only, not a live service probe.</p><div className="mt-3 grid grid-cols-2 gap-2 text-[10px] text-indigo-100/50"><span>Active voice calls {opsMusic?.voice.state === "measured" && opsMusic.voice.active_calls != null ? opsMusic.voice.active_calls : "unavailable"}</span><span>Music queues {opsMusic?.queue.state === "measured" && opsMusic.queue.active_queues != null ? opsMusic.queue.active_queues : "unavailable"}</span><span>Upcoming tracks {opsMusic?.queue.state === "measured" && opsMusic.queue.upcoming_tracks != null ? opsMusic.queue.upcoming_tracks : "unavailable"}</span><span>Download failures, 30m {opsMusic?.downloads.state !== "unavailable" && opsMusic?.downloads.failed != null ? opsMusic.downloads.failed : "unavailable"}</span><span>Download jobs observed {opsMusic?.downloads.observed ?? "unavailable"} · {opsMusic?.downloads.state || "unavailable"}</span><span>Music sample {opsMusic?.measured_at ? `${new Date(opsMusic.measured_at * 1000).toLocaleTimeString()} · ${freshness(opsMusic.measured_at)}` : "unavailable"}</span></div><div className="mt-4 border-t border-white/10 pt-3"><div className="flex items-center justify-between"><h3 className="text-xs font-medium">Recent command activity</h3><span className="text-[10px] text-indigo-100/40">24h · schema v1</span></div>{opsEvents === null ? <p className="mt-2 text-[11px] text-indigo-100/45">Event feed unavailable or unsupported.</p> : opsEvents.length ? <ul className="mt-2 space-y-1.5">{opsEvents.slice(0, 8).map((event, index) => <li key={`${event.at || "event"}-${event.command}-${index}`} className="flex items-center justify-between gap-3 text-[10px] text-indigo-100/55"><span className="truncate"><code>/{event.command}</code> · {event.chat_type}</span><time className="shrink-0">{event.at && Number.isFinite(Date.parse(event.at)) ? new Date(event.at).toLocaleTimeString() : "time unavailable"}</time></li>)}</ul> : <p className="mt-2 text-[11px] text-indigo-100/45">No versioned command events recorded in the last day.</p>}<p className="mt-2 text-[9px] text-indigo-100/30">Names, message text, chat IDs and user IDs are excluded.</p></div><div className="mt-3 border-t border-white/10 pt-3"><div className="flex items-center justify-between"><h3 className="text-xs font-medium">Redacted error log</h3><span className="text-[10px] text-indigo-100/40">24h · latest 20</span></div>{opsLogs === null ? <p className="mt-2 text-[11px] text-indigo-100/45">Log feed unavailable.</p> : opsLogs.length ? <ul className="mt-2 space-y-1.5">{opsLogs.slice(0, 8).map((entry, index) => <li key={`${entry.at ?? "log"}-${index}`} className="flex items-center justify-between gap-3 text-[10px] text-indigo-100/55"><span className="truncate">{entry.source} · {entry.kind}</span><time className="shrink-0">{entry.at ? new Date(entry.at * 1000).toLocaleTimeString() : "time unavailable"}</time></li>)}</ul> : <p className="mt-2 text-[11px] text-indigo-100/45">No persisted error records in the last day.</p>}<p className="mt-2 text-[9px] text-indigo-100/30">Only sanitized source labels and error categories are shown; raw messages and context are withheld.</p></div></section>}
       {(widgetOrder.includes("activity") || widgetOrder.includes("groups")) && <div className="contents">
         {widgetOrder.includes("activity") && <section className="ios-card owner-home-widget p-5" style={{ order: widgetOrder.indexOf("activity") }}>
           <div className="flex items-center justify-between">

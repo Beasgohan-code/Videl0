@@ -34,6 +34,30 @@ test("owner health view exposes only bounded measured revision and latency field
   }
 });
 
+test("missing API sample counts stay unknown instead of becoming a synthetic zero", async () => {
+  const priorSecret = process.env.WEBAPP_SECRET;
+  process.env.WEBAPP_SECRET = "health-test-secret";
+  const original = globalThis.fetch;
+  const marker = ownerMarker();
+  assert.ok(marker);
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    status: "ok", bot_status: "unknown", api: { p95_ms: 18 },
+  }), { status: 200, headers: { "Content-Type": "application/json" } });
+  try {
+    const response = await health(new Request("https://studio.example/api/health", {
+      headers: { cookie: `videl_owner=${marker}` },
+    }));
+    const data = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(data.api.samples, null);
+    assert.equal(data.bot_status, "unknown");
+  } finally {
+    globalThis.fetch = original;
+    if (priorSecret === undefined) delete process.env.WEBAPP_SECRET;
+    else process.env.WEBAPP_SECRET = priorSecret;
+  }
+});
+
 test("guests cannot access legacy bot summary or health diagnostics", async () => {
   const original = globalThis.fetch;
   let calls = 0;

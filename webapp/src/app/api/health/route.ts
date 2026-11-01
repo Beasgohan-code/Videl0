@@ -76,7 +76,7 @@ export async function GET(req: Request) {
       revision: typeof body.revision === "string" ? body.revision.slice(0, 40) : null,
       api: apiTelemetry ? {
         p95_ms: typeof apiTelemetry.p95_ms === "number" && Number.isFinite(apiTelemetry.p95_ms) ? apiTelemetry.p95_ms : null,
-        samples: typeof apiTelemetry.samples === "number" && Number.isFinite(apiTelemetry.samples) ? Math.max(0, apiTelemetry.samples) : 0,
+        samples: typeof apiTelemetry.samples === "number" && Number.isFinite(apiTelemetry.samples) && apiTelemetry.samples >= 0 ? apiTelemetry.samples : null,
       } : null,
       attempts: result.attempts,
     },
