@@ -298,6 +298,7 @@ def _screen(chat_id, section="home", *, query="", category="all", page=0, connec
                            or action.startswith("resetconfirm:")
                            or action.startswith("warn_threshold:")
                            or action == "preset:save"
+                           or action == "session:schedule"
                            or action.startswith("blocklist:")
                            or action in {"antispam:edit", "captcha:edit", "welcome_text:edit",
                                          "goodbye_text:edit", "rules_text:edit", "rules_text:clear",
@@ -483,7 +484,7 @@ async def settings_callback(client,query):
                         "welcome_enabled", "goodbye_enabled", "gemini_guardian_enabled", "raid_mode",
                         "__warn_threshold_editor__", "__antispam_editor__", "__captcha_editor__",
                         "__command_toggle__", "__reset_preview__", "__reset_confirm__",
-                        "__session_cancel__"}
+                        "__session_cancel__", "__session_schedule__"}
         if key not in dm_safe_keys and not (
                 key == "__preset_save__" and section == "presets"
                 or key == "__welcome_flow_start__" and value in {"welcome_text", "goodbye_text", "rules_text", "welcome_media", "welcome_buttons"}
@@ -584,6 +585,14 @@ async def settings_callback(client,query):
         await query.answer("Section reset and audited.")
         fresh=_screen(chat_id,reset_category,connected_dm=connected_dm)
         return await rich_edit(message,fresh.html,reply_markup=fresh.keyboard)
+    if connected_dm and section == "sessions" and key == "__session_schedule__":
+        try:
+            await _start_connected_session(client, int(message.chat.id), int(actor.id), chat_id, expected_revision)
+        except RuntimeError as error:
+            return await query.answer(str(error), show_alert=True)
+        except Exception:
+            return await query.answer("Could not start the listening-session editor; nothing changed.", show_alert=True)
+        return await query.answer("Reply privately to continue; no session is created until you confirm.")
     if connected_dm and section == "presets" and key == "__preset_save__":
         try:
             await _start_connected_preset(client, int(message.chat.id), int(actor.id), chat_id, expected_revision)
@@ -886,6 +895,157 @@ async def blocklist_prompt_reply(client,message):
         await asyncio.to_thread(record_bot,chat_id,"settings",action="music_blocklist_add",detail=f"{prompt[1]} entry",actor=int(user.id))
     except Exception: pass
     await message.reply_text("Added to the group music blocklist. Open /settings → Music blocklist to review it.")
+
+async def _group_bot_can_announce(client, target_chat_id: int) -> bool:
+    try:
+        bot_user = getattr(client, "me", None) or await client.get_me()
+        bot_member = await client.get_chat_member(target_chat_id, int(bot_user.id))
+        status = str(getattr(getattr(bot_member, "status", None), "value",
+                             getattr(bot_member, "status", ""))).casefold()
+        if status in {"owner", "administrator"}:
+            return True
+        permissions = getattr(bot_member, "permissions", None)
+        if permissions is None:
+            permissions = getattr(bot_member, "privileges", None)
+        return status in {"member", "restricted"} and bool(getattr(permissions, "can_send_messages", False))
+    except Exception:
+        return False
+
+
+async def _start_connected_session(client, interaction_chat_id: int, actor_id: int,
+                                   target_chat_id: int, revision: int) -> None:
+    from videl.utils.interactive_settings import Step, engine as interaction_engine
+    if not await _group_bot_can_announce(client, target_chat_id):
+        raise RuntimeError("The bot cannot currently send announcements in the connected group.")
+    session = await interaction_engine.begin(chat_id=interaction_chat_id, actor_id=actor_id,
+        target_chat_id=target_chat_id, workflow="listening_session_schedule",
+        steps=(Step("details", "UTC start and session title", max_length=300),),
+        revision=revision, timeout_seconds=600)
+    try:
+        prompt = await client.send_message(interaction_chat_id,
+            "Reply as <code>YYYY-MM-DD HH:MM UTC | Session title</code> (up to 100 title characters, within 30 days). "
+            "The bot needs permission to send messages in the group. Send /cancel to stop.",
+            reply_markup=ForceReply(selective=True))
+        await interaction_engine.bind_prompt(session.token, chat_id=interaction_chat_id,
+                                             actor_id=actor_id, message_id=prompt.id)
+    except Exception:
+        await interaction_engine.cancel(session.token, chat_id=interaction_chat_id, actor_id=actor_id)
+        raise
+
+
+@bot.on_message(filters.private & filters.incoming, group=2)
+async def connected_session_reply(client, message):
+    actor = getattr(message, "from_user", None)
+    if actor is None or int(message.chat.id) != int(actor.id): return
+    from videl.utils.interactive_settings import engine as interaction_engine
+    actor_id = int(actor.id); interaction_chat_id = int(message.chat.id)
+    session = await interaction_engine.for_owner(chat_id=interaction_chat_id, actor_id=actor_id)
+    if session is None or session.workflow != "listening_session_schedule": return
+    text = str(getattr(message, "text", "") or "").strip()
+    command = text.split(maxsplit=1)[0].split("@", 1)[0].casefold() if text else ""
+    if command == "/cancel":
+        await interaction_engine.cancel(session.token, chat_id=interaction_chat_id, actor_id=actor_id)
+        return await client.send_message(interaction_chat_id, "Listening-session scheduling cancelled; nothing was created.")
+    reply = getattr(message, "reply_to_message", None)
+    if getattr(reply, "id", None) != session.expected_message_id: return
+    from videl.utils.listening_sessions import parse_schedule
+    try:
+        due, title = parse_schedule(text)
+    except ValueError as error:
+        return await client.send_message(interaction_chat_id, f"{error} Reply to the prompt again or /cancel.")
+    result = await interaction_engine.capture(session.token, chat_id=interaction_chat_id,
+        actor_id=actor_id, target_chat_id=session.target_chat_id,
+        reply_to_message_id=getattr(reply, "id", None), value=text)
+    if result.status == "invalid":
+        return await client.send_message(interaction_chat_id, result.error or "Invalid schedule details.")
+    if result.status != "preview": return
+    result.session.values["due_at"] = due
+    result.session.values["title"] = title
+    from pyrogram.types import InlineKeyboardMarkup
+    from videl.utils.bot_ui import button
+    from videl.plugins.base import escape
+    preview_text = ("<b>Listening-session schedule preview</b>\\n"
+        f"Group: <code>{result.session.target_chat_id}</code>\\n"
+        f"Starts: <b>{due.strftime('%Y-%m-%d %H:%M UTC')}</b>\\nTitle: <b>{escape(title)}</b>\\n"
+        "The existing scheduler will enable member music requests and post the announcement at this time. "
+        "No session has been created yet.")
+    markup = InlineKeyboardMarkup([[button("Edit", callback_data=f"listensession_edit:{result.session.token}"),
+        button("Confirm", callback_data=f"listensession_save:{result.session.token}", style="primary"),
+        button("Cancel", callback_data=f"listensession_cancel:{result.session.token}", style="danger")]])
+    try:
+        preview = await client.send_message(interaction_chat_id, preview_text, reply_markup=markup)
+        await interaction_engine.bind_prompt(result.session.token, chat_id=interaction_chat_id,
+            actor_id=actor_id, message_id=preview.id)
+    except Exception:
+        await interaction_engine.cancel(session.token, chat_id=interaction_chat_id, actor_id=actor_id)
+        await client.send_message(interaction_chat_id, "Could not render schedule preview; no session was created.")
+
+
+@bot.on_callback_query(filters.regex(r"^listensession_(?:edit|save|cancel):[A-Za-z0-9_-]{1,24}$"))
+async def connected_session_callback(client, query):
+    message = getattr(query, "message", None); actor = getattr(query, "from_user", None)
+    if message is None or actor is None or base.chat_kind(message) != "private" or int(message.chat.id) != int(actor.id):
+        return await query.answer("This listening-session action is unavailable.", show_alert=True)
+    action, token = str(query.data).split(":", 1)
+    from videl.utils.interactive_settings import engine as interaction_engine
+    interaction_chat_id = int(message.chat.id); actor_id = int(actor.id)
+    session = await interaction_engine.get(token, chat_id=interaction_chat_id, actor_id=actor_id)
+    if session is None or session.workflow != "listening_session_schedule":
+        return await query.answer("This session draft expired or is not yours. Nothing was created.", show_alert=True)
+    target_chat_id = int(session.target_chat_id)
+    if action.endswith("cancel"):
+        await interaction_engine.cancel(token, chat_id=interaction_chat_id, actor_id=actor_id)
+        await query.answer("Cancelled; no scheduled session was created.")
+        return await rich_edit(message, "Listening-session scheduling cancelled. Nothing was created.", reply_markup=None)
+    if action.endswith("edit"):
+        edited = await interaction_engine.edit_again(token, chat_id=interaction_chat_id,
+            actor_id=actor_id, message_id=message.id)
+        if edited is None: return await query.answer("This preview is no longer active.", show_alert=True)
+        edited.values.clear()
+        try:
+            prompt = await client.send_message(interaction_chat_id,
+                "Reply as <code>YYYY-MM-DD HH:MM UTC | Session title</code>. Send /cancel to stop.",
+                reply_markup=ForceReply(selective=True))
+            await interaction_engine.bind_prompt(token, chat_id=interaction_chat_id, actor_id=actor_id, message_id=prompt.id)
+        except Exception:
+            await interaction_engine.cancel(token, chat_id=interaction_chat_id, actor_id=actor_id)
+            return await query.answer("Could not restart editor; no session was created.", show_alert=True)
+        return await query.answer("Reply privately to edit the schedule.")
+
+    async def authorize(target_id, user_id):
+        from videl.app.connections import connected_target
+        _, error = await connected_target(client, user_id, expected_chat_id=target_id)
+        if error: return False
+        return await _group_bot_can_announce(client, target_id)
+
+    async def save(snapshot):
+        from videl.utils import settings_store
+        from videl.utils.settings_store import SettingsConflict
+        from videl.utils.db import get_db
+        from videl.utils.listening_sessions import parse_schedule, schedule
+        try:
+            settings_store.check(target_chat_id, snapshot.revision)
+            due, title = parse_schedule(snapshot.values["details"])
+        except (SettingsConflict, ValueError):
+            return False
+        import hashlib
+        identifier = hashlib.sha256(snapshot.token.encode("utf-8")).hexdigest()[:24]
+        return await asyncio.to_thread(schedule, get_db(), target_chat_id, actor_id,
+                                       due, title, identifier=identifier) is not None
+
+    outcome, _ = await interaction_engine.commit(token, chat_id=interaction_chat_id,
+        actor_id=actor_id, target_chat_id=target_chat_id, message_id=message.id,
+        authorize=authorize, save=save)
+    if outcome == "saved":
+        await query.answer("Listening session scheduled.")
+        return await rich_edit(message, "Listening session scheduled. Open /settings → Sessions to review it.", reply_markup=None)
+    messages = {"permission_denied": "Connection, admin access, or bot send permission changed. No session was created.",
+                "save_failed": "Could not schedule this session, or the draft became stale. No success was reported; refresh the Sessions page and retry.",
+                "expired": "This draft expired. No session was created.",
+                "stale": "This preview is stale or already being confirmed.",
+                "unauthorized": "This draft does not belong to this admin or group."}
+    return await query.answer(messages.get(outcome, "Could not schedule session."), show_alert=True)
+
 
 async def _preset_snapshot(chat_id: int) -> dict:
     from videl.core.player import get_loop
