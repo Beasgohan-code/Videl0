@@ -14,6 +14,7 @@ from videl.utils.rich_ui import (
     rich_esc, rich_footer, rich_hr, rich_img, rich_button, rich_button_row,
 )
 from videl.utils.premium_emojis import pe
+from videl.utils.command_ui import section as ui_section
 
 SECTION_META = {
     "music": ("Music", "Voice-chat playback, queues and playlists", "music"),
@@ -63,8 +64,7 @@ def render_section(section: str = "home", page: int = 0, *, owner: bool = False)
     if section in SECTION_META:
         label, description, _ = SECTION_META[section]
         rows, page, pages, total = _command_rows(section, owner, page)
-        text = (heading(label, 2) + body(description) + rich_hr()
-                + heading("Commands", 3))
+        text = ui_section(label, body(description) + rich_hr() + heading("Commands", 3), level=2)
         text += table(rows) if rows else body("No commands in this section yet.")
         text += rich_footer(f"{total} commands · page {page + 1} of {pages}")
         text += body("Admin actions check live Telegram permissions when you run them.")
@@ -89,30 +89,21 @@ def render_section(section: str = "home", page: int = 0, *, owner: bool = False)
         return text + actions, None
 
     # Home
-    counts = {name: len(visible_commands(owner=owner, category=meta[2])) for name, meta in SECTION_META.items()}
-    text = (
-        heading("Videl · Help center", 2)
-        + rich_img(base.studio_url() + "/videl-music-hero.png")
-        + body("Find the right command fast. This guide follows the commands installed in the bot.")
+    text = ui_section(
+        "Videl · Help center",
+        rich_img(base.studio_url() + "/videl-music-hero.png")
+        + body("Start quickly, then browse installed commands by topic.")
         + rich_hr()
         + heading("Quick starts", 3)
         + table([
-            (pe("music") + " Play", "<code>/play song name</code> · start music in a group voice chat"),
-            (pe("shield") + " Protect", "Group setup button checks access · <code>/lock links</code> blocks links"),
+            (pe("music") + " Play", "<code>/play song name</code> · in a group voice chat"),
+            (pe("shield") + " Protect", "Group setup checks access · <code>/lock links</code> blocks links"),
             (pe("spark") + " Welcome", "<code>/welcome on</code> · <code>/rules</code> · <code>/save name text</code>"),
             (pe("ios_add") + " Create", "<code>/poll</code> · <code>/quiz</code> · <code>/remind 10m call</code>"),
         ])
-        + rich_hr()
-        + heading("Browse a section", 3)
-        + table([
-            (pe("music") + " Music", f"{counts['music']} commands · playback, queues and playlists"),
-            (pe("shield") + " Groups", f"{counts['manage']} commands · moderation, locks, notes and welcomes"),
-            (pe("ios_controls") + " Tools", f"{counts['tools']} commands · polls, IDs, reminders and AFK"),
-            (pe("key") + " Owner", (f"{counts['owner']} private commands" if owner else "Private owner controls")),
-        ])
-        + rich_footer("Prefixes: <code>/ ! ? &amp; . # ~ $ +</code> · search with <code>/commands keyword</code>")
-        + body("Permission checks happen when an action runs. Browsing this guide never grants access.")
-        + body("For a linear, screen-reader-friendly list without icon/table layouts, use <code>/help plain</code> or <code>/commands plain search words</code>.")
+        + rich_footer("Prefixes: <code>/ ! ? &amp; . # ~ $ +</code> · search: <code>/commands keyword</code>")
+        + body("Permissions are checked when actions run. For a linear list, use <code>/help plain</code> or <code>/commands plain</code>."),
+        level=2,
     )
     actions = (
         rich_button_row(

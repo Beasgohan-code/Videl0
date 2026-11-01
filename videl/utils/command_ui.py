@@ -56,6 +56,56 @@ def progress(title, current, total, *, detail=None, width=10):
     return section(title, rich_note(summary), level=3)
 
 
+def transfer_progress_callback(update, title, *, interval=2.0):
+    """Create a throttled byte-progress callback for download/upload adapters."""
+    import asyncio
+    import time
+
+    lock = asyncio.Lock()
+    state = {"at": 0.0, "bucket": -1}
+
+    async def report(current, total):
+        try:
+            current, total = int(current), int(total)
+        except (TypeError, ValueError, OverflowError):
+            return
+        if total <= 0 or current < 0:
+            return
+        current = min(current, total)
+        percent = int(current * 100 / total)
+        bucket = percent // 10
+        now = time.monotonic()
+        async with lock:
+            if current < total and bucket == state["bucket"] and now - state["at"] < interval:
+                return
+            state.update(at=now, bucket=bucket)
+            detail = f"{format_bytes(current)} of {format_bytes(total)}"
+            try:
+                await update(progress(title, current, total, detail=detail))
+            except Exception:
+                # Status edits are informative only; never abort a file transfer.
+                return
+
+    return report
+
+
+def format_bytes(value):
+    """Format a nonnegative byte count compactly for Telegram status lines."""
+    try:
+        amount = max(0, int(value))
+    except (TypeError, ValueError, OverflowError):
+        return "Unknown size"
+    if amount < 1024:
+        return f"{amount} B"
+    if amount < 10 * 1024:
+        return f"{amount / 1024:.1f} KB"
+    if amount < 1024 * 1024:
+        return f"{amount / 1024:.0f} KB"
+    if amount < 1024 ** 3:
+        return f"{amount / 1024 ** 2:.1f} MB"
+    return f"{amount / 1024 ** 3:.2f} GB"
+
+
 def action_button(text, *, callback_data=None, url=None, style=None, icon=None, **options):
     """Build one semantic native button while leaving its action fields explicit."""
     return native_button(

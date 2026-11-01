@@ -17,8 +17,8 @@ import config
 from videl import bot_start_time
 from videl.app.router import Command, CommandError, Screen
 from videl.plugins import base
-from videl.plugins.base import body, escape, heading, small_caps, table
-from videl.utils.bot_ui import button
+from videl.plugins.base import body, escape, small_caps, table
+from videl.utils.command_ui import action_button as button, inline_keyboard, section
 from videl.utils.db import read_live_totals
 from videl.utils.rich_ui import rich_details, rich_img
 from videl.utils.premium_emojis import pe
@@ -83,7 +83,7 @@ def private_keyboard(owner: bool, username: str = "") -> InlineKeyboardMarkup:
     if owner:
         rows.insert(0, [button("Owner workspace", web_app=WebAppInfo(url=root + "/?tab=settings"), style="primary"),
                         button("Owner commands", callback_data="cmds:owner:0")])
-    return InlineKeyboardMarkup(rows)
+    return inline_keyboard(rows)
 
 
 def group_keyboard() -> InlineKeyboardMarkup:
@@ -101,7 +101,7 @@ def group_keyboard() -> InlineKeyboardMarkup:
         links.append(button("Updates", url=updates_url, icon="spark"))
     if links:
         rows.append(links)
-    return InlineKeyboardMarkup(rows)
+    return inline_keyboard(rows)
 
 
 def owner_caption(name: str) -> str:
@@ -112,9 +112,11 @@ def owner_caption(name: str) -> str:
         rows = [("Database totals", "unavailable")]
     uptime = str(timedelta(seconds=max(0, int(time.time() - bot_start_time))))
     rows.append(("Uptime", uptime))
-    return (heading("Videl owner console", 2)
-            + body(f"Welcome back, {escape(name)}. Your controls stay private to this chat.")
-            + table(rows))
+    return section(
+        small_caps("Videl owner console"),
+        body(f"Welcome back, {escape(name)}. Your controls stay private to this chat.") + table(rows),
+        level=2,
+    )
 
 
 def member_caption(name: str, private: bool) -> str:
@@ -131,7 +133,7 @@ def member_caption(name: str, private: bool) -> str:
         "Start a voice chat, then send <code>/play</code> with a song name or link.")
     title = "🎵 Vɪᴅᴇʟ Sᴛᴜᴅɪᴏ · Qᴜɪᴄᴋ sᴛᴀʀᴛ" if private else "🛡 Vɪᴅᴇʟ Sᴛᴜᴅɪᴏ · Gʀᴏᴜᴘ ɢᴜɪᴅᴇ"
     overview = rich_details("✨ Quick-start guide", table(steps), open=True)
-    return heading(title, 2) + body(intro) + private_note + overview
+    return section(title, body(intro) + private_note + overview, level=2)
 
 
 async def render_start(user, *, private: bool, owner: bool, username: str = "") -> Screen:
@@ -167,11 +169,14 @@ async def about(ctx) -> Screen:
         ("Web studio", escape(studio_url())),
     ]
     return Screen(
-        heading("About Videl", 2)
-        + body("Videl is a bot studio for Telegram groups: voice-chat music, moderation, saved notes and a web designer for posts.")
-        + table(configured)
-        + body("No AI features, no paid Stars actions, and every credential stays on the server."),
-        InlineKeyboardMarkup([
+        section(
+            "About Videl",
+            body("Videl is a bot studio for Telegram groups: voice-chat music, moderation, saved notes and a web designer for posts.")
+            + table(configured)
+            + body("No AI features, no paid Stars actions, and every credential stays on the server."),
+            level=2,
+        ),
+        inline_keyboard([
             [button("Source & licenses", callback_data="help:about", style="primary")],
             [button("Back to start", callback_data="help:start")],
         ]),

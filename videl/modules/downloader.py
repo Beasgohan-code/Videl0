@@ -32,7 +32,9 @@ from videl import bot, LOGGER
 from videl.modules.block import group_allowed, user_allowed
 from videl.utils.formatters import sc, sb, short
 from videl.utils.rich_ui import rich_esc, rich_heading, rich_kv_table, rich_note, rich_table, rich_details, rich_button
-from videl.utils.command_ui import rich_send, rich_edit
+from videl.utils.command_ui import (
+    rich_send, rich_edit, section, transfer_progress_callback,
+)
 
 try:
     from videl.utils.premium_emojis import pe
@@ -191,6 +193,61 @@ async def _fallback_youtube_audio(url: str, tmpdir: Path, requested_label: str) 
     return copied, {"title": title[:180] or "YouTube audio", "duration": None}
 
 
+def _yt_dlp_progress_hook(status_msg, title="Downloading media"):
+    """Bridge yt-dlp's worker-thread byte events into throttled Telegram edits."""
+    if status_msg is None:
+        return None
+    loop = asyncio.get_running_loop()
+
+    async def update(text):
+        await rich_edit(status_msg, text, navigation=False)
+
+    report = transfer_progress_callback(update, title, interval=2.0)
+    state = {"at": 0.0, "bucket": -1, "latest": None}
+    pending = []
+
+    def hook(data):
+        if not isinstance(data, dict) or data.get("status") != "downloading":
+            return None
+        try:
+            current = int(data.get("downloaded_bytes") or 0)
+            total = int(data.get("total_bytes") or data.get("total_bytes_estimate") or 0)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if current < 0 or total <= 0:
+            return None
+        state["latest"] = (current, total)
+        bucket = int(min(current, total) * 100 / total) // 10
+        now = time.monotonic()
+        if bucket == state["bucket"] and now - state["at"] < 2.0:
+            return None
+        state.update(at=now, bucket=bucket)
+        try:
+            future = asyncio.run_coroutine_threadsafe(report(current, total), loop)
+            pending.append(future)
+            return future
+        except RuntimeError:
+            return None
+
+    async def drain(*, complete=False):
+        latest = state["latest"]
+        if latest:
+            current, total = latest
+            if complete:
+                current = total
+            future = asyncio.run_coroutine_threadsafe(report(current, total), loop)
+            pending.append(future)
+        for future in list(pending):
+            try:
+                await asyncio.wrap_future(future)
+            except Exception:
+                pass
+        pending.clear()
+
+    hook.drain = drain
+    return hook
+
+
 async def _download_media(
     source: str,
     audio_only: bool = True,
@@ -212,8 +269,7 @@ async def _download_media(
             try:
                 await rich_edit(
                     status_msg,
-                    rich_heading("🔎 Searching for your track", level=3)
-                    + rich_note("Looking for a playable match…"),
+                    section("Searching for a track", rich_note("Looking for a playable match…"), level=3),
                 )
             except Exception:
                 pass
@@ -233,17 +289,24 @@ async def _download_media(
     if status_msg:
         try:
             media_label = "MP3 · 192 kbps audio" if audio_only else "MP4 · up to 1080p video"
-            status_text = (
-                rich_heading("⬇️ Preparing your download", level=3)
-                + rich_note(
+            status_text = section(
+                "Preparing download",
+                rich_note(
                     f"<b>Source</b> · {rich_esc(_source_summary(url))}<br>"
                     f"<b>Format</b> · {media_label}<br>"
-                    "<i>This may take a few moments.</i>"
-                )
+                    "<i>Waiting for the source to report transfer size.</i>"
+                ),
+                level=3,
             )
             await rich_edit(status_msg, status_text, navigation=False)
         except Exception:
             pass
+
+    progress_hook = None
+    if status_msg is not None:
+        media_kind = "Downloading audio" if audio_only else "Downloading video"
+        progress_hook = _yt_dlp_progress_hook(status_msg, media_kind)
+        opts["progress_hooks"] = [progress_hook]
 
     def _run():
         import yt_dlp
@@ -268,9 +331,22 @@ async def _download_media(
     try:
         try:
             path, info = await asyncio.to_thread(_run)
+            if progress_hook is not None:
+                await progress_hook.drain(complete=True)
         except Exception as extractor_error:
+            if progress_hook is not None:
+                await progress_hook.drain()
             if not audio_only or not _extract_video_id(url):
                 raise
+            if status_msg is not None:
+                try:
+                    await rich_edit(
+                        status_msg,
+                        section("Switching audio source", rich_note("The first source did not return a playable file. Trying the configured fallback…"), level=3),
+                        navigation=False,
+                    )
+                except Exception:
+                    pass
             log.warning("yt-dlp audio extraction failed for YouTube; trying configured provider fallback (%s)", type(extractor_error).__name__)
             try:
                 fallback = await _fallback_youtube_audio(url, tmpdir, requested_label)
@@ -291,10 +367,6 @@ async def _download_media(
         log.error("Media download failed for %s (%s)", _source_summary(url), type(e).__name__)
         shutil.rmtree(tmpdir, ignore_errors=True)
         raise
-
-
-def _hdr(t: str, lvl: int = 3):
-    return rich_heading(t, level=lvl)
 
 
 def _source_summary(source: str) -> str:
@@ -360,6 +432,16 @@ def _cleanup_download(path: Optional[Path]) -> None:
         log.warning("Could not clean temporary media %s (%s)", path.name, type(error).__name__)
 
 
+def _upload_progress_callback(status_msg, title):
+    if status_msg is None:
+        return None
+
+    async def update(text):
+        await rich_edit(status_msg, text, navigation=False)
+
+    return transfer_progress_callback(update, title, interval=2.0)
+
+
 def _blocked_request(query: str, words) -> bool:
     """Match configured blocked terms as words/phrases, not accidental substrings."""
     for item in words:
@@ -384,9 +466,9 @@ async def song_cmd(_, m: Message):
     if not query and reply:
         query = str(getattr(reply, "text", None) or getattr(reply, "caption", None) or "").strip()
     if not query:
-        body = (
-            rich_heading("🎵 Audio downloader", level=2)
-            + rich_note(
+        body = section(
+            "🎵 Audio downloader",
+            rich_note(
                 "Send a track name or a direct link to get a high-quality MP3. "
                 "You can also reply to a message containing a title or link."
             )
@@ -401,7 +483,8 @@ async def song_cmd(_, m: Message):
             + rich_details(
                 "Supported sources",
                 "YouTube, YouTube Music, SoundCloud, Instagram, TikTok, and more.",
-            )
+            ),
+            level=2,
         )
         body += "<p>" + rich_button("🎵 Play in voice chat", callback_data="help_play") + " " + rich_button("📹 Download video", callback_data="dl:video") + "</p>"
         return await rich_send(bot, m.chat.id, body)
@@ -411,14 +494,12 @@ async def song_cmd(_, m: Message):
     if _blocked_request(query, blocked):
         return await rich_send(
             bot, m.chat.id,
-            rich_heading("⚠️ Request not allowed", level=3)
-            + rich_note("This search request isn’t permitted. Try a different title or link."),
+            section("⚠️ Request not allowed", rich_note("This search request isn’t permitted. Try a different title or link."), level=3),
         )
 
     status = await rich_send(
         bot, m.chat.id,
-        rich_heading("🎵 Preparing your audio", level=3)
-        + rich_note("Finding the track and preparing a high-quality audio file…"),
+        section("🎵 Preparing your audio", rich_note("Finding the track and preparing a high-quality audio file…"), level=3),
         navigation=False,
     )
 
@@ -436,10 +517,13 @@ async def song_cmd(_, m: Message):
         if size_mb > 50:
             await rich_edit(
                 status,
-                rich_heading("⚠️ Audio file is too large", level=3)
-                + rich_note(
-                    f"This file is {size_mb:.1f} MB; Telegram bots can send up to 50 MB. "
-                    "Try a shorter track."
+                section(
+                    "⚠️ Audio file is too large",
+                    rich_note(
+                        f"This file is {size_mb:.1f} MB; Telegram bots can send up to 50 MB. "
+                        "Try a shorter track."
+                    ),
+                    level=3,
                 ),
             )
             _cleanup_download(path)
@@ -457,9 +541,12 @@ async def song_cmd(_, m: Message):
             ("Ready in", f"<code>{elapsed:.1f} seconds</code>"),
             ("Requested by", f"<a href=\"tg://user?id={m.from_user.id}\">{rich_esc(m.from_user.first_name or 'User')}</a>" if m.from_user else "User"),
         ])
-        cap = _hdr(pe("music","🎵") + " " + rich_esc(title[:60]), 2)
-        cap += rich_kv_table(fields, headers=["Audio download", ""])
-        cap += rich_note("Audio prepared as an MP3 · 192 kbps")
+        cap = section(
+            pe("music", "🎵") + " " + rich_esc(title[:60]),
+            rich_kv_table(fields, headers=["Audio download", ""])
+            + rich_note("MP3 · 192 kbps"),
+            level=2,
+        )
 
         # Send audio with professional metadata
         try:
@@ -477,6 +564,13 @@ async def song_cmd(_, m: Message):
         }
         if artist:
             audio_options["performer"] = artist
+        if status is not None:
+            await rich_edit(
+                status,
+                section("Uploading audio", rich_note("Sending the prepared file to Telegram…"), level=3),
+                navigation=False,
+            )
+            audio_options["progress"] = _upload_progress_callback(status, "Uploading audio")
         try:
             try:
                 await visual_call(bot.send_audio, **audio_options)
@@ -487,7 +581,7 @@ async def song_cmd(_, m: Message):
                 fallback_caption = rich_esc(title[:60]) + (f" · {rich_esc(artist)}" if artist else "")
                 await bot.send_document(
                     m.chat.id, document=str(path), caption=fallback_caption,
-                    reply_to_message_id=m.id,
+                    reply_to_message_id=m.id, progress=audio_options.get("progress"),
                 )
             try:
                 await status.delete()
@@ -505,15 +599,13 @@ async def song_cmd(_, m: Message):
         log.info("/song had no playable result for query length %d (%s)", len(query), type(e).__name__)
         await rich_edit(
             status,
-            rich_heading("🔎 No playable result found", level=3)
-            + rich_note("Try another title or paste a direct audio/video link."),
+            section("🔎 No playable result found", rich_note("Try another title or paste a direct audio/video link."), level=3),
         )
     except Exception as e:
         log.error("/song failed for query length %d (%s)", len(query), type(e).__name__)
         await rich_edit(
             status,
-            rich_heading("⚠️ Download couldn’t be completed", level=3)
-            + rich_note(_friendly_download_error(e)),
+            section("⚠️ Download couldn’t be completed", rich_note(_friendly_download_error(e)), level=3),
         )
         _cleanup_download(path)
 
@@ -525,25 +617,25 @@ async def vsong_cmd(_, m: Message):
     if not query and reply:
         query = str(getattr(reply, "text", None) or getattr(reply, "caption", None) or "").strip()
     if not query:
-        body = (
-            rich_heading("🎥 Video downloader", level=2)
-            + rich_note(
+        body = section(
+            "🎥 Video downloader",
+            rich_note(
                 "Send a video title or direct link to download an MP4 (up to 1080p). "
                 "You can also reply to a message containing a title or link."
             )
-            + rich_details("Example", "<code>/vsong nature documentary</code>")
+            + rich_details("Example", "<code>/vsong nature documentary</code>"),
+            level=2,
         )
         body += "<p>" + rich_button("🎵 Download audio", callback_data="dl:song") + "</p>"
         return await rich_send(bot, m.chat.id, body)
 
     blocked = getattr(config, "BLOCKED_WORDS", []) or ["porn", "xxx", "xnxx", "sex"]
     if _blocked_request(query, blocked):
-        return await rich_send(bot, m.chat.id, rich_heading("⚠️ Request not allowed", level=3) + rich_note("This search request isn’t permitted. Try another title or link."))
+        return await rich_send(bot, m.chat.id, section("⚠️ Request not allowed", rich_note("This search request isn’t permitted. Try another title or link."), level=3))
 
     status = await rich_send(
         bot, m.chat.id,
-        rich_heading("🎥 Preparing your video", level=3)
-        + rich_note("Checking the source and preparing an MP4 download…"),
+        section("🎥 Preparing your video", rich_note("Checking the source and preparing an MP4 download…"), level=3),
         navigation=False,
     )
 
@@ -558,10 +650,13 @@ async def vsong_cmd(_, m: Message):
             log.warning(f"Video too large: {size_mb:.1f} MB")
             await rich_edit(
                 status,
-                rich_heading("⚠️ Video file is too large", level=3)
-                + rich_note(
-                    f"This file is {size_mb:.1f} MB; Telegram bots can send up to 50 MB. "
-                    "Try a shorter video."
+                section(
+                    "⚠️ Video file is too large",
+                    rich_note(
+                        f"This file is {size_mb:.1f} MB; Telegram bots can send up to 50 MB. "
+                        "Try a shorter video."
+                    ),
+                    level=3,
                 ),
             )
             _cleanup_download(path)
@@ -569,31 +664,46 @@ async def vsong_cmd(_, m: Message):
 
         title = _media_title(info, path, limit=60)
         duration_seconds = info.get("duration")
+        try:
+            dimensions = (int(info.get("width") or 0), int(info.get("height") or 0))
+            if min(dimensions) <= 0:
+                dimensions = None
+        except (TypeError, ValueError, OverflowError):
+            dimensions = None
+        video_fields = [("Duration", f"<code>{rich_esc(_duration_label(duration_seconds))}</code>")]
+        if dimensions:
+            video_fields.append(("Resolution", f"<code>{dimensions[0]} × {dimensions[1]}</code>"))
+        video_fields.extend([
+            ("File size", f"<code>{size_mb:.2f} MB</code>"),
+            ("Ready in", f"<code>{elapsed:.1f} seconds</code>"),
+        ])
         video_options = {
             "chat_id": m.chat.id,
             "video": str(path),
-            "caption": rich_heading(f"🎥 {rich_esc(title)}", level=2) + rich_kv_table([
-                ("Duration", f"<code>{rich_esc(_duration_label(duration_seconds))}</code>"),
-                ("File size", f"<code>{size_mb:.2f} MB</code>"),
-                ("Ready in", f"<code>{elapsed:.1f} seconds</code>"),
-            ], headers=["Video download", ""]),
+            "caption": section(
+                f"🎥 {rich_esc(title)}",
+                rich_kv_table(video_fields, headers=["Video download", ""]),
+                level=2,
+            ),
             "parse_mode": ParseMode.HTML,
             "reply_to_message_id": m.id,
             "supports_streaming": True,
         }
+        if status is not None:
+            await rich_edit(
+                status,
+                section("Uploading video", rich_note("Sending the prepared file to Telegram…"), level=3),
+                navigation=False,
+            )
+            video_options["progress"] = _upload_progress_callback(status, "Uploading video")
         try:
             video_duration = max(0, int(float(duration_seconds))) if duration_seconds is not None else None
         except (TypeError, ValueError, OverflowError):
             video_duration = None
         if video_duration is not None:
             video_options["duration"] = video_duration
-        for field in ("width", "height"):
-            try:
-                value = int(info.get(field) or 0)
-                if value > 0:
-                    video_options[field] = value
-            except (TypeError, ValueError, OverflowError):
-                pass
+        if dimensions:
+            video_options["width"], video_options["height"] = dimensions
         await visual_call(bot.send_video, **video_options)
         try:
             await status.delete()
@@ -605,8 +715,7 @@ async def vsong_cmd(_, m: Message):
         log.error("/vsong failed (%s)", type(e).__name__)
         await rich_edit(
             status,
-            rich_heading("⚠️ Video download couldn’t be completed", level=3)
-            + rich_note(_friendly_download_error(e)),
+            section("⚠️ Video download couldn’t be completed", rich_note(_friendly_download_error(e)), level=3),
         )
         _cleanup_download(path)
 
@@ -615,16 +724,17 @@ async def vsong_cmd(_, m: Message):
 async def download_cmd(_, m: Message):
     query = " ".join(m.command[1:]) if len(m.command) > 1 else ""
     if not query:
-        body = (
-            rich_heading("⬇️ Media downloader", level=2)
-            + rich_note(
+        body = section(
+            "⬇️ Media downloader",
+            rich_note(
                 "Send a title or link and I’ll prepare audio or video automatically. "
                 "Use <code>/song</code> or <code>/vsong</code> to choose a format yourself."
             )
             + rich_details(
                 "Supported sources",
                 "YouTube, TikTok, Instagram, SoundCloud, X, Facebook, and many more.",
-            )
+            ),
+            level=2,
         )
         body += "<p>" + rich_button("🎵 Audio help", callback_data="dl:song") + " " + rich_button("📹 Video help", callback_data="dl:video") + "</p>"
         return await rich_send(bot, m.chat.id, body)

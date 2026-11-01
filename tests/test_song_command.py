@@ -40,6 +40,9 @@ class SongCommandTests(unittest.IsolatedAsyncioTestCase):
 
                 with patch.object(downloader, "visual_call", new=AsyncMock(side_effect=send_via_visual_call)):
                     await downloader.song_cmd(None, message)
+                    progress = send_audio.await_args.kwargs.get("progress")
+                    self.assertTrue(callable(progress))
+                    await progress(2 * 1024 * 1024, 4 * 1024 * 1024)
 
             download.assert_awaited_once()
             self.assertTrue(download.await_args.kwargs["audio_only"])
@@ -49,7 +52,9 @@ class SongCommandTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(send_audio.await_args.kwargs["reply_to_message_id"], message.id)
             send_document.assert_not_awaited()
             status.delete.assert_awaited_once()
-            edit.assert_not_awaited()
+            self.assertEqual(edit.await_count, 2)
+            self.assertIn("50% ·", edit.await_args.args[1])
+            self.assertIn("2.0 MB of 4.0 MB", edit.await_args.args[1])
             self.assertFalse(path.exists(), "successful delivery must clean up its temporary audio")
 
     async def test_successful_audio_delivery_in_group_and_private_chat(self):
@@ -132,7 +137,8 @@ class SongCommandTests(unittest.IsolatedAsyncioTestCase):
             ):
                 await downloader.song_cmd(None, self._message())
             send_document.assert_awaited_once()
-            edit.assert_not_awaited()
+            edit.assert_awaited_once()
+            self.assertIn("Uploading audio", edit.await_args.args[1])
             self.assertFalse(path.exists())
 
     async def test_ambiguous_send_failure_is_not_retried_as_document(self):
@@ -150,7 +156,9 @@ class SongCommandTests(unittest.IsolatedAsyncioTestCase):
             ):
                 await downloader.song_cmd(None, self._message())
             send_document.assert_not_awaited()
-            edit.assert_awaited_once()
+            self.assertEqual(edit.await_count, 2)
+            self.assertIn("Uploading audio", edit.await_args_list[0].args[1])
+            self.assertIn("Download couldn’t be completed", edit.await_args_list[1].args[1])
             self.assertFalse(path.exists())
 
 

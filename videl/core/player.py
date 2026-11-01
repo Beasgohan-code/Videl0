@@ -6,7 +6,8 @@ import asyncio, time
 from collections import OrderedDict
 from pyrogram.errors import BadRequest
 from pyrogram.types import InlineKeyboardMarkup, Message
-from videl.utils.bot_ui import button as InlineKeyboardButton, visual_call
+from videl.utils.bot_ui import visual_call
+from videl.utils.command_ui import action_button as InlineKeyboardButton, inline_keyboard, navigation_buttons
 from pytgcalls.types import MediaStream, VideoQuality
 import config
 from videl import LOGGER, bot, call_py
@@ -189,12 +190,10 @@ def _now_playing_kb(chat_id: int|None=None, votes: int=0, votes_needed: int=0) -
         [InlineKeyboardButton("Replay",callback_data="replay",icon="ios_repeat"),
          InlineKeyboardButton("Stop",callback_data="stop",style="danger",icon="ios_close")],
     ]
-    if votes_needed>0: rows.append([InlineKeyboardButton(f"Vote to skip · {votes}/{votes_needed}",callback_data="vote_skip",icon="rijif_thumbs_up")])
-    rows.append([
-        InlineKeyboardButton("Help center",callback_data="help:home",icon="info"),
-        InlineKeyboardButton("Browse commands",callback_data="cmds:all:0",icon="search"),
-    ])
-    return InlineKeyboardMarkup(rows)
+    if votes_needed>0:
+        rows.append([InlineKeyboardButton(f"Vote to skip · {votes}/{votes_needed}",callback_data="vote_skip",icon="rijif_thumbs_up")])
+    rows.append(navigation_buttons())
+    return inline_keyboard(rows)
 
 
 async def refresh_np_ui(chat_id:int):
@@ -300,7 +299,7 @@ async def play_song(chat_id:int, message:Message, song:dict, *, advance=False, r
                           'Start a voice chat in Telegram and make sure the assistant can join and speak, then use /replay.')
             try:
                 from videl.utils.command_ui import rich_send as command_rich_send
-                retry_keyboard = InlineKeyboardMarkup([[
+                retry_keyboard = inline_keyboard([[
                     InlineKeyboardButton("Replay current track", callback_data="replay", style="primary", icon="ios_repeat")
                 ]])
                 await command_rich_send(

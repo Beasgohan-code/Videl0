@@ -182,15 +182,14 @@ def _command_scope(entry, pe):
 
 
 def directory(category='all',page=0,*,owner=False,query=''):
-    from pyrogram.types import InlineKeyboardMarkup
-    from videl.utils.bot_ui import button
+    from videl.utils.command_ui import action_button as button, inline_keyboard, section
     from videl.utils.premium_emojis import pe
-    from videl.utils.rich_ui import rich_heading,rich_note,rich_esc,rich_kv_table
+    from videl.utils.rich_ui import rich_note,rich_esc,rich_kv_table
     if category not in LABELS or category=='owner' and not owner:category='all'
     entries=visible_commands(owner,category,query)
     size=10;pages=max(1,(len(entries)+size-1)//size);page=max(0,min(int(page),pages-1))
     title_icon = {'music': 'music', 'manage': 'shield', 'tools': 'ios_controls', 'owner': 'crown', 'all': 'ios_symbols'}[category]
-    text=rich_heading(pe(title_icon) + ' ' + LABELS[category] + ' · Command directory',level=2)+rich_note(f'{len(entries)} commands · Page {page+1}/{pages}')
+    text=section(pe(title_icon) + ' ' + LABELS[category] + ' · Command directory', rich_note(f'{len(entries)} commands · Page {page+1}/{pages}'), level=2)
     if query:text+=rich_note(pe('ios_search') + f' Search: <code>{rich_esc(query)}</code>')
     if entries:
         text+=rich_kv_table([
@@ -214,4 +213,4 @@ def directory(category='all',page=0,*,owner=False,query=''):
     rows.extend([[button('Music',callback_data='cmds:music:0'),button('Groups',callback_data='cmds:manage:0')],
                  [button('Telegram tools',callback_data='cmds:tools:0'),button('Help center',callback_data='help:home')]])
     if owner:rows.append([button('Owner operations',callback_data='cmds:owner:0',style='primary')])
-    return text,InlineKeyboardMarkup(rows)
+    return text,inline_keyboard(rows)

@@ -9,17 +9,14 @@ import time
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 
-from pyrogram.types import InlineKeyboardMarkup
-
 import config
 from videl import bot_start_time
 from videl.app.router import Command, CommandError, Screen
 from videl.plugins import base
 from videl.plugins.base import body, escape, heading, table
-from videl.utils.bot_ui import button
-from videl.utils.command_ui import usage
+from videl.utils.command_ui import usage, section, format_bytes
 from videl.utils.rich_ui import (
-    rich_heading, rich_note, rich_hr, rich_footer, rich_button, rich_button_row,
+    rich_heading, rich_note, rich_hr, rich_footer, rich_button, rich_button_row, rich_kv_table,
 )
 
 LOGGER = logging.getLogger(__name__)
@@ -137,11 +134,30 @@ async def sticker_id(ctx) -> Screen:
     sticker = getattr(reply, "sticker", None) if reply else None
     if sticker is None:
         return Screen(usage("/stickerid", "Reply to a sticker to read its file id."))
+    fields = [
+        ("File ID", f"<code>{escape(sticker.file_id)}</code>"),
+        ("Unique ID", f"<code>{escape(sticker.file_unique_id)}</code>"),
+        ("Sticker set", escape(getattr(sticker, "set_name", None) or "Not part of a set")),
+    ]
+    if getattr(sticker, "emoji", None):
+        fields.append(("Emoji", escape(sticker.emoji)))
+    if getattr(sticker, "file_size", None):
+        fields.append(("File size", format_bytes(sticker.file_size)))
+    try:
+        width, height = int(getattr(sticker, "width", 0) or 0), int(getattr(sticker, "height", 0) or 0)
+        if width > 0 and height > 0:
+            fields.append(("Dimensions", f"{width} × {height} px"))
+    except (TypeError, ValueError, OverflowError):
+        pass
+    kind = "Video" if getattr(sticker, "is_video", False) else "Animated" if getattr(sticker, "is_animated", False) else "Static"
+    fields.append(("Format", f"{kind} sticker"))
     return Screen(
-        heading("Sticker file id", 3)
-        + body(f"<code>{escape(sticker.file_id)}</code>")
-        + body(f"Set: <code>{escape(getattr(sticker, 'set_name', None) or 'unknown')}</code> · "
-               f"Unique: <code>{escape(sticker.file_unique_id)}</code>")
+        section(
+            "Sticker file details",
+            rich_kv_table(fields)
+            + body("The file ID can be reused by the bot. The unique ID is for identification only."),
+            level=3,
+        )
     )
 
 
