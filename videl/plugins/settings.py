@@ -189,7 +189,8 @@ def _screen(chat_id, section="home", *, query="", category="all", page=0, connec
     elif section=="blocklist":
         from videl.utils.track_blocklist import normalize
         items=normalize(base.get_setting(chat_id,"music_track_blocklist",[]))
-        text=heading("Music track & artist blocklist",3)+body("Entries are matched case-insensitively against track titles and available artist metadata before a request enters the queue. Up to 50 entries, 100 characters each.")+table([(f"{i}. {item['kind'].title()}",item["value"]) for i,item in enumerate(items,1)] if items else [("Blocked entries","None")])+body("Add prompts and replies are visible in the group.")
+        text=heading("Music track & artist blocklist",3)+body("Entries are matched case-insensitively against track titles and available artist metadata before a request enters the queue. Up to 50 entries, 100 characters each.")+table([(f"{i}. {item['kind'].title()}",item["value"]) for i,item in enumerate(items,1)] if items else [("Blocked entries","None")])
+        text += body("Changes are staged and previewed before saving." if connected_dm else "Add prompts and replies are visible in the group.")
         markup.append([button("＋ Block track",callback_data=f"settings:{chat_id}:blocklist:add:track"),button("＋ Block artist",callback_data=f"settings:{chat_id}:blocklist:add:artist")])
         for i,item in enumerate(items,1): markup.append([button(f"Remove {i}: {item['value'][:32]}",callback_data=f"settings:{chat_id}:blocklist:remove:{i}",style="danger")])
     elif section=="presets":
@@ -295,6 +296,7 @@ def _screen(chat_id, section="home", *, query="", category="all", page=0, connec
                            or action.startswith("reset:")
                            or action.startswith("resetconfirm:")
                            or action.startswith("warn_threshold:")
+                           or action.startswith("blocklist:")
                            or action in {"antispam:edit", "captcha:edit", "welcome_text:edit",
                                          "goodbye_text:edit", "rules_text:edit", "rules_text:clear",
                                          "welcome_media:edit", "welcome_media:clear",
@@ -481,7 +483,8 @@ async def settings_callback(client,query):
                         "__command_toggle__", "__reset_preview__", "__reset_confirm__",
                         "__session_cancel__"}
         if key not in dm_safe_keys and not (
-                key == "__welcome_flow_start__" and value in {"welcome_text", "goodbye_text", "rules_text", "welcome_media", "welcome_buttons"}):
+                key == "__welcome_flow_start__" and value in {"welcome_text", "goodbye_text", "rules_text", "welcome_media", "welcome_buttons"}
+                or key in {"__prompt__", "__remove__"} and section == "blocklist"):
             return await query.answer("That editor is not available in connected DM yet. No change was made.", show_alert=True)
     try:
         member=await client.get_chat_member(chat_id,int(actor.id)); status=str(getattr(member.status,"value",member.status)).casefold()
@@ -578,6 +581,16 @@ async def settings_callback(client,query):
         await query.answer("Section reset and audited.")
         fresh=_screen(chat_id,reset_category,connected_dm=connected_dm)
         return await rich_edit(message,fresh.html,reply_markup=fresh.keyboard)
+    if connected_dm and section == "blocklist" and key in {"__prompt__", "__remove__"}:
+        try:
+            await _start_connected_blocklist(client, int(message.chat.id), int(actor.id), chat_id,
+                                            expected_revision, "add" if key == "__prompt__" else "remove",
+                                            value, message)
+        except RuntimeError as error:
+            return await query.answer(str(error), show_alert=True)
+        except Exception:
+            return await query.answer("Could not start the blocklist editor; nothing changed.", show_alert=True)
+        return await query.answer("Reply privately to continue; nothing is saved until confirmation.")
     if key in {"__prompt__","__preset_save__","__session_schedule__"}:
         kind = value if key == "__prompt__" else ("preset" if key == "__preset_save__" else "session")
         prompt_text = ("Reply with a name for this preset (1–32 characters)." if kind == "preset" else ("Reply with YYYY-MM-DD HH:MM UTC | Session title. Example: 2026-11-05 19:30 UTC | Friday listening." if kind == "session" else f"Reply to this message with the {kind} name to block (up to 100 characters). This reply is visible in the group."))
@@ -862,6 +875,159 @@ async def blocklist_prompt_reply(client,message):
         await asyncio.to_thread(record_bot,chat_id,"settings",action="music_blocklist_add",detail=f"{prompt[1]} entry",actor=int(user.id))
     except Exception: pass
     await message.reply_text("Added to the group music blocklist. Open /settings → Music blocklist to review it.")
+
+async def _start_connected_blocklist(client, interaction_chat_id: int, actor_id: int, target_chat_id: int,
+                                    revision: int, operation: str, value, source_message) -> None:
+    from videl.utils.interactive_settings import Step, engine as interaction_engine
+    from pyrogram.types import InlineKeyboardMarkup
+    from videl.utils.bot_ui import button
+    workflow = "music_blocklist_add" if operation == "add" else "music_blocklist_remove"
+    steps = (Step("value", "Blocklist entry", max_length=100),) if operation == "add" else (Step("index", "Entry number", kind="number", minimum=1, maximum=50),)
+    if operation == "remove":
+        value = int(value)
+        items = __import__("videl.utils.track_blocklist", fromlist=["normalize"]).normalize(
+            base.get_setting(target_chat_id, "music_track_blocklist", []))
+        if not 1 <= value <= len(items):
+            raise RuntimeError("That entry is no longer available. Refresh the blocklist.")
+        steps = (Step("index", "Entry number", kind="number", minimum=value, maximum=value),)
+    session = await interaction_engine.begin(chat_id=interaction_chat_id, actor_id=actor_id,
+        target_chat_id=target_chat_id, workflow=workflow, steps=steps, revision=revision, timeout_seconds=600)
+    session.values["operation"] = operation
+    if operation == "add":
+        session.values["kind"] = value
+        prompt_text = f"Reply with the {value} name to block (1–100 characters). /cancel stops without saving."
+    else:
+        items = __import__("videl.utils.track_blocklist", fromlist=["normalize"]).normalize(
+            base.get_setting(target_chat_id, "music_track_blocklist", []))
+        prompt_text = "Reply with the entry number to remove:\n" + "\n".join(
+            f"{i}. {entry['kind'].title()}: {entry['value']}" for i, entry in enumerate(items, 1)) + "\n/cancel stops without saving."
+    try:
+        prompt = await client.send_message(interaction_chat_id, prompt_text,
+                                          reply_markup=ForceReply(selective=True))
+        await interaction_engine.bind_prompt(session.token, chat_id=interaction_chat_id,
+                                             actor_id=actor_id, message_id=prompt.id)
+    except Exception:
+        await interaction_engine.cancel(session.token, chat_id=interaction_chat_id, actor_id=actor_id)
+        raise
+
+
+async def _send_connected_blocklist_preview(client, session) -> None:
+    from pyrogram.types import InlineKeyboardMarkup
+    from videl.utils.bot_ui import button
+    from videl.utils.track_blocklist import add, normalize, remove
+    current = normalize(base.get_setting(session.target_chat_id, "music_track_blocklist", []))
+    if session.workflow == "music_blocklist_add":
+        updated = add(current, session.values["kind"], session.values["value"])
+    else:
+        updated = remove(current, session.values["index"])
+    session.values["updated"] = updated
+    rows = [[button("Edit", callback_data=f"blocklist_edit:{session.token}"),
+             button("Confirm", callback_data=f"blocklist_save:{session.token}", style="primary"),
+             button("Cancel", callback_data=f"blocklist_cancel:{session.token}", style="danger")]]
+    text = "<b>Music blocklist preview</b>\nNothing has been saved.\n"
+    text += "\n".join(f"{i}. {item['kind'].title()}: {item['value']}" for i, item in enumerate(updated, 1)) or "No blocked entries."
+    preview = await client.send_message(session.chat_id, text,
+        reply_markup=InlineKeyboardMarkup(rows))
+    from videl.utils.interactive_settings import engine as interaction_engine
+    await interaction_engine.bind_prompt(session.token, chat_id=session.chat_id,
+        actor_id=session.actor_id, message_id=preview.id)
+
+
+@bot.on_message(filters.private & filters.incoming, group=2)
+async def connected_blocklist_reply(client, message):
+    actor = getattr(message, "from_user", None)
+    if actor is None or int(message.chat.id) != int(actor.id):
+        return
+    from videl.utils.interactive_settings import engine as interaction_engine
+    actor_id = int(actor.id); interaction_chat_id = int(message.chat.id)
+    session = await interaction_engine.for_owner(chat_id=interaction_chat_id, actor_id=actor_id)
+    if session is None or session.workflow not in {"music_blocklist_add", "music_blocklist_remove"}:
+        return
+    text = str(getattr(message, "text", "") or "").strip()
+    command = text.split(maxsplit=1)[0].split("@", 1)[0].casefold() if text else ""
+    if command == "/cancel":
+        await interaction_engine.cancel(session.token, chat_id=interaction_chat_id, actor_id=actor_id)
+        return await client.send_message(interaction_chat_id, "Blocklist edit cancelled; nothing was saved.")
+    reply = getattr(message, "reply_to_message", None)
+    if getattr(reply, "id", None) != session.expected_message_id:
+        return
+    target_chat_id = int(session.target_chat_id)
+    value = text
+    result = await interaction_engine.capture(session.token, chat_id=interaction_chat_id,
+        actor_id=actor_id, target_chat_id=target_chat_id,
+        reply_to_message_id=getattr(reply, "id", None), value=value)
+    if result.status == "invalid":
+        return await client.send_message(interaction_chat_id, result.error or "Invalid value. Reply to the prompt again.")
+    if result.status != "preview":
+        return
+    try:
+        await _send_connected_blocklist_preview(client, result.session)
+    except ValueError as error:
+        await interaction_engine.cancel(session.token, chat_id=interaction_chat_id, actor_id=actor_id)
+        return await client.send_message(interaction_chat_id, str(error))
+    except Exception:
+        await interaction_engine.cancel(session.token, chat_id=interaction_chat_id, actor_id=actor_id)
+        return await client.send_message(interaction_chat_id, "Could not render the preview; nothing was saved.")
+
+
+@bot.on_callback_query(filters.regex(r"^blocklist_(?:edit|save|cancel):[A-Za-z0-9_-]{1,24}$"))
+async def connected_blocklist_callback(client, query):
+    message = getattr(query, "message", None); actor = getattr(query, "from_user", None)
+    if message is None or actor is None or base.chat_kind(message) != "private" or int(message.chat.id) != int(actor.id):
+        return await query.answer("This blocklist action is unavailable.", show_alert=True)
+    action, token = str(query.data).split(":", 1)
+    from videl.utils.interactive_settings import engine as interaction_engine
+    interaction_chat_id = int(message.chat.id); actor_id = int(actor.id)
+    session = await interaction_engine.get(token, chat_id=interaction_chat_id, actor_id=actor_id)
+    if session is None or session.workflow not in {"music_blocklist_add", "music_blocklist_remove"}:
+        return await query.answer("This blocklist edit expired or is not yours.", show_alert=True)
+    target_chat_id = int(session.target_chat_id)
+    if action.endswith("cancel"):
+        await interaction_engine.cancel(token, chat_id=interaction_chat_id, actor_id=actor_id)
+        await query.answer("Cancelled; nothing was saved.")
+        return await rich_edit(message, "Blocklist edit cancelled. Nothing was saved.", reply_markup=None)
+    if action.endswith("edit"):
+        edited = await interaction_engine.edit_again(token, chat_id=interaction_chat_id,
+            actor_id=actor_id, message_id=message.id)
+        if edited is None:
+            return await query.answer("This preview is no longer active.", show_alert=True)
+        edited.values.pop("updated", None)
+        try:
+            if edited.workflow == "music_blocklist_add": prompt_text = f"Reply with the {edited.values['kind']} name to block. /cancel stops."
+            else: prompt_text = "Reply with the entry number to remove. /cancel stops."
+            prompt = await client.send_message(interaction_chat_id, prompt_text, reply_markup=ForceReply(selective=True))
+            await interaction_engine.bind_prompt(token, chat_id=interaction_chat_id, actor_id=actor_id, message_id=prompt.id)
+        except Exception:
+            await interaction_engine.cancel(token, chat_id=interaction_chat_id, actor_id=actor_id)
+            return await query.answer("Could not restart editor; nothing was saved.", show_alert=True)
+        return await query.answer("Reply to the private prompt to edit again.")
+
+    async def authorize(target_id, user_id):
+        from videl.app.connections import connected_target
+        _, error = await connected_target(client, user_id, expected_chat_id=target_id)
+        if error: return False
+        member = await client.get_chat_member(target_id, user_id)
+        status = str(getattr(getattr(member, "status", None), "value", getattr(member, "status", None))).casefold()
+        return status in {"owner", "administrator"}
+
+    async def save(snapshot):
+        from videl.utils import settings_store
+        return bool(base.set_setting(target_chat_id, "music_track_blocklist", snapshot.values["updated"],
+                                     expected_revision=snapshot.revision))
+
+    outcome, _ = await interaction_engine.commit(token, chat_id=interaction_chat_id,
+        actor_id=actor_id, target_chat_id=target_chat_id, message_id=message.id,
+        authorize=authorize, save=save)
+    if outcome == "saved":
+        await query.answer("Blocklist saved.")
+        return await rich_edit(message, "Blocklist updated and saved.", reply_markup=None)
+    messages = {"permission_denied": "Connection or group-admin access changed. Nothing was saved.",
+                "save_failed": "Could not save the blocklist; refresh settings and retry.",
+                "expired": "This edit expired. Nothing was saved.",
+                "stale": "This preview is stale or already being confirmed.",
+                "unauthorized": "This action does not belong to this group or admin."}
+    return await query.answer(messages.get(outcome, "Could not save blocklist."), show_alert=True)
+
 
 async def _bot_can_delete_messages(client, chat_id: int) -> bool:
     try:
