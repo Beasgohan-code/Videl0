@@ -20,6 +20,31 @@ with patch.object(bot,'add_handler'):
     lyrics=importlib.import_module('videl.modules.lyrics')
 
 class PresentationTests(unittest.IsolatedAsyncioTestCase):
+    def test_shared_sections_progress_and_dividers_are_compact_and_determinate(self):
+        section = ui.section("Queue", "<blockquote>Three tracks</blockquote>", divider=True)
+        self.assertIn("Queue", section)
+        self.assertTrue(section.endswith("<hr/>"))
+        rendered = ui.progress("Uploading", 3, 4, detail="Track 3 of 4")
+        self.assertIn("75% · 3/4", rendered)
+        self.assertIn("Track 3 of 4", rendered)
+        self.assertIn("<code>", rendered)
+        for args in ((0, 0), (-1, 3), (4, 3), (True, 3)):
+            with self.subTest(args=args), self.assertRaises(ValueError):
+                ui.progress("Uploading", *args)
+
+    def test_shared_keyboard_builder_preserves_explicit_actions_and_rows(self):
+        original = [[button("Open", callback_data="open:7")],
+                    [button("Docs", url="https://example.com")]]
+        built = ui.inline_keyboard(original)
+        self.assertIsNot(built.inline_keyboard, original)
+        self.assertEqual(built.inline_keyboard[0][0].callback_data, "open:7")
+        self.assertEqual(built.inline_keyboard[1][0].url, "https://example.com")
+        nav = ui.navigation_markup()
+        self.assertEqual(
+            [item.callback_data for item in nav.inline_keyboard[0]],
+            ["help:home", "cmds:all:0"],
+        )
+
     def test_status_notices_get_matching_premium_badges_without_duplicate_icons(self):
         cases = (("success", "✅", "Saved"), ("error", "❌", "Unavailable"),
                  ("warning", "⚠️", "Check this"), ("info", "ℹ️", "Details"))

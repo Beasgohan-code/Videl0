@@ -6,15 +6,17 @@ import html
 from importlib.metadata import version
 from pyrogram import filters
 from pyrogram.enums import ChatType
-from pyrogram.types import CopyTextButton, InlineKeyboardMarkup
+from pyrogram.types import CopyTextButton
 import config
 from videl import bot
 from videl.utils.bot_api import bot_api
-from videl.utils.bot_ui import button
 from videl.utils.permissions import is_user_authorized
 from videl.utils.premium_emojis import PREMIUM_IDS, SUPPLIED_EMOJI_PACKS, USE_PREMIUM, pe
 from videl.utils.rich_ui import rich_heading, rich_note, rich_kv_table, rich_table, rich_hr
-from videl.utils.command_ui import rich_reply, rich_edit, notice, usage, result as ui_result
+from videl.utils.command_ui import (
+    rich_reply, rich_edit, notice, usage, result as ui_result,
+    action_button as button, inline_keyboard,
+)
 
 PUBLIC_HELP = (
     rich_heading("Telegram tools", level=2)
@@ -167,7 +169,7 @@ async def api_info(_, message):
     await rich_reply(
         message,
         info,
-        reply_markup=InlineKeyboardMarkup(
+        reply_markup=inline_keyboard(
             [[button("Copy bot ID", copy_text=CopyTextButton(text=str(me["id"])), icon="ios_file")]]
         ),
     )
@@ -193,7 +195,7 @@ def emoji_browser_menu():
         for name, entries in SUPPLIED_EMOJI_PACKS.items()
     ]
     keyboard_rows = [choices[i:i + 2] for i in range(0, len(choices), 2)]
-    return body, InlineKeyboardMarkup(keyboard_rows)
+    return body, inline_keyboard(keyboard_rows)
 
 
 def emoji_browser_page(pack: str, page: int):
@@ -233,7 +235,7 @@ def emoji_browser_page(pack: str, page: int):
         button("Copy bot aliases", copy_text=CopyTextButton(text=aliases), icon=f"{pack}_001"),
     ])
     keyboard_rows.append([button("All emoji packs", callback_data="emojilist:menu:0", icon="ios_folder")])
-    return body, InlineKeyboardMarkup(keyboard_rows)
+    return body, inline_keyboard(keyboard_rows)
 
 
 @bot.on_message(filters.command("emojiinfo", prefixes=config.COMMAND_PREFIX_LIST) & filters.user(config.OWNER_ID) & filters.private)
@@ -315,7 +317,7 @@ async def emoji_info(_, message):
     card = rich_heading("Custom emoji IDs", level=2) + table
     if len(ids) > len(shown):
         card += rich_note(f"Showing {len(shown)} of {len(ids)} IDs. Reply to a smaller selection to copy a specific one.")
-    await rich_reply(message, card, reply_markup=InlineKeyboardMarkup(keys))
+    await rich_reply(message, card, reply_markup=inline_keyboard(keys))
 
 
 @bot.on_callback_query(filters.regex(r"^emojilist:[a-z_]{2,20}:[0-9]{1,3}$"))
@@ -429,7 +431,7 @@ async def copy_command(_, message):
         text=(message.reply_to_message.text or message.reply_to_message.caption or '').strip()
     if not text or len(text.encode('utf-16-le'))//2>256:
         return await rich_reply(message,usage('/copy Text to copy','Or reply to a text message. Copy payloads allow 1–256 Telegram UTF-16 units.'))
-    keyboard=InlineKeyboardMarkup([[button('Copy text',copy_text=CopyTextButton(text=text),style='primary',icon='ios_paperclip')]])
+    keyboard=inline_keyboard([[button('Copy text',copy_text=CopyTextButton(text=text),style='primary',icon='ios_paperclip')]])
     await rich_reply(message,notice(f'<code>{html.escape(text)}</code>',title='Ready to copy'),reply_markup=keyboard)
 
 
@@ -448,7 +450,7 @@ async def stop_poll_command(_, message):
 
 
 def topic_keyboard(chat_id, topic_id):
-    return InlineKeyboardMarkup([
+    return inline_keyboard([
         [button("Close topic", callback_data=f"topicctl:close:{chat_id}:{topic_id}", style="danger", icon="ios_close"),
          button("Reopen topic", callback_data=f"topicctl:open:{chat_id}:{topic_id}", style="success", icon="ios_check")],
     ])

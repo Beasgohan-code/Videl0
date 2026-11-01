@@ -3,7 +3,7 @@
 Bodies are trusted Telegram HTML; escape user values before interpolation.
 Native keyboards stay explicit so styling never replaces actual actions.
 """
-from videl.utils.rich_ui import rich_heading, rich_note, rich_kv_table
+from videl.utils.rich_ui import rich_heading, rich_note, rich_kv_table, rich_hr
 from videl.utils.bot_ui import button as native_button, visual_call
 from pyrogram.types import InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
 
@@ -18,7 +18,7 @@ def notice(body, *, status="info", title=None):
     status_icons = {"success": "✅", "error": "❌", "warning": "⚠️", "info": "ℹ️"}
     if not label.startswith(("✅", "❌", "⚠", "ℹ")):
         label = f"{status_icons[status]} {label}"
-    return rich_heading(label, level=3) + rich_note(body)
+    return section(label, rich_note(body), level=3)
 
 
 def usage(command, explanation):
@@ -30,7 +30,52 @@ def usage(command, explanation):
 def result(title, fields=(), body=""):
     from videl.utils.rich_ui import rich_esc
     rows = [(rich_esc(key), rich_esc(str(value))) for key, value in fields]
-    return rich_heading(title, level=2) + (rich_kv_table(rows) if rows else "") + (rich_note(body) if body else "")
+    content = (rich_kv_table(rows) if rows else "") + (rich_note(body) if body else "")
+    return section(title, content, level=2)
+
+
+def section(title, content="", *, level=3, divider=False):
+    """Compose one compact section from a semantic heading and trusted HTML."""
+    rendered = rich_heading(title, level=level) + str(content or "")
+    return rendered + (rich_hr() if divider else "")
+
+
+def progress(title, current, total, *, detail=None, width=10):
+    """Render validated determinate progress; unknown totals must use a status notice."""
+    if any(isinstance(value, bool) or not isinstance(value, int) for value in (current, total, width)):
+        raise ValueError("Progress values must be integers")
+    if total <= 0 or current < 0 or current > total or not 1 <= width <= 20:
+        raise ValueError("Progress must be within a positive, determinate range")
+    completed = round(current * width / total)
+    percent = round(current * 100 / total)
+    meter = "█" * completed + "░" * (width - completed)
+    summary = f"<code>{meter}</code> {percent}% · {current}/{total}"
+    if detail:
+        from videl.utils.rich_ui import rich_esc
+        summary += f"\n{rich_esc(detail)}"
+    return section(title, rich_note(summary), level=3)
+
+
+def action_button(text, *, callback_data=None, url=None, style=None, icon=None, **options):
+    """Build one semantic native button while leaving its action fields explicit."""
+    return native_button(
+        text, callback_data=callback_data, url=url, style=style, icon=icon, **options
+    )
+
+
+def inline_keyboard(rows):
+    """Create a fresh keyboard from explicit rows without changing button actions."""
+    if isinstance(rows, InlineKeyboardMarkup):
+        rows = rows.inline_keyboard
+    return InlineKeyboardMarkup([list(row) for row in rows or ()])
+
+
+def navigation_buttons():
+    """Shared, restrained global navigation row used by command surfaces."""
+    return [
+        action_button("Help center", callback_data="help:home", style="primary", icon="info"),
+        action_button("Browse commands", callback_data="cmds:all:0", icon="search"),
+    ]
 
 
 # Explicit presentation adapters used by command modules. The underlying
@@ -132,27 +177,24 @@ def _with_navigation_keyboard(options):
         return updated
     rows = [list(row) for row in markup.inline_keyboard]
     callbacks = {getattr(item, "callback_data", None) for row in rows for item in row}
-    missing = []
-    if "help:home" not in callbacks:
-        missing.append(native_button("Help center", callback_data="help:home", style="primary", icon="info"))
-    if "cmds:all:0" not in callbacks:
-        missing.append(native_button("Browse commands", callback_data="cmds:all:0", icon="search"))
+    defaults = navigation_buttons()
+    missing = [
+        item for item in defaults
+        if getattr(item, "callback_data", None) not in callbacks
+    ]
     if not missing:
         return updated
     if sum(len(row) for row in rows) + len(missing) > 100 or len(rows) >= 100:
         return updated
     rows.append(missing)
-    updated[field] = InlineKeyboardMarkup(rows)
+    updated[field] = inline_keyboard(rows)
     return updated
 
 
 def navigation_markup(markup=None):
     """Return a native inline keyboard with both global navigation actions."""
     if markup is None:
-        return InlineKeyboardMarkup([[
-            native_button("Help center", callback_data="help:home", style="primary", icon="info"),
-            native_button("Browse commands", callback_data="cmds:all:0", icon="search"),
-        ]])
+        return inline_keyboard([navigation_buttons()])
     return _with_navigation_keyboard({"reply_markup": markup}).get("reply_markup")
 
 
