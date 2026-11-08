@@ -5,6 +5,7 @@ Snapshots keep the raw text/caption (which may include Telegram HTML); Mongo TTL
 is supplemented by read-time expiration, and outbound text is sanitized.
 """
 import asyncio
+import config
 from datetime import datetime,timedelta,timezone
 import html as _html
 import logging
@@ -19,7 +20,7 @@ from videl.utils.automation import (DECAY_RANGE, ESCALATION_ACTIONS, ESCALATION_
                                     normalize_quiet, parse_hhmm)
 from videl.utils.moderation import LOCK_TYPES
 
-OWNER_ID=6265999542
+OWNER_ID=config.OWNER_ID
 RETENTION=(1,7,30)
 
 # Every lock the enforcement pass in videl.plugins.locks honours. The key is

@@ -21,6 +21,8 @@ const secrets = [
   "STRING_SESSION",
   "API_HASH",
   "ELDIAN_API_KEY",
+  "TYPETUBE_API_KEY",
+  "OWNER_ID",
 ]
   .map((key) => [key, process.env[key] || ""])
   .filter(([, value]) => value.length >= 8);
@@ -28,11 +30,15 @@ const credentialPatterns = [
   /mongodb(?:\+srv)?:\/\/[^\s"'<>/:]+:[^@\s"'<>/]+@/i,
   /\bbot\d{5,}:[A-Za-z0-9_-]{20,}\b/,
 ];
+const serverOnlyMarkers = ["TYPETUBE_API_KEY", "TYPETUBE_HOST", "sg.clusters.typetube.xyz", "TapClient"];
 const leaks = [];
 for (const file of files) {
   const contents = await readFile(file, "utf8");
   for (const [name, value] of secrets) {
     if (contents.includes(value)) leaks.push(`${path.relative(root, file)} contains ${name}`);
+  }
+  for (const marker of serverOnlyMarkers) {
+    if (contents.includes(marker)) leaks.push(`${path.relative(root, file)} contains server-only TypeTube marker ${marker}`);
   }
   for (const pattern of credentialPatterns) {
     if (pattern.test(contents)) leaks.push(`${path.relative(root, file)} contains a credential-shaped value`);

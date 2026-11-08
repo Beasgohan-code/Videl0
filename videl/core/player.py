@@ -13,7 +13,7 @@ import config
 from videl import LOGGER, bot, call_py
 from videl.utils.formatters import parse_dur, short
 from videl.utils.rich_ui import rich_edit, rich_esc, rich_heading, rich_kv_table, rich_note, rich_send, rich_details
-from videl.utils.youtube import MediaDownloadError, resolve_stream
+from videl.utils.youtube import MediaDownloadError, release_cache_file, resolve_stream
 
 _nf_pills = lambda: (
     "<p>"
@@ -62,6 +62,7 @@ _paused: dict[int,bool]={}
 _loop_mode: dict[int,str]={}
 _np_msg: dict[int,Message]={}
 _np_song: dict[int,dict]={}
+_active_media_paths: dict[int,str]={}
 _np_start: dict[int,float]={}
 _np_total: dict[int,float]={}
 _voice_volume: OrderedDict[int, int] = OrderedDict()
@@ -113,6 +114,7 @@ def stop_progress(chat_id, reset=True):
     if old and not old.done():
         old.cancel()
     if reset:
+        release_cache_file(_active_media_paths.pop(chat_id, None))
         for state in (_paused, _pause_started, _np_msg, _np_song, _np_start, _np_total, _loop_mode):
             state.pop(chat_id, None)
 
@@ -177,6 +179,12 @@ def _now_playing_caption(song: dict, elapsed: float=0, total: float=0, chat_id: 
 
 
 def _now_playing_kb(chat_id: int|None=None, votes: int=0, votes_needed: int=0) -> InlineKeyboardMarkup:
+    if chat_id is not None and votes_needed <= 0:
+        try:
+            from videl.modules.smartqueue import vote_status
+            votes, votes_needed = vote_status(chat_id)
+        except Exception:
+            votes, votes_needed = 0, 0
     paused=is_paused(chat_id) if chat_id is not None else False
     loop=get_loop(chat_id) if chat_id is not None else "off"
     rows=[
@@ -254,18 +262,26 @@ async def play_song(chat_id:int, message:Message, song:dict, *, advance=False, r
         url=song.get('url')
         if not url:return False
         stage = "media download"
+        cache_lease = None
         try:
             want_video=bool(song.get('video',False))
             media_path=await asyncio.wait_for(resolve_stream(url,video=want_video),45)
+            cache_lease = media_path
             if not want_video:
                 stage = "optional audio effects"
                 from videl.modules.effects import maybe_apply_effects
                 # Effects are optional and internally bounded; a slow effect
                 # lookup must not abort an otherwise playable track.
-                media_path=await maybe_apply_effects(chat_id,media_path)
+                processed_path=await maybe_apply_effects(chat_id,media_path)
+                if processed_path != media_path:
+                    release_cache_file(cache_lease)
+                    cache_lease = None
+                media_path=processed_path
             # Other legacy producers may append while resolution awaits, but
             # cannot silently substitute a different queue head for this request.
-            if peek_current(chat_id) is not expected:return False
+            if peek_current(chat_id) is not expected:
+                release_cache_file(cache_lease)
+                return False
             stage = "voice-chat playback"
             from videl.core.audio_quality import audio_quality
             stream=MediaStream(media_path,audio_parameters=audio_quality(),
@@ -273,8 +289,11 @@ async def play_song(chat_id:int, message:Message, song:dict, *, advance=False, r
             from videl.core.voice_chat import play_with_auto_start
             response=await play_with_auto_start(call_py,chat_id,stream)
             if response is False:raise RuntimeError('Voice engine did not acknowledge playback')
-        except asyncio.CancelledError:raise
+        except asyncio.CancelledError:
+            release_cache_file(cache_lease)
+            raise
         except Exception as error:
+            release_cache_file(cache_lease)
             LOGGER.warning('Playback unconfirmed during %s (%s); queue preserved, no retry',stage,type(error).__name__)
             from videl.core.voice_chat import VoiceChatStartError
             if isinstance(error, MediaDownloadError):
@@ -310,9 +329,16 @@ async def play_song(chat_id:int, message:Message, song:dict, *, advance=False, r
                 )
             except Exception:pass
             return False
+        previous_media_path = _active_media_paths.pop(chat_id, None)
+        if previous_media_path:
+            release_cache_file(previous_media_path)
+        if cache_lease:
+            _active_media_paths[chat_id] = cache_lease
+            song["_cache_path"] = cache_lease
+            cache_lease = None
         if advance:
             finished=pop_current(chat_id)
-            if rotate and finished:add_to_queue(chat_id,finished)
+            if rotate and finished:add_to_queue(chat_id,finished,internal=True)
         acknowledged(chat_id,song)
         try:
             from videl.utils.listening_recap import record as record_listening

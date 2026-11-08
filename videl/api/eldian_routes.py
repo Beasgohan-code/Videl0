@@ -118,7 +118,7 @@ def _extract_id(value: str) -> str | None:
 
 def _require_key_if_set() -> tuple[bool, str | None]:
     # Fail closed even on loopback: reverse proxies can also use loopback addresses.
-    key = (os.environ.get("ELDIAN_API_KEY") or os.environ.get("WEBAPP_SECRET") or "").strip()
+    key = (os.environ.get("ELDIAN_API_KEY") or "").strip()
     supplied = request.headers.get("X-API-Key", "")
     if not key:
         return False, "Media API credentials are not configured"
@@ -277,14 +277,23 @@ def register_eldian_routes(app: Flask) -> None:
             if not 0 < size_bytes <= MAX_BYTES:
                 _set_music_task(task_id, video_id, "failed", error="Prepared media exceeded the supported size limit.")
                 return jsonify({"ok": False, "error": "Prepared media exceeded the supported size limit"}), 413
+            from videl.utils.youtube import pin_cache_file, release_cache_file
+            cache_pinned = pin_cache_file(path)
             _set_music_task(task_id, video_id, "ready", size_bytes=size_bytes)
-            response = send_file(
-                path,
-                mimetype=mimetypes.guess_type(path)[0] or "audio/mpeg",
-                as_attachment=False,
-                conditional=True,
-                max_age=0,
-            )
+            try:
+                response = send_file(
+                    path,
+                    mimetype=mimetypes.guess_type(path)[0] or "audio/mpeg",
+                    as_attachment=False,
+                    conditional=True,
+                    max_age=0,
+                )
+            except BaseException:
+                if cache_pinned:
+                    release_cache_file(path)
+                raise
+            if cache_pinned:
+                response.call_on_close(lambda: release_cache_file(path))
             response.headers["Cache-Control"] = "private, no-store"
             response.headers["X-Content-Type-Options"] = "nosniff"
             return response

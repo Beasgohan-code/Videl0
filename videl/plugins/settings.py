@@ -23,7 +23,7 @@ _PROMPTS: dict[tuple[int, int], tuple[int, str, float]] = {}
 _TOGGLES = {
  "music": (("Member requests", "music_requests_enabled", True), ("Admin approval", "music_approval_required", False), ("Shuffle new requests", "music_shuffle_enabled", False)),
  "welcome": (("Welcome messages", "welcome_enabled", True), ("Goodbye messages", "goodbye_enabled", False), ("New-member verification", "captcha_enabled", False)),
- "safety": (("Anti-flood", "antispam", False),),
+ "safety": (("Anti-flood", "antispam", False), ("Gemini Guardian assistance", "gemini_guardian_enabled", False)),
 }
 _RESET_DEFAULTS = {
     "music": {"music_requests_enabled": True, "music_approval_required": False,
@@ -31,6 +31,7 @@ _RESET_DEFAULTS = {
               "music_track_blocklist": [], "music_session_presets": []},
     "welcome": {"welcome_enabled": True, "goodbye_enabled": False, "captcha_enabled": False},
     "safety": {"antispam": False, "antispam_limit": 7, "antispam_window": 8,
+               "gemini_guardian_enabled": False,
                **{key: False for key in _LOCK_KEYS},
                "raid_mode": {"enabled": False, "window_seconds": 30,
                              "join_threshold": 8, "message_threshold": 20,
@@ -750,7 +751,7 @@ async def connected_settings_open(client, query):
     return await rich_edit(message, screen.html, reply_markup=screen.keyboard)
 
 
-_PATTERN=r"^settings:-?[0-9]{1,20}:(?:tab:(?:home|music|welcome|safety|moderation|retention|blocklist|presets|sessions|automations|commands|locks|more)|commands:(?:all|manage|music|tools):[0-9]{1,3}|locks:[0-9]{1,2}|filters:(?:add|manage)|cmd:[a-z][a-z0-9_]{0,31}:(?:on|off)|(?:music_requests_enabled|music_approval_required|music_shuffle_enabled|welcome_enabled|goodbye_enabled|captcha_enabled|antispam|lock_[a-z_]+):(?:on|off)|antispam:edit|captcha:edit|welcome_text:edit|goodbye_text:edit|rules_text:(?:edit|clear)|welcome_media:(?:edit|clear)|welcome_buttons:edit|raid:(?:on|off)|warn_threshold:(?:edit|2|3|5|10)|warn_escalation:edit|retention:[a-z_]+:(?:30|90|180|365|off)|blocklist:(?:add:(?:track|artist)|remove:[1-9][0-9]?)|preset:(?:save|apply:[1-9][0-9]?|delete:[1-9][0-9]?)|session:(?:schedule|cancel:[A-Za-z0-9]+)|approved:(?:list|add|page:[0-9]{1,6}|remove:[1-9][0-9]{0,18})|reset:(?:music|welcome|safety|moderation|blocklist|presets)|resetconfirm:(?:music|welcome|safety|moderation|blocklist|presets):[a-f0-9]{12}|refresh):v[0-9]{1,12}$"
+_PATTERN=r"^settings:-?[0-9]{1,20}:(?:tab:(?:home|music|welcome|safety|moderation|retention|blocklist|presets|sessions|automations|commands|locks|more)|commands:(?:all|manage|music|tools):[0-9]{1,3}|locks:[0-9]{1,2}|filters:(?:add|manage)|cmd:[a-z][a-z0-9_]{0,31}:(?:on|off)|(?:music_requests_enabled|music_approval_required|music_shuffle_enabled|welcome_enabled|goodbye_enabled|captcha_enabled|antispam|gemini_guardian_enabled|lock_[a-z_]+):(?:on|off)|antispam:edit|captcha:edit|welcome_text:edit|goodbye_text:edit|rules_text:(?:edit|clear)|welcome_media:(?:edit|clear)|welcome_buttons:edit|raid:(?:on|off)|warn_threshold:(?:edit|2|3|5|10)|warn_escalation:edit|retention:[a-z_]+:(?:30|90|180|365|off)|blocklist:(?:add:(?:track|artist)|remove:[1-9][0-9]?)|preset:(?:save|apply:[1-9][0-9]?|delete:[1-9][0-9]?)|session:(?:schedule|cancel:[A-Za-z0-9]+)|approved:(?:list|add|page:[0-9]{1,6}|remove:[1-9][0-9]{0,18})|reset:(?:music|welcome|safety|moderation|blocklist|presets)|resetconfirm:(?:music|welcome|safety|moderation|blocklist|presets):[a-f0-9]{12}|refresh):v[0-9]{1,12}$"
 @bot.on_callback_query(filters.regex(_PATTERN))
 async def settings_callback(client,query):
     message=getattr(query,"message",None); actor=getattr(query,"from_user",None)
@@ -789,7 +790,7 @@ async def settings_callback(client,query):
             workflow={"welcome_text":"welcome_text","goodbye_text":"goodbye_text","rules_text":"rules_text","welcome_media":"welcome_media","welcome_buttons":"welcome_buttons"}[parts[2]]
             key,value,section="__welcome_flow_start__",workflow,"welcome"
         elif len(parts)==4 and parts[2] in ({k for values in _TOGGLES.values() for _,k,_ in values}|_LOCK_KEYS) and parts[3] in {"on","off"}:
-            key,value=parts[2],parts[3]=="on"; section=("locks" if key in _LOCK_KEYS else "safety" if key == "antispam" else ("music" if key.startswith("music_") else "welcome"))
+            key,value=parts[2],parts[3]=="on"; section=("locks" if key in _LOCK_KEYS else "safety" if key in {"antispam", "gemini_guardian_enabled"} else ("music" if key.startswith("music_") else "welcome"))
         elif len(parts)==4 and parts[2]=="raid" and parts[3] in {"on","off"}:
             from videl.utils.raid import normalize
             value=normalize(base.get_setting(chat_id,"raid_mode",{})); value["enabled"]=parts[3]=="on"; key,section="raid_mode","safety"
@@ -1105,6 +1106,10 @@ async def settings_callback(client,query):
         if saved is None: return await query.answer("Retention could not be saved.",show_alert=True)
     elif key in _LOCK_KEYS and value and not await _bot_can_delete_messages(client, chat_id):
         return await query.answer("The bot needs Delete Messages permission to enable content locks. Nothing changed.", show_alert=True)
+    elif key == "gemini_guardian_enabled" and value:
+        from videl.utils.gemini import configured
+        if not configured():
+            return await query.answer("Gemini is not configured; this option remains off.", show_alert=True)
     elif key and key!="__command_toggle__" and not base.set_setting(chat_id,key,value,expected_revision=expected_revision): return await query.answer("The setting could not be saved; refresh and review before retrying.",show_alert=True)
     if key == "antispam":
         from videl.plugins.locks import invalidate_antispam_config

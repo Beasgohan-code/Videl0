@@ -175,22 +175,25 @@ async def _fallback_youtube_audio(url: str, tmpdir: Path, requested_label: str) 
     """Use the configured playback providers if yt-dlp cannot extract YouTube audio."""
     if not _extract_video_id(url):
         return None
-    from videl.utils.youtube import resolve_stream
+    from videl.utils.youtube import release_cache_file, resolve_stream
 
     downloaded = await resolve_stream(url)
     if not downloaded:
         return None
-    original = Path(downloaded)
-    if not original.is_file() or original.stat().st_size <= 1024:
-        return None
-    # Playback providers store their cache in the shared download directory.
-    # Copy into this request's temp folder so normal cleanup cannot delete the
-    # shared cache or another request's files.
-    extension = original.suffix if original.suffix.lower() in {".mp3", ".m4a", ".aac", ".ogg", ".opus", ".webm"} else ".mp3"
-    copied = tmpdir / f"fallback-audio{extension}"
-    await asyncio.to_thread(shutil.copy2, original, copied)
-    title = requested_label if not _is_url(requested_label) else original.stem
-    return copied, {"title": title[:180] or "YouTube audio", "duration": None}
+    try:
+        original = Path(downloaded)
+        if not original.is_file() or original.stat().st_size <= 1024:
+            return None
+        # Playback providers store their cache in the shared download directory.
+        # Copy into this request's temp folder so normal cleanup cannot delete the
+        # shared cache or another request's files.
+        extension = original.suffix if original.suffix.lower() in {".mp3", ".m4a", ".aac", ".ogg", ".opus", ".webm"} else ".mp3"
+        copied = tmpdir / f"fallback-audio{extension}"
+        await asyncio.to_thread(shutil.copy2, original, copied)
+        title = requested_label if not _is_url(requested_label) else original.stem
+        return copied, {"title": title[:180] or "YouTube audio", "duration": None}
+    finally:
+        release_cache_file(downloaded)
 
 
 def _yt_dlp_progress_hook(status_msg, title="Downloading media"):

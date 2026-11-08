@@ -52,7 +52,8 @@ class ScheduledPostTests(unittest.TestCase):
 
     def test_cancel_only_pending_jobs(self):
         col=Mock();col.update_one.return_value.modified_count=0
-        with patch.object(scheduling,'_collection',return_value=col):
+        with patch.object(scheduling,'_collection',return_value=col), \
+             patch.object(scheduling,'OWNER_ID',987654321):
             self.assertFalse(scheduling.cancel_job(str(uuid.uuid4())))
         self.assertEqual(col.update_one.call_args.args[0]['status'],'pending')
-        self.assertEqual(col.update_one.call_args.args[0]['owner_id'],6265999542)
+        self.assertEqual(col.update_one.call_args.args[0]['owner_id'],987654321)

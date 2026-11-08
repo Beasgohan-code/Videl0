@@ -761,8 +761,8 @@ class InternalRouteTests(unittest.TestCase):
         missing = self.client.get(f"/internal/chat/{CID}/audit?q=nothing-here", headers=self.headers()).get_json()
         self.assertEqual(missing["events"], [])
         # The actor filter narrows to one admin; a non-numeric value is refused.
-        self.db["mgmt_audit"].update_many({}, {"$set": {"actor": 6265999542}})
-        mine = self.client.get(f"/internal/chat/{CID}/audit?actor=6265999542", headers=self.headers()).get_json()
+        self.db["mgmt_audit"].update_many({}, {"$set": {"actor": 987654321}})
+        mine = self.client.get(f"/internal/chat/{CID}/audit?actor=987654321", headers=self.headers()).get_json()
         self.assertEqual(len(mine["events"]), 2)
         other = self.client.get(f"/internal/chat/{CID}/audit?actor=42", headers=self.headers()).get_json()
         self.assertEqual(other["events"], [])

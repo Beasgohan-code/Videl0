@@ -5,7 +5,7 @@ This documents navigation and source coverage, not verified live Telegram behavi
 Aliases are listed separately; permissions remain enforced by the referenced handler.
 Owner operations are hidden from public `/commands` results.
 
-209 distinct command names.
+215 distinct command names.
 
 ## Music & playlists
 
@@ -98,6 +98,8 @@ Owner operations are hidden from public `/commands` results.
 | `/dwarn` | group | `videl/plugins/moderation.py::warn` |
 | `/faddadmin` | group | `videl/modules/federation.py::fpromote_cmd` |
 | `/faq` | group | `videl/plugins/faq.py::faq` |
+| `/faqassist` | group | `videl/plugins/guardian.py::faq_assist` |
+| `/faqcancel` | group | `videl/plugins/guardian.py::faq_cancel` |
 | `/fban` | chat | `videl/modules/federation.py::fban_cmd` |
 | `/fdemote` | group | `videl/modules/federation.py::fdemote_cmd` |
 | `/fedbanlist` | chat | `videl/modules/federation.py::fedbanlist_cmd` |
@@ -114,6 +116,9 @@ Owner operations are hidden from public `/commands` results.
 | `/greetings` | group | `videl/plugins/welcome.py::greeting_status` |
 | `/group` | group | `videl/modules/group_manager.py::group_command` |
 | `/groupview` | group | `videl/app/group_view.py::recording` |
+| `/guardianai` | group | `videl/plugins/guardian.py::guardian_ai` |
+| `/guardianjoin` | group | `videl/plugins/guardian.py::join_review_guide` |
+| `/guardiansummary` | group | `videl/plugins/guardian.py::guardian_summary` |
 | `/handoff` | group | `videl/plugins/moderation.py::handoff` |
 | `/invite` | group | `videl/plugins/group.py::invite` |
 | `/joinfed` | group | `videl/modules/federation.py::joinfed_cmd` |
@@ -142,6 +147,7 @@ Owner operations are hidden from public `/commands` results.
 | `/rmblacklist` | group | `videl/modules/blocklist.py::delbl_cmd` |
 | `/rulefeedback` | group | `videl/plugins/moderation.py::rule_feedback` |
 | `/rules` | group | `videl/plugins/welcome.py::rules` |
+| `/safetycheck` | group | `videl/plugins/guardian.py::safety_check` |
 | `/safetystats` | group | `videl/plugins/moderation.py::safety_stats` |
 | `/save` | group | `videl/plugins/notes.py::save` |
 | `/setcaptcha` | group | `videl/plugins/welcome.py::toggle_captcha` |

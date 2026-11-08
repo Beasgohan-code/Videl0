@@ -46,6 +46,22 @@
   border-color: rgba(167,243,208,.16) !important;
   box-shadow: 0 24px 90px rgba(0,0,0,.28), inset 0 1px rgba(255,255,255,.06);
 }
+.music-stage[data-focus-player="true"] {
+  grid-template-columns: minmax(0, 1fr);
+  min-height: min(72vh, 52rem);
+  align-content: center;
+}
+.music-now-panel-focus {
+  width: min(100%, 38rem);
+  margin-inline: auto;
+  padding: clamp(1.25rem, 4vw, 2rem) !important;
+  border-color: rgba(167,243,208,.25) !important;
+  background: linear-gradient(145deg, rgba(19,49,48,.92), rgba(14,21,35,.98) 68%) !important;
+  box-shadow: 0 28px 100px rgba(0,0,0,.34), 0 0 60px rgba(52,211,153,.08), inset 0 1px rgba(255,255,255,.07);
+}
+.music-now-panel-focus .music-cover-glow {
+  box-shadow: 0 22px 75px rgba(52,211,153,.18), 0 20px 55px rgba(0,0,0,.32);
+}
 .music-track-row {
   border-color: rgba(255,255,255,.09) !important;
   background: linear-gradient(115deg,rgba(255,255,255,.052),rgba(255,255,255,.018)) !important;

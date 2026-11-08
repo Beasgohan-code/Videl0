@@ -14,9 +14,9 @@ from dotenv import load_dotenv
 
 # ── Load env ──────────────────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).resolve().parent
-load_dotenv(BASE_DIR / ".env")
-load_dotenv(BASE_DIR / ".env.example")
-# .env overrides .env.example (load order matters — dotenv doesn't override by default unless override=True)
+# Runtime configuration comes only from the deployment environment or a private
+# local .env. Never load the public example template: it is documentation, not a
+# credential source, and contains deliberately blank secret fields.
 load_dotenv(BASE_DIR / ".env", override=True)
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -102,7 +102,7 @@ else:
 MONGO_DB_URL: str = _str("MONGO_DB_URL", _str("MONGODB_URL", _req("MONGO_DB_URL")))
 MONGO_DB_NAME: str = _str("MONGO_DB_NAME", "Videl")
 
-OWNER_ID: int = _int("OWNER_ID", 6265999542)
+OWNER_ID: int = max(0, _int("OWNER_ID", 0))
 OWNER_USERNAME: str = _str("OWNER_USERNAME", "Beasgohan")
 
 # ── Bot Identity ──────────────────────────────────────────────────────────────
@@ -138,12 +138,10 @@ def is_privileged(uid: int, chat_admins: list[int] | None = None) -> bool:
 # ── Database — MongoDB only ─────────────────────────────────────────────────
 
 # ── Deploy — Vercel + Keep-Alive ────────────────────────────────────────────
-VERCEL_TOKEN: str = _str("VERCEL_TOKEN", "")
-VERCEL_PROJECT_ID: str = _str("VERCEL_PROJECT_ID", "")
-VERCEL_TEAM_ID: str = _str("VERCEL_TEAM_ID", "")
+# Vercel credentials are consumed by the separate web deployment, not this
+# backend. No webhook endpoint is currently mounted, so there is no webhook
+# secret in backend configuration. The bot only needs the public panel URL.
 WEBAPP_URL: str = _str("WEBAPP_URL", "https://videl-studio.vercel.app")
-WEBHOOK_URL: str = _str("WEBHOOK_URL", "")
-WEBHOOK_SECRET: str = _str("WEBHOOK_SECRET", "videl0-webhook")
 
 PORT: int = _int("PORT", 10000)
 HOST: str = _str("HOST", "0.0.0.0")
@@ -155,7 +153,7 @@ ENV: str = _str("ENV", "production")
 # Official Eldian API is opt-in: self-host the vendored service or provide a trusted URL+key.
 # Built-in Eldian routes on the local Flask server are used by default.
 ELDIAN_API_URL: str = _str("ELDIAN_API_URL", f"http://127.0.0.1:{PORT}")
-ELDIAN_API_KEY: str = _str("ELDIAN_API_KEY", _str("WEBAPP_SECRET", ""))
+ELDIAN_API_KEY: str = _str("ELDIAN_API_KEY", "")
 # Optional external media downloader API (GET /download, YT_API_URL/KEY).
 # The previous .site hostname is being discontinued; keep an env override available.
 YT_API_URL: str = _str("YT_API_URL", "https://api.shrutibots.in")
@@ -164,6 +162,9 @@ YT_API_KEY_FALLBACK: str = _str("YT_API_KEY_FALLBACK", "")
 SPOTIFY_CLIENT_ID: str = _str("SPOTIFY_CLIENT_ID", "")
 SPOTIFY_CLIENT_SECRET: str = _str("SPOTIFY_CLIENT_SECRET", "")
 GENIUS_API_KEY: str = _str("GENIUS_API_KEY", "")
+# Optional Gemini assistant provider; no feature is enabled without explicit configuration and admin opt-in.
+GEMINI_API_KEY: str = _str("GEMINI_API_KEY", "")
+GEMINI_MODEL: str = _str("GEMINI_MODEL", "gemini-2.5-flash")
 # Optional protected deployment path. Never default to a repository or image cookie file.
 YTDLP_COOKIES: str = _str("YTDLP_COOKIES", "")
 YT_COOKIES_FILE: str = _str("YT_COOKIES_FILE", YTDLP_COOKIES)
@@ -199,6 +200,13 @@ DEFAULT_FLOOD_LIMIT: int = _int("DEFAULT_FLOOD_LIMIT", 5)
 DEFAULT_FLOOD_WINDOW: int = _int("DEFAULT_FLOOD_WINDOW", 6)
 RATE_LIMIT_CMDS: int = _int("RATE_LIMIT_CMDS", 8)
 WEBAPP_SECRET: str = _str("WEBAPP_SECRET", "")
+if WEBAPP_SECRET and (
+    len(WEBAPP_SECRET) < 32
+    or any(marker in WEBAPP_SECRET.casefold() for marker in ("generate", "placeholder", "example", "changeme", "replace-me"))
+):
+    # Do not let copied documentation values become a shared service credential.
+    print("⚠️  WEBAPP_SECRET is weak or a placeholder; internal webapp APIs are disabled", file=sys.stderr)
+    WEBAPP_SECRET = ""
 ANALYTICS_SALT: str = _str("ANALYTICS_SALT", "")
 
 # ── Premium emoji configuration ─────────────────────────────────────────────────────────────────
@@ -208,7 +216,7 @@ USE_PREMIUM_EMOJI: bool = _bool("USE_PREMIUM_EMOJI", True)
 def validate_or_warn() -> list[str]:
     """Return list of missing required vars — caller can decide to abort or warn."""
     missing = []
-    for k in ("API_ID", "API_HASH", "BOT_TOKEN", "MONGO_DB_URL", "OWNER_ID"):
+    for k in ("API_ID", "API_HASH", "BOT_TOKEN", "MONGO_DB_URL", "OWNER_ID", "WEBAPP_SECRET"):
         v = os.getenv(k, "").strip()
         if not v or v == "0":
             missing.append(k)

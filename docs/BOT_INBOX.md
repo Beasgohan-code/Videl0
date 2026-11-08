@@ -111,7 +111,7 @@ The original Studio design and one-root panel navigation remain intact. Added:
 
 New collections: `inbox_owner_chats`, `inbox_quick_replies`. New owner-only proxy
 and internal endpoint: `/api/inbox-workspace`, `/internal/inbox-workspace`.
-The server always supplies owner ID 6265999542, ignoring client ownership claims.
+The server always supplies owner ID the configured owner account, ignoring client ownership claims.
 Per-chat detail reads/writes use the inbox's current group-admin access check;
 global preference summaries exclude private notes and drafts. No localStorage
 copy, user-account login, AI backend or database replacement is added.

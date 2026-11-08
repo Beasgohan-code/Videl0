@@ -1,5 +1,4 @@
 /** Only server-verified sessions unlock private tools; never use initDataUnsafe. */
-export const OWNER_ID = "6265999542";
 export const PUBLIC_SECTIONS = ["home", "post", "tools", "guide", "groups", "auth", "arcade"] as const;
 export function canOpenSection(
   section: string,

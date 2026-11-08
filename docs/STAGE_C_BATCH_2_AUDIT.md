@@ -37,3 +37,9 @@ Combined focused offline Batch 2 validation: **73 passed, 1 skipped, 13 subtests
 - Review vote-skip through shared playback transitions and test duplicate/overlapping votes, transition failure, current-track identity and cleanup before changing it.
 - Review channel-play target binding/current authorization, playlist CRUD/error semantics, cache bounds/expiry, downloader callback boundaries and provider failure handling.
 - Run focused and broad feasible Python/webapp checks after findings; report the repository-wide Python suite and live validation separately. Batch 2 is not complete until all findings and reference/inventory/test synchronization are recorded.
+
+## Continuation — defensive fixes and privacy-safe provider logs
+
+AutoPlay now emits a generic warning on search failure rather than logging user query variations or provider exceptions that may contain URLs or credential-like parameters. Missing/null provider titles fall back to `Unknown`. The `/queue` read path filters malformed non-dictionary entries without mutating playback state. Offline regressions cover each case.
+
+Validation before rebasing onto the current remote branch: full Python tests passed (**1,328 passed, 2 skipped, 877 subtests**) and webapp tests/typecheck/build/public-bundle scan passed. Rebase integration is being revalidated against the updated branch; no live provider, Telegram, or production check was performed.

@@ -5,24 +5,24 @@
 
 ## Runtime baseline (2026-11-01)
 
-- **209 live commands:** `manage=111`, `music=45`, `tools=27`, `owner=26`.
-- Runtime catalog context hints (after Batch 1 handler-boundary corrections): `group=139`, `chat=42`, `private=25`, `group_private=3`. These are discovery hints, not authorization guarantees; each handler's actual policy and Telegram checks remain authoritative.
+- **215 live commands:** `manage=117`, `music=45`, `tools=27`, `owner=26`.
+- Runtime catalog context hints (after Batch 1 handler-boundary corrections): `group=145`, `chat=42`, `private=25`, `group_private=3`. These are discovery hints, not authorization guarantees; each handler's actual policy and Telegram checks remain authoritative.
 - **126 declarative manifest entries**; the other live registrations are legacy handlers. The inventory calls out declarative policy/rights/block settings when present and links legacy checks to their handler/decorator evidence rather than inventing an equivalent policy.
-- The reconciled CSV retains **215 rows**: 209 live plus six Stage A-retired historical rows. Retired AI-related rows remain marked historical only; no AI/Gemini/GuardianAI/FAQAssist command is registered or planned for restoration.
+- The reconciled CSV has **215 live rows**. The six Gemini/Guardian commands were restored at user direction on 2026-10-19; Stage A removal analysis remains in the premium-overhaul audit as historical context. Provider behavior is offline-tested only; validate privacy and policy before live use.
 - `docs/COMMAND_INVENTORY_AUDIT.csv` is the complete per-command ledger. Its runtime fields include live/removed status, current discovery category and context hint, summary, handler, manifest authorization/block policy and Telegram rights, and public/owner BotCommand-menu scope.
 
 ## Prioritized batches
 
 | Priority | Batch | Registry scope | Status |
 |---|---|---|---|
-| 0 | Inventory, registry parity and baseline verification | All 209 live commands + six historical removals | Inventory refreshed; add automated parity checks and keep it synchronized during each batch. |
+| 0 | Inventory, registry parity and baseline verification | All 215 live commands | Inventory refreshed; add automated parity checks and keep it synchronized during each batch. |
 | 1 | General utilities, help and command discovery | All 27 live `tools` commands: `about`, `afk`, `afklist`, `back`, `commands`, `copy`, `feedback`, `forget`, `help`, `id`, `inbox`, `kang`, `mydata`, `ping`, `poll`, `pollstop`, `preferences`, `quiz`, `react`, `remind`, `reminders`, `repo`, `start`, `stats`, `stickerid`, `sudohelp`, `whois` | Complete for this batch (source audit + offline validation); findings and command ledger are in `docs/STAGE_C_BATCH_1_AUDIT.md`. Improvements: private reminder controls and DB error recovery; same-process per-sender admission serialization; atomic AFK notice cooldown and paginated/scope-disclosed `/afklist`; fail-closed `/inbox`; accurate `/whois` API errors; corrected private-only catalog contexts. Residual limitations: cross-instance reminder cap and at-most-once delivery crash recovery; full repository suite and live validation remain open. |
 | 2 | Music, playback, queue and playlists | All 45 live `music` commands | In progress: 45-command registry scope and source ledger started in `docs/STAGE_C_BATCH_2_AUDIT.md`; fixed requester/chat binding for `/play` picker callbacks and unsupported/oversized `/cplay` local media using TDD. Focused batch set: 73 passed, 1 skipped, 13 subtests. Remaining queue-cap, vote-skip transition, role-policy and channel-target reviews are documented; no live verification. Preserve player state, DJ/admin/owner boundaries, queue identity and callback expiry/replay behavior. |
 | 3 | Group management, moderation and member tools | Remaining `manage` commands for moderation, member lifecycle, admin actions and group settings | Pending. Recheck current Telegram admin status/rights for protected writes; preserve audit and appeal boundaries. |
 | 4 | Filters, protection, locks and automation | Remaining `manage` commands for filters, locks, safety, anti-spam and scheduled automation | Pending. Exercise callbacks, actor/target scope, duplicate/race behavior, and storage/API failures. |
 | 5 | Analytics, broadcasts, downloads and owner tools | Remaining `manage`/`owner` commands in these domains | Pending. Verify privacy, recipient selection, current owner/sudo scope, rate/size bounds and delivery uncertainty. |
 | 6 | Settings, connected-group, plugins and other remaining commands | Every live command not covered above, including connected administration and plugin controls | Pending. Preserve connected target/group authorization, actor/target binding, snapshot/current-auth and safe write invariants. |
-| 7 | Cross-command final audit | All 209 live commands, menu aliases, callbacks and legacy handlers | Pending. Check duplicates/dead code, docs/webapp parity, regressions, performance and unresolved findings; document any residual risk. |
+| 7 | Cross-command final audit | All 215 live commands, menu aliases, callbacks and legacy handlers | Pending. Check duplicates/dead code, docs/webapp parity, regressions, performance and unresolved findings; document any residual risk. |
 
 Batches are assigned by actual live registration, not by historical category labels. If a command spans areas, it is audited in its primary batch and cross-checked in the final audit. No command is silently omitted because it is legacy, absent from a menu, or difficult to test.
 

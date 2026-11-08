@@ -25,7 +25,7 @@ const assert = require("node:assert/strict");
     sessionActive = false,
     authPosts = 0;
   const signedFixture =
-    "auth_date=123&user=%7B%22id%22%3A6265999542%7D&hash=offline-fixture";
+    "auth_date=123&user=%7B%22id%22%3A987654321%7D&hash=offline-fixture";
   await page.route("https://telegram.org/**", (route) => route.abort());
   let sent = 0;
   const scheduled=[];
@@ -70,7 +70,7 @@ const assert = require("node:assert/strict");
           body: JSON.stringify({
             ok: true,
             owner: true,
-            user: { id: 6265999542, first_name: "Offline owner" },
+            user: { id: 987654321, first_name: "Offline owner" },
           }),
         });
         return;

@@ -15,10 +15,11 @@ from videl.utils.bot_ui import button as InlineKeyboardButton
 from videl import bot, call_py, LOGGER
 from videl.core.queue import peek_current
 from videl.modules.block import group_allowed, user_allowed
+from videl.utils.permissions import is_user_authorized
 from videl.utils.formatters import fmt_time, parse_dur, progress_bar, short
 from videl.utils.rich_ui import rich_esc, rich_heading, rich_img, rich_kv_table, rich_note
 from videl.utils.command_ui import rich_edit, rich_send
-from videl.utils.youtube import resolve_stream
+from videl.utils.youtube import release_cache_file, resolve_stream
 
 # ── Seek state tracker ─────────────────────────────────────────────────────────
 _seek_state: dict[int, dict] = {}
@@ -35,6 +36,18 @@ def get_current_position(chat_id: int) -> int:
 
 def clear_seek_state(chat_id: int) -> None:
     _seek_state.pop(chat_id, None)
+
+
+async def _require_group_admin(message: Message) -> bool:
+    if await is_user_authorized(message):
+        return True
+    await rich_send(
+        bot,
+        message.chat.id,
+        rich_heading("⛔ group admins only", level=3)
+        + rich_note("Only a group admin or the bot owner can use seek commands."),
+    )
+    return False
 
 
 # ── Internal seek ──────────────────────────────────────────────────────────────
@@ -69,17 +82,17 @@ async def _seek_to(chat_id: int, target_sec: int, message: Message) -> None:
         return
 
     try:
-        await call_py.change_stream(
-            chat_id,
-            MediaStream(
-                media_path,
-                audio_parameters=audio_quality(),
-                video_flags=MediaStream.Flags.IGNORE,
-                ffmpeg_parameters=f"-ss {target_sec}",
-            ),
-        )
-    except Exception:
         try:
+            await call_py.change_stream(
+                chat_id,
+                MediaStream(
+                    media_path,
+                    audio_parameters=audio_quality(),
+                    video_flags=MediaStream.Flags.IGNORE,
+                    ffmpeg_parameters=f"-ss {target_sec}",
+                ),
+            )
+        except Exception:
             await call_py.play(
                 chat_id,
                 MediaStream(
@@ -89,13 +102,15 @@ async def _seek_to(chat_id: int, target_sec: int, message: Message) -> None:
                     ffmpeg_parameters=f"-ss {target_sec}",
                 ),
             )
-        except Exception as e2:
-            await rich_edit(
-                pm,
-                rich_heading("❍ seek failed", level=3)
-                + rich_note(f"<code>{rich_esc(e2)}</code>"),
-            )
-            return
+    except Exception as e2:
+        await rich_edit(
+            pm,
+            rich_heading("❍ seek failed", level=3)
+            + rich_note(f"<code>{rich_esc(e2)}</code>"),
+        )
+        return
+    finally:
+        release_cache_file(media_path)
 
     set_seek_state(chat_id, target_sec)
     from videl.core.player import _np_start, _pause_started, set_paused
@@ -142,6 +157,8 @@ async def _seek_to(chat_id: int, target_sec: int, message: Message) -> None:
     & user_allowed
 )
 async def seek_cmd(_, message: Message) -> None:
+    if not await _require_group_admin(message):
+        return
     chat_id = message.chat.id
     song    = peek_current(chat_id)
 
@@ -194,6 +211,8 @@ async def seek_cmd(_, message: Message) -> None:
     & user_allowed
 )
 async def seekback_cmd(_, message: Message) -> None:
+    if not await _require_group_admin(message):
+        return
     chat_id = message.chat.id
     song    = peek_current(chat_id)
 
@@ -229,6 +248,8 @@ async def seekback_cmd(_, message: Message) -> None:
     & user_allowed
 )
 async def seek_usage(_, message: Message) -> None:
+    if not await _require_group_admin(message):
+        return
     chat_id = message.chat.id
     song    = peek_current(chat_id)
 

@@ -4,6 +4,9 @@ import {GET as contacts} from '../src/app/api/conversations/route';
 import {GET as media,POST as upload} from '../src/app/api/inbox-media/route';
 import {ownerMarker} from '../src/lib/auth';
 import {conversationId} from '../src/lib/group-view';
+
+// Test-only synthetic owner; production identity is supplied server-side.
+process.env.OWNER_ID = "987654321";
 test('bot contacts and binary media endpoints deny unauthenticated requests',async()=>{
  for(const [method,handler] of [['GET',contacts],['GET',media],['POST',upload]] as const){
   assert.equal((await handler(new Request('https://studio.test/api/inbox-media',{method}))).status,401);

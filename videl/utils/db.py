@@ -988,13 +988,17 @@ def set_goodbye(chat_id: int, text: str, enabled: bool = True) -> None:
 
 # ── Playlists (user + group) ───────────────────────────────────────────────────
 
+class PlaylistStorageError(RuntimeError):
+    """A playlist query failed; distinct from an ordinary missing record."""
+
+
 def save_playlist(owner_id: int, name: str, songs: list, is_group: bool = False) -> bool:
     """Save or overwrite a playlist. owner_id is user_id or chat_id."""
     col = _col("playlists")
     if col is None:
         return False
     try:
-        col.update_one(
+        result = col.update_one(
             {"owner_id": owner_id, "name": name.lower()},
             {
                 "$set": {
@@ -1008,7 +1012,7 @@ def save_playlist(owner_id: int, name: str, songs: list, is_group: bool = False)
             },
             upsert=True,
         )
-        return True
+        return bool(getattr(result, "acknowledged", True))
     except Exception as e:
         logger.error(f"[DB] save_playlist: {e}")
         return False
@@ -1017,35 +1021,35 @@ def save_playlist(owner_id: int, name: str, songs: list, is_group: bool = False)
 def get_playlist(owner_id: int, name: str) -> dict | None:
     col = _col("playlists")
     if col is None:
-        return None
+        raise PlaylistStorageError("Playlist storage is unavailable")
     try:
         return col.find_one({"owner_id": owner_id, "name": name.lower()})
     except Exception as e:
         logger.error(f"[DB] get_playlist: {e}")
-        return None
+        raise PlaylistStorageError("Playlist lookup failed") from e
 
 
 def list_playlists(owner_id: int) -> list:
     col = _col("playlists")
     if col is None:
-        return []
+        raise PlaylistStorageError("Playlist storage is unavailable")
     try:
         return list(col.find({"owner_id": owner_id}, {"name": 1, "display_name": 1, "songs": 1}))
     except Exception as e:
         logger.error(f"[DB] list_playlists: {e}")
-        return []
+        raise PlaylistStorageError("Playlist listing failed") from e
 
 
 def delete_playlist(owner_id: int, name: str) -> bool:
     col = _col("playlists")
     if col is None:
-        return False
+        raise PlaylistStorageError("Playlist storage is unavailable")
     try:
         res = col.delete_one({"owner_id": owner_id, "name": name.lower()})
         return res.deleted_count > 0
     except Exception as e:
         logger.error(f"[DB] delete_playlist: {e}")
-        return False
+        raise PlaylistStorageError("Playlist deletion failed") from e
 
 
 # ── Chat settings (skip votes, antiflood, locks) ───────────────────────────────
@@ -1063,18 +1067,20 @@ def get_chat_setting(chat_id: int, key: str, default=None):
         return default
 
 
-def set_chat_setting(chat_id: int, key: str, value) -> None:
+def set_chat_setting(chat_id: int, key: str, value) -> bool:
     col = _col(SETTINGS_COLLECTION)
     if col is None:
-        return
+        return False
     try:
-        col.update_one(
+        result = col.update_one(
             {"chat_id": chat_id},
             {"$set": {key: value}},
             upsert=True,
         )
+        return bool(getattr(result, "acknowledged", True))
     except Exception as e:
         logger.error(f"[DB] set_chat_setting: {e}")
+        return False
 
 
 def get_skip_votes_needed(chat_id: int) -> int:
@@ -1102,8 +1108,8 @@ def set_antiflood(chat_id: int, enabled: bool, limit: int = 6, window: int = 8) 
 
 # ── Linked channel for /cplay ──────────────────────────────────────────────────
 
-def set_linked_channel(chat_id: int, channel_id: int) -> None:
-    set_chat_setting(chat_id, "linked_channel", int(channel_id))
+def set_linked_channel(chat_id: int, channel_id: int) -> bool:
+    return set_chat_setting(chat_id, "linked_channel", int(channel_id))
 
 
 def get_linked_channel(chat_id: int):
@@ -1114,8 +1120,8 @@ def get_linked_channel(chat_id: int):
         return None
 
 
-def clear_linked_channel(chat_id: int) -> None:
-    set_chat_setting(chat_id, "linked_channel", None)
+def clear_linked_channel(chat_id: int) -> bool:
+    return set_chat_setting(chat_id, "linked_channel", None)
 
 
 # ── Activity tracking + 30-day auto cleanup ────────────────────────────────────

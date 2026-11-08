@@ -38,6 +38,13 @@ export async function settleLatest<T>(
   }
 }
 
+/** Stop and unload the previous media request before a new track is resolved. */
+export function clearMediaSource(player: Pick<HTMLMediaElement, "pause" | "removeAttribute" | "load">): void {
+  player.pause();
+  player.removeAttribute("src");
+  player.load();
+}
+
 /** Match a media event to the current source, including relative same-origin URLs. */
 export function isCurrentMediaSource(
   currentSource: string,

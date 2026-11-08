@@ -4,6 +4,9 @@ import {GET,POST} from "../src/app/api/group-view/route";
 import {ownerMarker} from "../src/lib/auth";
 import {telegramMessageLink,groupId,textUnits} from "../src/lib/group-view";
 
+
+// Test-only synthetic owner; production identity is supplied server-side.
+process.env.OWNER_ID = "987654321";
 test('group inbox guards every proxy method before contacting the backend',async()=>{
  const old=globalThis.fetch;let calls=0;globalThis.fetch=async()=>{calls++;throw new Error('unexpected backend')};
  try {for(const [method,handler] of [['GET',GET],['POST',POST]] as const){

@@ -1,6 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { isCurrentMediaSource, LatestRequestGate, settleLatest } from "../src/lib/latest-request";
+import { clearMediaSource, isCurrentMediaSource, LatestRequestGate, settleLatest } from "../src/lib/latest-request";
+
+test("changing tracks pauses and unloads the previous source before resolution", () => {
+  const calls: string[] = [];
+  clearMediaSource({
+    pause: () => calls.push("pause"),
+    removeAttribute: (name: string) => calls.push(`remove:${name}`),
+    load: () => calls.push("load"),
+  } as unknown as HTMLAudioElement);
+  assert.deepEqual(calls, ["pause", "remove:src", "load"]);
+});
 
 test("media events are accepted only for the currently selected stream URL", () => {
   const base = "https://studio.example/studio";

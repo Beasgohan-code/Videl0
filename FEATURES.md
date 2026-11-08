@@ -3,7 +3,7 @@
 ## Public creative workspace
 
 - Post Studio with visual formatting, live preview and link-button design.
-- Image Library with 36 original, locally generated PNG assets — 24 wide covers (16:9), 6 story cards (4:5) and 6 quote cards (1:1) — plus up to 10 personal PNG/JPEG/WebP uploads stored in that browser. Regenerate the catalogue with `python scripts/create_post_assets.py`.
+- Image Library with 54 original, locally generated PNG assets — 34 wide covers (16:9), 10 story cards (4:5) and 10 quote cards (1:1) — plus up to 10 personal PNG/JPEG/WebP uploads stored in that browser. Regenerate the catalogue with `python scripts/create_post_assets.py`; the source catalogue is `webapp/src/lib/post-assets.ts`.
 - Telegram-style rich editor in Post Studio and in the bot messenger: format by selecting text (bold, italic, underline, strike, spoiler, monospace, code block, quote, lists, links), premium emoji picker, live Telegram bubble preview, Telegram HTML view and a character counter.
 - 20 customizable image layouts, layer editing, JSON design import/export and PNG download.
 - Brand kits save the palette, font, layout, logo and export footer; applying a kit restores
@@ -15,7 +15,7 @@
 
 ## Verified owner workspace
 
-Only Telegram account **6265999542** can authenticate. Bot-backed publication, chat sending, group rules, analytics, broadcasts and settings remain server-protected. Public users cannot publish through the owner's bot. The sign-in page explains signed Mini App and Login Widget flows; expiring HttpOnly cookies and sign-out are supported.
+Only the Telegram account configured privately as `OWNER_ID` can authenticate. Bot-backed publication, chat sending, group rules, analytics, broadcasts and settings remain server-protected. Public users cannot publish through the owner's bot. The sign-in page explains signed Mini App and Login Widget flows; expiring HttpOnly cookies and sign-out are supported.
 
 ## Group operations
 

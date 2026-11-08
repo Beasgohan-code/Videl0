@@ -104,3 +104,12 @@ For both group and DM: make current status and permission needs explicit, preser
 Focused offline validation: guest flow 2 passed; Telegram settings revision 6 passed; command registry audit 11 passed (including every removed command rejected by the router, handler/source consistency, generated webapp-guide parity, and menu-name validity); connected settings dashboard 16 passed; settings revision 14 passed; plugin/help tests 19 passed. Python compilation passed for the changed Python files. These tests use mocks and do not validate live Telegram, production MongoDB, staging, Vercel, browser, or device behavior. `todo.md` historical issue notes are retained and explicitly superseded; they are not current setup or capability documentation.
 
 **Next stage:** validate and reconcile all 209 active command registrations, permissions, contexts, descriptions, aliases, and dependencies against the requested taxonomy before changing command categories or menu behavior. Keep the remaining settings/dashboard redesign, broad code cleanup, performance work, webapp security review, and live validations open; none is complete by this Stage A slice.
+
+
+## Current status (2026-10-19)
+
+At the user’s explicit direction to preserve Gemini/GuardianAI/FAQAssist, the opt-in Gemini provider, Guardian command module, provider tests, configuration and redaction entries, settings callback, and route registration are restored. The six commands are present in current command references and inventory. Historical Stage A removal analysis above remains as a record of the earlier change; it is not the current runtime state. The provider is offline/mock-tested only, remains opt-in and advisory, and has not been verified against Google or a deployed bot. Guest mention generation remains disabled.
+
+## Current status (2026-10-19)
+
+At the user's explicit direction to preserve Gemini/GuardianAI/FAQAssist, the opt-in Gemini provider, Guardian command module, provider tests, configuration and redaction entries, settings callback, and route registration are restored. The six commands are present in the current command registry and generated references. This supersedes the earlier Stage A runtime-removal status while preserving its historical rationale. Provider operation has only mock/offline test coverage; no live API credentials or production behavior were tested. Guest mention generation remains disabled.

@@ -1,9 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { canOpenSection, OWNER_ID } from "../src/lib/access";
+import { canOpenSection } from "../src/lib/access";
 import { campaignLink, textInsights } from "../src/lib/creator-tools";
 test("public, loading and non-owner sessions never unlock private sections", () => {
-  assert.equal(OWNER_ID, "6265999542");
   for (const owner of [false, null]) {
     for (const section of ["home", "post", "tools", "guide", "groups", "auth"])
       assert.equal(canOpenSection(section, owner), true);

@@ -44,7 +44,7 @@ retired; its behavior is tested against the real replacement domain instead.
   ban before release; partial release/deletion/audit outcomes are disclosed
   separately rather than automatically retrying a membership action.
 - Unmute restores actual group default permissions, not fabricated broad rights.
-- Owner totals and owner buttons only appear for account 6265999542 in private.
+- Owner totals and owner buttons only appear for account the configured owner account in private.
   Group use by that same owner never queries or displays private totals.
 - All new screens use the existing MIT-licensed Badmunda05 Richgram fork and
   styled native buttons. Unsupported rich transports/styles retain the existing

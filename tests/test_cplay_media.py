@@ -20,6 +20,8 @@ class ChannelPlayMediaValidationTests(unittest.IsolatedAsyncioTestCase):
         )
         with patch.object(cplay, "_db_track"), \
              patch.object(cplay, "get_linked_channel", return_value=-90002), \
+             patch.object(cplay.bot, "get_chat", new=AsyncMock(return_value=NS(type=cplay.ChatType.CHANNEL))), \
+             patch.object(cplay, "_bot_admin_status", new=AsyncMock(return_value=True)), \
              patch.object(cplay, "rich_send", new=AsyncMock()) as send, \
              patch.object(cplay.bot, "get_messages", new=AsyncMock(return_value=reply)) as get_messages, \
              patch.object(cplay.bot, "download_media", new=AsyncMock(return_value="/tmp/untrusted.bin")) as download:

@@ -86,13 +86,15 @@ test("all private bot APIs deny guests without contacting the backend", async ()
 test("auth proxy checks explicit owner even when a backend accepts another user", async () => {
   const original = globalThis.fetch;
   const oldUrl = process.env.VIDEL_BACKEND_URL,
-    oldSecret = process.env.WEBAPP_SECRET;
+    oldSecret = process.env.WEBAPP_SECRET,
+    oldOwner = process.env.OWNER_ID;
   process.env.VIDEL_BACKEND_URL = "https://backend.example";
   process.env.WEBAPP_SECRET = "offline-secret";
+  process.env.OWNER_ID = "987654321";
   try {
     for (const [id, status] of [
       [1, 403],
-      [6265999542, 200],
+      [987654321, 200],
     ]) {
       globalThis.fetch = async () =>
         Response.json({ ok: true, user: { id, first_name: "Test" } });
@@ -108,7 +110,9 @@ test("auth proxy checks explicit owner even when a backend accepts another user"
       if (status === 403)
         assert.ok(response.headers.get("set-cookie")?.includes("Max-Age=0"));
       else {
-        assert.equal((await response.json()).owner, true);
+        const payload = await response.json();
+        assert.equal(payload.owner, true);
+        assert.equal(payload.user, undefined, "the browser response must not expose Telegram identity details");
         const cookies = response.headers.getSetCookie();
         assert.ok(cookies.some((cookie) => cookie.startsWith("videl_owner=") && cookie.includes("HttpOnly") && cookie.includes("Secure") && cookie.includes("SameSite=Lax") && cookie.includes("Max-Age=86400")));
         assert.ok(cookies.some((cookie) => cookie.startsWith("videl_owner_embedded=") && cookie.includes("HttpOnly") && cookie.includes("Secure") && cookie.includes("SameSite=None") && cookie.includes("Partitioned") && cookie.includes("Max-Age=86400")));
@@ -120,8 +124,32 @@ test("auth proxy checks explicit owner even when a backend accepts another user"
     else process.env.VIDEL_BACKEND_URL = oldUrl;
     if (oldSecret === undefined) delete process.env.WEBAPP_SECRET;
     else process.env.WEBAPP_SECRET = oldSecret;
+    if (oldOwner === undefined) delete process.env.OWNER_ID;
+    else process.env.OWNER_ID = oldOwner;
   }
 });
+test("missing private owner configuration fails closed without echoing identity", async () => {
+  const oldOwner = process.env.OWNER_ID;
+  const original = globalThis.fetch;
+  let calls = 0;
+  delete process.env.OWNER_ID;
+  globalThis.fetch = async () => { calls++; throw new Error("must not contact backend"); };
+  try {
+    const response = await POST(new NextRequest("https://studio.example/api/auth", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ initData: "offline-fixture" }),
+    }));
+    assert.equal(response.status, 503);
+    assert.equal(calls, 0);
+    assert.equal((await response.text()).includes("987654321"), false);
+  } finally {
+    globalThis.fetch = original;
+    if (oldOwner === undefined) delete process.env.OWNER_ID;
+    else process.env.OWNER_ID = oldOwner;
+  }
+});
+
 test("cross-site sign-in is rejected and sign-out clears both cookie contexts", async () => {
   const req = new NextRequest("https://studio.example/api/auth", {
     method: "POST",

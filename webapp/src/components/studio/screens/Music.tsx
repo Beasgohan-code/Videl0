@@ -6,9 +6,11 @@ import anime from "animejs";
 import {
   AudioLines,
   Disc3,
+  Expand,
   Heart,
   ListMusic,
   LoaderCircle,
+  Minimize2,
   Pause,
   Play,
   Plus,
@@ -23,7 +25,7 @@ import {
 import "../music/music.css";
 import { VyronCover } from "../music/VyronCover";
 import { VyronSeek } from "../music/VyronSeek";
-import { isCurrentMediaSource, LatestRequestGate, settleLatest } from "@/lib/latest-request";
+import { clearMediaSource, isCurrentMediaSource, LatestRequestGate, settleLatest } from "@/lib/latest-request";
 import { useStudio } from "../StudioProvider";
 
 type Track = {
@@ -32,7 +34,12 @@ type Track = {
   channel: string;
   duration: string;
   thumbnail: string;
+  provider?: "videl" | "typetube";
 };
+
+function trackKey(track: Track): string {
+  return `${track.provider || "videl"}:${track.video_id}`;
+}
 
 type DownloadTask = {
   status: "preparing" | "ready" | "failed" | "unknown" | "unavailable";
@@ -61,6 +68,7 @@ export default function Music() {
   const activePlaybackSource = useRef("");
   const activeDownloadTaskId = useRef("");
   const [query, setQuery] = useState("");
+  const [source, setSource] = useState<"videl" | "typetube">("videl");
   const [results, setResults] = useState<Track[]>([]);
   const [queue, setQueue] = useState<Track[]>([]);
   const [current, setCurrent] = useState<Track | null>(null);
@@ -77,13 +85,14 @@ export default function Music() {
   const [downloadTaskId, setDownloadTaskId] = useState("");
   const [downloadTask, setDownloadTask] = useState<DownloadTask | null>(null);
   const [libraryView, setLibraryView] = useState<"discover" | "favorites" | "history" | "queue">("discover");
+  const [focusPlayer, setFocusPlayer] = useState(false);
 
   useEffect(() => {
     try {
       const saved = JSON.parse(localStorage.getItem("videl-music-favorites") || "[]");
       const savedTracks = JSON.parse(localStorage.getItem("videl-music-favorite-tracks") || "[]");
       const savedHistory = JSON.parse(localStorage.getItem("videl-music-history") || "[]");
-      if (Array.isArray(saved)) setFavorites(saved.filter((id) => typeof id === "string"));
+      if (Array.isArray(saved)) setFavorites(saved.filter((id) => typeof id === "string").map((id) => id.includes(":") ? id : `videl:${id}`));
       if (Array.isArray(savedTracks)) setFavoriteTracks(savedTracks.filter((track) => track && typeof track.video_id === "string"));
       if (Array.isArray(savedHistory)) setHistory(savedHistory.filter((track) => track && typeof track.video_id === "string"));
     } catch {
@@ -105,11 +114,7 @@ export default function Music() {
     activePlaybackSource.current = "";
     activeDownloadTaskId.current = "";
     const player = audio.current;
-    if (player) {
-      player.pause();
-      player.removeAttribute("src");
-      player.load();
-    }
+    if (player) clearMediaSource(player);
   }, []);
 
   useEffect(() => {
@@ -161,7 +166,7 @@ export default function Music() {
       if (duration > 0) session.setPositionState({ duration, position: Math.min(time, duration), playbackRate: audio.current?.playbackRate || 1 });
       session.setActionHandler("play", () => {
         const player = audio.current;
-        if (player) startPlayback(player, playbackRequests.current.begin());
+        if (player) startPlayback(player, playbackRequests.current.begin(), current?.provider);
       });
       session.setActionHandler("pause", pausePlayback);
       session.setActionHandler("nexttrack", () => playNext());
@@ -189,6 +194,10 @@ export default function Music() {
     if (tab !== "music") return;
     function onKeyDown(event: KeyboardEvent) {
       if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+      if (event.key === "Escape" && focusPlayer) {
+        setFocusPlayer(false);
+        return;
+      }
       const target = event.target;
       if (target instanceof HTMLElement && (target.isContentEditable || target.closest("input,textarea,select,button,[role=button]"))) return;
       if (event.key === " " && current) {
@@ -203,7 +212,7 @@ export default function Music() {
     }
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [tab, current, playing, duration, time]);
+  }, [tab, current, playing, duration, time, focusPlayer]);
 
   async function searchTracks(event?: FormEvent) {
     event?.preventDefault();
@@ -227,13 +236,16 @@ export default function Music() {
     setResults([]);
     try {
       await settleLatest(searchRequests.current, requestId, async () => {
-        const response = await fetch(`/api/music/search?q=${encodeURIComponent(value)}`, {
+        const path = source === "typetube" ? "/api/music/typetube/search" : "/api/music/search";
+        const response = await fetch(`${path}?q=${encodeURIComponent(value)}`, {
           cache: "no-store",
           signal: controller.signal,
         });
         const payload = await response.json();
         if (!response.ok || payload.ok !== true) throw new Error(payload.error || "Search is unavailable right now.");
-        return Array.isArray(payload.tracks) ? payload.tracks as Track[] : [];
+        return Array.isArray(payload.tracks)
+          ? payload.tracks.map((track: Track) => ({ ...track, provider: source }))
+          : [];
       }, {
         onSuccess: setResults,
         onError: (cause) => setError(
@@ -249,13 +261,15 @@ export default function Music() {
     }
   }
 
-  function startPlayback(player: HTMLAudioElement, requestId: number) {
+  function startPlayback(player: HTMLAudioElement, requestId: number, provider: Track["provider"] = "videl") {
     void settleLatest(playbackRequests.current, requestId, () => player.play(), {
       onSuccess: () => setPlaying(true),
       onError: () => {
         setPlaying(false);
         setLoading(false);
-        setError("The track could not start. Check Videl’s downloader status and try another result.");
+        setError(provider === "typetube"
+          ? "TypeTube is ready, but the browser did not start audio automatically. Tap Play to retry, or switch sources if it still fails."
+          : "The track could not start. Check Videl’s downloader status and try another result.");
       },
     });
   }
@@ -273,19 +287,21 @@ export default function Music() {
       pausePlayback();
       return;
     }
-    startPlayback(player, playbackRequests.current.begin());
+    startPlayback(player, playbackRequests.current.begin(), current?.provider);
   }
 
   function playTrack(track: Track) {
     const player = audio.current;
     if (!player) return;
-    playbackRequests.current.invalidate();
-    player.pause();
+    const requestId = playbackRequests.current.begin();
+    activePlaybackSource.current = "";
+    clearMediaSource(player);
     setPlaying(false);
     setCurrent(track);
     setLibraryView("discover");
     setHistory((previous) => {
-      const next = [track, ...previous.filter((item) => item.video_id !== track.video_id)].slice(0, 30);
+      const key = trackKey(track);
+      const next = [track, ...previous.filter((item) => trackKey(item) !== key)].slice(0, 30);
       localStorage.setItem("videl-music-history", JSON.stringify(next));
       return next;
     });
@@ -293,6 +309,38 @@ export default function Music() {
     setDuration(0);
     setLoading(true);
     setError("");
+    activeDownloadTaskId.current = "";
+    setDownloadTaskId("");
+
+    if (track.provider === "typetube") {
+      setDownloadTask(null);
+      activePlaybackSource.current = "";
+      void settleLatest(playbackRequests.current, requestId, async () => {
+        const response = await fetch(`/api/music/typetube/resolve?id=${encodeURIComponent(track.video_id)}`, {
+          cache: "no-store",
+          signal: AbortSignal.timeout(18_000),
+        });
+        const payload = await response.json();
+        if (!response.ok || payload.ok !== true || typeof payload.track?.audio_url !== "string") {
+          throw new Error(payload.error || "TypeTube could not prepare this track.");
+        }
+        return payload.track.audio_url as string;
+      }, {
+        onSuccess: (source) => {
+          activePlaybackSource.current = source;
+          player.src = source;
+          player.load();
+          startPlayback(player, requestId, track.provider);
+        },
+        onError: (cause) => {
+          setLoading(false);
+          setPlaying(false);
+          setError(cause instanceof Error ? cause.message : "TypeTube could not prepare this track.");
+        },
+      });
+      return;
+    }
+
     const taskId = globalThis.crypto?.randomUUID
       ? globalThis.crypto.randomUUID().replaceAll("-", "")
       : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -303,7 +351,7 @@ export default function Music() {
     activePlaybackSource.current = source;
     player.src = source;
     player.load();
-    startPlayback(player, playbackRequests.current.begin());
+    startPlayback(player, requestId, track.provider);
   }
 
   function playNext() {
@@ -318,18 +366,19 @@ export default function Music() {
   }
 
   function toggleFavorite(track: Track) {
-    const isFavorite = favorites.includes(track.video_id);
+    const key = trackKey(track);
+    const isFavorite = favorites.includes(key);
     setFavorites((previous) => {
       const next = isFavorite
-        ? previous.filter((id) => id !== track.video_id)
-        : [...previous, track.video_id];
+        ? previous.filter((id) => id !== key)
+        : [...previous, key];
       localStorage.setItem("videl-music-favorites", JSON.stringify(next));
       return next;
     });
     setFavoriteTracks((previous) => {
       const next = isFavorite
-        ? previous.filter((item) => item.video_id !== track.video_id)
-        : [track, ...previous.filter((item) => item.video_id !== track.video_id)];
+        ? previous.filter((item) => trackKey(item) !== key)
+        : [track, ...previous.filter((item) => trackKey(item) !== key)];
       localStorage.setItem("videl-music-favorite-tracks", JSON.stringify(next));
       return next;
     });
@@ -433,7 +482,7 @@ export default function Music() {
       );
     }).catch(() => {});
     return () => { active = false; tween?.kill(); };
-  }, [tab, current?.video_id]);
+  }, [tab, current ? trackKey(current) : ""]);
 
   useEffect(() => {
     if (tab === "music" || !current || !miniDockRef.current || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
@@ -442,7 +491,7 @@ export default function Music() {
       if (active && miniDockRef.current) Velocity.animate(miniDockRef.current, { opacity: [1, 0], translateY: [0, 16] }, { duration: 280, easing: "easeOutCubic" });
     }).catch(() => {});
     return () => { active = false; };
-  }, [tab, current?.video_id]);
+  }, [tab, current ? trackKey(current) : ""]);
 
   const audioElement = (
     <audio
@@ -507,11 +556,27 @@ export default function Music() {
             An immersive music player built into Videl. Search, queue, and listen with Videl’s own music service.
           </p>
         </div>
-        <span className="ios-pill ios-pill-green"><Radio size={12} /> Videl player · browser playback</span>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="ios-pill ios-pill-green"><Radio size={12} /> Personal browser player</span>
+          <button
+            type="button"
+            disabled={!current}
+            aria-pressed={focusPlayer}
+            onClick={() => setFocusPlayer((active) => !active)}
+            className="ios-btn ios-btn-glass min-h-10 px-3 text-xs disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            {focusPlayer ? <Minimize2 size={14} /> : <Expand size={14} />}
+            {focusPlayer ? "Exit focus" : "Focus player"}
+          </button>
+        </div>
       </header>
 
-      <section data-anime-enter className="music-stage relative z-10 mt-7 grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
-        <div className="min-w-0">
+      <section
+        data-anime-enter
+        data-focus-player={focusPlayer ? "true" : "false"}
+        className="music-stage relative z-10 mt-7 grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]"
+      >
+        {!focusPlayer && <div className="min-w-0">
           <form onSubmit={searchTracks} className="music-search flex items-center gap-3 rounded-2xl border border-white/10 bg-[#10172a]/80 p-2 pl-4 shadow-2xl shadow-black/20">
             <Search size={19} className="shrink-0 text-emerald-200/70" aria-hidden />
             <label className="sr-only" htmlFor="music-search">Search music</label>
@@ -528,10 +593,30 @@ export default function Music() {
               <span className="hidden sm:inline">Search</span>
             </button>
           </form>
+          <div className="mt-3 flex flex-wrap items-center gap-2" aria-label="Music source">
+            <span className="ios-caps mr-1 text-[9px] text-white/35">Source</span>
+            {([ ["videl", "Videl"], ["typetube", "TypeTube"] ] as const).map(([value, label]) => (
+              <button key={value} type="button" aria-pressed={source === value}
+                onClick={() => {
+                  searchRequests.current.invalidate();
+                  searchController.current?.abort();
+                  searchController.current = null;
+                  setSearching(false);
+                  setResults([]);
+                  setError("");
+                  setLibraryView("discover");
+                  setSource(value);
+                }}
+                className={`rounded-full border px-3 py-1.5 text-[11px] transition ${source === value ? "border-emerald-200/30 bg-emerald-200/10 text-emerald-100" : "border-white/[0.08] text-white/45 hover:bg-white/[0.05] hover:text-white/75"}`}>
+                {label}
+              </button>
+            ))}
+            {source === "typetube" && <span className="text-[10px] text-white/35">External resolver; browser audio streams from its returned CDN URL.</span>}
+          </div>
 
           <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
             <div>
-              <p className="ios-caps text-[10px] text-white/35">Videl library</p>
+              <p className="ios-caps text-[10px] text-white/35">{source === "typetube" ? "TypeTube search" : "Videl library"}</p>
               <h2 className="mt-1 text-lg font-semibold">{sectionTitle}</h2>
             </div>
             {displayedTracks.length > 0 && <div className="flex gap-2"><button type="button" onClick={(event) => playBatch(false, event.currentTarget)} className="ios-btn ios-btn-glass px-3 py-2 text-[10px]"><Play size={13} fill="currentColor"/> Play all</button><button type="button" onClick={(event) => playBatch(true, event.currentTarget)} className="ios-btn ios-btn-glass px-3 py-2 text-[10px]"><Shuffle size={13}/> Shuffle</button></div>}
@@ -557,12 +642,12 @@ export default function Music() {
 
           {searching && libraryView === "discover" ? (
             <div className="mt-4 flex items-center gap-3 rounded-2xl border border-white/[0.07] bg-white/[0.025] p-5 text-sm text-white/50" role="status">
-              <LoaderCircle size={18} className="animate-spin text-emerald-200" /> Searching Videl’s music sources…
+              <LoaderCircle size={18} className="animate-spin text-emerald-200" /> Searching {source === "typetube" ? "TypeTube" : "Videl’s music sources"}…
             </div>
           ) : displayedTracks.length ? (
             <div className="mt-3 space-y-2">
               {displayedTracks.map((track, index) => (
-                <article data-anime-track key={`${track.video_id}-${index}`} className="music-track-row group flex items-center gap-3 rounded-2xl border border-white/[0.07] bg-white/[0.025] p-2.5 transition hover:border-emerald-200/20 hover:bg-white/[0.045]">
+                <article data-anime-track key={`${trackKey(track)}-${index}`} className="music-track-row group flex items-center gap-3 rounded-2xl border border-white/[0.07] bg-white/[0.025] p-2.5 transition hover:border-emerald-200/20 hover:bg-white/[0.045]">
                   <button onClick={() => playTrack(track)} className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-[#172238]" aria-label={`Play ${track.title}`}>
                     <VyronCover track={track} className="h-full w-full" rounded={12} />
                     <span className="absolute inset-0 grid place-items-center bg-black/35 text-white opacity-0 transition group-hover:opacity-100"><Play size={17} fill="currentColor" /></span>
@@ -572,8 +657,8 @@ export default function Music() {
                     <span className="mt-1 block truncate text-xs text-white/40">{track.channel || "YouTube"} <span className="px-1">·</span> {track.duration || "—:—"}</span>
                   </button>
                   <span className="hidden w-6 text-center font-mono text-[10px] text-white/25 sm:block">{String(index + 1).padStart(2, "0")}</span>
-                  <button onClick={() => toggleFavorite(track)} aria-label={favorites.includes(track.video_id) ? "Remove from favorites" : "Add to favorites"} className={`rounded-lg p-2 transition ${favorites.includes(track.video_id) ? "text-rose-300" : "text-white/30 hover:text-rose-200"}`}>
-                    <Heart size={16} fill={favorites.includes(track.video_id) ? "currentColor" : "none"} />
+                  <button onClick={() => toggleFavorite(track)} aria-label={favorites.includes(trackKey(track)) ? "Remove from favorites" : "Add to favorites"} className={`rounded-lg p-2 transition ${favorites.includes(trackKey(track)) ? "text-rose-300" : "text-white/30 hover:text-rose-200"}`}>
+                    <Heart size={16} fill={favorites.includes(trackKey(track)) ? "currentColor" : "none"} />
                   </button>
                   <button onClick={() => enqueue(track)} aria-label={`Add ${track.title} to queue`} className="rounded-lg p-2 text-white/35 transition hover:bg-white/5 hover:text-emerald-200"><Plus size={17} /></button>
                 </article>
@@ -586,24 +671,24 @@ export default function Music() {
               <p className="mt-1 max-w-sm text-xs leading-5 text-white/35">{libraryView === "discover" ? "Search by title or artist. Likes and recent plays stay in this browser; the queue lasts for this session." : "Search or discover a track, then add it to this part of your library."}</p>
             </div>
           )}
-        </div>
+        </div>}
 
-        <aside className="music-now-panel flex flex-col rounded-3xl border border-emerald-200/10 bg-[linear-gradient(150deg,rgba(22,46,52,.76),rgba(15,20,36,.96)_65%)] p-5 sm:p-6">
+        <aside className={`music-now-panel flex flex-col rounded-3xl border border-emerald-200/10 bg-[linear-gradient(150deg,rgba(22,46,52,.76),rgba(15,20,36,.96)_65%)] p-5 sm:p-6 ${focusPlayer ? "music-now-panel-focus" : ""}`}>
           <div className="flex items-center justify-between">
             <span className="ios-caps flex items-center gap-2 text-[10px] text-emerald-100/50"><Disc3 size={14} /> Now playing</span>
             <span className={`h-2 w-2 rounded-full ${playing ? "animate-pulse bg-emerald-300 shadow-[0_0_12px_#6ee7b7]" : "bg-white/20"}`} aria-label={playing ? "Playing" : "Paused"} />
           </div>
-          <div ref={coverStageRef} className="music-cover-glow relative mx-auto mt-5 aspect-square w-full max-w-[260px] overflow-hidden rounded-[26px] border border-white/10 bg-[#111b2c] shadow-2xl shadow-black/30">
+          <div ref={coverStageRef} className={`music-cover-glow relative mx-auto mt-5 aspect-square w-full overflow-hidden rounded-[26px] border border-white/10 bg-[#111b2c] shadow-2xl shadow-black/30 ${focusPlayer ? "max-w-[360px]" : "max-w-[260px]"}`}>
             <VyronCover track={current} className={`h-full w-full transition duration-700 ${playing ? "scale-100" : "scale-[1.04] opacity-70"}`} rounded={26} />
             <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-transparent to-transparent" />
-            <div className="absolute inset-x-0 bottom-0 p-4"><p className="ios-caps text-[9px] text-emerald-100/65">Videl · local player</p><p className="mt-1 line-clamp-2 text-base font-semibold leading-snug">{current?.title || "Ready when you are"}</p></div>
+            <div className="absolute inset-x-0 bottom-0 p-4"><p className="ios-caps text-[9px] text-emerald-100/65">{current?.provider === "typetube" ? "TypeTube · browser player" : "Videl · local player"}</p><p className="mt-1 line-clamp-2 text-base font-semibold leading-snug">{current?.title || "Ready when you are"}</p></div>
           </div>
           <div className="mt-4 min-h-[42px] text-center">
             <p className="truncate text-sm font-semibold text-white/90">{current?.title || "Pick a track to begin"}</p>
             <p className="mt-1 truncate text-xs text-white/40">{current?.channel || "Your personal listening room"}</p>
           </div>
           <div className="mt-3">
-            <VyronSeek trackKey={current?.video_id ?? "idle"} position={time} duration={duration} onSeek={(value) => { if (audio.current) audio.current.currentTime = value; setTime(value); }} />
+            <VyronSeek trackKey={current ? trackKey(current) : "idle"} position={time} duration={duration} onSeek={(value) => { if (audio.current) audio.current.currentTime = value; setTime(value); }} />
             <div className="mt-1 flex justify-between font-mono text-[10px] text-white/35"><span>{clock(time)}</span><span>{clock(duration)}</span></div>
           </div>
           <div className="mt-2 flex items-center justify-center gap-5">
@@ -616,7 +701,7 @@ export default function Music() {
           <div className="mt-4 flex items-center gap-2 text-white/45"><Volume2 size={14} /><input aria-label="Volume" type="range" min={0} max={1} step={0.01} value={volume} onChange={(event) => setVolume(Number(event.target.value))} className="music-range flex-1" /><span className="w-8 text-right font-mono text-[10px]">{Math.round(volume * 100)}%</span></div>
           <div className="mt-5 border-t border-white/[0.08] pt-4">
             <div className="flex items-center justify-between"><span className="ios-caps flex items-center gap-2 text-[10px] text-white/45"><ListMusic size={14} /> Up next</span><div className="flex items-center gap-2"><span className="font-mono text-[10px] text-white/30">{queue.length}</span>{queue.length > 0 && <button type="button" onClick={() => setQueue([])} className="text-[10px] text-white/35 hover:text-rose-200">Clear queue</button>}</div></div>
-            {queue.length ? <div className="mt-2 max-h-40 space-y-1 overflow-y-auto">{queue.map((track, index) => <div key={`${track.video_id}-${index}`} className="flex items-center gap-2 rounded-lg px-2 py-2 text-xs text-white/65"><span className="w-4 shrink-0 font-mono text-[10px] text-white/25">{index + 1}</span><button onClick={() => { setQueue((previous) => previous.filter((_, i) => i !== index)); }} aria-label={`Remove ${track.title} from queue`} className="order-2 rounded p-1 text-white/20 hover:text-rose-200"><X size={13} /></button><button onClick={() => { setQueue((previous) => previous.filter((_, i) => i !== index)); playTrack(track); }} className="min-w-0 flex-1 truncate text-left">{track.title}</button></div>)}</div> : <p className="mt-2 text-xs text-white/30">Add a search result to queue it here.</p>}
+            {queue.length ? <div className="mt-2 max-h-40 space-y-1 overflow-y-auto">{queue.map((track, index) => <div key={`${trackKey(track)}-${index}`} className="flex items-center gap-2 rounded-lg px-2 py-2 text-xs text-white/65"><span className="w-4 shrink-0 font-mono text-[10px] text-white/25">{index + 1}</span><button onClick={() => { setQueue((previous) => previous.filter((_, i) => i !== index)); }} aria-label={`Remove ${track.title} from queue`} className="order-2 rounded p-1 text-white/20 hover:text-rose-200"><X size={13} /></button><button onClick={() => { setQueue((previous) => previous.filter((_, i) => i !== index)); playTrack(track); }} className="min-w-0 flex-1 truncate text-left">{track.title}</button></div>)}</div> : <p className="mt-2 text-xs text-white/30">Add a search result to queue it here.</p>}
           </div>
         </aside>
       </section>

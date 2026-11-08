@@ -309,6 +309,22 @@ export const BOT_COMMANDS: BotCommand[] = [
     "owner": false
   },
   {
+    "name": "faqassist",
+    "usage": "/faqassist",
+    "summary": "Answer from saved group sources; use --private or --stream for an opt-in reply mode",
+    "category": "manage",
+    "context": "group",
+    "owner": false
+  },
+  {
+    "name": "faqcancel",
+    "usage": "/faqcancel",
+    "summary": "Stop your active streamed FAQ answer",
+    "category": "manage",
+    "context": "group",
+    "owner": false
+  },
+  {
     "name": "fban",
     "usage": "/fban",
     "summary": "Ban a user from every federation chat",
@@ -432,6 +448,30 @@ export const BOT_COMMANDS: BotCommand[] = [
     "name": "groupview",
     "usage": "/groupview",
     "summary": "Check or stop bot-visible group recording",
+    "category": "manage",
+    "context": "group",
+    "owner": false
+  },
+  {
+    "name": "guardianai",
+    "usage": "/guardianai",
+    "summary": "Enable or disable disclosed Gemini safety assistance",
+    "category": "manage",
+    "context": "group",
+    "owner": false
+  },
+  {
+    "name": "guardianjoin",
+    "usage": "/guardianjoin",
+    "summary": "Create a rules-only join-request review guide for human admins",
+    "category": "manage",
+    "context": "group",
+    "owner": false
+  },
+  {
+    "name": "guardiansummary",
+    "usage": "/guardiansummary",
+    "summary": "Summarize bounded group audit counts for admins",
     "category": "manage",
     "context": "group",
     "owner": false
@@ -656,6 +696,14 @@ export const BOT_COMMANDS: BotCommand[] = [
     "name": "rules",
     "usage": "/rules",
     "summary": "Show the group rules",
+    "category": "manage",
+    "context": "group",
+    "owner": false
+  },
+  {
+    "name": "safetycheck",
+    "usage": "/safetycheck",
+    "summary": "Ask for a cautious advisory on a replied-to message",
     "category": "manage",
     "context": "group",
     "owner": false

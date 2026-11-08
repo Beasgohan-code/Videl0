@@ -18,7 +18,7 @@ _SEEN: "OrderedDict[str, float]" = OrderedDict()
 _RESPONSE = (
     "Videl guest help: I can provide this general guide without collecting an account identity. "
     "Group controls require adding Videl to a Telegram group; ask a current group admin to configure it. "
-    "Guest messages do not access group settings or member records."
+    "Guest messages do not access group settings, member records or AI features."
 )
 
 

@@ -1,12 +1,8 @@
 #!/usr/bin/env bash
-# Videl entrypoint — keep yt-dlp fresh, then start the bot
+# Videl entrypoint — use the dependencies installed from the pinned requirements.
 set -e
 
-echo "[videl] ensuring latest yt-dlp..."
-python -m pip install -U --quiet "yt-dlp[default]" 2>/dev/null || \
-  python -m pip install -U --quiet yt-dlp 2>/dev/null || true
-
-echo "[videl] yt-dlp: $(python -c 'import yt_dlp; print(yt_dlp.version.__version__)' 2>/dev/null || echo unknown)"
+echo "[videl] yt-dlp: $(python -c 'import yt_dlp; print(yt_dlp.version.__version__)' 2>/dev/null || echo missing)"
 echo "[videl] ffmpeg: $(ffmpeg -version 2>/dev/null | head -1 || echo missing)"
 
 exec python main.py

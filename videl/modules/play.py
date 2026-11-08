@@ -15,7 +15,7 @@ from videl.utils.bot_ui import button as InlineKeyboardButton
 import config
 from videl import bot, LOGGER
 from videl.core.player import play_song
-from videl.core.queue import add_to_queue, insert_next, peek_current, queue_size
+from videl.core.queue import add_to_queue, capacity_remaining, insert_next, peek_current, queue_size
 from videl.modules.block import group_allowed, user_allowed
 from videl.utils.assistant import is_assistant_in, try_join_assistant
 from videl.utils.db import add_served_chat, add_served_user
@@ -36,6 +36,24 @@ _last_cmd: dict[int, float] = {}
 _pending:  dict[int, tuple] = {}
 # search picker cache: "chat_id:user_id" -> {results, video, requester, ...}
 _search_cache: dict[str, dict] = {}
+_SEARCH_CACHE_TTL_SECONDS = 120
+_SEARCH_CACHE_MAX_ENTRIES = 512
+
+
+def _store_search_cache(key: str, value: dict, *, now: float | None = None) -> None:
+    """Keep picker state short-lived and bounded when callbacks are abandoned."""
+    now = time.time() if now is None else now
+    for cached_key, cached_value in list(_search_cache.items()):
+        try:
+            expired = now - float(cached_value.get("ts", 0)) > _SEARCH_CACHE_TTL_SECONDS
+        except (AttributeError, TypeError, ValueError):
+            expired = True
+        if expired:
+            _search_cache.pop(cached_key, None)
+    _search_cache.pop(key, None)
+    _search_cache[key] = value
+    while len(_search_cache) > _SEARCH_CACHE_MAX_ENTRIES:
+        _search_cache.pop(next(iter(_search_cache)))
 
 
 # ── DB helper ──────────────────────────────────────────────────────────────────
@@ -146,6 +164,15 @@ async def _play_local_media(message: Message, chat_id: int, user_id: int, force_
     else:
         return False
 
+    if capacity_remaining(chat_id) <= 0:
+        await rich_send(
+            bot,
+            chat_id,
+            rich_heading("Queue is full", level=3)
+            + rich_note(f"The queue limit is {config.QUEUE_LIMIT} tracks, including the current track. Remove a track and retry."),
+        )
+        return True
+
     pm = await rich_send(bot, chat_id, rich_heading(" Processing media...", level=3), navigation=False)
 
     if file_size and file_size > _MAX_FILE_MB * 1024 * 1024:
@@ -205,6 +232,15 @@ async def _play_local_media(message: Message, chat_id: int, user_id: int, force_
     }
 
     pos = insert_next(chat_id, song) if play_next else add_to_queue(chat_id, song)
+    if pos is None:
+        from videl.utils.helpers import delete_file
+        delete_file(fp)
+        await rich_edit(
+            pm,
+            rich_heading("Queue is full", level=3)
+            + rich_note(f"The queue limit is {config.QUEUE_LIMIT} tracks, including the current track. Remove a track and retry."),
+        )
+        return True
     if pos == 1:
         await play_song(chat_id, pm, song)
     else:
@@ -299,6 +335,14 @@ async def play_handler(_, message: Message) -> None:
 
 async def _process_play(message: Message, query: str, video: bool = False, play_next: bool = False) -> None:
     chat_id = message.chat.id
+    if capacity_remaining(chat_id) <= 0:
+        await rich_send(
+            bot,
+            chat_id,
+            rich_heading("Queue is full", level=3)
+            + rich_note(f"The queue limit is {config.QUEUE_LIMIT} tracks, including the current track. Remove a track and retry."),
+        )
+        return
 
     pm = await rich_send(bot, chat_id, rich_heading(" Processing...", level=3), navigation=False)
 
@@ -361,14 +405,14 @@ async def _process_play(message: Message, query: str, video: bool = False, play_
 
         # Store pending results for callback (chat_id + user_id keyed)
         key = f"{chat_id}:{message.from_user.id if message.from_user else 0}"
-        _search_cache[key] = {
+        _store_search_cache(key, {
             "results": results,
             "video": video,
             "play_next": play_next,
             "requester": message.from_user.first_name if message.from_user else "Unknown",
             "requester_id": message.from_user.id if message.from_user else 0,
             "ts": time.time(),
-        }
+        })
 
         buttons = []
         for i, r in enumerate(results):
@@ -412,8 +456,10 @@ async def _process_play(message: Message, query: str, video: bool = False, play_
         req_id = message.from_user.id         if message.from_user else 0
 
         first_was_empty = queue_size(chat_id) == 0
+        added_items = []
+        available_slots = capacity_remaining(chat_id)
 
-        for offset, item in enumerate(items):
+        for offset, item in enumerate(items[:available_slots]):
             song = {
                 "url":              item["link"],
                 "title":            item["title"],
@@ -423,17 +469,30 @@ async def _process_play(message: Message, query: str, video: bool = False, play_
                 "requester_id":     req_id,
                 "thumbnail":        item["thumbnail"],
             }
-            if play_next:
-                insert_next(chat_id, song, offset=offset)
-            else:
-                add_to_queue(chat_id, song)
+            position = (
+                insert_next(chat_id, song, offset=len(added_items))
+                if play_next else add_to_queue(chat_id, song)
+            )
+            if position is None:
+                break
+            added_items.append(item)
+
+        if not added_items:
+            await rich_edit(
+                pm,
+                rich_heading("Queue is full", level=3)
+                + rich_note(f"The queue limit is {config.QUEUE_LIMIT} tracks, including the current track. Remove a track and retry."),
+            )
+            return
 
         rows = [
-            ("songs", f"<code>{len(items)}</code>"),
-            ("first", f"<code>{rich_esc(short(items[0]['title']))}</code>"),
+            ("songs", f"<code>{len(added_items)}</code>"),
+            ("first", f"<code>{rich_esc(short(added_items[0]['title']))}</code>"),
         ]
-        if len(items) > 1:
-            rows.append(("next", f"<code>{rich_esc(short(items[1]['title']))}</code>"))
+        if len(added_items) > 1:
+            rows.append(("next", f"<code>{rich_esc(short(added_items[1]['title']))}</code>"))
+        if len(added_items) < len(items):
+            rows.append(("limit", f"Queue capacity reached; {len(items) - len(added_items)} tracks were not added."))
 
         await rich_send(
             bot, chat_id,
@@ -492,6 +551,13 @@ async def _process_play(message: Message, query: str, video: bool = False, play_
     }
 
     pos = insert_next(chat_id, song) if play_next else add_to_queue(chat_id, song)
+    if pos is None:
+        await rich_edit(
+            pm,
+            rich_heading("Queue is full", level=3)
+            + rich_note(f"The queue limit is {config.QUEUE_LIMIT} tracks, including the current track. Remove a track and retry."),
+        )
+        return
 
     if pos == 1:
         await play_song(chat_id, pm, song)
@@ -554,7 +620,7 @@ async def ytpick_callback(_, cq: CallbackQuery) -> None:
             pass
         return
 
-    if not cache or time.time() - cache.get("ts", 0) > 120:
+    if not cache or time.time() - cache.get("ts", 0) > _SEARCH_CACHE_TTL_SECONDS:
         _search_cache.pop(key, None)
         await cq.answer("Search expired — search again", show_alert=True)
         try:
@@ -604,6 +670,13 @@ async def ytpick_callback(_, cq: CallbackQuery) -> None:
 
     play_next = bool(cache.get("play_next"))
     pos = insert_next(chat_id, song) if play_next else add_to_queue(chat_id, song)
+    if pos is None:
+        await cq.answer("Queue is full. Remove a track and retry.", show_alert=True)
+        try:
+            await cq.message.delete()
+        except Exception:
+            pass
+        return
     if pos == 1:
         status = "Starting playback"
     elif play_next and pos == 2:

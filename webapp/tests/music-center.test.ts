@@ -5,6 +5,9 @@ import { GET as musicStatus } from "../src/app/api/music/status/route";
 import { GET as musicTrack } from "../src/app/api/music/track/[videoId]/route";
 import { ownerMarker } from "../src/lib/auth";
 
+
+// Test-only synthetic owner; production identity is supplied server-side.
+process.env.OWNER_ID = "987654321";
 test("music download status is owner-only and rejects malformed task IDs", async () => {
   const previousSecret = process.env.WEBAPP_SECRET;
   process.env.WEBAPP_SECRET = "music-center-test-secret";

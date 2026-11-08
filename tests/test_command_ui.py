@@ -85,16 +85,30 @@ class CatalogTests(unittest.TestCase):
             self.assertIn(key, PREMIUM_IDS, entry['name'])
             self.assertIn(key, FALLBACK, entry['name'])
 
-    def test_approved_member_actions_are_visible_and_keep_callback_targets(self):
+    def test_approved_member_actions_are_paginated_and_keep_exact_targets(self):
         from videl.modules.approve import _approved_keyboard
         from pyrogram.enums import ButtonStyle
-        keyboard = _approved_keyboard(list(range(101, 131)), allow_clear=True)
-        buttons = [button for row in keyboard.inline_keyboard for button in row]
-        removal = [button for button in buttons if button.callback_data and button.callback_data.startswith('approve:rm:')]
-        self.assertEqual([button.callback_data for button in removal], [f'approve:rm:{uid}' for uid in range(101, 129)])
-        self.assertTrue(all(button.style == ButtonStyle.DANGER for button in removal))
-        self.assertIn('approve:clear', [button.callback_data for button in buttons])
-        self.assertIn('approve:close', [button.callback_data for button in buttons])
+
+        users = list(range(101, 131))
+        pages = []
+        for page, start in enumerate((101, 111, 121)):
+            keyboard = _approved_keyboard(users, allow_clear=True, page=page)
+            buttons = [button for row in keyboard.inline_keyboard for button in row]
+            removal = [button for button in buttons if button.callback_data and button.callback_data.startswith('approve:rm:')]
+            expected = [f'approve:rm:{uid}' for uid in range(start, start + 10)]
+            self.assertEqual([button.callback_data for button in removal], expected)
+            self.assertTrue(all(button.style == ButtonStyle.DANGER for button in removal))
+            self.assertIn('approve:clear', [button.callback_data for button in buttons])
+            self.assertIn('approve:close', [button.callback_data for button in buttons])
+            pages.extend(button.callback_data for button in removal)
+
+            nav = [button.callback_data for button in buttons if button.callback_data and button.callback_data.startswith('approve:page:')]
+            self.assertIn(f'approve:page:{page}', nav)
+            if page > 0:
+                self.assertIn(f'approve:page:{page - 1}', nav)
+            if page < 2:
+                self.assertIn(f'approve:page:{page + 1}', nav)
+        self.assertEqual(pages, [f'approve:rm:{uid}' for uid in users])
 
     def test_reference_matches_registered_sources(self):
         from tools.command_reference import reference
@@ -126,7 +140,7 @@ class ModernCommandsTests(unittest.IsolatedAsyncioTestCase):
             send.assert_awaited_once_with('stopPoll',{'chat_id':-1001,'message_id':9})
 
     async def test_owner_callback_never_leaks_directory_in_group(self):
-        query=SimpleNamespace(message=message([]),from_user=SimpleNamespace(id=6265999542),data='cmds:owner:0',answer=AsyncMock())
+        query=SimpleNamespace(message=message([]),from_user=SimpleNamespace(id=987654321),data='cmds:owner:0',answer=AsyncMock())
         with patch.object(professional,'rich_edit',AsyncMock()) as edit:
             await professional.navigate(None,query)
             edit.assert_not_awaited()

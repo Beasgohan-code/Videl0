@@ -12,6 +12,8 @@ User & group playlists:
   /deleteplaylist <name> – delete a playlist
 """
 
+import re
+
 from pyrogram import filters
 from pyrogram.types import Message
 
@@ -20,6 +22,7 @@ from videl import bot
 from videl.core.queue import add_to_queue, get_queue, queue_size
 from videl.modules.block import group_allowed, user_allowed
 from videl.utils.db import (
+    PlaylistStorageError,
     delete_playlist,
     get_playlist,
     list_playlists,
@@ -129,20 +132,58 @@ async def load_playlist_cmd(_, message: Message) -> None:
         name = raw[2:].strip()
 
     owner = chat_id if is_group else (message.from_user.id if message.from_user else 0)
-    pl = get_playlist(owner, name)
-    if not pl or not pl.get("songs"):
-        # try the other type as fallback
-        alt_owner = (message.from_user.id if message.from_user else 0) if is_group else chat_id
-        pl = get_playlist(alt_owner, name)
+    try:
+        pl = get_playlist(owner, name)
+        if (not pl or not pl.get("songs")) and not is_group:
+            # Preserve the legacy unprefixed group-playlist fallback, but an
+            # explicit g: request must never silently load a personal playlist.
+            pl = get_playlist(chat_id, name)
         if not pl or not pl.get("songs"):
             await rich_send(bot, chat_id, rich_heading(" Playlist not found", level=3))
             return
+    except PlaylistStorageError:
+        await rich_send(bot, chat_id, rich_heading(" Couldn’t access playlist storage", level=3))
+        return
+
+    tracks = pl.get("songs") if isinstance(pl, dict) else None
+    if not isinstance(tracks, list) or not tracks:
+        await rich_send(bot, chat_id, rich_heading(" Playlist data is invalid", level=3))
+        return
+
+    stored_count = len(tracks)
+    omitted_tracks = max(0, stored_count - 50)
+    tracks = tracks[:50]
+    requested = len(tracks)
+    valid_tracks = []
+    invalid_rows = 0
+    for stored_song in tracks:
+        if not isinstance(stored_song, dict):
+            invalid_rows += 1
+            continue
+        song = dict(stored_song)
+        url = song.get("url") or song.get("link") or ""
+        if not isinstance(url, str) or not url.strip():
+            video_id = song.get("video_id")
+            if isinstance(video_id, str) and re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id):
+                url = f"https://www.youtube.com/watch?v={video_id}"
+            else:
+                invalid_rows += 1
+                continue
+        song["url"] = url.strip()
+        valid_tracks.append(song)
+    if not valid_tracks:
+        await rich_send(
+            bot, chat_id,
+            rich_heading(" Playlist contains no valid tracks", level=3)
+            + rich_note(f"Skipped {invalid_rows} invalid saved track rows; nothing was added."),
+        )
+        return
 
     added = 0
     requester = message.from_user.first_name if message.from_user else "User"
     requester_id = message.from_user.id if message.from_user else 0
 
-    for s in pl["songs"]:
+    for s in valid_tracks:
         if queue_size(chat_id) >= config.QUEUE_LIMIT:
             break
         song = {
@@ -155,8 +196,18 @@ async def load_playlist_cmd(_, message: Message) -> None:
             "requester_id": requester_id,
             "from_playlist": pl.get("display_name") or name,
         }
-        add_to_queue(chat_id, song)
+        position = add_to_queue(chat_id, song)
+        if position is None:
+            break
         added += 1
+
+    completion_note = rich_note("Use <code>/play</code> or wait for autoplay if something is already playing.")
+    if added < len(valid_tracks):
+        completion_note += rich_note(f"Queue capacity reached: added {added} of {len(valid_tracks)} valid tracks.")
+    if invalid_rows:
+        completion_note += rich_note(f"Skipped {invalid_rows} invalid saved track rows.")
+    if omitted_tracks:
+        completion_note += rich_note(f"Only the first 50 tracks were considered due to the 50-track limit; {omitted_tracks} additional saved rows were ignored.")
 
     await rich_send(
         bot, chat_id,
@@ -166,7 +217,7 @@ async def load_playlist_cmd(_, message: Message) -> None:
             ("Added", str(added)),
             ("Queue size", str(queue_size(chat_id))),
         ])
-        + rich_note("Use <code>/play</code> or wait for autoplay if something is already playing."),
+        + completion_note,
     )
 
     # If nothing is playing, start the first song
@@ -191,8 +242,12 @@ async def list_playlists_cmd(_, message: Message) -> None:
     chat_id = message.chat.id if message.chat else 0
     uid = message.from_user.id if message.from_user else 0
 
-    personal = list_playlists(uid)
-    group = list_playlists(chat_id) if message.chat and message.chat.type.name != "PRIVATE" else []
+    try:
+        personal = list_playlists(uid)
+        group = list_playlists(chat_id) if message.chat and message.chat.type.name != "PRIVATE" else []
+    except PlaylistStorageError:
+        await rich_send(bot, chat_id or uid, rich_heading(" Couldn’t access playlist storage", level=3))
+        return
 
     lines = []
     if personal:
@@ -249,7 +304,13 @@ async def delete_playlist_cmd(_, message: Message) -> None:
     else:
         owner = message.from_user.id if message.from_user else 0
 
-    if delete_playlist(owner, name):
+    try:
+        deleted = delete_playlist(owner, name)
+    except PlaylistStorageError:
+        await rich_send(bot, chat_id, rich_heading(" Couldn’t access playlist storage", level=3))
+        return
+
+    if deleted:
         await rich_send(bot, chat_id, rich_heading(" Playlist deleted", level=3) + rich_kv_table([("Name", rich_esc(name))]))
     else:
         await rich_send(bot, chat_id, rich_heading(" Playlist not found", level=3))

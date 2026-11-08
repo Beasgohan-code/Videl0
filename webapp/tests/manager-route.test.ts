@@ -13,6 +13,9 @@ const playerCookie = () => {
   return `videl_player=${marker}`;
 };
 
+
+// Test-only synthetic owner; production identity is supplied server-side.
+process.env.OWNER_ID = "987654321";
 test("group-manager routes reject guests before contacting the backend", async () => {
   const originalFetch = globalThis.fetch;
   let calls = 0;
