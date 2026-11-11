@@ -206,6 +206,10 @@ async def change_lock(ctx, enabled: bool) -> Screen:
             + body("Available: <code>" + " · ".join(_LOCK_TYPES) + "</code>")
         )
     kinds = LOCK_TYPES if selected == "all" else (selected,)
+    if enabled:
+        from videl.plugins.settings import _bot_can_delete_messages
+        if not await _bot_can_delete_messages(bot, int(ctx.message.chat.id)):
+            raise CommandError("The bot needs Delete Messages permission before content locks can be enabled.")
     updates = {f"lock_{kind}": enabled for kind in kinds}
     if "forward" in kinds:
         updates["lock_forwards"] = enabled
@@ -288,6 +292,11 @@ async def lock_toggle_callback(client, query: CallbackQuery) -> None:
 
     kind = parts[2]
     enabled = parts[3] == "1"
+    if enabled and kind != "antispam":
+        from videl.plugins.settings import _bot_can_delete_messages
+        if not await _bot_can_delete_messages(client, int(chat_id)):
+            await query.answer("The bot needs Delete Messages permission to enable content locks. Nothing changed.", show_alert=True)
+            return
     if kind == "antispam":
         # Older keyboards may still contain the immediate toggle callback.
         # Route it to the revision-bound preview instead of mutating directly.

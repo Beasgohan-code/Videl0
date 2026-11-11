@@ -5,6 +5,9 @@ import {GET as conversations} from '../src/app/api/conversations/route';
 import {GET as groupView} from '../src/app/api/group-view/route';
 import {GET as workspace} from '../src/app/api/inbox-workspace/route';
 
+
+// Test-only synthetic owner; production identity is supplied server-side.
+process.env.OWNER_ID = "987654321";
 test('old backend route 404s explain rollout, but real JSON not-found responses remain intact',async()=>{
  const previousFetch=globalThis.fetch;
  const previousSecret=process.env.WEBAPP_SECRET,previousBackend=process.env.VIDEL_BACKEND_URL;

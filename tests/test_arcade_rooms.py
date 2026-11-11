@@ -6,7 +6,9 @@ nobody is watching still resolves.
 """
 import json
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+from threading import Barrier
 from unittest.mock import Mock, patch
 
 import mongomock
@@ -25,6 +27,8 @@ class ArcadeRoomTests(unittest.TestCase):
         self.patch.start()
         self.addCleanup(self.patch.stop)
         self.db["served_chats"].insert_one({"_id": -1001})
+        store._LAST_REACT.clear()
+        store._LAST_NUDGE.clear()
         store._LAST_CHAT.clear()
         store._LAST_SIGNAL.clear()
         players.upsert({"id": 1, "name": "Ada"})
@@ -182,6 +186,79 @@ class ArcadeRoomTests(unittest.TestCase):
             store.chat(code, 1, "first")
             store.chat(code, 1, "second")
         self.assertEqual(caught.exception.status, 429)
+
+    def test_chat_rate_state_is_bounded_without_evicting_active_limits(self):
+        with patch.object(store, "MAX_RATE_LIMIT_KEYS", 2), \
+             patch.object(store.time, "monotonic", side_effect=[100.0, 100.0, 100.0, 161.0]):
+            store._rate_limit("ROOMA", 1)
+            store._rate_limit("ROOMB", 2)
+            with self.assertRaises(GameError) as caught:
+                store._rate_limit("ROOMC", 3)
+            self.assertEqual(caught.exception.status, 429)
+            self.assertEqual(set(store._LAST_CHAT), {("ROOMA", 1), ("ROOMB", 2)})
+            store._rate_limit("ROOMC", 3)
+
+        self.assertEqual(list(store._LAST_CHAT), [("ROOMC", 3)])
+
+    def test_default_rate_state_limit_bounds_unique_actor_keys(self):
+        with patch.object(store.time, "monotonic", return_value=100.0):
+            for user_id in range(store.MAX_RATE_LIMIT_KEYS):
+                store._rate_limit("ROOMA", user_id)
+            with self.assertRaises(GameError) as caught:
+                store._rate_limit("ROOMA", store.MAX_RATE_LIMIT_KEYS)
+
+        self.assertEqual(caught.exception.status, 429)
+        self.assertEqual(len(store._LAST_CHAT), store.MAX_RATE_LIMIT_KEYS)
+
+    def test_concurrent_chat_rate_checks_are_atomic(self):
+        barrier = Barrier(3)
+
+        def attempt():
+            barrier.wait()
+            try:
+                store._rate_limit("ROOMA", 1)
+                return True
+            except GameError as error:
+                self.assertEqual(error.status, 429)
+                return False
+
+        with patch.object(store.time, "monotonic", return_value=100.0):
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                first = pool.submit(attempt)
+                second = pool.submit(attempt)
+                barrier.wait()
+                self.assertEqual(sum((first.result(), second.result())), 1)
+
+    def test_voice_signal_rate_state_expires_and_is_capped(self):
+        with patch.object(store, "MAX_RATE_LIMIT_KEYS", 1), \
+             patch.object(store.time, "monotonic", side_effect=[50.0, 50.0, 111.0]):
+            store._signal_limit("ROOMA", 1)
+            with self.assertRaises(GameError) as caught:
+                store._signal_limit("ROOMB", 2)
+            self.assertEqual(caught.exception.status, 429)
+            store._signal_limit("ROOMB", 2)
+
+        self.assertEqual(list(store._LAST_SIGNAL), [("ROOMB", 2)])
+
+    def test_cooldown_maps_are_bounded_and_expired_entries_are_removed(self):
+        with patch.object(store, "MAX_RATE_LIMIT_KEYS", 1):
+            store._cooldown_limit(store._LAST_REACT, ("ROOMA", 1), 10.0, store.REACT_GAP,
+                                  "Give the last reaction a moment")
+            with self.assertRaises(GameError):
+                store._cooldown_limit(store._LAST_REACT, ("ROOMB", 2), 10.0, store.REACT_GAP,
+                                      "Give the last reaction a moment")
+            store._cooldown_limit(store._LAST_REACT, ("ROOMB", 2), 12.0, store.REACT_GAP,
+                                  "Give the last reaction a moment")
+            self.assertEqual(list(store._LAST_REACT), [("ROOMB", 2)])
+
+            store._cooldown_limit(store._LAST_NUDGE, ("ROOMA", 1), 20.0, store.NUDGE_GAP,
+                                  "You already nudged; give them a moment")
+            with self.assertRaises(GameError):
+                store._cooldown_limit(store._LAST_NUDGE, ("ROOMB", 2), 20.0, store.NUDGE_GAP,
+                                      "You already nudged; give them a moment")
+            store._cooldown_limit(store._LAST_NUDGE, ("ROOMB", 2), 41.0, store.NUDGE_GAP,
+                                  "You already nudged; give them a moment")
+            self.assertEqual(list(store._LAST_NUDGE), [("ROOMB", 2)])
 
     def test_control_characters_are_stripped_from_chat(self):
         code = self.joined()

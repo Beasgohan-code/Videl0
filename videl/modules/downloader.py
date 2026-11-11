@@ -13,6 +13,8 @@ import asyncio
 import logging
 import os
 import re
+import ipaddress
+import socket
 import time
 import tempfile
 import shutil
@@ -119,8 +121,57 @@ def _extract_video_id(text: str) -> Optional[str]:
     return None
 
 
+_URL_SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")
+_YOUTUBE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
+_LOCAL_HOST_SUFFIXES = (".localhost", ".local", ".internal", ".lan", ".home.arpa")
+
+
 def _is_url(text: str) -> bool:
-    return text.startswith(("http://", "https://", "www.")) or bool(re.match(r"^[A-Za-z0-9_-]{11}$", text.strip()))
+    value = str(text or "").strip()
+    return bool(
+        re.match(r"(?i)^https?://", value)
+        or value.lower().startswith("www.")
+        or _YOUTUBE_ID_RE.fullmatch(value)
+    )
+
+
+def _normalize_direct_url(source: str) -> str:
+    """Normalize HTTP(S) media URLs and reject obvious local/private targets."""
+    value = str(source or "").strip()
+    if _YOUTUBE_ID_RE.fullmatch(value):
+        return f"https://www.youtube.com/watch?v={value}"
+    if value.lower().startswith("www."):
+        value = "https://" + value
+
+    parsed = urlsplit(value)
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("Only public HTTP(S) media links are supported")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("Credentials in media URLs are not supported")
+    try:
+        port = parsed.port
+    except ValueError:
+        raise ValueError("Invalid media URL port") from None
+    if port not in {None, 80, 443}:
+        raise ValueError("Only standard public web ports are supported")
+
+    host = parsed.hostname.rstrip(".").lower()
+    if "." not in host:
+        raise ValueError("Single-label media hosts are not supported")
+    if host == "localhost" or host.endswith(_LOCAL_HOST_SUFFIXES):
+        raise ValueError("Local media hosts are not supported")
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        # inet_aton also recognizes legacy numeric IPv4 spellings such as
+        # decimal or abbreviated loopback addresses that ip_address rejects.
+        try:
+            address = ipaddress.IPv4Address(socket.inet_aton(host))
+        except OSError:
+            address = None
+    if address is not None and not address.is_global:
+        raise ValueError("Private or reserved media addresses are not supported")
+    return value
 
 
 async def _search_youtube(query: str, limit: int = 5) -> list[dict]:
@@ -175,22 +226,25 @@ async def _fallback_youtube_audio(url: str, tmpdir: Path, requested_label: str) 
     """Use the configured playback providers if yt-dlp cannot extract YouTube audio."""
     if not _extract_video_id(url):
         return None
-    from videl.utils.youtube import resolve_stream
+    from videl.utils.youtube import release_cache_file, resolve_stream
 
     downloaded = await resolve_stream(url)
     if not downloaded:
         return None
-    original = Path(downloaded)
-    if not original.is_file() or original.stat().st_size <= 1024:
-        return None
-    # Playback providers store their cache in the shared download directory.
-    # Copy into this request's temp folder so normal cleanup cannot delete the
-    # shared cache or another request's files.
-    extension = original.suffix if original.suffix.lower() in {".mp3", ".m4a", ".aac", ".ogg", ".opus", ".webm"} else ".mp3"
-    copied = tmpdir / f"fallback-audio{extension}"
-    await asyncio.to_thread(shutil.copy2, original, copied)
-    title = requested_label if not _is_url(requested_label) else original.stem
-    return copied, {"title": title[:180] or "YouTube audio", "duration": None}
+    try:
+        original = Path(downloaded)
+        if not original.is_file() or original.stat().st_size <= 1024:
+            return None
+        # Playback providers store their cache in the shared download directory.
+        # Copy into this request's temp folder so normal cleanup cannot delete the
+        # shared cache or another request's files.
+        extension = original.suffix if original.suffix.lower() in {".mp3", ".m4a", ".aac", ".ogg", ".opus", ".webm"} else ".mp3"
+        copied = tmpdir / f"fallback-audio{extension}"
+        await asyncio.to_thread(shutil.copy2, original, copied)
+        title = requested_label if not _is_url(requested_label) else original.stem
+        return copied, {"title": title[:180] or "YouTube audio", "duration": None}
+    finally:
+        release_cache_file(downloaded)
 
 
 def _yt_dlp_progress_hook(status_msg, title="Downloading media"):
@@ -256,9 +310,17 @@ async def _download_media(
     include_info: bool = False,
 ) -> Path | tuple[Path, dict]:
     """Professional download with progress, retries, and cleanup."""
+    source = str(source or "").strip()
+    if _is_url(source) or _URL_SCHEME_RE.match(source):
+        source = _normalize_direct_url(source)
+
     tmpdir = Path(tempfile.mkdtemp(dir=str(DOWNLOAD_DIR)))
     outtmpl = str(tmpdir / "%(title).80s-%(id)s.%(ext)s")
-    opts = _get_yt_dlp_opts(audio_only=audio_only, out_path=outtmpl)
+    try:
+        opts = _get_yt_dlp_opts(audio_only=audio_only, out_path=outtmpl)
+    except BaseException:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+        raise
 
     requested_label = source.strip()
 
@@ -273,11 +335,15 @@ async def _download_media(
                 )
             except Exception:
                 pass
-        results = await _search_youtube(source, limit=1)
-        if not results:
+        try:
+            results = await _search_youtube(source, limit=1)
+            if not results:
+                raise ValueError("No matching media result")
+            source = _normalize_direct_url(results[0]["link"])
+        except BaseException:
+            # Includes cancellation while the provider is resolving a title.
             shutil.rmtree(tmpdir, ignore_errors=True)
-            raise ValueError("No matching media result")
-        source = results[0]["link"]
+            raise
         log.info("Resolved a media title to a supported source")
 
     url = source.strip()
@@ -486,7 +552,7 @@ async def song_cmd(_, m: Message):
             ),
             level=2,
         )
-        body += "<p>" + rich_button("🎵 Play in voice chat", callback_data="help_play") + " " + rich_button("📹 Download video", callback_data="dl:video") + "</p>"
+        body += "<p>" + rich_button("Play in voice chat", callback_data="help_play") + " " + rich_button("Download video", callback_data="dl:video") + "</p>"
         return await rich_send(bot, m.chat.id, body)
 
     # Check banned words professionally
@@ -626,7 +692,7 @@ async def vsong_cmd(_, m: Message):
             + rich_details("Example", "<code>/vsong nature documentary</code>"),
             level=2,
         )
-        body += "<p>" + rich_button("🎵 Download audio", callback_data="dl:song") + "</p>"
+        body += "<p>" + rich_button("Download audio", callback_data="dl:song") + "</p>"
         return await rich_send(bot, m.chat.id, body)
 
     blocked = getattr(config, "BLOCKED_WORDS", []) or ["porn", "xxx", "xnxx", "sex"]
@@ -736,7 +802,7 @@ async def download_cmd(_, m: Message):
             ),
             level=2,
         )
-        body += "<p>" + rich_button("🎵 Audio help", callback_data="dl:song") + " " + rich_button("📹 Video help", callback_data="dl:video") + "</p>"
+        body += "<p>" + rich_button("Audio help", callback_data="dl:song") + " " + rich_button("Video help", callback_data="dl:video") + "</p>"
         return await rich_send(bot, m.chat.id, body)
     # Auto-detect: if query contains video keywords, use video, else audio
     is_video = any(x in query.lower() for x in (".mp4", "video", "tiktok", "instagram", "reel"))
@@ -751,7 +817,11 @@ async def download_cmd(_, m: Message):
 # ── Callbacks for download pills ─────────────────────────────────────────────
 @bot.on_callback_query(filters.regex(r"^dl:"))
 async def dl_cbs(_, q: CallbackQuery):
-    data = (q.data or "").split(":")[1] if ":" in (q.data or "") else ""
+    callback_data = str(getattr(q, "data", "") or "")
+    if callback_data not in {"dl:song", "dl:video"}:
+        await q.answer("This download help action is no longer available.", show_alert=False)
+        return
+    data = callback_data.partition(":")[2]
     if data == "song":
         await q.answer("Use /song followed by a title or link")
         try:

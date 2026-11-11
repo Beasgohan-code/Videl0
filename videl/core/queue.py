@@ -11,6 +11,7 @@ import asyncio
 import logging
 import re
 from datetime import datetime, timezone
+import config
 from urllib.parse import urlparse, parse_qs
 
 chat_queues: dict[int, list] = {}
@@ -20,6 +21,13 @@ _persist_locks: dict[int, asyncio.Lock] = {}
 _persist_tasks: set[asyncio.Task] = set()
 log = logging.getLogger(__name__)
 MAX_PERSISTED_UPCOMING = 100
+
+
+def _queue_limit() -> int:
+    try:
+        return max(0, int(config.QUEUE_LIMIT))
+    except (AttributeError, TypeError, ValueError, OverflowError):
+        return 20
 
 
 def _video_id(song: dict) -> str | None:
@@ -85,7 +93,11 @@ def _write_snapshot(chat_id: int, revision: int, tracks: list) -> None:
     if db is None:
         return
     active = _record(tracks[0]) if tracks else None
-    upcoming = [item for song in tracks[1:] if (item := _record(song)) is not None][:MAX_PERSISTED_UPCOMING]
+    recovery_limit = min(MAX_PERSISTED_UPCOMING, max(0, _queue_limit() - 1))
+    upcoming = [
+        item for song in tracks[1:1 + recovery_limit]
+        if (item := _record(song)) is not None
+    ]
     doc = {
         "_id": int(chat_id), "version": 1, "revision": int(revision),
         "active_interrupted": active, "upcoming": upcoming,
@@ -131,13 +143,14 @@ async def initialize_recovery() -> int:
         log.info("Queue recovery scan unavailable (%s)", type(exc).__name__)
         return 0
     loaded = 0
+    recovery_limit = min(MAX_PERSISTED_UPCOMING, max(0, _queue_limit() - 1))
     for doc in docs:
         chat_id = doc.get("_id")
         upcoming = doc.get("upcoming")
         if not isinstance(chat_id, int) or not isinstance(upcoming, list):
             continue
         safe = []
-        for row in upcoming[:MAX_PERSISTED_UPCOMING]:
+        for row in upcoming[:recovery_limit]:
             if not isinstance(row, dict):
                 continue
             parsed = _record(row)
@@ -167,34 +180,65 @@ def recovery_info(chat_id: int) -> dict | None:
 
 
 def restore_upcoming(chat_id: int) -> int:
-    """Append saved upcoming tracks only while a fresh track is already active."""
-    data = _recoverable.get(int(chat_id))
-    tracks = chat_queues.get(int(chat_id))
+    """Restore the complete saved list only if it fits behind fresh playback."""
+    chat_id = int(chat_id)
+    data = _recoverable.get(chat_id)
+    tracks = chat_queues.get(chat_id)
     if not data or not tracks:
         return 0
-    restored = [_recovered_song(row) for row in data["tracks"]]
-    tracks.extend(restored)
-    _recoverable.pop(int(chat_id), None)
-    note_queue_mutation(int(chat_id))
-    return len(restored)
+    rows = data["tracks"]
+    if len(tracks) + len(rows) > _queue_limit():
+        return 0
+    tracks.extend(_recovered_song(row) for row in rows)
+    _recoverable.pop(chat_id, None)
+    note_queue_mutation(chat_id)
+    return len(rows)
 
 
 def get_queue(chat_id: int) -> list:
     return chat_queues.get(chat_id, [])
 
 
-def add_to_queue(chat_id: int, song: dict) -> int:
-    queue = chat_queues.setdefault(chat_id, [])
-    queue.append(song)
+def mutation_revision(chat_id: int) -> int:
+    """Return the in-process revision advanced by supported queue mutations."""
+    return _revisions.get(int(chat_id), 0)
+
+
+def add_to_queue(chat_id: int, song: dict, *, internal: bool = False) -> int | None:
+    """Append a track unless the configured per-chat limit is reached.
+
+    The limit includes the current track. Internal repeat rotations may bypass
+    admission after a completed track has been removed from the queue.
+    """
+    tracks = chat_queues.get(chat_id, [])
+    if not internal and len(tracks) >= _queue_limit():
+        return None
+    tracks = chat_queues.setdefault(chat_id, tracks)
+    tracks.append(song)
     note_queue_mutation(chat_id)
-    return len(queue)
+    return len(tracks)
 
 
-def insert_next(chat_id: int, song: dict, *, offset: int = 0) -> int:
-    """Insert after the current item, preserving order for a batch of tracks."""
-    queue = chat_queues.setdefault(chat_id, [])
-    index = min(1 + max(0, int(offset)), len(queue)) if queue else 0
-    queue.insert(index, song)
+def insert_next(chat_id: int, song: dict, *, offset: int = 0) -> int | None:
+    """Insert after the current item, preserving order and enforcing capacity."""
+    tracks = chat_queues.get(chat_id, [])
+    if len(tracks) >= _queue_limit():
+        return None
+    tracks = chat_queues.setdefault(chat_id, tracks)
+    index = min(1 + max(0, int(offset)), len(tracks)) if tracks else 0
+    tracks.insert(index, song)
+    note_queue_mutation(chat_id)
+    return index + 1
+
+
+def insert_at(chat_id: int, song: dict, index: int) -> int | None:
+    """Insert at a zero-based position, subject to the same queue admission cap."""
+    tracks = chat_queues.get(chat_id, [])
+    if len(tracks) >= _queue_limit():
+        return None
+    tracks = chat_queues.setdefault(chat_id, tracks)
+    index = max(0, min(int(index), len(tracks)))
+    tracks.insert(index, song)
     note_queue_mutation(chat_id)
     return index + 1
 
@@ -272,6 +316,11 @@ def clear_queue(chat_id: int) -> list:
 
 def queue_size(chat_id: int) -> int:
     return len(chat_queues.get(chat_id, []))
+
+
+def capacity_remaining(chat_id: int) -> int:
+    """Return available slots, counting the current item toward the configured cap."""
+    return max(0, _queue_limit() - queue_size(chat_id))
 
 
 def is_empty(chat_id: int) -> bool:

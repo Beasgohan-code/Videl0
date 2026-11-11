@@ -7,6 +7,7 @@ Two kinds of failure are deliberately treated differently:
 * any other rejection is final and waits for the owner, because a duplicate
   post is worse than a missing one.
 """
+import config
 import hashlib
 import json
 import logging
@@ -19,7 +20,7 @@ from pymongo.errors import DuplicateKeyError
 from videl.utils.db import get_db
 from videl.utils.bot_api import call_bot_api
 
-OWNER_ID = 6265999542
+OWNER_ID = config.OWNER_ID
 # Telegram rate limits are transient: retry a few times, then stop and say so.
 MAX_RATE_LIMITED_RETRIES = 3
 MIN_RETRY_SECONDS = 5

@@ -9,7 +9,7 @@ from videl.plugins import sudo
 from videl.modules import block
 from videl.utils import db
 
-OWNER_ID = 6265999542
+OWNER_ID = 987654321
 
 
 class SudoDatabaseTests(unittest.TestCase):
@@ -52,6 +52,13 @@ class SudoDatabaseTests(unittest.TestCase):
 
 
 class SudoScopeTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        # The repository intentionally has no public/default owner identifier.
+        # Use this synthetic test actor explicitly instead of relying on config.
+        owner_patch = patch.object(block.config, "OWNER_ID", OWNER_ID)
+        owner_patch.start()
+        self.addCleanup(owner_patch.stop)
+
     async def test_owner_keeps_original_access_but_sudo_is_private_only(self):
         owner = NS(from_user=NS(id=OWNER_ID), chat=NS(type=ChatType.GROUP))
         operator_private = NS(from_user=NS(id=701), chat=NS(type=ChatType.PRIVATE))

@@ -48,18 +48,26 @@ async def fetch_lyrics(query: str) -> dict | None:
                     return None
                 data = await resp.json()
     except Exception as e:
-        LOGGER.warning(f"[lyrics] fetch failed: {e}")
+        # Provider exceptions can contain the full search URL and user query.
+        LOGGER.warning("[lyrics] fetch failed (%s)", type(e).__name__)
         return None
 
     if not data or not isinstance(data, list):
         return None
 
     for item in data:
-        plain = (item.get("plainLyrics") or "").strip()
+        if not isinstance(item, dict):
+            continue
+        raw_lyrics = item.get("plainLyrics")
+        if not isinstance(raw_lyrics, str):
+            continue
+        plain = raw_lyrics.strip()
         if plain and len(plain) > 20:
+            title = item.get("trackName")
+            artist = item.get("artistName")
             return {
-                "title": item.get("trackName") or query,
-                "artist": item.get("artistName") or "?",
+                "title": title.strip() if isinstance(title, str) and title.strip() else query,
+                "artist": artist.strip() if isinstance(artist, str) and artist.strip() else "?",
                 "lyrics": plain,
                 "synced": bool(item.get("syncedLyrics")),
             }

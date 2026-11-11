@@ -34,6 +34,7 @@ class InlineAdminSettingsTests(unittest.IsolatedAsyncioTestCase):
         updates = {}
         with patch.object(locks.base, "set_settings", side_effect=lambda _chat, value: updates.update(value) or True), \
              patch.object(locks, "_record", new=AsyncMock()) as audit, \
+             patch("videl.plugins.settings._bot_can_delete_messages", new=AsyncMock(return_value=True)), \
              patch.object(locks, "lock_status_screen", return_value=NS(html="updated", keyboard="markup")), \
              patch.object(locks, "rich_edit", new=AsyncMock()) as edit:
             await locks.lock_toggle_callback(self.client, self.query)
@@ -54,6 +55,25 @@ class InlineAdminSettingsTests(unittest.IsolatedAsyncioTestCase):
         start.assert_awaited_once_with(self.client, self.chat_id, self.admin.id, 9)
         save.assert_not_called()
         self.query.answer.assert_awaited_once_with("review")
+
+    async def test_lock_command_checks_bot_right_before_setting(self):
+        from videl.app.router import CommandError
+        context = NS(command=NS(arguments="links"), message=NS(chat=NS(id=self.chat_id), from_user=self.admin))
+        with patch("videl.plugins.settings._bot_can_delete_messages", new=AsyncMock(return_value=False)) as rights, \
+             patch.object(locks.base, "set_settings") as save:
+            with self.assertRaises(CommandError):
+                await locks.change_lock(context, True)
+        rights.assert_awaited_once()
+        save.assert_not_called()
+
+    async def test_lock_toggle_requires_bot_delete_right_before_enable(self):
+        self.query.data = "mgmt_lock:set:links:1"
+        with patch("videl.plugins.settings._bot_can_delete_messages", new=AsyncMock(return_value=False)) as rights, \
+             patch.object(locks.base, "set_settings") as save:
+            await locks.lock_toggle_callback(self.client, self.query)
+        rights.assert_awaited_once_with(self.client, self.chat_id)
+        save.assert_not_called()
+        self.assertIn("Delete Messages", self.query.answer.call_args.args[0])
 
     async def test_lock_toggle_rejects_non_admin_without_writing(self):
         self.query.data = "mgmt_lock:set:links:1"

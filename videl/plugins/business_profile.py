@@ -171,7 +171,7 @@ async def business_profile(ctx) -> Screen:
     parts = args.split(maxsplit=3)
     actor = ctx.user
     actor_id = int(getattr(actor, "id", 0) or 0)
-    if actor_id != int(getattr(config, "OWNER_ID", 6265999542)):
+    if actor_id != int(getattr(config, "OWNER_ID", 0)):
         raise CommandError("Business profile changes are limited to the verified bot owner.")
     if not parts:
         return Screen(

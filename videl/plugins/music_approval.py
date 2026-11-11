@@ -20,6 +20,16 @@ async def requests(ctx) -> Screen:
                       + body("Approve or reject with <code>/requests approve CODE</code> or <code>/requests reject CODE</code>. Approved tracks are added to the queue; start playback with <code>/play</code> if it is idle."))
     if len(args) != 2 or args[0] not in {"approve", "reject"}:
         raise CommandError("Use <code>/requests</code>, <code>/requests approve CODE</code>, or <code>/requests reject CODE</code>.")
+    pending = next(
+        (item for item in request_approval.list_pending(chat_id) if item.get("id") == args[1]),
+        None,
+    )
+    if pending is None:
+        raise CommandError("That request is no longer pending. Refresh with <code>/requests</code>.")
+    if args[0] == "approve":
+        target_chat_id = int(pending["song"].get("_queue_chat_id", chat_id))
+        if queue.capacity_remaining(target_chat_id) <= 0:
+            raise CommandError("The target queue is full; the request remains pending. Remove a track and retry.")
     song = request_approval.take(chat_id, args[1])
     if song is None:
         raise CommandError("That request is no longer pending. Refresh with <code>/requests</code>.")
@@ -32,9 +42,11 @@ async def requests(ctx) -> Screen:
         import random
         tracks = queue.get_queue(queue_chat_id)
         position = random.randint(1, len(tracks)) if len(tracks) > 1 else len(tracks)
-        tracks.insert(position, song)
+        added_position = queue.insert_at(queue_chat_id, song, position)
     else:
-        queue.add_to_queue(queue_chat_id, song)
+        added_position = queue.add_to_queue(queue_chat_id, song)
+    if added_position is None:
+        raise CommandError("The target queue became full before approval completed; refresh pending requests.")
     return Screen(heading("Request approved", 3) + body("The track was added to the queue. If playback is idle, start it with <code>/play</code> or the queue controls."))
 
 

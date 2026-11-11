@@ -15,6 +15,7 @@ from pyrogram.types import Message
 from videl import LOGGER, bot, call_py
 from videl.core.queue import peek_current
 from videl.modules.block import group_allowed, user_allowed
+from videl.utils.permissions import is_user_authorized
 from videl.utils.formatters import short
 from videl.utils.rich_ui import rich_esc, rich_heading, rich_kv_table, rich_note
 from videl.utils.command_ui import rich_edit, rich_send
@@ -43,6 +44,18 @@ _cache: dict[int, dict] = {}
 
 SPEED_DEFAULT = 1.0
 BASS_DEFAULT  = 0
+
+
+async def _require_group_admin(message: Message) -> bool:
+    if await is_user_authorized(message):
+        return True
+    await rich_send(
+        bot,
+        message.chat.id,
+        rich_heading("⛔ group admins only", level=3)
+        + rich_note("Only a group admin or the bot owner can use effects commands."),
+    )
+    return False
 
 
 def _get(chat_id: int) -> dict:
@@ -165,7 +178,7 @@ async def _stream_from(chat_id: int, file_path: str, seek_sec: int = 0) -> None:
 # ── Apply effects to current song ─────────────────────────────────────────────
 
 async def apply_effects_now(chat_id: int, message: Message, *, seek_sec: int = -1) -> None:
-    from videl.utils.youtube import resolve_stream
+    from videl.utils.youtube import release_cache_file, resolve_stream
     from videl.modules.seek import get_current_position, set_seek_state
 
     song = peek_current(chat_id)
@@ -193,6 +206,7 @@ async def apply_effects_now(chat_id: int, message: Message, *, seek_sec: int = -
     try:
         processed = await _process_file(src, speed, bass)
     except Exception:
+        release_cache_file(src)
         LOGGER.exception("Could not process audio effects in chat %s", chat_id)
         await rich_edit(
             pm,
@@ -201,6 +215,7 @@ async def apply_effects_now(chat_id: int, message: Message, *, seek_sec: int = -
         )
         return
 
+    release_cache_file(src)
     pos = get_current_position(chat_id) if seek_sec == -1 else seek_sec
 
     try:
@@ -276,6 +291,8 @@ async def maybe_apply_effects(chat_id: int, file_path: str) -> str:
     & group_allowed & user_allowed
 )
 async def speed_cmd(_, message: Message) -> None:
+    if not await _require_group_admin(message):
+        return
     chat_id = message.chat.id
     try:
         val = round(float(message.matches[0].group("val")), 2)
@@ -308,6 +325,8 @@ async def speed_cmd(_, message: Message) -> None:
     & group_allowed & user_allowed
 )
 async def speedreset_cmd(_, message: Message) -> None:
+    if not await _require_group_admin(message):
+        return
     chat_id = message.chat.id
     set_speed(chat_id, SPEED_DEFAULT)
     try:
@@ -323,6 +342,8 @@ async def speedreset_cmd(_, message: Message) -> None:
     & group_allowed & user_allowed
 )
 async def bass_cmd(_, message: Message) -> None:
+    if not await _require_group_admin(message):
+        return
     chat_id = message.chat.id
     try:
         val = int(message.matches[0].group("val"))
@@ -355,6 +376,8 @@ async def bass_cmd(_, message: Message) -> None:
     & group_allowed & user_allowed
 )
 async def bassoff_cmd(_, message: Message) -> None:
+    if not await _require_group_admin(message):
+        return
     chat_id = message.chat.id
     set_bass(chat_id, BASS_DEFAULT)
     try:
@@ -370,6 +393,8 @@ async def bassoff_cmd(_, message: Message) -> None:
     & group_allowed & user_allowed
 )
 async def effecton_cmd(_, message: Message) -> None:
+    if not await _require_group_admin(message):
+        return
     chat_id = message.chat.id
     set_enabled(chat_id, True)
     state       = _get(chat_id)
@@ -390,6 +415,8 @@ async def effecton_cmd(_, message: Message) -> None:
     & group_allowed & user_allowed
 )
 async def effectoff_cmd(_, message: Message) -> None:
+    if not await _require_group_admin(message):
+        return
     chat_id = message.chat.id
     set_enabled(chat_id, False)
     await rich_send(
@@ -406,6 +433,8 @@ async def effectoff_cmd(_, message: Message) -> None:
     & group_allowed & user_allowed
 )
 async def effects_status_cmd(_, message: Message) -> None:
+    if not await _require_group_admin(message):
+        return
     chat_id     = message.chat.id
     state       = _get(chat_id)
     speed       = state["speed"]

@@ -9,6 +9,8 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timedelta, timezone
 
+import config
+
 from pyrogram.enums import ChatMemberStatus, ChatMembersFilter
 from pyrogram.errors import UserNotParticipant
 from pyrogram.types import ChatAdministratorRights, ChatPermissions, InlineKeyboardMarkup
@@ -68,7 +70,7 @@ async def _target(ctx):
 
 async def _protect(ctx, user) -> None:
     me = getattr(ctx.client, "me", None) or await ctx.client.get_me()
-    if int(user.id) in {int(me.id), int(getattr(ctx.client, "owner_id", 0) or 6265999542)}:
+    if int(user.id) in {int(me.id), int(getattr(ctx.client, "owner_id", 0) or getattr(config, "OWNER_ID", 0))}:
         raise CommandError(PROTECTED)
     try:
         member = await ctx.client.get_chat_member(ctx.message.chat.id, user.id)

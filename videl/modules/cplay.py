@@ -11,7 +11,7 @@
 """
 
 from pyrogram import filters
-from pyrogram.enums import ChatType
+from pyrogram.enums import ChatMemberStatus, ChatType
 from pyrogram.types import Message
 
 import config
@@ -25,7 +25,7 @@ from videl.utils.db import (
 )
 from videl.utils.permissions import is_user_authorized
 from videl.utils.rich_ui import rich_esc, rich_heading, rich_kv_table, rich_note
-from videl.utils.command_ui import rich_send, rich_edit
+from videl.utils.command_ui import action_button, inline_keyboard, rich_send, rich_edit
 
 
 async def _resolve_channel(chat_id: int, arg: str | None = None) -> int | None:
@@ -41,6 +41,56 @@ async def _resolve_channel(chat_id: int, arg: str | None = None) -> int | None:
             LOGGER.warning(f"[cplay] resolve channel failed: {e}")
             return None
     return get_linked_channel(chat_id)
+
+
+async def _bot_admin_status(channel_id: int) -> bool | None:
+    """Return bot admin status, or None when Telegram status is unavailable."""
+    try:
+        bot_user = getattr(bot, "me", None) or await bot.get_me()
+        member = await bot.get_chat_member(channel_id, bot_user.id)
+    except Exception as exc:
+        LOGGER.warning("[cplay] cannot verify bot admin rights for target %s (%s)", channel_id, type(exc).__name__)
+        return None
+    return member.status in (ChatMemberStatus.OWNER, ChatMemberStatus.ADMINISTRATOR)
+
+
+def _duration_limit_notice(seconds: int, duration: str) -> str | None:
+    """Match /play's configured duration boundary for cplay search results."""
+    if seconds <= config.MAX_DURATION_SECONDS:
+        return None
+    return (
+        rich_heading("❍ song too long", level=3)
+        + rich_kv_table([
+            ("dur", f"<code>{rich_esc(duration)}</code>"),
+            ("max", f"<code>{config.MAX_DURATION_SECONDS // 60} min</code>"),
+        ])
+    )
+
+
+def cplay_control_keyboard(source_chat_id: int, target_chat_id: int):
+    """Build source/target-bound controls for the shared cplay queue."""
+    from videl.core import player
+
+    def button(label: str, action: str, **kwargs):
+        callback = f"cplayctl:{action}:{int(source_chat_id)}:{int(target_chat_id)}"
+        return action_button(label, callback_data=callback, **kwargs)
+
+    paused = player.is_paused(target_chat_id)
+    loop = player.get_loop(target_chat_id)
+    repeat = {"off": "Repeat: Off", "one": "Repeat: Track", "all": "Repeat: Queue"}.get(loop, "Repeat: Off")
+    return inline_keyboard([
+        [
+            button("Resume" if paused else "Pause", "resume" if paused else "pause", style="success" if paused else "primary", icon="ios_play" if paused else "rijif_pause"),
+            button("Skip", "skip", style="primary", icon="ios_play"),
+        ],
+        [
+            button("Queue", "show_queue", icon="stats"),
+            button("History", "show_history", icon="music2"),
+            button(repeat, "cycle_loop", icon="ios_repeat"),
+        ],
+        [button("Volume −", "volume_down", icon="speaker"), button("Volume +", "volume_up", icon="speaker")],
+        [button("Replay", "replay", icon="ios_repeat"), button("Stop", "stop", style="danger", icon="ios_close")],
+    ])
 
 
 @bot.on_message(
@@ -64,7 +114,8 @@ async def channelplay_cmd(_, message: Message) -> None:
                 "<code>/channelplay @channel</code> or <code>/channelplay -100xxxx</code>\n"
                 "<code>/channelplay unlink</code> — remove link\n"
                 "Then use <code>/cplay song</code> to play in that channel's VC."
-            ),
+            )
+            + rich_note("Link changes apply to future /cplay requests only; target queues and active playback are not migrated or stopped."),
         )
         return
 
@@ -73,8 +124,18 @@ async def channelplay_cmd(_, message: Message) -> None:
         return
 
     if args[0].lower() in ("unlink", "clear", "off", "remove"):
-        clear_linked_channel(chat_id)
-        await rich_send(bot, chat_id, rich_heading(" Channel unlinked", level=3))
+        if not clear_linked_channel(chat_id):
+            await rich_send(
+                bot, chat_id,
+                rich_heading(" Couldn’t update channel link", level=3)
+                + rich_note("Unlink could not be confirmed. Check /channelplay status before retrying."),
+            )
+            return
+        await rich_send(
+            bot, chat_id,
+            rich_heading(" Channel unlinked", level=3)
+            + rich_note("Future /cplay requests are no longer routed here. Unlink does not stop active playback or clear the target channel queue."),
+        )
         return
 
     channel_id = await _resolve_channel(chat_id, args[0])
@@ -100,7 +161,25 @@ async def channelplay_cmd(_, message: Message) -> None:
         )
         return
 
-    set_linked_channel(chat_id, channel_id)
+    bot_admin = await _bot_admin_status(channel_id)
+    if bot_admin is not True:
+        if bot_admin is False:
+            heading = " Bot must be a channel admin"
+            detail = "Nothing was linked. Promote the bot to channel admin, then retry."
+        else:
+            heading = " Couldn’t verify channel access"
+            detail = "Nothing was linked. Add the bot to the channel as an admin, then retry."
+        await rich_send(bot, chat_id, rich_heading(heading, level=3) + rich_note(detail))
+        return
+
+    if not set_linked_channel(chat_id, channel_id):
+        await rich_send(
+            bot, chat_id,
+            rich_heading(" Couldn’t save channel link", level=3)
+            + rich_note("The database did not confirm the update. Check /channelplay status before retrying."),
+        )
+        return
+
     title = getattr(chat, "title", None) or str(channel_id)
     await rich_send(
         bot, chat_id,
@@ -109,7 +188,7 @@ async def channelplay_cmd(_, message: Message) -> None:
             ("Channel", rich_esc(title)),
             ("ID", f"<code>{channel_id}</code>"),
         ])
-        + rich_note("Use <code>/cplay song name</code> to stream there."),
+        + rich_note("Use <code>/cplay song name</code> to stream there. This applies to future /cplay requests; queues and playback on a previous target are not migrated or stopped."),
     )
 
 
@@ -146,6 +225,22 @@ async def cplay_handler(_, message: Message) -> None:
         )
         return
 
+    try:
+        target_chat = await bot.get_chat(channel_id)
+        target_type_ok = target_chat.type in (ChatType.CHANNEL, ChatType.SUPERGROUP)
+        bot_admin = await _bot_admin_status(channel_id) if target_type_ok else False
+    except Exception as exc:
+        LOGGER.warning("[cplay] linked target %s unavailable (%s)", channel_id, type(exc).__name__)
+        bot_admin = None
+
+    if bot_admin is not True:
+        await rich_send(
+            bot, group_id,
+            rich_heading(" Linked channel unavailable", level=3)
+            + rich_note("The bot must still be an admin in the linked channel. Nothing was queued; restore bot access or relink it with /channelplay."),
+        )
+        return
+
     # Local file reply → play into channel
     if message.reply_to_message:
         # Temporarily treat target chat as channel for queue/player
@@ -157,19 +252,35 @@ async def cplay_handler(_, message: Message) -> None:
         from videl.utils.formatters import fmt_time, short
 
         reply = message.reply_to_message
-        media = (
-            reply.video or reply.audio or reply.voice
-            or reply.video_note or reply.document
-        )
-        if not media and reply.document:
-            ok, _ = _is_playable_document(reply.document)
-            if not ok:
+        document = getattr(reply, "document", None)
+        document_video = False
+        if document is not None:
+            playable, document_video = _is_playable_document(document)
+            if not playable:
                 await rich_send(bot, group_id, rich_heading(" Unsupported file", level=3))
                 return
+        media = (
+            getattr(reply, "video", None) or getattr(reply, "audio", None)
+            or getattr(reply, "voice", None) or getattr(reply, "video_note", None)
+            or document
+        )
         if not media:
-            # fall through to query
+            # fall through to text query
             pass
         else:
+            media_duration = int(getattr(media, "duration", 0) or 0)
+            duration_notice = _duration_limit_notice(media_duration, fmt_time(media_duration))
+            if duration_notice:
+                await rich_send(bot, group_id, duration_notice)
+                return
+            file_size = int(getattr(media, "file_size", 0) or 0)
+            if file_size > _MAX_FILE_MB * 1024 * 1024:
+                await rich_send(
+                    bot, group_id,
+                    rich_heading(" File too large", level=3)
+                    + rich_note(f"Channel playback accepts media up to {_MAX_FILE_MB} MB."),
+                )
+                return
             pm = await rich_send(bot, group_id, rich_heading(" Channel play — downloading...", level=3))
             try:
                 fresh = await bot.get_messages(reply.chat.id, reply.id)
@@ -190,7 +301,10 @@ async def cplay_handler(_, message: Message) -> None:
                 )
                 return
 
-            is_video = force_video or bool(reply.video or reply.video_note)
+            if not fp:
+                await rich_edit(pm, rich_heading(" Download failed", level=3))
+                return
+            is_video = force_video or bool(reply.video or reply.video_note) or document_video
             name = getattr(target, "file_name", None) or "Media"
             if str(fp).lower().endswith(tuple(_VIDEO_EXTS)):
                 is_video = True
@@ -209,6 +323,11 @@ async def cplay_handler(_, message: Message) -> None:
                 "source_group": group_id,
             }
             pos = add_to_queue(channel_id, song)
+            if pos is None:
+                from videl.utils.helpers import delete_file
+                delete_file(fp)
+                await rich_send(bot, group_id, rich_heading(" Channel queue is full", level=3))
+                return
             # Notify in group
             await rich_send(
                 bot, group_id,
@@ -218,6 +337,7 @@ async def cplay_handler(_, message: Message) -> None:
                     ("Channel", f"<code>{channel_id}</code>"),
                     ("Type", "Video" if is_video else "Audio"),
                 ]),
+                reply_markup=cplay_control_keyboard(group_id, channel_id),
             )
             if pos == 1:
                 await play_song(channel_id, pm, song)
@@ -288,10 +408,15 @@ async def cplay_handler(_, message: Message) -> None:
                 return
             r = results[0]
             secs = iso_to_sec(r.get("duration_iso", "PT0S"))
+            duration = iso_to_human(r.get("duration_iso", "PT0S"))
+            duration_notice = _duration_limit_notice(secs, duration)
+            if duration_notice:
+                await rich_edit(pm, duration_notice)
+                return
             song = {
                 "url": r["url"],
                 "title": r["title"],
-                "duration": iso_to_human(r.get("duration_iso", "PT0S")),
+                "duration": duration,
                 "duration_seconds": secs,
                 "requester": message.from_user.first_name if message.from_user else "Unknown",
                 "requester_id": user_id,
@@ -302,6 +427,9 @@ async def cplay_handler(_, message: Message) -> None:
                 "source_group": group_id,
             }
             pos = add_to_queue(channel_id, song)
+            if pos is None:
+                await rich_send(bot, group_id, rich_heading(" Channel queue is full", level=3))
+                return
             await rich_send(
                 bot, group_id,
                 rich_heading(" Queued in channel", level=3)
@@ -310,6 +438,7 @@ async def cplay_handler(_, message: Message) -> None:
                     ("Channel", f"<code>{channel_id}</code>"),
                     ("Pos", str(pos)),
                 ]),
+                reply_markup=cplay_control_keyboard(group_id, channel_id),
             )
             if pos == 1:
                 await play_song(channel_id, pm, song)
@@ -326,11 +455,17 @@ async def cplay_handler(_, message: Message) -> None:
             await rich_send(bot, group_id, rich_heading("ℹ️ Use /play for playlists in groups", level=3))
             return
         url, title, dur_iso, thumb = result
+        duration_seconds = iso_to_sec(dur_iso)
+        duration = iso_to_human(dur_iso)
+        duration_notice = _duration_limit_notice(duration_seconds, duration)
+        if duration_notice:
+            await rich_edit(pm, duration_notice)
+            return
         song = {
             "url": url,
             "title": title,
-            "duration": iso_to_human(dur_iso),
-            "duration_seconds": iso_to_sec(dur_iso),
+            "duration": duration,
+            "duration_seconds": duration_seconds,
             "requester": message.from_user.first_name if message.from_user else "Unknown",
             "requester_id": user_id,
             "thumbnail": thumb,
@@ -339,6 +474,9 @@ async def cplay_handler(_, message: Message) -> None:
             "source_group": group_id,
         }
         pos = add_to_queue(channel_id, song)
+        if pos is None:
+            await rich_send(bot, group_id, rich_heading(" Channel queue is full", level=3))
+            return
         await rich_send(
             bot, group_id,
             rich_heading(" Queued in channel", level=3)
@@ -346,6 +484,7 @@ async def cplay_handler(_, message: Message) -> None:
                 ("Title", rich_esc(short(title))),
                 ("Channel", f"<code>{channel_id}</code>"),
             ]),
+            reply_markup=cplay_control_keyboard(group_id, channel_id),
         )
         if pos == 1:
             await play_song(channel_id, pm, song)
@@ -359,3 +498,24 @@ async def cplay_handler(_, message: Message) -> None:
                 "voice-chat and assistant permissions, then try again."
             ),
         )
+
+
+@bot.on_callback_query(filters.regex(
+    r"^cplayctl:(?P<action>pause|resume|skip|stop|show_queue|show_history|cycle_loop|volume_up|volume_down|replay):(?P<source>-?[0-9]{1,20}):(?P<target>-?[0-9]{1,20})$"
+))
+async def cplay_control_callback(_, query) -> None:
+    """Route only cplay controls whose source-to-target link is still current."""
+    match = query.matches[0] if query.matches else None
+    if match is None:
+        return
+    try:
+        source_chat_id = int(match.group("source"))
+        target_chat_id = int(match.group("target"))
+    except (TypeError, ValueError, OverflowError):
+        await query.answer("Invalid channel control.", show_alert=True)
+        return
+
+    from videl.app.music_callbacks import handle_bound
+    await handle_bound(
+        bot, query, match.group("action"), source_chat_id, target_chat_id
+    )

@@ -98,7 +98,9 @@ register_group_view_routes(_flask,_internal_authorized,_bot_api)
 # assertion minted by the panel, never a user id supplied by a browser.
 from videl.api.manager_routes import register_manager_routes
 from videl.games.routes import register_arcade_routes
+from videl.api.listening_room_routes import register_listening_room_routes
 register_arcade_routes(_flask,_internal_authorized,_bot_api,lambda: getattr(config,'WEBAPP_SECRET','') or '')
+register_listening_room_routes(_flask,_internal_authorized,lambda: getattr(config,'WEBAPP_SECRET','') or '')
 register_manager_routes(_flask,_internal_authorized,_bot_api,lambda: getattr(config,'WEBAPP_SECRET','') or '')
 
 # ── Render backend health and service metadata ───────────────────────────
@@ -200,7 +202,7 @@ def _internal_auth():
     if not isinstance(body, dict):
         return jsonify({"ok": False, "error": "A JSON object is required"}), 400
     token = getattr(config, "BOT_TOKEN", "") or ""
-    owner_id = "6265999542"  # Explicit webapp owner; sudo/config overrides do not grant access.
+    owner_id = str(config.OWNER_ID) if config.OWNER_ID > 0 else ""  # Explicit configured owner; sudo overrides do not grant access.
     if not token or not owner_id:
         return jsonify({"ok": False, "error": "Telegram owner authentication is not configured"}), 503
     try:
@@ -1428,9 +1430,9 @@ if __name__ == "__main__":
     _KEEPALIVE_THREAD.start()
     LOGGER.info(f"Render backend health on {BACKEND_PORT} — Vercel frontend URL: {getattr(config, 'WEBAPP_URL', 'not configured')}")
 
-    missing = [k for k in ("API_ID","API_HASH","BOT_TOKEN","MONGO_DB_URL") if not os.getenv(k)]
+    missing = [k for k in ("API_ID","API_HASH","BOT_TOKEN","MONGO_DB_URL","OWNER_ID","WEBAPP_SECRET") if not os.getenv(k)]
     if missing:
-        LOGGER.warning(f"Missing env: {missing} — bot in health-only mode, webapp still serves")
+        LOGGER.warning(f"Missing required env: {missing} — dependent bot/webapp features may be unavailable")
 
     # ── Bot with full logs (start/stop/error/other) ──────────────────────
     async def _boot():

@@ -143,7 +143,7 @@ async def react_command(_, message):
     )
 
 
-@bot.on_message(filters.command("apiinfo", prefixes=config.COMMAND_PREFIX_LIST) & filters.user(6265999542) & filters.private)
+@bot.on_message(filters.command("apiinfo", prefixes=config.COMMAND_PREFIX_LIST) & filters.user(config.OWNER_ID) & filters.private)
 async def api_info(_, message):
     status, data = await bot_api("getMe", {})
     if not status or not data.get("ok"):

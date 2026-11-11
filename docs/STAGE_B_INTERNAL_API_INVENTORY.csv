@@ -1,0 +1,34 @@
+source,line,handler,route_declaration,source_guard_cues_not_proof,direct_write_primitives
+videl/__main__.py,107,_status_json,_flask.route('/') | _flask.route('/_videl_status'),No direct guard cue; inspect registration wrapper,No direct DB write primitive detected; helper/backend may mutate
+videl/__main__.py,152,_health,_flask.route('/health'),current actor/admin,No direct DB write primitive detected; helper/backend may mutate
+videl/__main__.py,193,_internal_auth,"_flask.route('/internal/auth', methods=['POST'])",internal shared-secret; owner gate; current actor/admin; signed assertion,No direct DB write primitive detected; helper/backend may mutate
+videl/__main__.py,248,_internal_identity,"_flask.route('/internal/identity', methods=['POST'])",internal shared-secret; owner gate; current actor/admin,No direct DB write primitive detected; helper/backend may mutate
+videl/__main__.py,279,_internal_send_message,"_flask.route('/internal/send-message', methods=['POST'])",internal shared-secret; owner gate; current actor/admin,No direct DB write primitive detected; helper/backend may mutate
+videl/__main__.py,311,_internal_scheduled_posts,"_flask.route('/internal/scheduled-posts', methods=['GET', 'POST', 'DELETE'])",internal shared-secret,No direct DB write primitive detected; helper/backend may mutate
+videl/__main__.py,335,_internal_scheduled_retry,"_flask.route('/internal/scheduled-posts/retry', methods=['POST'])",internal shared-secret,No direct DB write primitive detected; helper/backend may mutate
+videl/__main__.py,352,_internal_scheduled_series,"_flask.route('/internal/scheduled-posts/series', methods=['POST'])",internal shared-secret,No direct DB write primitive detected; helper/backend may mutate
+videl/__main__.py,375,_internal_scheduled_duplicate,"_flask.route('/internal/scheduled-posts/duplicate', methods=['POST'])",internal shared-secret,No direct DB write primitive detected; helper/backend may mutate
+videl/__main__.py,392,_internal_channel_post,"_flask.route('/internal/channel-post', methods=['POST'])",internal shared-secret; current actor/admin,No direct DB write primitive detected; helper/backend may mutate
+videl/__main__.py,525,_internal_stats,_flask.route('/internal/stats'),owner gate; signed assertion,No direct DB write primitive detected; helper/backend may mutate
+videl/__main__.py,741,_internal_chats,_flask.route('/internal/chats'),current actor/admin; signed assertion,update_one
+videl/__main__.py,934,_internal_chat_detail,"_flask.route('/internal/chat/<int(signed=True):chat_id>', methods=['GET', 'POST'])",internal shared-secret; owner gate,No direct DB write primitive detected; helper/backend may mutate
+videl/__main__.py,966,_internal_chat_audit,_flask.route('/internal/chat/<int(signed=True):chat_id>/audit'),internal shared-secret; current actor/admin,No direct DB write primitive detected; helper/backend may mutate
+videl/__main__.py,1016,_internal_chat_backup,_flask.route('/internal/chat/<int(signed=True):chat_id>/backup'),internal shared-secret,No direct DB write primitive detected; helper/backend may mutate
+videl/__main__.py,1035,_internal_federation_list,"_flask.route('/internal/federation', methods=['GET'])",internal shared-secret,No direct DB write primitive detected; helper/backend may mutate
+videl/__main__.py,1047,_internal_federation_detail,"_flask.route('/internal/federation/<fed_id>', methods=['GET', 'POST'])",internal shared-secret; owner gate,No direct DB write primitive detected; helper/backend may mutate
+videl/__main__.py,1079,_internal_chats_bulk,"_flask.route('/internal/chats/bulk', methods=['POST'])",internal shared-secret,No direct DB write primitive detected; helper/backend may mutate
+videl/__main__.py,1118,_internal_onboarding_analytics,_flask.route('/internal/onboarding-analytics'),signed assertion,No direct DB write primitive detected; helper/backend may mutate
+videl/__main__.py,1134,_internal_analytics,_flask.route('/internal/analytics'),signed assertion,No direct DB write primitive detected; helper/backend may mutate
+videl/__main__.py,1149,_internal_chat_settings,"_flask.route('/internal/chat-settings', methods=['POST'])",signed assertion,No direct DB write primitive detected; helper/backend may mutate
+videl/__main__.py,1188,_internal_broadcast,"_flask.route('/internal/broadcast', methods=['POST'])",internal shared-secret; current actor/admin,No direct DB write primitive detected; helper/backend may mutate
+videl/__main__.py,1321,_internal_bot_settings,"_flask.route('/internal/bot-settings', methods=['GET', 'POST'])",internal shared-secret; current actor/admin,No direct DB write primitive detected; helper/backend may mutate
+videl/__main__.py,1371,_api_index,_flask.route('/api') | _flask.route('/api/'),owner gate,No direct DB write primitive detected; helper/backend may mutate
+videl/api/group_view_routes.py,17,group_view,"app.route('/internal/group-view', methods=['GET', 'POST'])",current actor/admin,No direct DB write primitive detected; helper/backend may mutate
+videl/api/group_view_routes.py,39,premium_emoji,"app.route('/internal/premium-emoji', methods=['GET'])",No direct guard cue; inspect registration wrapper,No direct DB write primitive detected; helper/backend may mutate
+videl/api/group_view_routes.py,50,chat_photo,"app.route('/internal/chat-photo', methods=['GET'])",No direct guard cue; inspect registration wrapper,No direct DB write primitive detected; helper/backend may mutate
+videl/api/group_view_routes.py,64,bot_conversations,"app.route('/internal/bot-conversations', methods=['GET'])",No direct guard cue; inspect registration wrapper,No direct DB write primitive detected; helper/backend may mutate
+videl/api/group_view_routes.py,79,inbox_media,"app.route('/internal/inbox-media', methods=['GET', 'POST'])",current actor/admin,No direct DB write primitive detected; helper/backend may mutate
+videl/api/group_view_routes.py,114,inbox_workspace,"app.route('/internal/inbox-workspace', methods=['GET', 'POST'])",current actor/admin,No direct DB write primitive detected; helper/backend may mutate
+videl/api/manager_routes.py,31,manager_groups,"app.route('/internal/manager/groups', methods=['GET'])",current actor/admin,No direct DB write primitive detected; helper/backend may mutate
+videl/api/manager_routes.py,46,manager_chat,"app.route('/internal/manager/chat/<int(signed=True):chat_id>', methods=['GET', 'POST'])",current actor/admin,No direct DB write primitive detected; helper/backend may mutate
+videl/api/manager_routes.py,65,manager_audit,"app.route('/internal/manager/chat/<int(signed=True):chat_id>/audit', methods=['GET'])",current actor/admin,No direct DB write primitive detected; helper/backend may mutate

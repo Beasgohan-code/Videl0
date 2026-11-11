@@ -118,7 +118,7 @@ def _extract_id(value: str) -> str | None:
 
 def _require_key_if_set() -> tuple[bool, str | None]:
     # Fail closed even on loopback: reverse proxies can also use loopback addresses.
-    key = (os.environ.get("ELDIAN_API_KEY") or os.environ.get("WEBAPP_SECRET") or "").strip()
+    key = (os.environ.get("ELDIAN_API_KEY") or "").strip()
     supplied = request.headers.get("X-API-Key", "")
     if not key:
         return False, "Media API credentials are not configured"
@@ -261,8 +261,13 @@ def register_eldian_routes(app: Flask) -> None:
         task_id = str(request.args.get("task_id", "")) or None
         if task_id and not re.fullmatch(r"[A-Za-z0-9_-]{16,64}", task_id):
             return jsonify({"ok": False, "error": "Invalid task ID"}), 400
-        _set_music_task(task_id, video_id, "preparing")
+        # Share the existing two-slot budget with the public media API. This
+        # route uses the shared download directory, so unbounded parallel work
+        # can duplicate provider calls and collide on non-atomic local files.
+        if not _SLOTS.acquire(blocking=False):
+            return jsonify({"ok": False, "error": "Music preparation is busy; retry shortly"}), 503, {"Retry-After": "5"}
         try:
+            _set_music_task(task_id, video_id, "preparing")
             from videl.utils.youtube import download_song
             path = asyncio.run(asyncio.wait_for(download_song(video_id), timeout=300))
             if not path or not Path(path).is_file():
@@ -272,14 +277,23 @@ def register_eldian_routes(app: Flask) -> None:
             if not 0 < size_bytes <= MAX_BYTES:
                 _set_music_task(task_id, video_id, "failed", error="Prepared media exceeded the supported size limit.")
                 return jsonify({"ok": False, "error": "Prepared media exceeded the supported size limit"}), 413
+            from videl.utils.youtube import pin_cache_file, release_cache_file
+            cache_pinned = pin_cache_file(path)
             _set_music_task(task_id, video_id, "ready", size_bytes=size_bytes)
-            response = send_file(
-                path,
-                mimetype=mimetypes.guess_type(path)[0] or "audio/mpeg",
-                as_attachment=False,
-                conditional=True,
-                max_age=0,
-            )
+            try:
+                response = send_file(
+                    path,
+                    mimetype=mimetypes.guess_type(path)[0] or "audio/mpeg",
+                    as_attachment=False,
+                    conditional=True,
+                    max_age=0,
+                )
+            except BaseException:
+                if cache_pinned:
+                    release_cache_file(path)
+                raise
+            if cache_pinned:
+                response.call_on_close(lambda: release_cache_file(path))
             response.headers["Cache-Control"] = "private, no-store"
             response.headers["X-Content-Type-Options"] = "nosniff"
             return response
@@ -287,6 +301,8 @@ def register_eldian_routes(app: Flask) -> None:
             _set_music_task(task_id, video_id, "failed", error="Track preparation failed; check downloader configuration and service availability.")
             logger.warning("Music track preparation failed (%s)", type(exc).__name__)
             return jsonify({"ok": False, "error": "Track could not be prepared; check the downloader status"}), 502
+        finally:
+            _SLOTS.release()
 
     @app.get("/api/music")
     def music_contract():

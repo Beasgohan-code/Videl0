@@ -2,6 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { ownerMarker, validOwnerCookie, ownerRequired } from "../src/lib/auth";
 import { telegramLaunchData } from "../src/lib/telegram-launch";
+
+// Test-only synthetic owner; production identity is supplied server-side.
+process.env.OWNER_ID = "987654321";
 test("owner sessions work in a browser and partitioned Mini App context; fake cookies fail", () => {
   const previous = process.env.WEBAPP_SECRET;
   process.env.WEBAPP_SECRET = "offline-owner-session-test";

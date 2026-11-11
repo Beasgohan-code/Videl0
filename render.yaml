@@ -18,7 +18,7 @@ services:
       - key: MONGO_DB_URL
         sync: false
       - key: OWNER_ID
-        value: "6265999542"
+        sync: false
       - key: WEBAPP_SECRET
         sync: false
       - key: WEBAPP_URL

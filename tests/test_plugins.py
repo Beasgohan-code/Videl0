@@ -55,8 +55,9 @@ class StartTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_owner_start_reads_live_totals(self):
         ctx = Context(SimpleNamespace(me=SimpleNamespace(username="Videl0Bot")),
-                      message("/start", uid=6265999542), Parsed("start", ""))
-        with patch("videl.plugins.start.read_live_totals", return_value={"chats": 3, "users": 9, "plays": 12}):
+                      message("/start", uid=987654321), Parsed("start", ""))
+        with patch("videl.plugins.start.read_live_totals", return_value={"chats": 3, "users": 9, "plays": 12}), \
+             patch("videl.app.router.OWNER_ID", 987654321):
             screen = await start.start(ctx)
         self.assertIn("owner console", base.plain(screen.html).lower())
         self.assertIn("12", screen.html)
@@ -129,7 +130,9 @@ class GroupStatsTests(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn("help:owner:0", public_callbacks)
             self.assertNotIn("Owner workspace", public.html)
 
-            owner = await group.stats(Context(SimpleNamespace(), message("/stats", uid=6265999542), Parsed("stats", "")))
+            with patch("videl.app.router.OWNER_ID", 987654321), \
+                 patch("videl.plugins.base.config.OWNER_ID", 987654321):
+                owner = await group.stats(Context(SimpleNamespace(), message("/stats", uid=987654321), Parsed("stats", "")))
             _, owner_markup = transport._native_buttons(owner.html)
             owner_callbacks = [item.callback_data for row in owner_markup.inline_keyboard for item in row]
             self.assertIn("help:owner:0", owner_callbacks)

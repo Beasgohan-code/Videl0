@@ -5,6 +5,7 @@ Snapshots keep the raw text/caption (which may include Telegram HTML); Mongo TTL
 is supplemented by read-time expiration, and outbound text is sanitized.
 """
 import asyncio
+import config
 from datetime import datetime,timedelta,timezone
 import html as _html
 import logging
@@ -19,7 +20,7 @@ from videl.utils.automation import (DECAY_RANGE, ESCALATION_ACTIONS, ESCALATION_
                                     normalize_quiet, parse_hhmm)
 from videl.utils.moderation import LOCK_TYPES
 
-OWNER_ID=6265999542
+OWNER_ID=config.OWNER_ID
 RETENTION=(1,7,30)
 
 # Every lock the enforcement pass in videl.plugins.locks honours. The key is
@@ -747,10 +748,13 @@ class GroupView:
             {'id':'onboarding','label':'Welcome, rules or join verification is configured','complete':onboarding_ready,
              'detail':'Set a welcome message, publish rules or enable the CAPTCHA challenge.'},
         ]
-        try:cases=self.case_history(cid)
-        except Exception:cases=[]
+        cases_status={}
+        try:cases=self.case_history(cid,status_report=cases_status)
+        except Exception:
+            cases=[]
+            cases_status={'state':'unavailable','unavailable_sources':['all'],'checked_sources':0}
         return {'ok':True,'scope':self.scope,'chat':info,'settings':current_settings,'presets':PRESETS,
-                'revision':self.revision(cid),'automation':automation,'cases':cases,
+                'revision':self.revision(cid),'automation':automation,'cases':cases,'cases_status':cases_status,
                 'setup_checklist':setup_checklist,
                 'inbox':self.inbox(cid),
                 'community':{
@@ -1100,11 +1104,12 @@ class GroupView:
             return normalize({})
 
     # ── per-member case timeline ────────────────────────────────────────────
-    def case_history(self,cid,*,limit=40):
-        """Merge warnings, reports, moderator actions and case notes by member."""
+    def case_history(self,cid,*,limit=40,status_report=None):
+        """Merge case sources and report bounded source completeness separately."""
         cid=integer(cid)
         if cid>0:raise ViewError('Case history is group-only.',403)
         grouped={}
+        failures=[]
         open_reports={}
         def add(user_id,kind,action,detail,at,actor=None,source='bot',event_id=''):
             try:user_id=int(user_id)
@@ -1124,7 +1129,7 @@ class GroupView:
                     if isinstance(item,dict):reason=item.get('reason') or 'Warning issued';stamp=item.get('ts') or doc.get('updated')
                     else:reason=str(item or 'Warning issued');stamp=doc.get('updated')
                     add(user,'warning','warn',reason,stamp,source='bot',event_id=f"warn:{user}:{index}")
-        except Exception:pass
+        except Exception:failures.append('warnings')
         try:
             for row in self.db['mgmt_reports'].find({'chat_id':cid}).sort('ts',-1).limit(120):
                 target=row.get('target',row.get('target_id'))
@@ -1138,11 +1143,11 @@ class GroupView:
                     add(target,'report',str(row.get('decision') or row.get('status')),
                         'Report outcome recorded',row.get('resolved') or row.get('updated') or row.get('ts'),
                         row.get('resolved_by'),source='report',event_id='report-outcome:'+report_id)
-        except Exception:pass
+        except Exception:failures.append('reports')
         try:
             for row in self.db['mgmt_banned_users'].find({'chat_id':cid}).sort('ts',-1).limit(80):
                 add(row.get('user_id'),'moderation','ban record',row.get('reason') or 'Ban recorded',row.get('ts'),source='bot',event_id='ban:'+str(row.get('user_id')))
-        except Exception:pass
+        except Exception:failures.append('ban_history')
         try:
             for row in self.db['mgmt_audit'].find({'chat_id':cid,'kind':{'$in':['moderation','warn_reset']}}).sort('ts',-1).limit(180):
                 if row.get('action')=='case_note':continue
@@ -1151,7 +1156,7 @@ class GroupView:
                 if not match:continue
                 add(match.group(1),row.get('kind'),row.get('action'),detail,row.get('ts'),row.get('actor'),
                     source=row.get('source','bot'),event_id=str(row.get('_id') or ''))
-        except Exception:pass
+        except Exception:failures.append('moderation_actions')
         pending_by_user={}
         try:
             for row in self.db['mgmt_escalations'].find({'chat_id':cid}).sort('created_at',-1).limit(120):
@@ -1174,12 +1179,12 @@ class GroupView:
                         'reason':str(row.get('reason') or '')[:300],
                         'at':case_timestamp(stamp),
                     })
-        except Exception:pass
+        except Exception:failures.append('escalations')
         try:
             for row in self.db['mgmt_case_notes'].find({'chat_id':cid}).sort('ts',-1).limit(200):
                 add(row.get('user_id'),'note','moderator note',row.get('text'),row.get('ts'),row.get('actor'),
                     source='studio',event_id='case-note:'+str(row.get('_id') or ''))
-        except Exception:pass
+        except Exception:failures.append('case_notes')
         output=[]
         for user,events in grouped.items():
             events.sort(key=lambda event:event.get('at') or '',reverse=True)
@@ -1189,6 +1194,11 @@ class GroupView:
         output.sort(key=lambda case:case.get('latest') or '',reverse=True)
         try:limit=max(1,min(int(limit),80))
         except (TypeError,ValueError):limit=40
+        if isinstance(status_report,dict):
+            status_report.clear()
+            status_report.update({'state':'partial' if failures else 'complete',
+                           'unavailable_sources':sorted(set(failures)),
+                           'checked_sources':6})
         return output[:limit]
 
     def review_escalation(self,cid,body):

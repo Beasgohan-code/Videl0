@@ -62,11 +62,20 @@ class GroupViewerTests(unittest.TestCase):
             'detail':'member 123: repeated links','actor':789,'source':'bot','ts':stamp})
         self.db['mgmt_case_notes'].insert_one({'chat_id':CID,'user_id':123,'text':'Check context with admin team',
             'actor':789,'ts':stamp})
-        cases=self.service.case_history(CID)
+        cases_status={}
+        cases=self.service.case_history(CID,status_report=cases_status)
+        self.assertEqual(cases_status,{'state':'complete','unavailable_sources':[],'checked_sources':6})
         case=next(item for item in cases if item['user_id']==123)
         self.assertEqual(case['open_reports'],1)
         self.assertEqual(case['event_count'],4)
         self.assertEqual({event['kind'] for event in case['events']},{'warning','report','moderation','note'})
+
+    def test_case_history_reports_partial_sources_instead_of_a_false_empty_result(self):
+        status={}
+        with patch.object(self.db['mgmt_reports'],'find',side_effect=RuntimeError('storage unavailable')):
+            cases=self.service.case_history(CID,status=status)
+        self.assertEqual(cases,[])
+        self.assertEqual(status,{'state':'partial','unavailable_sources':['reports'],'checked_sources':6})
 
     def test_severe_escalation_review_requires_permission_and_records_decision(self):
         from videl.utils.escalations import queue_review

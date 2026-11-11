@@ -7,7 +7,8 @@ import asyncio
 import logging
 import random
 
-from videl.core.queue import add_to_queue, queue_size
+import config
+from videl.core.queue import add_to_queue, capacity_remaining, queue_size
 from videl.utils.youtube import search_yt
 from videl.utils.formatters import iso_to_human, iso_to_sec
 
@@ -63,7 +64,7 @@ async def _fetch_more(chat_id: int, requester: str, requester_id: int) -> int:
         for variation in variations:
             if not is_autoplay(chat_id) or _generations.get(chat_id) is not token:
                 break
-            if added >= BATCH_SIZE:
+            if added >= BATCH_SIZE or capacity_remaining(chat_id) <= 0:
                 break
 
             try:
@@ -72,24 +73,37 @@ async def _fetch_more(chat_id: int, requester: str, requester_id: int) -> int:
                 if _generations.get(chat_id) is not token:break
                 if isinstance(result, dict) and "playlist" in result:
                     items = result["playlist"]
+                    if not isinstance(items, list):
+                        continue
                     random.shuffle(items)
                     for item in items:
                         if not is_autoplay(chat_id) or _generations.get(chat_id) is not token:
                             break
+                        if not isinstance(item, dict):
+                            continue
                         vid_url = item.get("link", "")
+                        if not isinstance(vid_url, str) or not vid_url.strip():
+                            continue
+                        vid_url = vid_url.strip()
                         vid_id  = vid_url.split("v=")[-1].split("&")[0] if "v=" in vid_url else vid_url
+                        duration_iso = item.get("duration", "PT0S")
+                        duration_seconds = iso_to_sec(duration_iso)
+                        if duration_seconds > config.MAX_DURATION_SECONDS:
+                            continue
                         if vid_id in fetched:
                             continue
-                        fetched.add(vid_id)
-                        add_to_queue(chat_id, {
+                        position = add_to_queue(chat_id, {
                             "url":              vid_url,
-                            "title":            item.get("title", "Unknown"),
-                            "duration":         iso_to_human(item.get("duration", "PT0S")),
-                            "duration_seconds": iso_to_sec(item.get("duration", "PT0S")),
+                            "title":            item.get("title") or "Unknown",
+                            "duration":         iso_to_human(duration_iso),
+                            "duration_seconds": duration_seconds,
                             "requester":        f"⦿ ᴀᴜᴛᴏᴘʟᴀʏ",
                             "requester_id":     requester_id,
                             "thumbnail":        item.get("thumbnail", ""),
                         })
+                        if position is None:
+                            break
+                        fetched.add(vid_id)
                         added += 1
                         if added >= BATCH_SIZE:
                             break
@@ -98,21 +112,27 @@ async def _fetch_more(chat_id: int, requester: str, requester_id: int) -> int:
                     # Single track
                     url, title, dur_iso, thumb = result
                     vid_id = url.split("v=")[-1].split("&")[0] if "v=" in url else url
+                    duration_seconds = iso_to_sec(dur_iso)
+                    if duration_seconds > config.MAX_DURATION_SECONDS:
+                        continue
                     if vid_id not in fetched:
-                        fetched.add(vid_id)
-                        add_to_queue(chat_id, {
+                        position = add_to_queue(chat_id, {
                             "url":              url,
-                            "title":            title,
+                            "title":            title or "Unknown",
                             "duration":         iso_to_human(dur_iso),
-                            "duration_seconds": iso_to_sec(dur_iso),
+                            "duration_seconds": duration_seconds,
                             "requester":        f"⦿ ᴀᴜᴛᴏᴘʟᴀʏ",
                             "requester_id":     requester_id,
                             "thumbnail":        thumb,
                         })
-                        added += 1
+                        if position is not None:
+                            fetched.add(vid_id)
+                            added += 1
 
-            except Exception as e:
-                logger.warning(f"[AutoPlay] fetch variation '{variation}': {e}")
+            except Exception:
+                # Provider errors and search variations may contain user queries,
+                # URLs, or credentials. Keep diagnostic logs content-free.
+                logger.warning("[AutoPlay] provider search failed")
                 continue
 
     finally:

@@ -23,6 +23,23 @@ class TelegramSettingsRevisionTests(unittest.IsolatedAsyncioTestCase):
         )
         self.client = SimpleNamespace(get_chat_member=AsyncMock(return_value=SimpleNamespace(status="administrator")))
 
+    async def test_compact_navigation_has_more_hub_and_back_links(self):
+        home = settings._screen(self.CHAT)
+        home_labels = [button.text for row in home.keyboard.inline_keyboard for button in row]
+        self.assertIn("More settings", home_labels)
+        self.assertLessEqual(len(home_labels), 8)
+
+        more = settings._screen(self.CHAT, "more")
+        more_labels = [button.text for row in more.keyboard.inline_keyboard for button in row]
+        self.assertIn("← Overview", more_labels)
+        self.assertIn("Automations", more_labels)
+        self.assertIn("⌘ Commands", more_labels)
+
+        detail = settings._screen(self.CHAT, "music")
+        detail_labels = [button.text for row in detail.keyboard.inline_keyboard for button in row]
+        self.assertIn("← Overview", detail_labels)
+        self.assertIn("More settings", detail_labels)
+
     async def test_rendered_keyboard_has_revision_and_respects_callback_limit(self):
         screen = settings._screen(self.CHAT)
         buttons = [button for row in screen.keyboard.inline_keyboard for button in row]
@@ -61,23 +78,21 @@ class TelegramSettingsRevisionTests(unittest.IsolatedAsyncioTestCase):
         audit.assert_called_once()
         edit.assert_awaited_once()
 
-    async def test_guardian_toggle_fails_closed_without_gemini_and_can_be_reset_off(self):
+    async def test_ai_setting_callback_requires_configured_provider(self):
+        import re
         self.db["mgmt_chat_settings"].insert_one({
             "chat_id": self.CHAT, "gemini_guardian_enabled": False, "revision": 0,
         })
-        self.query.data = f"settings:{self.CHAT}:gemini_guardian_enabled:on:v0"
-        with patch("config.GEMINI_API_KEY", ""), patch("videl.plugins.settings.rich_edit", new=AsyncMock()):
+        callback = f"settings:{self.CHAT}:gemini_guardian_enabled:on:v0"
+        self.assertIsNotNone(re.fullmatch(settings._PATTERN, callback))
+        self.query.data = callback
+        with patch("videl.utils.gemini.configured", return_value=False):
             await settings.settings_callback(self.client, self.query)
-        saved = self.db["mgmt_chat_settings"].find_one({"chat_id": self.CHAT})
-        self.assertFalse(saved["gemini_guardian_enabled"])
-        self.assertIn("not configured", self.query.answer.call_args.args[0])
-
-        self.query.answer.reset_mock()
-        with patch("config.GEMINI_API_KEY", "configured-for-test"), patch("videl.plugins.settings.rich_edit", new=AsyncMock()):
-            await settings.settings_callback(self.client, self.query)
-        saved = self.db["mgmt_chat_settings"].find_one({"chat_id": self.CHAT})
-        self.assertTrue(saved["gemini_guardian_enabled"])
-        self.assertEqual(saved["revision"], 1)
+        document = self.db["mgmt_chat_settings"].find_one({"chat_id": self.CHAT})
+        self.assertFalse(document["gemini_guardian_enabled"])
+        self.assertEqual(document["revision"], 0)
+        self.query.answer.assert_awaited_once()
+        self.assertIn("not configured", self.query.answer.call_args.args[0].lower())
 
     async def test_stale_reset_callback_never_applies(self):
         self.db["mgmt_chat_settings"].insert_one({

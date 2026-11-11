@@ -3,7 +3,21 @@ import assert from "node:assert/strict";
 import {GET,POST} from "../src/app/api/group-view/route";
 import {ownerMarker} from "../src/lib/auth";
 import {telegramMessageLink,groupId,textUnits} from "../src/lib/group-view";
+import { renderToStaticMarkup } from "react-dom/server";
+import { createElement } from "react";
+import { CaseTimeline } from "../src/components/studio/CaseTimeline";
 
+
+// Test-only synthetic owner; production identity is supplied server-side.
+process.env.OWNER_ID = "987654321";
+test('case timelines never call a failed or outdated source scan a complete empty result',()=>{
+ const partial=renderToStaticMarkup(createElement(CaseTimeline,{cases:[],status:{state:'partial',unavailable_sources:['reports','case_notes']},onAddNote:async()=>false,onReviewEscalation:async()=>false}));
+ assert.match(partial,/Some case records could not be read/);
+ assert.match(partial,/member reports, private notes/);
+ assert.match(partial,/does not mean there are no records/);
+ const oldBackend=renderToStaticMarkup(createElement(CaseTimeline,{cases:[],onAddNote:async()=>false,onReviewEscalation:async()=>false}));
+ assert.match(oldBackend,/does not report case-history completeness/);
+});
 test('group inbox guards every proxy method before contacting the backend',async()=>{
  const old=globalThis.fetch;let calls=0;globalThis.fetch=async()=>{calls++;throw new Error('unexpected backend')};
  try {for(const [method,handler] of [['GET',GET],['POST',POST]] as const){

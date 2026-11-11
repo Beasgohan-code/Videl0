@@ -21,6 +21,7 @@ from videl.utils.db import (
     remove_served_chat,
 )
 from videl.utils.rich_ui import rich_esc, rich_heading, rich_img, rich_kv_table, rich_note
+from videl.utils.premium_emojis import pe
 from videl.utils.command_ui import rich_send
 
 LOGGER = logging.getLogger(__name__)
@@ -40,15 +41,15 @@ def _admin_setup_panel() -> tuple[str, InlineKeyboardMarkup]:
         rich_heading("✨ Thanks for adding Videl!", level=2)
         + rich_note("I’m ready to help. To enable moderation and voice-chat features, a current group admin can promote me with these permissions:")
         + rich_kv_table([
-            ("🗑 Delete messages", "Moderation tools"),
-            ("🎥 Manage video chats", "Voice-chat features"),
-            ("👥 Invite users", "Invite and join features"),
+            (f"{pe('ios_trash', '🗑')} Delete messages", "Moderation tools"),
+            (f"{pe('boseh_video', '🎥')} Manage video chats", "Voice-chat features"),
+            (f"{pe('ios_add', '➕')} Invite users", "Invite and join features"),
         ])
         + rich_note("Open <b>Group info → Administrators → Add administrator</b>, select Videl, then enable the permissions above. Telegram doesn’t let me grant myself admin rights.")
         + rich_note("You can still use features that don’t require these permissions. An admin can update my rights later in the same menu.")
     )
     keyboard = InlineKeyboardMarkup([[
-        InlineKeyboardButton("ℹ️ Permission checklist", callback_data="bot_setup:permissions", style="primary"),
+        InlineKeyboardButton("Permission checklist", callback_data="bot_setup:permissions", style="primary", icon="info"),
     ]])
     return content, keyboard
 

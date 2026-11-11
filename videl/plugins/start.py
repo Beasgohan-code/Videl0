@@ -173,7 +173,7 @@ async def about(ctx) -> Screen:
             "About Videl",
             body("Videl is a bot studio for Telegram groups: voice-chat music, moderation, saved notes and a web designer for posts.")
             + table(configured)
-            + body("No AI features, no paid Stars actions, and every credential stays on the server."),
+            + body("No paid Stars actions; every credential stays on the server."),
             level=2,
         ),
         inline_keyboard([

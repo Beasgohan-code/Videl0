@@ -3,6 +3,9 @@ import assert from "node:assert/strict";
 import { GET } from "../src/app/api/summary/route";
 import { GET as health } from "../src/app/api/health/route";
 import { ownerMarker } from "../src/lib/auth";
+
+// Test-only synthetic owner; production identity is supplied server-side.
+process.env.OWNER_ID = "987654321";
 test("owner health view exposes only bounded measured revision and latency fields", async () => {
   const priorSecret = process.env.WEBAPP_SECRET;
   process.env.WEBAPP_SECRET = "health-test-secret";

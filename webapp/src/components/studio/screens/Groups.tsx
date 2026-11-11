@@ -2080,6 +2080,7 @@ function OwnerGroupsPage() {
                   <p className="mt-1 mb-4 text-xs leading-5 text-[var(--ios-label-secondary)]">Reports, warning history, moderation actions and private admin notes are gathered under each member. User IDs are shown instead of profile data.</p>
                   <CaseTimeline
                     cases={detail?.cases ?? []}
+                    status={detail?.cases_status}
                     disabled={saving !== null}
                     onAddNote={async (userId, text) => active ? runAction(
                       { action: "case_note", user_id: userId, text },

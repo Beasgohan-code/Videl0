@@ -40,6 +40,17 @@ class VoiceVolumeTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         player._voice_volume.clear()
 
+    async def test_playback_cache_lease_survives_progress_restart_and_releases_on_reset(self):
+        path = "/cache/dQw4w9WgXcQ.external.mp3"
+        player._active_media_paths[self.CHAT] = path
+        with patch.object(player, "release_cache_file") as release:
+            player.stop_progress(self.CHAT, reset=False)
+            self.assertEqual(player._active_media_paths[self.CHAT], path)
+            release.assert_not_called()
+            player.stop_progress(self.CHAT, reset=True)
+        release.assert_called_once_with(path)
+        self.assertNotIn(self.CHAT, player._active_media_paths)
+
     async def test_volume_callback_updates_voice_only_after_engine_ack(self):
         ctx = SimpleNamespace(
             message=SimpleNamespace(chat=SimpleNamespace(id=self.CHAT)),
