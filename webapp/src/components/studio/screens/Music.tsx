@@ -126,6 +126,17 @@ export default function Music() {
     if (audio.current) audio.current.volume = volume;
   }, [volume]);
 
+  useEffect(() => () => {
+    searchRequests.current.invalidate();
+    searchController.current?.abort();
+    searchController.current = null;
+    playbackRequests.current.invalidate();
+    activePlaybackSource.current = "";
+    activeDownloadTaskId.current = "";
+    const player = audio.current;
+    if (player) clearMediaSource(player);
+  }, []);
+
   useEffect(() => {
     if (!lyricsOpen || activeLyricsIndex < 0) return;
     lyricsPanelRef.current?.querySelector<HTMLElement>(`[data-lyric-index="${activeLyricsIndex}"]`)
@@ -338,6 +349,35 @@ export default function Music() {
     } finally {
       if (requestId === lyricsRequest.current) setLyricsLoading(false);
     }
+  }
+
+  function startPlayback(player: HTMLAudioElement, requestId: number, provider: Track["provider"] = "videl") {
+    void settleLatest(playbackRequests.current, requestId, () => player.play(), {
+      onSuccess: () => setPlaying(true),
+      onError: () => {
+        setPlaying(false);
+        setLoading(false);
+        setError(provider === "typetube"
+          ? "TypeTube is ready, but the browser did not start audio automatically. Tap Play to retry, or switch sources if it still fails."
+          : "The track could not start. Check Videl’s downloader status and try another result.");
+      },
+    });
+  }
+
+  function pausePlayback() {
+    playbackRequests.current.invalidate();
+    audio.current?.pause();
+    setPlaying(false);
+  }
+
+  function togglePlayback() {
+    const player = audio.current;
+    if (!player) return;
+    if (!player.paused) {
+      pausePlayback();
+      return;
+    }
+    startPlayback(player, playbackRequests.current.begin(), current?.provider);
   }
 
   function playTrack(track: Track) {
