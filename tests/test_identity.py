@@ -138,7 +138,8 @@ class IdentityRouteTests(unittest.TestCase):
 
     def test_identity_does_not_grant_the_owner_console(self):
         from unittest.mock import patch
-        with patch.multiple(self.api.config, BOT_TOKEN=TOKEN, WEBAPP_SECRET=SECRET):
+        with patch.multiple(self.api.config, BOT_TOKEN=TOKEN, WEBAPP_SECRET=SECRET,
+                            OWNER_ID=987654321):
             response = self.client.post("/internal/auth",
                                         headers={"X-Videl-Internal": SECRET},
                                         json={"init_data": mini_app(user_id=7)})

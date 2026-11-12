@@ -11,9 +11,15 @@ class BotOnboardingTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Delete messages", text)
         self.assertIn("Manage video chats", text)
         self.assertIn("Invite users", text)
+        from videl.utils.premium_emojis import PREMIUM_IDS
+        self.assertIn(f'<tg-emoji emoji-id="{PREMIUM_IDS["ios_trash"]}">🗑</tg-emoji> Delete messages', text)
+        self.assertIn(f'<tg-emoji emoji-id="{PREMIUM_IDS["boseh_video"]}">🎥</tg-emoji> Manage video chats', text)
+        self.assertIn(f'<tg-emoji emoji-id="{PREMIUM_IDS["ios_add"]}">➕</tg-emoji> Invite users', text)
         self.assertIn("doesn’t let me grant myself admin rights", text)
         self.assertEqual(len(keyboard.inline_keyboard), 1)
         self.assertEqual(keyboard.inline_keyboard[0][0].callback_data, "bot_setup:permissions")
+        self.assertEqual(keyboard.inline_keyboard[0][0].text, "Permission checklist")
+        self.assertEqual(keyboard.inline_keyboard[0][0].icon_custom_emoji_id, PREMIUM_IDS["info"])
         self.assertNotIn("make me admin", str(keyboard))
 
     async def test_permission_checklist_gives_valid_manual_instructions(self):

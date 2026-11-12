@@ -11,6 +11,77 @@ from videl.utils import youtube
 
 
 class DownloaderOptionsTests(unittest.IsolatedAsyncioTestCase):
+    def test_direct_media_urls_reject_local_and_non_http_targets(self):
+        for url in (
+            "http://127.0.0.1/private",
+            "http://169.254.169.254/latest/meta-data",
+            "http://2130706433/private",
+            "https://[::1]/private",
+            "http://localhost:8080/file",
+            "http://metadata/latest",
+            "http://service.local/admin",
+            "https://user:pass@media.example/track",
+            "https://media.example:8443/track",
+            "file:///etc/passwd",
+            "ftp://media.example/track.mp3",
+        ):
+            with self.subTest(url=url), self.assertRaises(ValueError):
+                downloader._normalize_direct_url(url)
+
+    def test_direct_media_urls_keep_supported_public_web_hosts(self):
+        self.assertEqual(
+            downloader._normalize_direct_url("https://youtube.com/watch?v=abcdefghijk"),
+            "https://youtube.com/watch?v=abcdefghijk",
+        )
+        self.assertEqual(
+            downloader._normalize_direct_url("www.example.org/track"),
+            "https://www.example.org/track",
+        )
+        self.assertEqual(
+            downloader._normalize_direct_url("abcdefghijk"),
+            "https://www.youtube.com/watch?v=abcdefghijk",
+        )
+
+    async def test_private_target_is_rejected_before_search_or_tempdir(self):
+        with tempfile.TemporaryDirectory() as directory:
+            search = AsyncMock()
+            with patch.object(downloader, "DOWNLOAD_DIR", Path(directory)), \
+                 patch.object(downloader, "_search_youtube", new=search):
+                with self.assertRaises(ValueError):
+                    await downloader._download_media("http://127.0.0.1/private")
+            search.assert_not_awaited()
+            self.assertEqual(list(Path(directory).iterdir()), [])
+
+    async def test_private_provider_result_is_rejected_and_cleaned(self):
+        with tempfile.TemporaryDirectory() as directory:
+            search = AsyncMock(return_value=[{"link": "http://127.0.0.1/private"}])
+            with patch.object(downloader, "DOWNLOAD_DIR", Path(directory)), \
+                 patch.object(downloader, "_get_yt_dlp_opts", return_value={}), \
+                 patch.object(downloader, "_is_url", return_value=False), \
+                 patch.object(downloader, "_search_youtube", new=search):
+                with self.assertRaises(ValueError):
+                    await downloader._download_media("public search")
+            search.assert_awaited_once()
+            self.assertEqual(list(Path(directory).iterdir()), [])
+
+    async def test_search_provider_failure_removes_request_temp_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(downloader, "DOWNLOAD_DIR", Path(directory)), \
+                 patch.object(downloader, "_get_yt_dlp_opts", return_value={}), \
+                 patch.object(downloader, "_is_url", return_value=False), \
+                 patch.object(downloader, "_search_youtube", new=AsyncMock(side_effect=RuntimeError("provider unavailable"))):
+                with self.assertRaisesRegex(RuntimeError, "provider unavailable"):
+                    await downloader._download_media("search query")
+            self.assertEqual(list(Path(directory).iterdir()), [])
+
+    async def test_yt_dlp_option_failure_removes_request_temp_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(downloader, "DOWNLOAD_DIR", Path(directory)), \
+                 patch.object(downloader, "_get_yt_dlp_opts", side_effect=RuntimeError("options unavailable")):
+                with self.assertRaisesRegex(RuntimeError, "options unavailable"):
+                    await downloader._download_media("https://youtube.com/watch?v=abc")
+            self.assertEqual(list(Path(directory).iterdir()), [])
+
     def test_missing_explicit_cookie_path_is_not_passed_to_ytdlp(self):
         with patch.dict(os.environ, {"YTDLP_COOKIES": "cookies.txt", "YT_COOKIES_FILE": ""}, clear=False):
             opts = _get_yt_dlp_opts()

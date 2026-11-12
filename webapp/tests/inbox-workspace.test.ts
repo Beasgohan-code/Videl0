@@ -5,6 +5,9 @@ import {ownerMarker} from '../src/lib/auth';
 import {tagsFromInput,orderConversations,loadedNewMessages} from '../src/lib/inbox-workspace';
 import type {GroupMessage} from '../src/lib/group-view';
 
+
+// Test-only synthetic owner; production identity is supplied server-side.
+process.env.OWNER_ID = "987654321";
 test('workspace endpoints never contact a backend for guests',async()=>{
  for(const [method,handler] of [['GET',GET],['POST',POST]] as const)assert.equal((await handler(new Request('https://studio.test/api/inbox-workspace',{method}))).status,401);
 });

@@ -1,0 +1,50 @@
+source,route_path,exported_methods,source_guard_cues_not_proof,method_class,backend_call_cues_not_proof
+webapp/src/app/api/analytics/route.ts,/analytics,GET,ownerRequired,read/auth route or no exported state-change method,See handler; no simple backend call matched
+webapp/src/app/api/arcade/avatar/[id]/route.ts,/arcade/avatar/[id],GET,playerRequired,read/auth route or no exported state-change method,See handler; no simple backend call matched
+webapp/src/app/api/arcade/clip/[id]/route.ts,/arcade/clip/[id],GET,playerRequired,read/auth route or no exported state-change method,See handler; no simple backend call matched
+webapp/src/app/api/arcade/events/[id]/route.ts,/arcade/events/[id],"GET,POST",playerRequired,state-changing HTTP method,See handler; no simple backend call matched
+webapp/src/app/api/arcade/events/groups/route.ts,/arcade/events/groups,GET,playerRequired,read/auth route or no exported state-change method,See handler; no simple backend call matched
+webapp/src/app/api/arcade/events/route.ts,/arcade/events,"GET,POST",playerRequired,state-changing HTTP method,See handler; no simple backend call matched
+webapp/src/app/api/arcade/join/route.ts,/arcade/join,POST,playerRequired,state-changing HTTP method,See handler; no simple backend call matched
+webapp/src/app/api/arcade/player/[id]/route.ts,/arcade/player/[id],GET,playerRequired,read/auth route or no exported state-change method,See handler; no simple backend call matched
+webapp/src/app/api/arcade/profile/route.ts,/arcade/profile,PATCH,playerRequired,state-changing HTTP method,See handler; no simple backend call matched
+webapp/src/app/api/arcade/room/[code]/route.ts,/arcade/room/[code],"GET,POST",playerRequired,state-changing HTTP method,See handler; no simple backend call matched
+webapp/src/app/api/arcade/route.ts,/arcade,"GET,POST",playerRequired,state-changing HTTP method,See handler; no simple backend call matched
+webapp/src/app/api/auth/route.ts,/auth,"DELETE,GET,POST",No direct guard text; inspect imported wrapper,state-changing HTTP method,See handler; no simple backend call matched
+webapp/src/app/api/bot-settings/route.ts,/bot-settings,"GET,POST",ownerRequired,state-changing HTTP method,"fetch(`${backend}/internal/bot-settings`, {"
+webapp/src/app/api/broadcast/route.ts,/broadcast,POST,ownerRequired,state-changing HTTP method,"fetch(`${backend}/internal/broadcast`, {"
+webapp/src/app/api/channel/route.ts,/channel,"GET,POST",ownerRequired,state-changing HTTP method,"fetch(`${backend}/internal/channel-post`,{method:""POST"",headers,body:outgoing,cache:""no-store"",signal:AbortSignal.timeout(25000)});const payload=await r.json();if(image&&r.status===400&&"
+webapp/src/app/api/chat/route.ts,/chat,"GET,POST",ownerRequired,state-changing HTTP method,"fetch(`${backend}/internal/send-message`, {"
+webapp/src/app/api/chat-photo/route.ts,/chat-photo,GET,ownerRequired,read/auth route or no exported state-change method,"fetch(`${backend}/internal/chat-photo?chat_id=${chatId}`, {"
+webapp/src/app/api/conversations/route.ts,/conversations,GET,ownerRequired,read/auth route or no exported state-change method,"fetch(`${backend}/internal/bot-conversations`,{headers:{'X-Videl-Internal':secret},cache:'no-store',signal:AbortSignal.timeout(12000)});if(response.status===404&&!response.headers.get('c"
+webapp/src/app/api/federation/[id]/route.ts,/federation/[id],"GET,POST",ownerRequired,state-changing HTTP method,See handler; no simple backend call matched
+webapp/src/app/api/federation/route.ts,/federation,GET,ownerRequired,read/auth route or no exported state-change method,See handler; no simple backend call matched
+webapp/src/app/api/group-view/route.ts,/group-view,"GET,POST",ownerRequired,state-changing HTTP method,See handler; no simple backend call matched
+webapp/src/app/api/groups/[id]/audit/route.ts,/groups/[id]/audit,GET,ownerRequired,read/auth route or no exported state-change method,See handler; no simple backend call matched
+webapp/src/app/api/groups/[id]/backup/route.ts,/groups/[id]/backup,"GET,POST",ownerRequired,state-changing HTTP method,See handler; no simple backend call matched
+webapp/src/app/api/groups/[id]/route.ts,/groups/[id],"GET,POST",ownerRequired,state-changing HTTP method,See handler; no simple backend call matched
+webapp/src/app/api/groups/bulk/route.ts,/groups/bulk,POST,ownerRequired,state-changing HTTP method,See handler; no simple backend call matched
+webapp/src/app/api/groups/route.ts,/groups,"GET,POST",ownerRequired,state-changing HTTP method,See handler; no simple backend call matched
+webapp/src/app/api/health/route.ts,/health,GET,ownerRequired,read/auth route or no exported state-change method,See handler; no simple backend call matched
+webapp/src/app/api/inbox-media/route.ts,/inbox-media,"GET,POST",ownerRequired,state-changing HTTP method,"fetch(`${backend}/internal/inbox-media?${params}`,{headers:{'X-Videl-Internal':secret},cache:'no-store',signal:AbortSignal.timeout(30000)}); | fetch(`${backend}/internal/inbox-media`,{method:'POST',headers:{'X-Videl-Internal':secret},body,cache:'no-store',signal:AbortSignal.timeout(60000)});"
+webapp/src/app/api/inbox-workspace/route.ts,/inbox-workspace,"GET,POST",ownerRequired,state-changing HTTP method,"fetch(`${backend}/internal/inbox-workspace${params.size?`?${params}`:''}`,{method:req.method,headers:{'Content-Type':'application/json','X-Videl-Internal':secret},body,cache:'no-store',s"
+webapp/src/app/api/manager/[id]/route.ts,/manager/[id],"GET,POST",playerRequired,state-changing HTTP method,See handler; no simple backend call matched
+webapp/src/app/api/manager/route.ts,/manager,GET,playerRequired,read/auth route or no exported state-change method,See handler; no simple backend call matched
+webapp/src/app/api/music/search/route.ts,/music/search,GET,ownerRequired,read/auth route or no exported state-change method,See handler; no simple backend call matched
+webapp/src/app/api/music/status/route.ts,/music/status,GET,ownerRequired,read/auth route or no exported state-change method,See handler; no simple backend call matched
+webapp/src/app/api/music/track/[videoId]/route.ts,/music/track/[videoId],GET,ownerRequired,read/auth route or no exported state-change method,"fetch(`${backend}/internal/music/track/${videoId}${taskQuery}`, {"
+webapp/src/app/api/onboarding/route.ts,/onboarding,GET,ownerRequired,read/auth route or no exported state-change method,See handler; no simple backend call matched
+webapp/src/app/api/ops/events/route.ts,/ops/events,GET,ownerRequired,read/auth route or no exported state-change method,See handler; no simple backend call matched
+webapp/src/app/api/ops/logs/route.ts,/ops/logs,GET,ownerRequired,read/auth route or no exported state-change method,See handler; no simple backend call matched
+webapp/src/app/api/ops/metrics/route.ts,/ops/metrics,GET,ownerRequired,read/auth route or no exported state-change method,See handler; no simple backend call matched
+webapp/src/app/api/ops/music/route.ts,/ops/music,GET,ownerRequired,read/auth route or no exported state-change method,See handler; no simple backend call matched
+webapp/src/app/api/ops/protection/route.ts,/ops/protection,GET,ownerRequired,read/auth route or no exported state-change method,See handler; no simple backend call matched
+webapp/src/app/api/premium-emoji/route.ts,/premium-emoji,GET,ownerRequired,read/auth route or no exported state-change method,"fetch(`${backend}/internal/premium-emoji?id=${id}`, {"
+webapp/src/app/api/schedules/duplicate/route.ts,/schedules/duplicate,POST,ownerRequired,state-changing HTTP method,"fetch(`${backend}/internal/scheduled-posts/duplicate`, {"
+webapp/src/app/api/schedules/retry/route.ts,/schedules/retry,POST,ownerRequired,state-changing HTTP method,"fetch(`${backend}/internal/scheduled-posts/retry`, {"
+webapp/src/app/api/schedules/route.ts,/schedules,"DELETE,GET,POST",ownerRequired,state-changing HTTP method,"fetch(`${backend}/internal/scheduled-posts`,{method:req.method,headers:{""X-Videl-Internal"":secret,""Content-Type"":""application/json""},body:body?JSON.stringify(body):undefined,cache:""no-st"
+webapp/src/app/api/schedules/series/route.ts,/schedules/series,POST,ownerRequired,state-changing HTTP method,"fetch(`${backend}/internal/scheduled-posts/series`, {"
+webapp/src/app/api/session/route.ts,/session,"DELETE,GET,POST",playerRequired,state-changing HTTP method,See handler; no simple backend call matched
+webapp/src/app/api/stats/route.ts,/stats,GET,ownerRequired,read/auth route or no exported state-change method,See handler; no simple backend call matched
+webapp/src/app/api/summary/route.ts,/summary,GET,ownerRequired,read/auth route or no exported state-change method,See handler; no simple backend call matched
+webapp/src/app/api/version/route.ts,/version,GET,ownerRequired,read/auth route or no exported state-change method,See handler; no simple backend call matched

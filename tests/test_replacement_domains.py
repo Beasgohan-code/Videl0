@@ -15,7 +15,7 @@ def context(name='ban',args='reason'):
     target=NS(id=99,first_name='<Target>')
     message=NS(chat=NS(id=-123,type=ChatType.SUPERGROUP),id=7,from_user=NS(id=42),
         reply_to_message=NS(id=6,from_user=target))
-    client=NS(me=NS(id=777),get_chat_member=AsyncMock(side_effect=lambda c,u:NS(
+    client=NS(me=NS(id=777),owner_id=987654321,get_chat_member=AsyncMock(side_effect=lambda c,u:NS(
         status=ChatMemberStatus.ADMINISTRATOR if u==777 else ChatMemberStatus.MEMBER,
         privileges=NS(can_restrict_members=True,can_delete_messages=True))),
         ban_chat_member=AsyncMock(return_value=True),unban_chat_member=AsyncMock(return_value=True),
@@ -63,7 +63,7 @@ class ModerationTests(unittest.IsolatedAsyncioTestCase):
         ctx.client.get_chat_member.side_effect=None
         with self.assertRaises(CommandError):await moderation.moderate(ctx)
         ctx.client.ban_chat_member.assert_not_awaited()
-        ctx=context();ctx.message.reply_to_message.from_user.id=6265999542
+        ctx=context();ctx.message.reply_to_message.from_user.id=987654321
         with self.assertRaises(CommandError):await moderation.moderate(ctx)
         ctx.client.ban_chat_member.assert_not_awaited()
 
@@ -161,18 +161,15 @@ class MusicTests(unittest.IsolatedAsyncioTestCase):
         screen=await music.view_queue(context('queue',''))
         self.assertLess(len(screen.html),4000);self.assertNotIn('<script>',screen.html)
         self.assertIn('99 upcoming',screen.html)
-        from vendor.richgram.richgram import rich_ui as transport
-        _,markup=transport._native_buttons(screen.html)
-        callbacks={button.callback_data for row in markup.inline_keyboard for button in row}
-        self.assertEqual(callbacks,{'pause','skip','cycle_loop','shuffle','clear'})
+        self.assertIsNotNone(screen.keyboard)
+        callbacks={button.callback_data for row in screen.keyboard.inline_keyboard for button in row}
+        self.assertEqual(callbacks,{'pause','skip','cycle_loop','shuffle','clear','help:home','cmds:all:0'})
 
     async def test_empty_queue_offers_contextual_rich_buttons(self):
         chat_queues[-123]=[]
         screen=await music.view_queue(context('queue',''))
-        self.assertIn('<tg-button-row>',screen.html)
-        from vendor.richgram.richgram import rich_ui as transport
-        _,markup=transport._native_buttons(screen.html)
-        callbacks={button.callback_data for row in markup.inline_keyboard for button in row}
+        self.assertIsNotNone(screen.keyboard)
+        callbacks={button.callback_data for row in screen.keyboard.inline_keyboard for button in row}
         self.assertEqual(callbacks,{'help:music','cmds:all:0'})
 
     async def test_invalid_loop_does_not_change_repeat_state(self):

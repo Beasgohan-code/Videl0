@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { OWNER_ID } from "./access";
+import { configuredOwnerId } from "./owner-config";
 const TTL = 86400;
 function sign(value: string): string | null {
   const secret = process.env.WEBAPP_SECRET;
@@ -14,9 +14,11 @@ function sign(value: string): string | null {
 export function ownerMarker(
   now = Math.floor(Date.now() / 1000),
 ): string | null {
+  const ownerId = configuredOwnerId();
+  if (!ownerId) return null;
   const value = Buffer.from(
     JSON.stringify({
-      sub: OWNER_ID,
+      sub: ownerId,
       iat: now,
       exp: now + TTL,
       nonce: crypto.randomBytes(16).toString("hex"),
@@ -53,7 +55,8 @@ export function validOwnerCookie(
     try {
       const session = JSON.parse(Buffer.from(value, "base64url").toString());
       return (
-        session.sub === OWNER_ID &&
+        !!configuredOwnerId() &&
+        session.sub === configuredOwnerId() &&
         Number.isSafeInteger(session.iat) &&
         Number.isSafeInteger(session.exp) &&
         session.iat <= now + 60 &&

@@ -23,6 +23,8 @@ async def recording(ctx):
 
 async def private_recording(ctx):
     from .router import chat_kind
-    if chat_kind(ctx.message)!='private' or ctx.user.id!=ctx.message.chat.id:
+    actor = ctx.user
+    if (actor is None or chat_kind(ctx.message) != 'private'
+            or int(getattr(actor, 'id', 0) or 0) != int(getattr(ctx.message.chat, 'id', 0) or 0)):
         raise CommandError('Use /inbox off or /inbox status in your private conversation with this bot.')
     return await recording(ctx)

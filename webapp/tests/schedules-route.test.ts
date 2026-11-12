@@ -2,6 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {GET,POST,DELETE} from "../src/app/api/schedules/route";
 import {ownerMarker} from "../src/lib/auth";
+
+// Test-only synthetic owner; production identity is supplied server-side.
+process.env.OWNER_ID = "987654321";
 test("scheduled publishing routes reject unauthenticated requests before backend access",async()=>{
  for(const [method,handler] of [["GET",GET],["POST",POST],["DELETE",DELETE]] as const){
   const response=await handler(new Request("https://studio.example/api/schedules",{method}));

@@ -5,6 +5,8 @@ Search, stream transitions and channel playback remain in their existing engine.
 """
 import logging
 import random
+
+import config
 from videl import call_py
 from videl.core import queue,player
 from videl.utils.command_ui import (
@@ -18,7 +20,9 @@ from videl.core.playback_state import lock
 
 async def view_queue(ctx):
     chat_id = ctx.message.chat.id
-    tracks = list(queue.get_queue(chat_id))
+    # Queue state is in-process and normally contains dictionaries, but legacy
+    # or partially corrupted records must not break the read-only queue view.
+    tracks = [track for track in queue.get_queue(chat_id) if isinstance(track, dict)]
     if not tracks:
         return Screen(
             result("Your queue", body="Nothing is playing yet. Send <code>/play song name</code> in a voice chat to get started."),
@@ -103,12 +107,22 @@ async def restore_queue(ctx):
     async with lock(chat_id):
         count = queue.restore_upcoming(chat_id)
     if not count:
-        raise CommandError("The saved queue changed or could not be restored. Nothing was replayed.")
+        info = queue.recovery_info(chat_id) or {"count": 0}
+        capacity = queue.capacity_remaining(chat_id)
+        raise CommandError(
+            f"Nothing was restored. All {info['count']} saved upcoming tracks must fit together; "
+            f"there are {capacity} queue slots available under the {config.QUEUE_LIMIT}-track limit. "
+            "Remove upcoming tracks, keep a fresh current track, then retry /restorequeue."
+        )
     try:
         await player.refresh_np_ui(chat_id)
     except Exception as error:
         log.warning("Player card refresh failed after queue restore (%s)", type(error).__name__)
-    return Screen(result("Upcoming tracks restored", body=f"Added {count} saved upcoming tracks. The current track was left unchanged."), player._now_playing_kb(chat_id))
+    remaining = queue.recovery_info(chat_id)
+    body = f"Added {count} saved upcoming tracks. The current track was left unchanged."
+    if remaining:
+        body += f" {remaining['count']} saved tracks remain because the queue limit is {config.QUEUE_LIMIT}; remove upcoming tracks and run /restorequeue again."
+    return Screen(result("Upcoming tracks restored", body=body), player._now_playing_kb(chat_id))
 
 
 async def manage_queue(ctx):

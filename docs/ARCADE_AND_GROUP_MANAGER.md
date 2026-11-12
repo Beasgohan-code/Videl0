@@ -1,13 +1,6 @@
 # Plan: public games with live chat, Telegram sign-up, and a group manager
 
-Status: **partly shipped.** The identity layer, ten games (Chinese Checkers,
-Dots & Boxes, Yacht, Chess, Checkers, Five in a Row, Connect Four, Reversi,
-Tic-tac-toe, Ludo),
-server-authoritative rooms with chat, live voice and timeouts, Telegram player
-photos, profile cards, table reactions and nudges, the arcade screen, and the
-group-manager backend are in the repository and tested. The group-manager
-screen, presence-based SSE and TURN relay remain. Where
-this document and the code differ, the code and its tests are the truth.
+Status: **historical design/rollout snapshot; do not use its original status table or phase estimates as a current feature inventory.** The opening status below is stale: the Group Manager screen and room presence/streaming paths have since been implemented, while browser voice is peer-to-peer WebRTC and TURN relay remains an explicitly unverified reliability upgrade. The document retains useful identity, architecture, threat-model and rollout rationale; it has not been fully reconciled with the current implementation. For current behavior, use `FEATURES.md` and verify `webapp/src/components/studio/screens/Groups.tsx`, `webapp/src/components/studio/GroupViewer.tsx`, `videl/games/` and their tests. Where this historical plan and current code differ, source and tests are authoritative.
 
 ## Verdict first
 
@@ -52,7 +45,7 @@ These constraints decide the design; they are not preferences.
 ## 1. Identity: "sign in with Telegram", for anyone
 
 Today `POST /internal/auth` (`videl/__main__.py`, `_internal_auth`) verifies a
-Mini App signature and then rejects anyone who is not `6265999542`. The
+Mini App signature and then rejects anyone who is not `the configured owner account`. The
 verification is good; only the last assertion is owner-specific.
 
 ### What changes
@@ -227,6 +220,14 @@ Signals are rate-limited separately from chat (240 per minute, 50 ms apart) and
 capped at 3 KB in the backend and 2.6 KB at the webapp door, because an SDP is
 much larger than a message and neither should be a way to fill the event log.
 
+The four process-local limiter maps (chat, WebRTC signals, reactions and
+nudges) each expire idle per-room/player buckets on the next request and cap
+retained keys at 10,000. Updates are serialized between request threads. At the
+cap, a new key receives HTTP 429 until an old bucket expires; active buckets are
+not evicted, so reaching the memory bound cannot silently reset another
+player's cooldown. These limits are per Python process, not shared across
+workers or replicas.
+
 ### 2.2c Voice notes, for the call that cannot happen
 
 Not every table can carry a call: a Telegram webview may refuse the microphone,
@@ -370,7 +371,7 @@ materialised table to keep consistent.
 
 | Scope | Who | How it is proved |
 | --- | --- | --- |
-| Owner console | `6265999542` | existing `videl_owner` cookie |
+| Owner console | `the configured owner account` | existing `videl_owner` cookie |
 | Group manager | Any current Telegram admin of that group | `videl_player` cookie **plus** a live `getChatMember` check |
 | Player | Any Telegram user | `videl_player` cookie |
 

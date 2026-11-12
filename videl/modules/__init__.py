@@ -1,4 +1,4 @@
-"""Curated production modules; demo, entertainment and AI modules are excluded."""
+"""Curated production modules; demo and entertainment modules are excluded."""
 ALL_MODULES = [
     "group_view", "application",
     # Telegram voice-chat music. These are the real PyTgCalls handlers, not the

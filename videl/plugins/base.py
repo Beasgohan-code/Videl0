@@ -141,7 +141,8 @@ def is_private(message) -> bool:
 
 
 def is_owner(user_id: int) -> bool:
-    return int(user_id or 0) == int(getattr(config, "OWNER_ID", 0) or 6265999542)
+    owner_id = int(getattr(config, "OWNER_ID", 0) or 0)
+    return owner_id > 0 and int(user_id or 0) > 0 and int(user_id) == owner_id
 
 
 async def is_admin(client, chat_id: int, user_id: int) -> bool:

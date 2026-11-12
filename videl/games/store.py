@@ -14,8 +14,9 @@ from __future__ import annotations
 
 import json
 import secrets
+import threading
 import time
-from collections import defaultdict, deque
+from collections import OrderedDict, deque
 from datetime import datetime, timedelta, timezone
 
 from . import GAMES
@@ -51,10 +52,14 @@ SIGNAL_GAP = 0.05
 REACTIONS = frozenset({"👍", "🔥", "😂", "😮", "🎉", "🤝"})
 REACT_GAP = 1.2
 NUDGE_GAP = 20.0
-_LAST_REACT = {}
-_LAST_NUDGE = {}
-_LAST_CHAT = defaultdict(deque)
-_LAST_SIGNAL = defaultdict(deque)
+# Per-limiter bound. Active buckets are never evicted to make room: a new key
+# is refused until expired entries age out instead of silently bypassing a limit.
+MAX_RATE_LIMIT_KEYS = 10_000
+_RATE_LIMIT_LOCK = threading.RLock()
+_LAST_REACT = OrderedDict()
+_LAST_NUDGE = OrderedDict()
+_LAST_CHAT = OrderedDict()
+_LAST_SIGNAL = OrderedDict()
 
 
 def now():
@@ -722,6 +727,52 @@ def settle(code):
     return _find(code)
 
 
+def _rate_capacity_error():
+    return GameError("Rate limiting is temporarily at capacity; try again shortly", 429)
+
+
+def _expire_rate_entries(state, stamp, ttl, last_activity):
+    """Drop expired LRU buckets; OrderedDict order follows last accepted use."""
+    while state:
+        _key, value = next(iter(state.items()))
+        if stamp - last_activity(value) <= ttl:
+            break
+        state.popitem(last=False)
+
+
+def _cooldown_limit(state, key, stamp, gap, message):
+    """Atomically enforce a one-event cooldown with bounded active state."""
+    with _RATE_LIMIT_LOCK:
+        _expire_rate_entries(state, stamp, gap, lambda last: last)
+        previous = state.get(key)
+        if previous is not None and stamp - previous < gap:
+            raise GameError(message, 429)
+        if previous is None and len(state) >= MAX_RATE_LIMIT_KEYS:
+            raise _rate_capacity_error()
+        state[key] = stamp
+        state.move_to_end(key)
+
+
+def _window_limit(state, key, stamp, *, window, maximum, gap, gap_message, limit_message):
+    """Atomically enforce sliding-window and minimum-gap limits per key."""
+    with _RATE_LIMIT_LOCK:
+        _expire_rate_entries(state, stamp, window, lambda times: times[-1])
+        times = state.get(key)
+        if times is None:
+            if len(state) >= MAX_RATE_LIMIT_KEYS:
+                raise _rate_capacity_error()
+            times = deque()
+            state[key] = times
+        while times and stamp - times[0] > window:
+            times.popleft()
+        if times and stamp - times[-1] < gap:
+            raise GameError(gap_message, 429)
+        if len(times) >= maximum:
+            raise GameError(limit_message, 429)
+        times.append(stamp)
+        state.move_to_end(key)
+
+
 # ── chat ─────────────────────────────────────────────────────────────────────
 
 def chat(code, user, text):
@@ -748,9 +799,10 @@ def reaction(code, user, emoji):
     if symbol not in REACTIONS:
         raise GameError("Choose one of the table reactions")
     key = (code, int(user))
-    if time.monotonic() - _LAST_REACT.get(key, 0.0) < REACT_GAP:
-        raise GameError("Give the last reaction a moment", 429)
-    _LAST_REACT[key] = time.monotonic()
+    _cooldown_limit(
+        _LAST_REACT, key, time.monotonic(), REACT_GAP,
+        "Give the last reaction a moment",
+    )
     seq = _next_seq(code)
     _event(code, "react", int(user), symbol, seq=seq)
     return {"ok": True, "seq": seq}
@@ -766,9 +818,10 @@ def nudge(code, user):
     if seat == _seat_of(doc, user):
         raise GameError("It is your turn — the table is waiting on you")
     key = (code, int(user))
-    if time.monotonic() - _LAST_NUDGE.get(key, 0.0) < NUDGE_GAP:
-        raise GameError("You already nudged; give them a moment", 429)
-    _LAST_NUDGE[key] = time.monotonic()
+    _cooldown_limit(
+        _LAST_NUDGE, key, time.monotonic(), NUDGE_GAP,
+        "You already nudged; give them a moment",
+    )
     target = next((member for member in doc.get("seats", []) if int(member["seat"]) == seat), None)
     name = (target or {}).get("name") or "the next player"
     seq = _next_seq(code)
@@ -813,29 +866,21 @@ def rtc(code, user, payload):
 
 
 def _signal_limit(code, user):
-    key = (code, int(user))
-    times = _LAST_SIGNAL[key]
-    stamp = datetime.now().timestamp()
-    while times and stamp - times[0] > SIGNAL_WINDOW[1]:
-        times.popleft()
-    if times and stamp - times[-1] < SIGNAL_GAP:
-        raise GameError("Slow down for a moment", 429)
-    if len(times) >= SIGNAL_WINDOW[0]:
-        raise GameError("Too many voice signals; try again shortly", 429)
-    times.append(stamp)
+    _window_limit(
+        _LAST_SIGNAL, (code, int(user)), time.monotonic(),
+        window=SIGNAL_WINDOW[1], maximum=SIGNAL_WINDOW[0], gap=SIGNAL_GAP,
+        gap_message="Slow down for a moment",
+        limit_message="Too many voice signals; try again shortly",
+    )
 
 
 def _rate_limit(code, user):
-    key = (code, int(user))
-    times = _LAST_CHAT[key]
-    stamp = datetime.now().timestamp()
-    while times and stamp - times[0] > CHAT_WINDOW[1]:
-        times.popleft()
-    if times and stamp - times[-1] < CHAT_GAP:
-        raise GameError("Slow down for a moment", 429)
-    if len(times) >= CHAT_WINDOW[0]:
-        raise GameError("You have sent a lot; wait a minute", 429)
-    times.append(stamp)
+    _window_limit(
+        _LAST_CHAT, (code, int(user)), time.monotonic(),
+        window=CHAT_WINDOW[1], maximum=CHAT_WINDOW[0], gap=CHAT_GAP,
+        gap_message="Slow down for a moment",
+        limit_message="You have sent a lot; wait a minute",
+    )
 
 
 def _next_seq(code):

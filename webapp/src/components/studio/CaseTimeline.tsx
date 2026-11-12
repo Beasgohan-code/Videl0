@@ -6,19 +6,31 @@ import type { MemberCase } from "@/lib/group-admin";
 
 type Props = {
   cases: MemberCase[];
+  status?: { state: "complete" | "partial" | "unavailable"; unavailable_sources?: string[]; checked_sources?: number };
   disabled?: boolean;
   onAddNote: (userId: number, text: string) => Promise<boolean>;
   onReviewEscalation: (id: string, decision: "approve" | "reject") => Promise<boolean>;
 };
 
-export function CaseTimeline({ cases, disabled = false, onAddNote, onReviewEscalation }: Props) {
+export function CaseTimeline({ cases, status, disabled = false, onAddNote, onReviewEscalation }: Props) {
   const [drafts, setDrafts] = useState<Record<number, string>>({});
   const [savingUser, setSavingUser] = useState<number | null>(null);
   const [reviewing, setReviewing] = useState<string | null>(null);
-  if (!cases.length) return <p className="rounded-xl border border-dashed border-white/10 p-5 text-center text-sm text-indigo-100/45">No case activity recorded yet. Reports, warnings and future moderator notes will appear here.</p>;
+  const missing = (status?.unavailable_sources || []).map((source) => ({
+    warnings: "warning history", reports: "member reports", ban_history: "ban history",
+    moderation_actions: "moderator actions", escalations: "escalation reviews", case_notes: "private notes", all: "case history",
+  }[source] || "one case-history source"));
 
   return <div className="space-y-3">
-    <p className="text-xs text-indigo-100/45">Warnings, reports, moderator actions and internal notes are grouped by member. Only this group’s admins can view them.</p>
+    {status?.state !== "complete" && <p role="status" className="rounded-xl border border-amber-300/15 bg-amber-300/[.04] p-3 text-xs leading-5 text-amber-100/75">
+      {status?.state === "partial"
+        ? `Some case records could not be read (${missing.join(", ")}). An empty or partial timeline does not mean there are no records.`
+        : status?.state === "unavailable"
+          ? "Case history could not be read. Refresh before treating the timeline as complete."
+          : "This backend does not report case-history completeness. Empty results may be partial; refresh after the backend is updated."}
+    </p>}
+    {!cases.length && <p className="rounded-xl border border-dashed border-white/10 p-5 text-center text-sm text-indigo-100/45">{status?.state === "complete" ? "No case activity recorded yet. Reports, warnings and moderator notes will appear here." : "No case entries are available to show."}</p>}
+    {cases.length > 0 && <p className="text-xs text-indigo-100/45">Warnings, reports, moderator actions and internal notes are grouped by member. Only this group’s admins can view them.</p>}
     {cases.map((item) => (
       <article key={item.user_id} className="rounded-xl border border-white/[.08] bg-white/[.02] p-4">
         <header className="flex flex-wrap items-center justify-between gap-2">

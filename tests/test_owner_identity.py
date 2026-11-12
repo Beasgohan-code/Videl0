@@ -24,18 +24,23 @@ class OwnerIdentityTests(unittest.TestCase):
         fields['hash']=hmac.new(secret,'\n'.join(f'{k}={v}' for k,v in sorted(fields.items())).encode(),'sha256').hexdigest()
         return urlencode(fields)
 
-    def test_only_explicit_owner_gets_access_even_if_config_differs(self):
-        self.assertEqual(self.send({'init_data':self.mini_app(6265999542)}).status_code,200)
-        self.assertEqual(self.send({'init_data':self.mini_app(999)}).status_code,403)
+    def test_internal_authentication_fails_closed_without_shared_secret(self):
+        with patch.object(self.api.config, 'WEBAPP_SECRET', ''):
+            with self.api._flask.test_request_context('/internal/auth', headers={'X-Videl-Internal': 'any-value'}):
+                self.assertFalse(self.api._internal_authorized())
+
+    def test_only_configured_owner_gets_access(self):
+        self.assertEqual(self.send({'init_data':self.mini_app(999)}).status_code,200)
+        self.assertEqual(self.send({'init_data':self.mini_app(987654321)}).status_code,403)
 
     def test_forged_expired_and_duplicate_data_fail(self):
-        valid=self.mini_app(6265999542)
+        valid=self.mini_app(999)
         self.assertEqual(self.send({'init_data':valid+'&auth_date=1'}).status_code,401)
-        self.assertEqual(self.send({'init_data':self.mini_app(6265999542,86461)}).status_code,401)
+        self.assertEqual(self.send({'init_data':self.mini_app(987654321,86461)}).status_code,401)
         self.assertEqual(self.send({'init_data':valid.replace('Test','Forged')}).status_code,401)
 
     def test_login_widget_signature_and_owner_are_both_required(self):
-        for uid,status in [(6265999542,200),(999,403)]:
+        for uid,status in [(999,200),(987654321,403)]:
             fields={'id':uid,'first_name':'Test','auth_date':int(time.time())}
             check='\n'.join(f'{k}={v}' for k,v in sorted(fields.items()))
             fields['hash']=hmac.new(hashlib.sha256(b'test-token').digest(),check.encode(),'sha256').hexdigest()

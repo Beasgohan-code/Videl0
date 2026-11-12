@@ -9,7 +9,7 @@ from videl.core.queue import chat_queues
 from videl.utils.rich_ui import rich_heading, rich_kv_table, rich_note, rich_esc
 from videl.utils.command_ui import rich_reply
 
-OWNER = filters.user(6265999542) & filters.private
+OWNER = filters.user(config.OWNER_ID) & filters.private
 
 
 @bot.on_message(filters.command('sysinfo', prefixes=config.COMMAND_PREFIX_LIST) & OWNER)

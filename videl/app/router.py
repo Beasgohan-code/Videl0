@@ -12,7 +12,7 @@ from pyrogram.enums import ChatMemberStatus
 from videl.utils.command_ui import notice, rich_reply
 
 log=logging.getLogger(__name__)
-OWNER_ID=6265999542
+OWNER_ID=config.OWNER_ID
 COMMAND_PREFIXES = config.COMMAND_PREFIXES
 _PATTERN=re.compile(r'^([' + re.escape(COMMAND_PREFIXES) + r'])' + r'([a-zA-Z0-9_]{1,32})(?:@([a-zA-Z0-9_]{1,32}))?(?:\s+([\s\S]*))?$')
 
@@ -43,7 +43,7 @@ def chat_kind(message):
 
 def private_owner(message,actor=None):
     user=actor or getattr(message,'from_user',None)
-    return bool(user and user.id==OWNER_ID and chat_kind(message)=='private')
+    return bool(OWNER_ID > 0 and user and user.id==OWNER_ID and chat_kind(message)=='private')
 
 
 async def _render_ephemeral(client, message, screen: "Screen", actor) -> bool:

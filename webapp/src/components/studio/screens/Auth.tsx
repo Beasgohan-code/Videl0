@@ -86,7 +86,7 @@ export default function AuthPage() {
         ) : (
           <>
             <p className="mt-3 text-sm leading-6 text-[var(--ios-label-secondary)]">
-              Only Telegram account 6265999542 can open private controls.
+              Only the configured owner account can open private controls.
               Everyone can use Post Studio and Creator Tools without signing in.
               No tokens or passwords are needed here.
             </p>
@@ -144,8 +144,7 @@ export default function AuthPage() {
             </summary>
             <p className="mt-3">
               For browser login, the bot’s BotFather /setdomain must be{" "}
-              <code>videl-studio.vercel.app</code>. On Render,{" "}
-              <code>OWNER_ID</code> must be your numeric Telegram user ID, and{" "}
+              <code>videl-studio.vercel.app</code>. Set <code>OWNER_ID</code> privately in the Render and Vercel environment settings.{" "}
               <code>BOT_TOKEN</code> must belong to @{botUsername}. Do not share
               your token here.
             </p>

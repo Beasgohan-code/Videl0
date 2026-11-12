@@ -199,6 +199,7 @@ export type GroupDetail = {
   setup_checklist?: { id: string; label: string; complete: boolean; detail: string }[];
   inbox?: GroupInbox;
   cases?: MemberCase[];
+  cases_status?: { state: "complete" | "partial" | "unavailable"; unavailable_sources?: string[]; checked_sources?: number };
   chat: {
     id: number;
     title: string;

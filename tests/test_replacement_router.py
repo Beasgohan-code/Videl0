@@ -106,11 +106,12 @@ class RouterTests(unittest.IsolatedAsyncioTestCase):
     async def test_owner_requires_exact_account_and_private_chat(self):
         action=AsyncMock(return_value=None)
         router=Router([Command('owner',action,'Owner',policy='owner',category='owner')])
-        with patch('videl.app.router.rich_reply',AsyncMock()):
+        with patch('videl.app.router.rich_reply',AsyncMock()), \
+             patch('videl.app.router.OWNER_ID',987654321):
             await router.dispatch(SimpleNamespace(),message('/owner',uid=43))
-            await router.dispatch(SimpleNamespace(),message('/owner',uid=6265999542,kind=ChatType.SUPERGROUP))
+            await router.dispatch(SimpleNamespace(),message('/owner',uid=987654321,kind=ChatType.SUPERGROUP))
             action.assert_not_awaited()
-            await router.dispatch(SimpleNamespace(),message('/owner',uid=6265999542))
+            await router.dispatch(SimpleNamespace(),message('/owner',uid=987654321))
             action.assert_awaited_once()
 
     async def test_admin_requires_fresh_current_group_membership(self):
@@ -170,7 +171,7 @@ class RouterTests(unittest.IsolatedAsyncioTestCase):
         action.assert_not_awaited()
 
     async def test_general_start_never_reads_owner_totals_in_group(self):
-        msg=message(uid=6265999542,kind=ChatType.SUPERGROUP)
+        msg=message(uid=987654321,kind=ChatType.SUPERGROUP)
         with patch('videl.utils.db.read_live_totals') as totals:
             screen=await general.start(Context(SimpleNamespace(),msg,Parsed('start','')))
         totals.assert_not_called()

@@ -177,6 +177,29 @@ class InteractionEngine:
             self._owners[owner_key] = token
             return session
 
+    async def begin_preview(self, *, chat_id: int, actor_id: int, target_chat_id: int,
+                            workflow: str, values: Mapping[str, Any], revision: int | None = None,
+                            timeout_seconds: int = 600) -> Session:
+        """Create a volatile, actor/scope-bound preview for a no-input confirmation.
+
+        The caller binds the rendered preview message with ``bind_prompt``; the
+        normal ``commit`` path then enforces exact-message confirmation,
+        single-flight execution, fresh authorization and retryable failure.
+        """
+        session = await self.begin(
+            chat_id=chat_id, actor_id=actor_id, target_chat_id=target_chat_id,
+            workflow=workflow,
+            steps=(Step("confirmation", "Confirm this reviewed change?", kind="selection", choices=("confirm",)),),
+            revision=revision, timeout_seconds=timeout_seconds,
+        )
+        async with self._lock:
+            current = self._sessions.get(session.token)
+            if current is not session:
+                raise RuntimeError("The confirmation session expired before preview.")
+            session.values = dict(values)
+            session.phase = "preview"
+        return session
+
     async def get(self, token: str, *, chat_id: int, actor_id: int, target_chat_id: int | None = None) -> Session | None:
         async with self._lock:
             self._expire(self._clock())
@@ -195,6 +218,14 @@ class InteractionEngine:
                        if session.chat_id == int(chat_id) and session.actor_id == int(actor_id)
                        and (target_chat_id is None or session.target_chat_id == int(target_chat_id))]
             return matches[0] if len(matches) == 1 else None
+
+    async def for_prompt(self, *, chat_id: int, actor_id: int, message_id: int) -> Session | None:
+        """Resolve a reply against its exact ForceReply prompt across targets."""
+        async with self._lock:
+            self._expire(self._clock())
+            return next((session for session in self._sessions.values()
+                         if session.chat_id == int(chat_id) and session.actor_id == int(actor_id)
+                         and session.expected_message_id == int(message_id)), None)
 
     async def bind_prompt(self, token: str, *, chat_id: int, actor_id: int, message_id: int) -> bool:
         async with self._lock:
@@ -237,7 +268,8 @@ class InteractionEngine:
         async with self._lock:
             self._expire(self._clock())
             session = self._sessions.get(token)
-            if session is None or session.chat_id != int(chat_id) or session.actor_id != int(actor_id):
+            if (session is None or session.chat_id != int(chat_id) or session.actor_id != int(actor_id)
+                    or session.phase == "committing"):
                 return False
             self._remove(session)
             return True
@@ -250,7 +282,7 @@ class InteractionEngine:
             if len(keys) != 1:
                 return False
             session = self._sessions.get(self._owners[keys[0]])
-            if session is None:
+            if session is None or session.phase == "committing":
                 return False
             self._remove(session)
             return True

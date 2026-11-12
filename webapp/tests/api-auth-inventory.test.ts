@@ -43,7 +43,7 @@ test("every API route declares its owner/player guard or explicit public auth bo
       assert.match(byMethod.get("DELETE") || "", /crossSite\(req\)/, "session logout must reject cross-site requests");
       continue;
     }
-    const playerRoute = relative.startsWith("arcade/") || relative.startsWith("manager/");
+    const playerRoute = relative.startsWith("arcade/") || relative.startsWith("manager/") || /^music\/rooms(?:\/|$)/.test(relative);
     const expectedGuard = playerRoute ? "playerRequired(req)" : "ownerRequired(req)";
     const wrongGuard = playerRoute ? "ownerRequired(req)" : "playerRequired(req)";
     for (const handler of handlers) {

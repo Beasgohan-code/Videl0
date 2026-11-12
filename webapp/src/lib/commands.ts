@@ -310,7 +310,7 @@ export const BOT_COMMANDS: BotCommand[] = [
   },
   {
     "name": "faqassist",
-    "usage": "/faqassist <question> (group FAQ/rules/notes; Gemini must be enabled)",
+    "usage": "/faqassist",
     "summary": "Answer from saved group sources; use --private or --stream for an opt-in reply mode",
     "category": "manage",
     "context": "group",
@@ -454,7 +454,7 @@ export const BOT_COMMANDS: BotCommand[] = [
   },
   {
     "name": "guardianai",
-    "usage": "/guardianai on|off (group admin; opt-in, disclosure required)",
+    "usage": "/guardianai",
     "summary": "Enable or disable disclosed Gemini safety assistance",
     "category": "manage",
     "context": "group",
@@ -462,7 +462,7 @@ export const BOT_COMMANDS: BotCommand[] = [
   },
   {
     "name": "guardianjoin",
-    "usage": "/guardianjoin (group admin; rules-only human-review guide)",
+    "usage": "/guardianjoin",
     "summary": "Create a rules-only join-request review guide for human admins",
     "category": "manage",
     "context": "group",
@@ -470,7 +470,7 @@ export const BOT_COMMANDS: BotCommand[] = [
   },
   {
     "name": "guardiansummary",
-    "usage": "/guardiansummary (group admin; seven-day aggregate counts)",
+    "usage": "/guardiansummary",
     "summary": "Summarize bounded group audit counts for admins",
     "category": "manage",
     "context": "group",
@@ -629,6 +629,14 @@ export const BOT_COMMANDS: BotCommand[] = [
     "owner": false
   },
   {
+    "name": "reload",
+    "usage": "/reload",
+    "summary": "Refresh the current group administrator and bot-permission snapshot (does not restart Videl)",
+    "category": "manage",
+    "context": "group",
+    "owner": false
+  },
+  {
     "name": "report",
     "usage": "/report",
     "summary": "Report a message to the group admins",
@@ -694,7 +702,7 @@ export const BOT_COMMANDS: BotCommand[] = [
   },
   {
     "name": "safetycheck",
-    "usage": "/safetycheck (reply to a message; group admin; advisory only)",
+    "usage": "/safetycheck",
     "summary": "Ask for a cautious advisory on a replied-to message",
     "category": "manage",
     "context": "group",
@@ -1526,8 +1534,8 @@ export const BOT_COMMANDS: BotCommand[] = [
   },
   {
     "name": "afklist",
-    "usage": "/afklist",
-    "summary": "List members currently away",
+    "usage": "/afklist [page] (group; bot-wide away list)",
+    "summary": "Browse members currently away across Videl chats",
     "category": "tools",
     "context": "group",
     "owner": false
@@ -1561,7 +1569,7 @@ export const BOT_COMMANDS: BotCommand[] = [
     "usage": "/feedback your suggestion (private chat)",
     "summary": "Send anonymous private feedback",
     "category": "tools",
-    "context": "chat",
+    "context": "private",
     "owner": false
   },
   {
@@ -1593,7 +1601,7 @@ export const BOT_COMMANDS: BotCommand[] = [
     "usage": "/inbox",
     "summary": "Check or stop recording of your own bot DM",
     "category": "tools",
-    "context": "chat",
+    "context": "private",
     "owner": false
   },
   {
@@ -1609,7 +1617,7 @@ export const BOT_COMMANDS: BotCommand[] = [
     "usage": "/mydata (private chat)",
     "summary": "Download a private export of your stored Videl data",
     "category": "tools",
-    "context": "chat",
+    "context": "private",
     "owner": false
   },
   {
@@ -1641,7 +1649,7 @@ export const BOT_COMMANDS: BotCommand[] = [
     "usage": "/preferences notifications on|off · /preferences quiet 22:00-07:00 UTC+05:30",
     "summary": "Manage opt-in private updates and reminder quiet hours",
     "category": "tools",
-    "context": "chat",
+    "context": "private",
     "owner": false
   },
   {
@@ -1670,10 +1678,10 @@ export const BOT_COMMANDS: BotCommand[] = [
   },
   {
     "name": "reminders",
-    "usage": "/reminders",
-    "summary": "List your pending reminders",
+    "usage": "/reminders (private chat; lists reminders across chats)",
+    "summary": "List your pending reminders privately; clear them in your private chat",
     "category": "tools",
-    "context": "chat",
+    "context": "private",
     "owner": false
   },
   {
@@ -1713,7 +1721,7 @@ export const BOT_COMMANDS: BotCommand[] = [
     "usage": "/sudohelp",
     "summary": "Show the limited bot sudo command scope",
     "category": "tools",
-    "context": "chat",
+    "context": "private",
     "owner": false
   },
   {

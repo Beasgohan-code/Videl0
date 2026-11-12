@@ -15,7 +15,7 @@ from videl.utils.group_view import GroupView, ViewError
 
 CHAT = -1001234567890
 OTHER = -1009876543210
-OWNER = 6265999542
+OWNER = 987654321
 ADMIN = 501
 MEMBER = 502
 BOT = 900
@@ -127,9 +127,9 @@ class ManagerAccessTests(unittest.TestCase):
         self.assertIsNone(self.db["group_view_settings"].find_one({"_id": CHAT}))
 
     def test_the_owner_path_is_unchanged(self):
-        payload = GroupView(self.db, self.api).describe(CHAT)
+        payload = GroupView(self.db, self.api, actor=OWNER).describe(CHAT)
         self.assertEqual(payload["scope"], "owner")
-        recording = GroupView(self.db, self.api).act(
+        recording = GroupView(self.db, self.api, actor=OWNER).act(
             {"chat_id": CHAT, "action": "recording", "enabled": False, "retention_days": 7})
         self.assertTrue(recording["ok"])
 

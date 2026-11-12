@@ -237,10 +237,15 @@ class WarningThresholdEditorTests(unittest.IsolatedAsyncioTestCase):
         await self.choose(session, 3)
         preview = await self.engine.get(session.token, chat_id=self.CHAT, actor_id=self.ADMIN,
                                         target_chat_id=self.CHAT)
-        entered, release = asyncio.Event(), asyncio.Event()
+        entered, both_entered, release = asyncio.Event(), asyncio.Event(), asyncio.Event()
+        calls = 0
         original = self.client.get_chat_member
         async def delayed(chat_id, user_id):
+            nonlocal calls
+            calls += 1
             entered.set()
+            if calls == 2:
+                both_entered.set()
             await release.wait()
             return await original(chat_id, user_id)
         self.client.get_chat_member = delayed
@@ -248,10 +253,11 @@ class WarningThresholdEditorTests(unittest.IsolatedAsyncioTestCase):
         second_query = self.editor_query(preview, "save")
         first = asyncio.create_task(settings.warn_threshold_editor_callback(self.client, first_query))
         await entered.wait()
-        await settings.warn_threshold_editor_callback(self.client, second_query)
-        self.assertIn("no longer active", second_query.answer.call_args.args[0])
+        second = asyncio.create_task(settings.warn_threshold_editor_callback(self.client, second_query))
+        await both_entered.wait()
         release.set()
-        await first
+        await asyncio.gather(first, second)
+        self.assertIn("no longer active", second_query.answer.call_args.args[0])
         document = self.db["mgmt_chat_settings"].find_one({"chat_id": self.CHAT})
         self.assertEqual(document["warn_threshold"], 3)
         self.assertEqual(document["revision"], 1)

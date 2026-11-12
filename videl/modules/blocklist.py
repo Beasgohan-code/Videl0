@@ -79,6 +79,8 @@ async def delbl_cmd(_, m):
 
 @bot.on_message(filters.command('blacklist', prefixes=config.COMMAND_PREFIX_LIST) & filters.group & group_allowed & user_allowed)
 async def listbl_cmd(_, m):
+    if not await is_user_authorized(m):
+        return
     bl = get_blacklist(m.chat.id)
     mode = get_blacklist_mode(m.chat.id)
     if not bl:
@@ -168,6 +170,8 @@ async def del_bl_sticker(_, m):
 
 @bot.on_message(filters.command('blstickers', prefixes=config.COMMAND_PREFIX_LIST) & filters.group & group_allowed & user_allowed)
 async def list_bl_stickers_cmd(_, m):
+    if not await is_user_authorized(m):
+        return
     lst = list_bl_stickers(m.chat.id)
     if not lst:
         return await rich_send(bot, m.chat.id, _hdr(pe("circle","") + " " + sc("no bl stickers"),3))
@@ -243,15 +247,82 @@ async def bl_cbs(_, q):
             except Exception:
                 pass
         return
-    if cmd == "clear":
-        bl = get_blacklist(chat_id)
-        for b in bl:
-            remove_blacklist(chat_id, b["trigger"])
-        await q.answer(sc("cleared") + " " + str(len(bl)))
+    if cmd == "clear" and len(data) == 2:
+        from videl.utils.interactive_settings import engine
+        from videl.utils.rich_ui import rich_note
+        triggers = sorted({str(row.get("trigger") or "").casefold() for row in get_blacklist(chat_id)
+                           if isinstance(row, dict) and row.get("trigger")})
+        if len(triggers) < 2:
+            return await q.answer("There are not enough blacklist entries to clear.", show_alert=True)
         try:
-            await rich_edit(q.message, _hdr(pe("check","✅") + " " + sc("blacklist cleared"),3))
+            session = await engine.begin_preview(chat_id=chat_id, actor_id=int(q.from_user.id),
+                target_chat_id=chat_id, workflow="blacklist_clear", values={"triggers": triggers},
+                timeout_seconds=600)
+        except RuntimeError:
+            return await q.answer("Another settings confirmation is active for this group. Finish or cancel it first.", show_alert=True)
+        body = (_hdr("Review blacklist removal", 3)
+                + rich_note(f"This will remove all {len(triggers)} current blacklist entries from this group. The blacklist action mode and other settings will not change."))
+        markup = InlineKeyboardMarkup([[InlineKeyboardButton("Clear blacklist", callback_data=f"bl:clear:confirm:{session.token}", style="danger", icon="ios_trash"),
+                                        InlineKeyboardButton("Cancel", callback_data=f"bl:clear:cancel:{session.token}", icon="cross")]])
+        try:
+            await rich_edit(q.message, body, reply_markup=markup)
+            await engine.bind_prompt(session.token, chat_id=chat_id, actor_id=int(q.from_user.id), message_id=int(q.message.id))
         except Exception:
-            pass
+            await engine.cancel(session.token, chat_id=chat_id, actor_id=int(q.from_user.id))
+            return await q.answer("Could not show the confirmation. No changes were made.", show_alert=True)
+        return await q.answer("Review the affected count and confirm to continue.")
+    if len(data) == 4 and data[1:3] == ["clear", "cancel"]:
+        from videl.utils.interactive_settings import engine
+        token = data[3]
+        cancelled = await engine.cancel(token, chat_id=chat_id, actor_id=int(q.from_user.id))
+        await q.answer("Cancelled." if cancelled else "This confirmation expired.")
+        if cancelled:
+            bl = get_blacklist(chat_id)
+            rows = [("<code>" + rich_esc(row["trigger"]) + "</code>", rich_button("Remove", callback_data="bl:rm:" + rich_esc(row["trigger"]), style="danger")) for row in bl[:24]]
+            try: await rich_edit(q.message, _hdr(sb("Blacklist") + " • " + str(len(bl)), 2) + rich_table(["Word", "Action"], rows))
+            except Exception: pass
+        return
+    if len(data) == 4 and data[1:3] == ["clear", "confirm"]:
+        from videl.utils.interactive_settings import engine
+        token = data[3]
+        session = await engine.get(token, chat_id=chat_id, actor_id=int(q.from_user.id), target_chat_id=chat_id)
+        if session is None or session.workflow != "blacklist_clear":
+            return await q.answer("This confirmation expired or belongs to another admin.", show_alert=True)
+
+        async def authorize(target_chat_id, actor_id):
+            return target_chat_id == chat_id and actor_id == int(q.from_user.id) and await is_user_authorized(q)
+
+        async def save(snapshot):
+            expected = sorted(snapshot.values.get("triggers", []))
+            current = sorted({str(row.get("trigger") or "").casefold() for row in get_blacklist(chat_id)
+                              if isinstance(row, dict) and row.get("trigger")})
+            if current != expected:
+                return False
+            from videl.utils.db import get_db
+            database = get_db()
+            if database is None:
+                return False
+            try:
+                database["blacklist"].delete_many({"chat": chat_id, "trigger": {"$in": expected}})
+            except Exception:
+                pass
+            try:
+                return database["blacklist"].count_documents({"chat": chat_id, "trigger": {"$in": expected}}) == 0
+            except Exception:
+                return False
+
+        outcome, _ = await engine.commit(token, chat_id=chat_id, actor_id=int(q.from_user.id),
+            target_chat_id=chat_id, message_id=int(q.message.id), authorize=authorize, save=save)
+        if outcome == "saved":
+            await q.answer("Blacklist cleared.")
+            try: await rich_edit(q.message, _hdr(pe("check", "✅") + " " + sc("blacklist cleared"), 3))
+            except Exception: pass
+        elif outcome == "permission_denied":
+            await q.answer("Current group-admin permission could not be verified. Nothing was changed.", show_alert=True)
+        elif outcome == "save_failed":
+            await q.answer("The blacklist changed or storage did not confirm removal. Refresh and review before retrying.", show_alert=True)
+        else:
+            await q.answer("This confirmation is stale or already being processed.", show_alert=True)
         return
     if cmd == "close":
         try:

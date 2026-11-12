@@ -2,10 +2,13 @@ import { NextRequest } from "next/server";
 import { ownerMarker, validOwnerCookie, crossSiteRequest } from "@/lib/auth";
 import { backendUrl, internalSecret, unavailableBackend, callBackend } from "@/lib/backend";
 
-import { OWNER_ID } from "@/lib/access";
+import { configuredOwnerId } from "@/lib/owner-config";
 import { readJsonLimited } from "@/lib/request-body";
 
 export const dynamic = "force-dynamic";
+
+const OWNER_CONFIG_MISMATCH =
+  "Telegram verified the account, but it does not match the owner configured for this deployment. Check the private OWNER_ID settings in Vercel and Render.";
 
 function denied(error: string, status: number) {
   const response = Response.json(
@@ -46,6 +49,12 @@ export async function POST(req: NextRequest) {
       : loginWidget
         ? { login_widget: loginWidget }
         : null;
+  const ownerId = configuredOwnerId();
+  if (!ownerId)
+    return Response.json(
+      { ok: false, error: "Owner sign-in is not configured" },
+      { status: 503, headers: { "Cache-Control": "no-store" } },
+    );
   const backend = backendUrl();
   const secret = internalSecret();
   if (!authPayload)
@@ -66,20 +75,23 @@ export async function POST(req: NextRequest) {
       { timeoutMs: 20000, attempts: 2 },
     );
     const payload = (result.payload || {}) as { ok?: boolean; error?: string; user?: { id?: number | string } };
-    if (!result.ok)
+    if (!result.ok) {
+      const backendOwnerMismatch =
+        result.status === 403 &&
+        payload.error === "This control panel is restricted to the configured bot owner";
       return denied(
         result.code === "WAKING"
           ? "The bot backend is starting (Render cold start). Wait a few seconds and sign in again."
-          : result.code === "REJECTED"
-            ? "The backend rejected the shared secret. Set the same WEBAPP_SECRET in Vercel and Render, then redeploy both."
-            : payload.error || "Telegram owner verification failed",
+          : backendOwnerMismatch
+            ? OWNER_CONFIG_MISMATCH
+            : result.code === "REJECTED"
+              ? "The backend rejected the shared secret. Set the same WEBAPP_SECRET in Vercel and Render, then redeploy both."
+              : payload.error || "Telegram owner verification failed",
         result.code === "WAKING" ? 503 : result.status === 200 ? 401 : result.status,
       );
-    if (String(payload.user?.id) !== OWNER_ID)
-      return denied(
-        "This account does not have owner access. Post Studio is available without signing in.",
-        403,
-      );
+    }
+    if (String(payload.user?.id) !== ownerId)
+      return denied(OWNER_CONFIG_MISMATCH, 403);
     const marker = ownerMarker();
     if (!marker)
       return Response.json(
@@ -89,7 +101,8 @@ export async function POST(req: NextRequest) {
         },
         { status: 503 },
       );
-    const res = Response.json({ ok: true, owner: true, user: payload.user });
+    // The ID is used only for this server-side comparison; do not echo it into the browser.
+    const res = Response.json({ ok: true, owner: true });
     res.headers.set(
       "Set-Cookie",
       `videl_owner=${marker}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=86400`,
